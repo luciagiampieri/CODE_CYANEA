@@ -1,0 +1,8 @@
+\i 001_estados_viajes.sql
+\i 002_roles_participantes.sql
+\i 003_estados_participaciones.sql
+\i 004_usuarios.sql
+\i 005_viajes.sql
+\i 006_participantes_viajes.sql
+\i 007_datos_maestros.sql
+\i 008_seed_minimo.sql

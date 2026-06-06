@@ -1,0 +1,39 @@
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: cyanea-db
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-cyanea}
+      POSTGRES_USER: ${POSTGRES_USER:-cyanea}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-cyanea}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  backend:
+    build:
+      context: ./backend
+    container_name: cyanea-backend
+    environment:
+      APP_ENV: development
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-cyanea}:${POSTGRES_PASSWORD:-cyanea}@db:5432/${POSTGRES_DB:-cyanea}
+      CORS_ORIGINS: http://localhost:${FRONTEND_PORT:-5173}
+    depends_on:
+      - db
+    ports:
+      - "${BACKEND_PORT:-8000}:8000"
+
+  frontend:
+    build:
+      context: ./frontend
+    container_name: cyanea-frontend
+    environment:
+      VITE_API_BASE_URL: http://localhost:${BACKEND_PORT:-8000}/api/v1
+    depends_on:
+      - backend
+    ports:
+      - "${FRONTEND_PORT:-5173}:5173"
+
+volumes:
+  postgres_data:
