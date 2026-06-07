@@ -10,7 +10,15 @@ async function parseResponse(response, fallbackMessage) {
   let message = fallbackMessage;
   try {
     const data = await response.json();
-    message = data.detail ?? fallbackMessage;
+    if (Array.isArray(data.detail)) {
+      message = data.detail
+        .map((item) => item.msg ?? item.message ?? JSON.stringify(item))
+        .join(". ");
+    } else if (typeof data.detail === "string") {
+      message = data.detail;
+    } else {
+      message = fallbackMessage;
+    }
   } catch {
     message = fallbackMessage;
   }

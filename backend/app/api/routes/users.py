@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
@@ -24,13 +24,14 @@ def get_current_user(db: Session) -> Usuario | None:
 def get_me(db: Session = Depends(get_db)) -> UsuarioRead:
     usuario = get_current_user(db)
     if usuario is None:
-        raise RuntimeError("No hay usuarios activos disponibles")
+        raise HTTPException(status_code=404, detail="No hay usuarios activos disponibles")
 
     return UsuarioRead(
         id=usuario.IdUsuario,
         nombreUsuario=usuario.NombreUsuario,
         nombreCompleto=f"{usuario.Nombre} {usuario.Apellido}",
         email=usuario.Email,
+        fotoUrl=usuario.FotoUrl,
     )
 
 
@@ -61,6 +62,7 @@ def list_users(
             nombreUsuario=usuario.NombreUsuario,
             nombreCompleto=f"{usuario.Nombre} {usuario.Apellido}",
             email=usuario.Email,
+            fotoUrl=usuario.FotoUrl,
         )
         for usuario in usuarios
     ]

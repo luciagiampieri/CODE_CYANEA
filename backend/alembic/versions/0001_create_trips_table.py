@@ -52,6 +52,19 @@ def upgrade() -> None:
         ["Nombre"],
         unique=True,
     )
+    op.create_table(
+        "EstadosInvitaciones",
+        sa.Column(
+            "IdEstadoInvitacion",
+            sa.SmallInteger(),
+            sa.Identity(always=True),
+            primary_key=True,
+        ),
+        sa.Column("Nombre", sa.String(length=30), nullable=False),
+        sa.Column("Descripcion", sa.String(length=200), nullable=True),
+        sa.Column("Activo", sa.Boolean(), server_default=sa.text("true"), nullable=False),
+    )
+    op.create_index("UX_EstadosInvitaciones_Nombre", "EstadosInvitaciones", ["Nombre"], unique=True)
 
     op.create_table(
         "Usuarios",
@@ -174,8 +187,79 @@ def upgrade() -> None:
         ["IdEstadoParticipacion"],
     )
 
+    op.create_table(
+        "InvitacionesViajes",
+        sa.Column(
+            "IdInvitacionViaje",
+            sa.BigInteger(),
+            sa.Identity(always=True),
+            primary_key=True,
+        ),
+        sa.Column("IdViaje", sa.BigInteger(), nullable=False),
+        sa.Column("EmailInvitado", sa.String(length=255), nullable=False),
+        sa.Column("NombreInvitado", sa.String(length=150), nullable=True),
+        sa.Column("TokenInvitacion", sa.String(length=120), nullable=False),
+        sa.Column(
+            "FechaInvitacion",
+            sa.DateTime(timezone=True),
+            server_default=sa.func.now(),
+            nullable=False,
+        ),
+        sa.Column("FechaVencimiento", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("FechaAceptacion", sa.DateTime(timezone=True), nullable=True),
+        sa.Column("IdEstadoInvitacion", sa.SmallInteger(), nullable=False),
+        sa.Column("InvitadoPor", sa.BigInteger(), nullable=False),
+        sa.Column("IdUsuarioRegistrado", sa.BigInteger(), nullable=True),
+        sa.ForeignKeyConstraint(
+            ["IdViaje"],
+            ["Viajes.IdViaje"],
+            name="FK_InvitacionesViajes_Viajes_IdViaje",
+        ),
+        sa.ForeignKeyConstraint(
+            ["IdEstadoInvitacion"],
+            ["EstadosInvitaciones.IdEstadoInvitacion"],
+            name="FK_InvitacionesViajes_EstadosInvitaciones_IdEstadoInvitacion",
+        ),
+        sa.ForeignKeyConstraint(
+            ["InvitadoPor"],
+            ["Usuarios.IdUsuario"],
+            name="FK_InvitacionesViajes_Usuarios_InvitadoPor",
+        ),
+        sa.ForeignKeyConstraint(
+            ["IdUsuarioRegistrado"],
+            ["Usuarios.IdUsuario"],
+            name="FK_InvitacionesViajes_Usuarios_IdUsuarioRegistrado",
+        ),
+        sa.UniqueConstraint(
+            "IdViaje",
+            "EmailInvitado",
+            name="UX_InvitacionesViajes_IdViaje_EmailInvitado",
+        ),
+        sa.UniqueConstraint(
+            "TokenInvitacion",
+            name="UX_InvitacionesViajes_TokenInvitacion",
+        ),
+    )
+    op.create_index("IX_InvitacionesViajes_IdViaje", "InvitacionesViajes", ["IdViaje"])
+    op.create_index(
+        "IX_InvitacionesViajes_IdEstadoInvitacion",
+        "InvitacionesViajes",
+        ["IdEstadoInvitacion"],
+    )
+    op.create_index("IX_InvitacionesViajes_InvitadoPor", "InvitacionesViajes", ["InvitadoPor"])
+    op.create_index(
+        "IX_InvitacionesViajes_IdUsuarioRegistrado",
+        "InvitacionesViajes",
+        ["IdUsuarioRegistrado"],
+    )
+
 
 def downgrade() -> None:
+    op.drop_index("IX_InvitacionesViajes_IdUsuarioRegistrado", table_name="InvitacionesViajes")
+    op.drop_index("IX_InvitacionesViajes_InvitadoPor", table_name="InvitacionesViajes")
+    op.drop_index("IX_InvitacionesViajes_IdEstadoInvitacion", table_name="InvitacionesViajes")
+    op.drop_index("IX_InvitacionesViajes_IdViaje", table_name="InvitacionesViajes")
+    op.drop_table("InvitacionesViajes")
     op.drop_index(
         "IX_ParticipantesViajes_IdEstadoParticipacion",
         table_name="ParticipantesViajes",
@@ -190,6 +274,8 @@ def downgrade() -> None:
     op.drop_index("UX_Usuarios_NombreUsuario", table_name="Usuarios")
     op.drop_index("UX_Usuarios_Email", table_name="Usuarios")
     op.drop_table("Usuarios")
+    op.drop_index("UX_EstadosInvitaciones_Nombre", table_name="EstadosInvitaciones")
+    op.drop_table("EstadosInvitaciones")
     op.drop_index("UX_EstadosParticipaciones_Nombre", table_name="EstadosParticipaciones")
     op.drop_table("EstadosParticipaciones")
     op.drop_index("UX_RolesParticipantes_Nombre", table_name="RolesParticipantes")

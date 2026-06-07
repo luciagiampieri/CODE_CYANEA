@@ -41,3 +41,18 @@ WHERE NOT EXISTS (
     FROM public."EstadosParticipaciones" ep
     WHERE ep."Nombre" = datos."Nombre"
 );
+
+INSERT INTO public."EstadosInvitaciones" ("Nombre", "Descripcion", "Activo")
+SELECT datos."Nombre", datos."Descripcion", datos."Activo"
+FROM (
+    VALUES
+        ('pendiente', 'Invitacion externa enviada y aun no aceptada.', TRUE),
+        ('aceptada', 'Invitacion aceptada por una cuenta registrada.', TRUE),
+        ('vencida', 'Invitacion expirada sin aceptacion.', TRUE),
+        ('cancelada', 'Invitacion anulada por el administrador.', TRUE)
+) AS datos("Nombre", "Descripcion", "Activo")
+WHERE NOT EXISTS (
+    SELECT 1
+    FROM public."EstadosInvitaciones" ei
+    WHERE ei."Nombre" = datos."Nombre"
+);

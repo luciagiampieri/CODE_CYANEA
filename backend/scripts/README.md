@@ -16,8 +16,10 @@ Esta carpeta contiene scripts SQL idempotentes para crear estructuras base del d
 4. `004_usuarios.sql`
 5. `005_viajes.sql`
 6. `006_participantes_viajes.sql`
-7. `007_datos_maestros.sql`
-8. `008_seed_minimo.sql`
+7. `006a_estados_invitaciones.sql`
+8. `006b_invitaciones_viajes.sql`
+9. `007_datos_maestros.sql`
+10. `008_seed_minimo.sql`
 
 ## Recomendación
 

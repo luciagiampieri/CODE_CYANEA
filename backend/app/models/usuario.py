@@ -38,3 +38,13 @@ class Usuario(Base):
         back_populates="UsuarioInvitador",
         foreign_keys="ParticipanteViaje.InvitadoPor",
     )
+    InvitacionesExternasEnviadas = relationship(
+        "InvitacionViaje",
+        back_populates="UsuarioInvitador",
+        foreign_keys="InvitacionViaje.InvitadoPor",
+    )
+    InvitacionesExternasRecibidas = relationship(
+        "InvitacionViaje",
+        back_populates="UsuarioRegistrado",
+        foreign_keys="InvitacionViaje.IdUsuarioRegistrado",
+    )

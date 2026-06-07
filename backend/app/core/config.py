@@ -1,4 +1,5 @@
 from functools import lru_cache
+from pathlib import Path
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -10,6 +11,17 @@ class Settings(BaseSettings):
     api_v1_prefix: str = "/api/v1"
     database_url: str = "postgresql+psycopg://cyanea:cyanea@localhost:5432/cyanea"
     cors_origins: str = Field(default="http://localhost:5173,http://127.0.0.1:5173")
+    mail_enabled: bool = False
+    mail_provider: str = "smtp"
+    mail_host: str = "localhost"
+    mail_port: int = 1025
+    mail_username: str | None = None
+    mail_password: str | None = None
+    mail_use_tls: bool = True
+    mail_from_email: str = "no-reply@cyanea.local"
+    mail_from_name: str = "Cyanea"
+    mail_reply_to: str | None = None
+    mail_frontend_base_url: str = "http://127.0.0.1:5173"
 
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -20,6 +32,10 @@ class Settings(BaseSettings):
     @property
     def cors_origins_list(self) -> list[str]:
         return [item.strip() for item in self.cors_origins.split(",") if item.strip()]
+
+    @property
+    def mail_templates_dir(self) -> Path:
+        return Path(__file__).resolve().parents[1] / "templates" / "emails"
 
 
 @lru_cache

@@ -110,3 +110,35 @@ WHERE NOT EXISTS (
     WHERE pv."IdViaje" = v."IdViaje"
       AND pv."IdUsuario" = u."IdUsuario"
 );
+
+INSERT INTO public."InvitacionesViajes" (
+    "IdViaje",
+    "EmailInvitado",
+    "NombreInvitado",
+    "TokenInvitacion",
+    "FechaVencimiento",
+    "IdEstadoInvitacion",
+    "InvitadoPor",
+    "IdUsuarioRegistrado"
+)
+SELECT
+    v."IdViaje",
+    'externo@ejemplo.com',
+    'Invitado Demo',
+    'seed-invitacion-externa-cyanea',
+    NOW() + INTERVAL '7 days',
+    ei."IdEstadoInvitacion",
+    admin."IdUsuario",
+    NULL
+FROM public."Viajes" v
+JOIN public."Usuarios" admin
+    ON admin."Email" = 'luciano@cyanea.local'
+JOIN public."EstadosInvitaciones" ei
+    ON ei."Nombre" = 'pendiente'
+WHERE v."Titulo" = 'Escapada a Cordoba'
+  AND NOT EXISTS (
+      SELECT 1
+      FROM public."InvitacionesViajes" iv
+      WHERE iv."IdViaje" = v."IdViaje"
+        AND iv."EmailInvitado" = 'externo@ejemplo.com'
+  );

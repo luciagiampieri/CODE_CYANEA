@@ -1,6 +1,6 @@
 from datetime import date
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 class TripRead(BaseModel):
@@ -20,6 +20,21 @@ class TripCreate(BaseModel):
     currency: str = Field(default="ARS", min_length=3, max_length=3)
     adminUserId: int | None = None
     participantUserIds: list[int] = Field(default_factory=list)
+    invitedEmails: list[str] = Field(default_factory=list)
+
+    @field_validator("invitedEmails")
+    @classmethod
+    def normalize_invited_emails(cls, value: list[str]) -> list[str]:
+        normalized: list[str] = []
+        for email in value:
+            cleaned = email.strip().lower()
+            if not cleaned:
+                continue
+            if "@" not in cleaned or "." not in cleaned.split("@")[-1]:
+                raise ValueError(f"El email '{email}' no tiene un formato valido")
+            if cleaned not in normalized:
+                normalized.append(cleaned)
+        return normalized
 
     @model_validator(mode="after")
     def validate_dates(self):

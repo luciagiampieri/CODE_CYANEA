@@ -4,6 +4,10 @@ Guia operativa del proyecto Cyanea para colaboradores humanos y para agentes com
 
 Si trabajas con Codex, pide primero que lea este archivo completo antes de proponer o implementar cambios.
 
+Regla permanente:
+
+- Toda nueva definicion tecnica, convencion, criterio de implementacion, decision de arquitectura o cambio de estructura del proyecto debe actualizarse en este `AGENTS.md` dentro del mismo trabajo.
+
 ## Objetivo del proyecto
 
 Cyanea es una aplicacion web/mobile PWA para organizacion colaborativa de viajes grupales.
@@ -12,7 +16,8 @@ Alcance actual del MVP:
 
 - creacion de viajes
 - incorporacion de participantes registrados
-- estructura base para viajes, usuarios y participaciones
+- invitaciones externas por correo
+- estructura base para viajes, usuarios, participaciones e invitaciones
 - frontend React PWA
 - backend FastAPI
 - persistencia en PostgreSQL
@@ -26,7 +31,7 @@ Fuera de alcance por ahora:
 
 ## Stack tecnologico
 
-- Frontend: React 18 + Vite + `vite-plugin-pwa`
+- Frontend: React 18 + Vite + `vite-plugin-pwa` + `react-router-dom`
 - Backend: FastAPI + SQLAlchemy + Alembic
 - Base de datos: PostgreSQL
 - Entorno local esperado:
@@ -49,6 +54,11 @@ CODE_CYANEA/
 │   │   ├── db/
 │   │   ├── models/
 │   │   ├── schemas/
+│   │   ├── services/
+│   │   │   ├── mail/
+│   │   │   └── notifications/
+│   │   ├── templates/
+│   │   │   └── emails/
 │   │   └── main.py
 │   ├── alembic/
 │   ├── scripts/
@@ -61,6 +71,14 @@ CODE_CYANEA/
 ├── frontend/
 │   ├── public/
 │   ├── src/
+│   │   ├── app/
+│   │   ├── components/
+│   │   │   ├── layout/
+│   │   │   ├── trip/
+│   │   │   └── ui/
+│   │   ├── pages/
+│   │   │   ├── home/
+│   │   │   └── trips/
 │   │   ├── services/
 │   │   ├── App.jsx
 │   │   ├── main.jsx
@@ -106,6 +124,17 @@ APP_ENV=development
 API_V1_PREFIX=/api/v1
 DATABASE_URL=postgresql+psycopg://usuario:password@127.0.0.1:5432/cyanea
 CORS_ORIGINS=http://localhost:5173,http://127.0.0.1:5173
+MAIL_ENABLED=false
+MAIL_PROVIDER=smtp
+MAIL_HOST=localhost
+MAIL_PORT=1025
+MAIL_USERNAME=
+MAIL_PASSWORD=
+MAIL_USE_TLS=true
+MAIL_FROM_EMAIL=no-reply@cyanea.local
+MAIL_FROM_NAME=Cyanea
+MAIL_REPLY_TO=
+MAIL_FRONTEND_BASE_URL=http://127.0.0.1:5173
 ```
 
 Levantar backend:
@@ -181,6 +210,8 @@ Respetar el modelo de dominio en espanol. No introducir nombres tipo `trip_id`, 
   - `Viajes`
   - `ParticipantesViajes`
   - `EstadosViajes`
+  - `EstadosInvitaciones`
+  - `InvitacionesViajes`
 
 ### Columnas
 
@@ -195,7 +226,6 @@ Ejemplos correctos:
 - `IdViaje`
 - `IdAdministrador`
 - `FechaAlta`
-- `EstadoActivo` no existe hoy, pero el formato es correcto
 
 Ejemplos incorrectos:
 
@@ -217,6 +247,7 @@ Ejemplos incorrectos:
 - `EstadosViajes`
 - `RolesParticipantes`
 - `EstadosParticipaciones`
+- `EstadosInvitaciones`
 
 No agregar campos de tipo texto libre para representar estos conceptos si ya existe catalogo maestro.
 
@@ -234,6 +265,7 @@ Ejemplos actuales:
 - `usuario.py` -> `Usuario`
 - `viaje.py` -> `Viaje`
 - `participante_viaje.py` -> `ParticipanteViaje`
+- `invitacion_viaje.py` -> `InvitacionViaje`
 
 ### Schemas Pydantic
 
@@ -254,6 +286,13 @@ Ejemplos actuales:
 
 - `users.py`
 - `trips.py`
+
+### Servicios backend
+
+- La logica transversal reusable debe vivir en `backend/app/services/`
+- Infraestructura de correo en `services/mail/`
+- Casos de uso o integraciones de notificacion en `services/notifications/`
+- No acoplar SMTP, render de templates o armado de mails directamente en los endpoints
 
 ### Migraciones
 
@@ -290,8 +329,10 @@ Orden actual:
 4. `004_usuarios.sql`
 5. `005_viajes.sql`
 6. `006_participantes_viajes.sql`
-7. `007_datos_maestros.sql`
-8. `008_seed_minimo.sql`
+7. `006a_estados_invitaciones.sql`
+8. `006b_invitaciones_viajes.sql`
+9. `007_datos_maestros.sql`
+10. `008_seed_minimo.sql`
 
 Scripts auxiliares:
 
@@ -320,16 +361,55 @@ salvo que haya una razon muy fuerte y documentada.
 
 ### Estructura
 
-- `frontend/src/App.jsx` es hoy la pantalla principal
+- `frontend/src/App.jsx` es solo un entry liviano
+- `frontend/src/app/AppRouter.jsx` centraliza el routing
+- `frontend/src/pages/` contiene pantallas completas
+- `frontend/src/components/layout/` contiene layout y header
+- `frontend/src/components/ui/` contiene componentes visuales reutilizables
+- `frontend/src/components/trip/` contiene componentes especificos del dominio viaje
 - `frontend/src/services/api.js` centraliza acceso HTTP
 - `frontend/src/styles.css` es el CSS global unico del proyecto
 
+### Router y paginas
+
+- Usar `react-router-dom` para la navegacion principal
+- Toda nueva pantalla debe vivir en `frontend/src/pages/`
+- No volver a concentrar logica de varias pantallas en `App.jsx`
+- El layout comun debe componerse desde `components/layout/`
+
+Paginas actuales:
+
+- `pages/home/HomePage.jsx`
+- `pages/trips/CreateTripPage.jsx`
+
+### Componentes
+
+- Los componentes UI base deben ir en `components/ui/`
+- Los componentes especificos del dominio deben ir en carpetas por dominio, por ejemplo `components/trip/`
+- Si una pieza visual o de interaccion se reutiliza en mas de una pantalla, debe extraerse a componente
+
+Componentes UI base actuales:
+
+- `Button`
+- `Avatar`
+- `EmptyState`
+- `StatusBadge`
+
+Componentes de viaje actuales:
+
+- `TripForm`
+- `ParticipantSearch`
+- `ParticipantChipList`
+- `ExternalInviteList`
+
 ### Estilos
 
-- No crear un CSS por pantalla por ahora
+- No crear un CSS por pantalla
 - Centralizar estilos en `frontend/src/styles.css`
 - Mantener variables CSS en `:root`
 - Respetar la identidad visual actual
+- Si se agrega un nuevo componente o pagina, sus clases deben declararse en `styles.css`, no en archivos CSS separados
+- El CSS global puede organizarse por bloques logicos, pero sigue siendo un unico archivo fuente de identidad visual
 
 Paleta principal:
 
@@ -377,17 +457,22 @@ Para cada cambio persistente, actualizar como minimo:
 Implementado:
 
 - home PWA en React
+- router frontend con paginas y layout separados
+- componentes UI reutilizables para frontend
 - backend FastAPI operativo
 - creacion de viajes
 - seleccion de participantes registrados
+- invitaciones externas por correo en estado provisional
+- modulo compartido de envio de mails con templates y configuracion por `.env`
 - buscador predictivo de participantes
-- modelo normalizado minimo para viajes y participantes
+- modelo normalizado minimo para viajes, participantes e invitaciones
 - seeds basicos de usuarios y viaje
 
 Pendiente relevante:
 
 - autenticacion real
 - ABM completo de viajes
+- pantalla de aceptacion de invitaciones por token
 - modulos de gastos, itinerario, documentos, votaciones y tareas
 - pruebas mas completas
 
@@ -398,6 +483,7 @@ Pendiente relevante:
 - No introducir duplicacion entre texto libre y catalogos maestros
 - No hardcodear datos de negocio si el concepto debe vivir en base
 - Si una decision cambia una convencion de este archivo, actualizar este archivo en el mismo trabajo
+- Si se agrega una nueva regla de trabajo o un nuevo criterio del proyecto, debe quedar documentado en este archivo antes de cerrar la tarea
 
 ## Instrucciones para Codex
 
@@ -415,6 +501,7 @@ Al hacer cambios, Codex deberia preferir:
 
 - cambios pequenos y coherentes
 - mantener scripts SQL idempotentes
+- mantener toda la identidad visual del frontend en `frontend/src/styles.css`
 - verificar backend con `pytest`
 - verificar frontend con `npm run build`
 
@@ -426,4 +513,4 @@ Antes de cerrar una tarea:
 2. verificar que el backend levante
 3. verificar que el frontend levante
 4. verificar que los cambios persistentes esten reflejados en SQL y ORM
-5. actualizar este archivo si se modifico una convencion de trabajo
+5. actualizar este archivo si se modifico o agrego una convencion, definicion o criterio de trabajo

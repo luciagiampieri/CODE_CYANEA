@@ -4,5 +4,7 @@
 \i 004_usuarios.sql
 \i 005_viajes.sql
 \i 006_participantes_viajes.sql
+\i 006a_estados_invitaciones.sql
+\i 006b_invitaciones_viajes.sql
 \i 007_datos_maestros.sql
 \i 008_seed_minimo.sql

@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="es">
+  <body style="margin:0;padding:24px;background:#f6f7fb;font-family:Arial,sans-serif;color:#14284f;">
+    <div style="max-width:640px;margin:0 auto;background:#ffffff;border:1px solid rgba(30,62,123,0.12);border-radius:20px;overflow:hidden;">
+      <div style="padding:24px 28px;background:#1e3e7b;color:#ffffff;">
+        <h1 style="margin:0;font-size:28px;">Invitacion a viaje</h1>
+        <p style="margin:12px 0 0 0;font-size:15px;opacity:0.92;">
+          {{ inviter_name }} te invito a sumarte a {{ trip_title }}.
+        </p>
+      </div>
+      <div style="padding:28px;">
+        <p style="margin:0 0 16px 0;font-size:15px;">
+          El viaje <strong>{{ trip_title }}</strong> tiene como destino <strong>{{ trip_destination }}</strong>.
+        </p>
+        <p style="margin:0 0 20px 0;font-size:15px;">
+          Para aceptar la invitacion y completar tu registro en Cyanea, entra desde el siguiente enlace:
+        </p>
+        <p style="margin:0 0 24px 0;">
+          <a href="{{ accept_url }}" style="display:inline-block;padding:14px 22px;background:#1e3e7b;color:#ffffff;text-decoration:none;border-radius:999px;font-weight:bold;">
+            Aceptar invitacion
+          </a>
+        </p>
+        <p style="margin:0 0 12px 0;font-size:14px;color:#65718f;">
+          Este enlace vence el {{ expiration_at }}.
+        </p>
+        <p style="margin:0;font-size:14px;color:#65718f;word-break:break-all;">
+          Si el boton no funciona, copia y pega esta URL en tu navegador:<br />
+          <a href="{{ accept_url }}" style="color:#1e3e7b;">{{ accept_url }}</a>
+        </p>
+      </div>
+    </div>
+  </body>
+</html>

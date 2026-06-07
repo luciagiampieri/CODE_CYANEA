@@ -6,3 +6,4 @@ class UsuarioRead(BaseModel):
     nombreUsuario: str
     nombreCompleto: str
     email: str
+    fotoUrl: str | None = None
