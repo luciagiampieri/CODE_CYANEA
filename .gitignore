@@ -1,0 +1,45 @@
+# Dependencias de Node
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+package-lock.json
+yarn.lock
+
+
+# Configuraciones Locales y Secretos (.env)
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+
+# Frontend Web (Vite / React)
+dist/
+dist-ssr/
+*.local
+.eslintcache
+
+
+# Frontend Mobile (Expo / React Native)
+.expo/
+dist/
+web-build/
+npm-debug.*
+
+# Carpetas nativas generadas por Expo (si hacen prebuild)
+android/
+ios/
+
+
+# Archivos de Sistemas Operativos y Editores
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.swp
