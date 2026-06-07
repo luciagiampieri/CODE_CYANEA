@@ -13,18 +13,28 @@ export default function ParticipantChipList({ participants, onRemove }) {
         <EmptyState>Todavia no agregaste participantes al viaje.</EmptyState>
       ) : (
         <div className="participant-chip-list">
-          {participants.map((user) => (
-            <div className="participant-chip" key={user.id}>
+          {participants.map((participant) => (
+            <div className="participant-chip" key={participant.key}>
               <div className="participant-chip__body">
-                <Avatar imageUrl={user.fotoUrl} name={user.nombreCompleto} />
+                <Avatar imageUrl={participant.fotoUrl} name={participant.nombreCompleto} />
                 <div>
-                  <strong>{user.nombreCompleto}</strong>
-                  <small>{user.email}</small>
+                  <strong>{participant.nombreCompleto}</strong>
+                  <small>{participant.email}</small>
                 </div>
               </div>
-              <button type="button" onClick={() => onRemove(user.id)}>
-                Quitar
-              </button>
+
+              <div className="participant-chip__meta">
+                <span
+                  className={`participant-chip__badge ${
+                    participant.kind === "external" ? "participant-chip__badge--pending" : ""
+                  }`}
+                >
+                  {participant.kind === "external" ? "Invitacion pendiente" : "Registrado"}
+                </span>
+                <button type="button" onClick={() => onRemove(participant)}>
+                  Quitar
+                </button>
+              </div>
             </div>
           ))}
         </div>

@@ -22,13 +22,16 @@ function isValidEmail(email) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalized);
 }
 
+function getEmailLabel(email) {
+  return email.split("@")[0].replace(/[._-]+/g, " ");
+}
+
 export default function CreateTripPage() {
   const navigate = useNavigate();
   const [currentUser, setCurrentUser] = useState(null);
   const [userOptions, setUserOptions] = useState([]);
   const [selectedParticipants, setSelectedParticipants] = useState([]);
   const [participantSearch, setParticipantSearch] = useState("");
-  const [externalInviteInput, setExternalInviteInput] = useState("");
   const [inviteMessage, setInviteMessage] = useState("");
   const [apiStatus, setApiStatus] = useState("conectada");
   const [usersStatus, setUsersStatus] = useState("cargando");
@@ -36,14 +39,58 @@ export default function CreateTripPage() {
   const [submitStatus, setSubmitStatus] = useState("idle");
   const [submitMessage, setSubmitMessage] = useState("");
 
+  const normalizedSearch = participantSearch.trim().toLowerCase();
+
   const selectableUsers = useMemo(() => {
     return userOptions.filter((user) => {
       if (currentUser && user.id === currentUser.id) {
         return false;
       }
+
       return !form.participantUserIds.includes(user.id);
     });
   }, [currentUser, form.participantUserIds, userOptions]);
+
+  const canInviteExternal = useMemo(() => {
+    if (!isValidEmail(normalizedSearch)) {
+      return false;
+    }
+
+    if (currentUser && currentUser.email.toLowerCase() === normalizedSearch) {
+      return false;
+    }
+
+    if (selectedParticipants.some((user) => user.email.toLowerCase() === normalizedSearch)) {
+      return false;
+    }
+
+    if (form.invitedEmails.includes(normalizedSearch)) {
+      return false;
+    }
+
+    return !selectableUsers.some((user) => user.email.toLowerCase() === normalizedSearch);
+  }, [currentUser, form.invitedEmails, normalizedSearch, selectableUsers, selectedParticipants]);
+
+  const participantItems = useMemo(() => {
+    const registered = selectedParticipants.map((user) => ({
+      key: `user-${user.id}`,
+      kind: "registered",
+      id: user.id,
+      nombreCompleto: user.nombreCompleto,
+      email: user.email,
+      fotoUrl: user.fotoUrl ?? ""
+    }));
+
+    const invited = form.invitedEmails.map((email) => ({
+      key: `external-${email}`,
+      kind: "external",
+      email,
+      nombreCompleto: getEmailLabel(email),
+      fotoUrl: ""
+    }));
+
+    return [...registered, ...invited];
+  }, [form.invitedEmails, selectedParticipants]);
 
   useEffect(() => {
     async function loadCurrentUser() {
@@ -87,6 +134,11 @@ export default function CreateTripPage() {
     }));
   }
 
+  function handleParticipantSearchChange(value) {
+    setParticipantSearch(value);
+    setInviteMessage("");
+  }
+
   function addParticipant(user) {
     if (form.participantUserIds.includes(user.id)) {
       return;
@@ -102,16 +154,8 @@ export default function CreateTripPage() {
     setInviteMessage("");
   }
 
-  function removeParticipant(userId) {
-    setSelectedParticipants((current) => current.filter((user) => user.id !== userId));
-    setForm((current) => ({
-      ...current,
-      participantUserIds: current.participantUserIds.filter((id) => id !== userId)
-    }));
-  }
-
   function addExternalInvite() {
-    const email = externalInviteInput.trim().toLowerCase();
+    const email = normalizedSearch;
     if (!email) {
       return;
     }
@@ -140,14 +184,24 @@ export default function CreateTripPage() {
       ...current,
       invitedEmails: [...current.invitedEmails, email]
     }));
-    setExternalInviteInput("");
+    setParticipantSearch("");
+    setUserOptions([]);
     setInviteMessage("");
   }
 
-  function removeExternalInvite(email) {
+  function removeParticipant(participant) {
+    if (participant.kind === "external") {
+      setForm((current) => ({
+        ...current,
+        invitedEmails: current.invitedEmails.filter((item) => item !== participant.email)
+      }));
+      return;
+    }
+
+    setSelectedParticipants((current) => current.filter((user) => user.id !== participant.id));
     setForm((current) => ({
       ...current,
-      invitedEmails: current.invitedEmails.filter((item) => item !== email)
+      participantUserIds: current.participantUserIds.filter((id) => id !== participant.id)
     }));
   }
 
@@ -177,47 +231,53 @@ export default function CreateTripPage() {
   return (
     <MainLayout
       header={{
-        action: { kind: "link", label: "Volver a inicio", to: "/", variant: "ghost" }
+        variant: "detail",
+        backTo: "/",
+        title: "Nuevo Viaje",
+        subtitle: "Crea el viaje y arma el grupo desde una sola pantalla."
       }}
-      shellClassName="app-shell--form"
+      shellClassName="mobile-app--form"
     >
-      <section className="form-hero">
-        <div className="section-heading">
-          <p className="eyebrow">Nuevo viaje</p>
-          <h1 className="page-title">Crea un viaje e incorpora participantes registrados.</h1>
-          <p className="section-lead">
-            El administrador es el usuario creador. Busca personas por nombre, usuario o email y
-            agrega correos externos si todavia no tienen cuenta.
-          </p>
-        </div>
-        <div className="status-row">
-          <StatusBadge tone={apiStatus}>API {apiStatus.replace("-", " ")}</StatusBadge>
-          <StatusBadge tone={usersStatus}>Usuarios {usersStatus.replace("-", " ")}</StatusBadge>
-        </div>
-      </section>
+      <div className="responsive-page responsive-page--form responsive-page--single">
+        <section className="content-section content-section--hero">
+          <div className="hero-card hero-card--compact">
+            <div className="hero-card__copy">
+              <span className="eyebrow">Nuevo Viaje</span>
+              <h2>Arma el viaje y el grupo desde una sola pantalla.</h2>
+              <p>
+                El administrador es el creador. Puedes sumar participantes registrados e invitados
+                externos sin cambiar de vista.
+              </p>
+            </div>
 
-      <section className="trip-form-shell">
-        <TripForm
-          currentUser={currentUser}
-          externalInviteInput={externalInviteInput}
-          form={form}
-          inviteMessage={inviteMessage}
-          onAddExternalInvite={addExternalInvite}
-          onCancel={() => navigate("/")}
-          onExternalInviteChange={setExternalInviteInput}
-          onInputChange={handleInputChange}
-          onParticipantSearchChange={setParticipantSearch}
-          onRemoveExternalInvite={removeExternalInvite}
-          onRemoveParticipant={removeParticipant}
-          onSelectParticipant={addParticipant}
-          onSubmit={handleSubmit}
-          participantSearch={participantSearch}
-          selectableUsers={selectableUsers}
-          selectedParticipants={selectedParticipants}
-          submitMessage={submitMessage}
-          submitStatus={submitStatus}
-        />
-      </section>
+            <div className="inline-status">
+              <StatusBadge tone={apiStatus}>API {apiStatus.replace("-", " ")}</StatusBadge>
+              <StatusBadge tone={usersStatus}>Usuarios {usersStatus.replace("-", " ")}</StatusBadge>
+            </div>
+          </div>
+        </section>
+
+        <section className="content-section">
+          <TripForm
+            canInviteExternal={canInviteExternal}
+            currentUser={currentUser}
+            form={form}
+            inviteMessage={inviteMessage}
+            onCancel={() => navigate("/")}
+            onInputChange={handleInputChange}
+            onInviteExternal={addExternalInvite}
+            onParticipantSearchChange={handleParticipantSearchChange}
+            onRemoveParticipant={removeParticipant}
+            onSelectParticipant={addParticipant}
+            onSubmit={handleSubmit}
+            participantItems={participantItems}
+            participantSearch={participantSearch}
+            selectableUsers={selectableUsers}
+            submitMessage={submitMessage}
+            submitStatus={submitStatus}
+          />
+        </section>
+      </div>
     </MainLayout>
   );
 }

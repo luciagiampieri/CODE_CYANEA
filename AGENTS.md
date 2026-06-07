@@ -31,7 +31,7 @@ Fuera de alcance por ahora:
 
 ## Stack tecnologico
 
-- Frontend: React 18 + Vite + `vite-plugin-pwa` + `react-router-dom`
+- Frontend: React 18 + Vite + `vite-plugin-pwa` + `react-router-dom` + Font Awesome
 - Backend: FastAPI + SQLAlchemy + Alembic
 - Base de datos: PostgreSQL
 - Entorno local esperado:
@@ -370,6 +370,14 @@ salvo que haya una razon muy fuerte y documentada.
 - `frontend/src/services/api.js` centraliza acceso HTTP
 - `frontend/src/styles.css` es el CSS global unico del proyecto
 
+Layout responsive actual:
+
+- `MainLayout` define el shell responsive unico de la app
+- mobile: header compacto + tab bar inferior
+- desktop: sidebar lateral + contenido expandido
+- no se deben crear pantallas duplicadas por dispositivo
+- la adaptacion entre mobile, tablet y desktop se resuelve con composicion + CSS responsive
+
 ### Router y paginas
 
 - Usar `react-router-dom` para la navegacion principal
@@ -410,6 +418,18 @@ Componentes de viaje actuales:
 - Respetar la identidad visual actual
 - Si se agrega un nuevo componente o pagina, sus clases deben declararse en `styles.css`, no en archivos CSS separados
 - El CSS global puede organizarse por bloques logicos, pero sigue siendo un unico archivo fuente de identidad visual
+- El frontend debe seguir enfoque mobile-first
+- Evitar anchos fijos innecesarios
+- Preferir `clamp`, `%`, `minmax`, `max-width` y grids fluidos
+- Verificar que no haya scroll horizontal en `375px`, `768px`, `1024px` y `1440px`
+- Cuando una navegacion o disposicion cambie entre dispositivos, hacerlo por breakpoints CSS antes que por componentes duplicados
+
+Breakpoints de referencia actuales:
+
+- mobile base: `< 768px`
+- tablet: `>= 768px`
+- desktop: `>= 1024px`
+- wide desktop: `>= 1440px`
 
 Paleta principal:
 
@@ -422,6 +442,12 @@ Tipografias:
 
 - `Montserrat`
 - `Roboto`
+
+Iconografia:
+
+- Usar Font Awesome desde React para iconos de navegacion y acciones
+- Evitar placeholders de texto como iconos visuales
+- Mantener consistencia entre tab bar mobile, sidebar desktop y acciones del header
 
 ### UI/UX
 
@@ -459,6 +485,8 @@ Implementado:
 - home PWA en React
 - router frontend con paginas y layout separados
 - componentes UI reutilizables para frontend
+- layout responsive unico para mobile, tablet y desktop
+- navegacion mobile inferior y sidebar desktop dentro del mismo frontend
 - backend FastAPI operativo
 - creacion de viajes
 - seleccion de participantes registrados

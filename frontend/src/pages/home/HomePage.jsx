@@ -1,93 +1,46 @@
+import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
+import { faChevronRight, faPlus } from "@fortawesome/free-solid-svg-icons";
 import { Link } from "react-router-dom";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import MainLayout from "../../components/layout/MainLayout";
 import EmptyState from "../../components/ui/EmptyState";
 import StatusBadge from "../../components/ui/StatusBadge";
 import { getTrips } from "../../services/api";
 
-const showcaseTrips = [
-  {
-    title: "Santorini, Grecia",
-    date: "12 - 19 Jun 2025",
-    image:
-      "https://images.unsplash.com/photo-1570077188670-e3a8d69ac5ff?auto=format&fit=crop&w=1200&q=80"
-  },
-  {
-    title: "Banff, Canada",
-    date: "05 - 12 Jul 2025",
-    image:
-      "https://images.unsplash.com/photo-1508261305436-e282fd32d20a?auto=format&fit=crop&w=1200&q=80"
-  },
-  {
-    title: "Paris, Francia",
-    date: "20 - 27 Ago 2025",
-    image:
-      "https://images.unsplash.com/photo-1499856871958-5b9627545d1a?auto=format&fit=crop&w=1200&q=80"
-  },
-  {
-    title: "Bali, Indonesia",
-    date: "10 - 18 Sep 2025",
-    image:
-      "https://images.unsplash.com/photo-1537996194471-e657df975ab4?auto=format&fit=crop&w=1200&q=80"
-  }
-];
-
-const itineraryDays = [
-  { title: "Dia 1", date: "12 Jun", active: true },
-  { title: "Dia 2", date: "13 Jun", active: false },
-  { title: "Dia 3", date: "14 Jun", active: false },
-  { title: "Dia 4", date: "15 Jun", active: false },
-  { title: "Dia 5", date: "16 Jun", active: false }
+const fallbackImages = [
+  "https://images.unsplash.com/photo-1570077188670-e3a8d69ac5ff?auto=format&fit=crop&w=1200&q=80",
+  "https://images.unsplash.com/photo-1508261305436-e282fd32d20a?auto=format&fit=crop&w=1200&q=80",
+  "https://images.unsplash.com/photo-1499856871958-5b9627545d1a?auto=format&fit=crop&w=1200&q=80",
+  "https://images.unsplash.com/photo-1537996194471-e657df975ab4?auto=format&fit=crop&w=1200&q=80"
 ];
 
 const itineraryItems = [
-  {
-    time: "09:00",
-    title: "Llegada a Santorini",
-    place: "Aeropuerto de Santorini (JTR)",
-    note: "Check-in en el hotel",
-    featured: true,
-    marker: "A"
-  },
-  {
-    time: "11:00",
-    title: "Hotel Check-in",
-    place: "Nostos Apartments",
-    note: "Firostefani, Santorini",
-    marker: "H"
-  },
-  {
-    time: "13:30",
-    title: "Almuerzo",
-    place: "Karma Restaurant",
-    note: "Comida con vista a la caldera",
-    marker: "M"
-  },
-  {
-    time: "16:00",
-    title: "Oia Village",
-    place: "Explorar las calles y tiendas",
-    note: "Atardecer en Oia",
-    marker: "O"
-  },
-  {
-    time: "20:00",
-    title: "Cena",
-    place: "1800-Floga Restaurant",
-    note: "Cocina local con vista al mar",
-    marker: "C"
-  },
-  {
-    time: "22:00",
-    title: "Regreso al hotel",
-    place: "Descanso y preparacion",
-    note: "Lista para el dia siguiente",
-    marker: "R"
-  }
+  { time: "09:00", title: "Llegada y check-in", note: "Aterrizaje, hotel y primer reagrupamiento" },
+  { time: "11:00", title: "Paseo inicial", note: "Recorrido liviano para ubicar al grupo" },
+  { time: "13:30", title: "Almuerzo", note: "Punto de encuentro para definir el resto del dia" }
 ];
 
-const phoneNavItems = ["Viajes", "Explorar", "Itinerarios", "Guardados", "Perfil"];
+function formatDateRange(trip) {
+  if (!trip.startDate || !trip.endDate) {
+    return "Fechas por definir";
+  }
+
+  const start = new Date(trip.startDate);
+  const end = new Date(trip.endDate);
+
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
+    return "Fechas por definir";
+  }
+
+  const formatter = new Intl.DateTimeFormat("es-AR", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric"
+  });
+
+  return `${formatter.format(start)} - ${formatter.format(end)}`;
+}
 
 export default function HomePage() {
   const [trips, setTrips] = useState([]);
@@ -107,203 +60,118 @@ export default function HomePage() {
     loadTrips();
   }, []);
 
+  const decoratedTrips = useMemo(() => {
+    return trips.map((trip, index) => ({
+      ...trip,
+      image: fallbackImages[index % fallbackImages.length],
+      dateLabel: formatDateRange(trip)
+    }));
+  }, [trips]);
+
   return (
     <MainLayout
       header={{
-        action: { kind: "link", label: "Nuevo viaje", to: "/viajes/nuevo", variant: "ghost" }
+        variant: "brand",
+        action: {
+          kind: "link",
+          icon: faPlus,
+          to: "/viajes/nuevo",
+          variant: "icon",
+          ariaLabel: "Crear nuevo viaje"
+        }
       }}
     >
-      <section className="showcase-shell">
-        <div className="showcase-intro">
-          <p className="eyebrow">Preview de producto</p>
-          <h1>Cyanea como experiencia mobile-first.</h1>
-          <p className="lead lead--hero">
-            La propuesta visual se acerca a una app real de viajes: lista de aventuras, detalle del
-            viaje y un itinerario claro para consultar todo desde el mismo espacio.
-          </p>
-          <div className="status-row">
-            <StatusBadge tone={apiStatus}>API {apiStatus.replace("-", " ")}</StatusBadge>
-            <StatusBadge tone="note">PWA pensada para uso diario del grupo</StatusBadge>
-          </div>
-        </div>
-
-        <div className="showcase-grid">
-          <article className="phone-frame">
-            <div className="phone-statusbar">
-              <span>9:41</span>
-              <div className="phone-statusbar__icons">
-                <span />
-                <span />
-                <span />
+      <div className="responsive-page responsive-page--home">
+        <div className="responsive-page__main">
+          <section className="content-section content-section--hero">
+            <div className="hero-card">
+              <div className="hero-card__copy">
+                <span className="eyebrow">Mis Viajes</span>
+                <h2>Explora tus proximas aventuras</h2>
+                <p>
+                  Un unico frontend para planificar, invitar participantes y seguir el viaje desde
+                  cualquier dispositivo.
+                </p>
               </div>
-            </div>
 
-            <div className="phone-topbar">
-              <div className="phone-brand">
-                <span className="phone-brand__mark" />
-                <strong>CYANEA</strong>
-              </div>
-              <button className="phone-menu" type="button" aria-label="Abrir menu">
-                <span />
-                <span />
-                <span />
-              </button>
-            </div>
-
-            <div className="phone-body">
-              <div className="trip-mobile-head">
-                <div>
-                  <h2>Mis Viajes</h2>
-                  <p>Explora tus proximas aventuras</p>
+              <div className="hero-card__meta">
+                <div className="inline-status">
+                  <StatusBadge tone={apiStatus}>API {apiStatus.replace("-", " ")}</StatusBadge>
+                  <StatusBadge tone="note">{decoratedTrips.length} viajes</StatusBadge>
                 </div>
-                <Link className="trip-mobile-head__action" to="/viajes/nuevo">
-                  <span>+</span>
+
+                <Link className="cta-chip" to="/viajes/nuevo">
+                  <FontAwesomeIcon icon={faPlus} />
                   Nuevo Viaje
                 </Link>
               </div>
+            </div>
+          </section>
 
-              <div className="trip-mobile-list">
-                {showcaseTrips.map((trip) => (
+          <section className="content-section">
+            {decoratedTrips.length === 0 ? (
+              <div className="empty-card">
+                <EmptyState>Todavia no hay viajes cargados. Crea el primero para empezar.</EmptyState>
+              </div>
+            ) : (
+              <div className="trip-grid">
+                {decoratedTrips.map((trip) => (
                   <article
-                    className="trip-mobile-card"
-                    key={trip.title}
-                    style={{ backgroundImage: `linear-gradient(180deg, transparent 28%, rgba(6, 16, 33, 0.76) 100%), url(${trip.image})` }}
+                    className="trip-card"
+                    key={trip.id}
+                    style={{
+                      backgroundImage: `linear-gradient(180deg, transparent 18%, rgba(8, 18, 39, 0.84) 100%), url(${trip.image})`
+                    }}
                   >
-                    <div className="trip-mobile-card__content">
+                    <div className="trip-card__content">
                       <h3>{trip.title}</h3>
-                      <p>{trip.date}</p>
+                      <p>{trip.destination}</p>
+                      <small>{trip.dateLabel}</small>
                     </div>
-                    <span className="trip-mobile-card__arrow">&gt;</span>
+                    <span className="trip-card__arrow" aria-hidden="true">
+                      <FontAwesomeIcon icon={faChevronRight} />
+                    </span>
+                  </article>
+                ))}
+              </div>
+            )}
+          </section>
+        </div>
+
+        <aside className="responsive-page__side">
+          <section className="content-section">
+            <div className="panel-card panel-card--sticky">
+              <div className="panel-card__header">
+                <div>
+                  <span className="eyebrow eyebrow--small">Resumen</span>
+                  <h3>Itinerario sugerido</h3>
+                  <p>Vista tipo agenda para el proximo paso del producto.</p>
+                </div>
+                <span className="day-pill day-pill--active">
+                  <strong>Dia 1</strong>
+                  <small>12 Jun</small>
+                </span>
+              </div>
+
+              <div className="agenda-list">
+                {itineraryItems.map((item, index) => (
+                  <article className="agenda-item" key={`${item.time}-${item.title}`}>
+                    <div className="agenda-item__time">{item.time}</div>
+                    <div className="agenda-item__track">
+                      <span className={`agenda-item__dot ${index === 0 ? "agenda-item__dot--active" : ""}`} />
+                      {index < itineraryItems.length - 1 ? <span className="agenda-item__line" /> : null}
+                    </div>
+                    <div className={`agenda-item__card ${index === 0 ? "agenda-item__card--active" : ""}`}>
+                      <strong>{item.title}</strong>
+                      <small>{item.note}</small>
+                    </div>
                   </article>
                 ))}
               </div>
             </div>
-
-            <div className="phone-nav">
-              {phoneNavItems.map((item, index) => (
-                <div className={`phone-nav__item ${index === 0 ? "phone-nav__item--active" : ""}`} key={item}>
-                  <span className="phone-nav__icon" />
-                  <small>{item}</small>
-                </div>
-              ))}
-            </div>
-          </article>
-
-          <article className="phone-frame phone-frame--detail">
-            <div className="phone-statusbar">
-              <span>9:41</span>
-              <div className="phone-statusbar__icons">
-                <span />
-                <span />
-                <span />
-              </div>
-            </div>
-
-            <div className="phone-topbar phone-topbar--detail">
-              <button className="phone-icon-button" type="button" aria-label="Volver">
-                {"<"}
-              </button>
-              <div className="phone-topbar__actions">
-                <button className="phone-icon-button" type="button" aria-label="Compartir">
-                  ^
-                </button>
-                <button className="phone-icon-button" type="button" aria-label="Opciones">
-                  ...
-                </button>
-              </div>
-            </div>
-
-            <div className="phone-detail-hero">
-              <div className="phone-detail-hero__copy">
-                <h2>Santorini, Grecia</h2>
-                <p>12 - 19 Jun 2025</p>
-              </div>
-              <div className="phone-detail-hero__image" />
-            </div>
-
-            <div className="phone-detail-tabs">
-              <button type="button">Resumen</button>
-              <button className="is-active" type="button">
-                Itinerario
-              </button>
-              <button type="button">Informacion</button>
-              <button type="button">Notas</button>
-            </div>
-
-            <div className="phone-detail-body">
-              <div className="phone-day-strip">
-                {itineraryDays.map((day) => (
-                  <button
-                    className={`phone-day-pill ${day.active ? "phone-day-pill--active" : ""}`}
-                    key={day.title}
-                    type="button"
-                  >
-                    <strong>{day.title}</strong>
-                    <small>{day.date}</small>
-                  </button>
-                ))}
-              </div>
-
-              <div className="phone-agenda">
-                <h3>Jueves, 12 de Junio</h3>
-
-                <div className="phone-timeline">
-                  {itineraryItems.map((item) => (
-                    <article className="phone-timeline__item" key={`${item.time}-${item.title}`}>
-                      <div className="phone-timeline__time">{item.time}</div>
-                      <div className="phone-timeline__track">
-                        <span
-                          className={`phone-timeline__marker ${item.featured ? "phone-timeline__marker--active" : ""}`}
-                        >
-                          {item.marker}
-                        </span>
-                        <span className="phone-timeline__line" />
-                      </div>
-                      <div
-                        className={`phone-timeline__card ${item.featured ? "phone-timeline__card--active" : ""}`}
-                      >
-                        <strong>{item.title}</strong>
-                        <p>{item.place}</p>
-                        <small>{item.note}</small>
-                      </div>
-                    </article>
-                  ))}
-                </div>
-
-                <button className="phone-map-button" type="button">
-                  Ver en mapa
-                </button>
-              </div>
-            </div>
-          </article>
-        </div>
-      </section>
-
-      <section className="showcase-live">
-        <div className="showcase-live__header">
-          <div>
-            <p className="eyebrow">Datos reales</p>
-            <h2>Estado actual del backend</h2>
-          </div>
-          <StatusBadge tone={apiStatus}>{trips.length} viajes cargados</StatusBadge>
-        </div>
-
-        {trips.length === 0 ? (
-          <EmptyState>No hay viajes reales cargados todavia.</EmptyState>
-        ) : (
-          <ul className="showcase-live__list">
-            {trips.map((trip) => (
-              <li key={trip.id}>
-                <strong>{trip.title}</strong>
-                <span>{trip.destination}</span>
-                <small>
-                  {trip.status} - {trip.currency}
-                </small>
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
+          </section>
+        </aside>
+      </div>
     </MainLayout>
   );
 }
