@@ -1,0 +1,8 @@
+{{ inviter_name }} te invito a sumarte a {{ trip_title }}.
+
+Destino: {{ trip_destination }}
+
+Acepta la invitacion y completa tu registro desde:
+{{ accept_url }}
+
+Vencimiento: {{ expiration_at }}
