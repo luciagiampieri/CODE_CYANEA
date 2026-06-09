@@ -1,18 +1,6 @@
-﻿import { Platform } from "react-native";
-
-function resolveApiBaseUrl() {
-  if (process.env.EXPO_PUBLIC_API_BASE_URL) {
-    return process.env.EXPO_PUBLIC_API_BASE_URL;
-  }
-
-  if (Platform.OS === "web" && typeof window !== "undefined") {
-    return `${window.location.protocol}//${window.location.hostname}:8000/api/v1`;
-  }
-
-  return "http://127.0.0.1:8000/api/v1";
-}
-
-const API_BASE_URL = resolveApiBaseUrl();
+const API_BASE_URL =
+  import.meta.env.VITE_API_BASE_URL ??
+  `${window.location.protocol}//${window.location.hostname}:8000/api/v1`;
 
 async function parseResponse(response, fallbackMessage) {
   if (response.ok) {
@@ -28,6 +16,8 @@ async function parseResponse(response, fallbackMessage) {
         .join(". ");
     } else if (typeof data.detail === "string") {
       message = data.detail;
+    } else {
+      message = fallbackMessage;
     }
   } catch {
     message = fallbackMessage;
