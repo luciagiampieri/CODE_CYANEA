@@ -13,6 +13,11 @@ Thumbs.db
 # Frontend
 frontend/node_modules/
 frontend/dist/
+frontend/.expo/
+frontend/web-build/
+frontend-ant/node_modules/
+frontend-ant/dist/
+frontend-ant/.vite/
 dist/
 dist-ssr/
 *.local
@@ -36,6 +41,7 @@ backend/*.egg-info/
 .env.production.local
 backend/.env
 frontend/.env
+frontend-ant/.env
 
 # Mobile / Expo residues
 .expo/

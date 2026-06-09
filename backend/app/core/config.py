@@ -10,7 +10,9 @@ class Settings(BaseSettings):
     app_env: str = "development"
     api_v1_prefix: str = "/api/v1"
     database_url: str = "postgresql+psycopg://cyanea:cyanea@localhost:5432/cyanea"
-    cors_origins: str = Field(default="http://localhost:5173,http://127.0.0.1:5173")
+    cors_origins: str = Field(
+        default="http://localhost:5173,http://127.0.0.1:5173,http://localhost:8081,http://127.0.0.1:8081,http://localhost:19006,http://127.0.0.1:19006"
+    )
     mail_enabled: bool = False
     mail_provider: str = "smtp"
     mail_host: str = "localhost"
@@ -21,7 +23,7 @@ class Settings(BaseSettings):
     mail_from_email: str = "no-reply@cyanea.local"
     mail_from_name: str = "Cyanea"
     mail_reply_to: str | None = None
-    mail_frontend_base_url: str = "http://127.0.0.1:5173"
+    mail_frontend_base_url: str = "http://127.0.0.1:8081"
 
     model_config = SettingsConfigDict(
         env_file=".env",
