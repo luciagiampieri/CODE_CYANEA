@@ -14,6 +14,7 @@ class Usuario(Base):
     Nombre: Mapped[str] = mapped_column(String(100), nullable=False)
     Apellido: Mapped[str] = mapped_column(String(100), nullable=False)
     NombreUsuario: Mapped[str] = mapped_column(String(50), nullable=False)
+    HashedPassword: Mapped[str | None] = mapped_column(String(255), nullable=True)
     FotoUrl: Mapped[str | None] = mapped_column(nullable=True)
     FechaAlta: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
@@ -21,7 +22,9 @@ class Usuario(Base):
         nullable=False,
     )
     FechaBaja: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    Activo: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true")
+    Activo: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default="true"
+    )
 
     ViajesAdministrados = relationship(
         "Viaje",
