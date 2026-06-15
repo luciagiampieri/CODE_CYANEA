@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 import logging
 from secrets import token_urlsafe
 
@@ -28,15 +28,13 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 
 
+from datetime import date
+
 @router.get("", response_model=list[TripRead])
 def list_trips(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
 ) -> list[TripRead]:
-    """
-    US-16: Devuelve los viajes activos y finalizados donde el usuario
-    autenticado es participante.
-    """
     viajes = db.scalars(
         select(Viaje)
         .join(ParticipanteViaje, ParticipanteViaje.IdViaje == Viaje.IdViaje)
@@ -48,12 +46,19 @@ def list_trips(
         .order_by(Viaje.FechaCreacion.desc())
     ).all()
 
+    hoy = date.today()
+
+    def resolver_estado(viaje: Viaje) -> str:
+        if viaje.FechaFin and viaje.FechaFin < hoy:
+            return "finalizado"
+        return viaje.EstadoViaje.Nombre
+
     return [
         TripRead(
             id=viaje.IdViaje,
             title=viaje.Titulo,
             destination=viaje.Destino,
-            status=viaje.EstadoViaje.Nombre,
+            status=resolver_estado(viaje),
             currency=viaje.Moneda,
             startDate=viaje.FechaInicio,
             endDate=viaje.FechaFin,
