@@ -81,6 +81,10 @@ export default function MainTabs() {
           component={tab.component}
           initialParams={tab.params}
           name={tab.name}
+          options={{
+            title: "Cyanea",
+            tabBarLabel: tab.name
+          }}
         />
       ))}
     </Tab.Navigator>

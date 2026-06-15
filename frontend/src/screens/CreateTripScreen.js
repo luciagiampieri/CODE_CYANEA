@@ -14,8 +14,10 @@ import ParticipantSearch from "../components/trip/ParticipantSearch";
 import PrimaryButton from "../components/ui/PrimaryButton";
 import StatusPill from "../components/ui/StatusPill";
 import useResponsive from "../hooks/useResponsive";
+import DateTimePicker from "@react-native-community/datetimepicker";
 import { createTrip, getCurrentUser, getUsers } from "../services/api.js";
 import { colors, radii, spacing, typography, shadows } from "../theme/tokens";
+import { Picker } from "@react-native-picker/picker";
 
 const initialForm = {
   title: "",
@@ -48,6 +50,8 @@ export default function CreateTripScreen({ navigation }) {
   const [form, setForm] = useState(initialForm);
   const [submitStatus, setSubmitStatus] = useState("idle");
   const [submitMessage, setSubmitMessage] = useState("");
+  const [showStartPicker, setShowStartPicker] = useState(false);
+  const [showEndPicker, setShowEndPicker] = useState(false);
   const normalizedSearch = participantSearch.trim().toLowerCase();
   const { isDesktop } = useResponsive();
 
@@ -279,30 +283,122 @@ export default function CreateTripScreen({ navigation }) {
               />
 
               <View style={styles.row}>
-                <Field
-                  label="Fecha inicio"
-                  name="startDate"
-                  onChange={handleInputChange}
-                  placeholder="2026-06-12"
-                  value={form.startDate}
-                />
-                <Field
-                  label="Fecha fin"
-                  name="endDate"
-                  onChange={handleInputChange}
-                  placeholder="2026-06-19"
-                  value={form.endDate}
-                />
+                <View style={styles.field}>
+                  <Text style={styles.fieldLabel}>Fecha inicio</Text>
+
+                  {Platform.OS === "web" ? (
+                    <TextInput
+                      style={styles.input}
+                      placeholder="AAAA-MM-DD"
+                      placeholderTextColor={colors.textMuted}
+                      value={form.startDate}
+                      onChangeText={(text) =>
+                        handleInputChange("startDate", text)
+                      }
+                    />
+                  ) : (
+                    <>
+                      <PrimaryButton
+                        label={form.startDate || "Seleccionar fecha"}
+                        onPress={() => setShowStartPicker(true)}
+                        variant="secondary"
+                      />
+
+                      {showStartPicker && (
+                        <DateTimePicker
+                          value={
+                            form.startDate
+                              ? new Date(form.startDate)
+                              : new Date()
+                          }
+                          mode="date"
+                          onChange={(event, selectedDate) => {
+                            setShowStartPicker(false);
+
+                            if (selectedDate) {
+                              handleInputChange(
+                                "startDate",
+                                selectedDate.toISOString().split("T")[0]
+                              );
+                            }
+                          }}
+                        />
+                      )}
+                    </>
+                  )}
+                </View>
+
+                <View style={styles.field}>
+                  <Text style={styles.fieldLabel}>Fecha fin</Text>
+
+                  {Platform.OS === "web" ? (
+                    <TextInput
+                      style={styles.input}
+                      placeholder="AAAA-MM-DD"
+                      placeholderTextColor={colors.textMuted}
+                      value={form.endDate}
+                      onChangeText={(text) =>
+                        handleInputChange("endDate", text)
+                      }
+                    />
+                  ) : (
+                    <>
+                      <PrimaryButton
+                        label={form.endDate || "Seleccionar fecha"}
+                        onPress={() => setShowEndPicker(true)}
+                        variant="secondary"
+                      />
+
+                      {showEndPicker && (
+                        <DateTimePicker
+                          value={
+                            form.endDate
+                              ? new Date(form.endDate)
+                              : new Date()
+                          }
+                          mode="date"
+                          onChange={(event, selectedDate) => {
+                            setShowEndPicker(false);
+
+                            if (selectedDate) {
+                              handleInputChange(
+                                "endDate",
+                                selectedDate.toISOString().split("T")[0]
+                              );
+                            }
+                          }}
+                        />
+                      )}
+                    </>
+                  )}
+                </View>
               </View>
 
               <View style={styles.row}>
-                <Field
-                  label="Moneda"
-                  name="currency"
-                  onChange={handleInputChange}
-                  placeholder="ARS"
-                  value={form.currency}
-                />
+                <Text style={styles.fieldLabel}>Moneda</Text>
+                <View style={styles.currencyContainer}>
+                  {[
+                    { code: "ARS", label: "ARS" },
+                    { code: "USD", label: "USD" },
+                    { code: "EUR", label: "EUR" },
+                    { code: "BRL", label: "BRL" }
+                  ].map((currency) => (
+                    <Text
+                      key={currency.code}
+                      onPress={() =>
+                        handleInputChange("currency", currency.code)
+                      }
+                      style={[
+                        styles.currencyChip,
+                        form.currency === currency.code &&
+                          styles.currencyChipSelected
+                      ]}
+                    >
+                      {currency.label}
+                    </Text>
+                  ))}
+                </View>
+
                 <View style={styles.field}>
                   <Text style={styles.fieldLabel}>Creador / Administrador</Text>
                   <View style={styles.readOnlyBox}>
@@ -383,6 +479,26 @@ function Field({ label, name, onChange, value, placeholder, multiline = false })
 }
 
 const styles = StyleSheet.create({
+  currencyContainer: {
+  flexDirection: "row",
+  flexWrap: "wrap",
+  gap: spacing.sm
+},
+currencyChip: {
+  borderWidth: 1,
+  borderColor: colors.border,
+  borderRadius: radii.md,
+  paddingHorizontal: spacing.md,
+  paddingVertical: spacing.sm,
+  backgroundColor: colors.surfaceMuted,
+  color: colors.textPrimary,
+  fontWeight: "700"
+},
+currencyChipSelected: {
+  backgroundColor: colors.primary,
+  borderColor: colors.primary,
+  color: colors.surface
+},
   heroCard: {
     borderRadius: radii.lg,
     backgroundColor: colors.surface,

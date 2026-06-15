@@ -34,8 +34,10 @@ export default function AppNavigator() {
             <Pressable
               accessibilityRole="button"
               onPress={() => navigation.goBack()}
-              style={{ paddingRight: 10 }}
-            >
+              style={{
+                  paddingLeft: 16,
+                  paddingRight: 10
+                }}            >
               <FontAwesome6 color={colors.surface} name="arrow-left" size={18} />
             </Pressable>
           )

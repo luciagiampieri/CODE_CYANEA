@@ -5,6 +5,7 @@ from secrets import token_urlsafe
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
+from pydantic import ValidationError
 
 from app.db.session import get_db
 from app.models.estado_invitacion import EstadoInvitacion
