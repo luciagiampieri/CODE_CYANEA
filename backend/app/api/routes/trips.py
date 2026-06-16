@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 import logging
 from secrets import token_urlsafe
 
@@ -7,6 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 from pydantic import ValidationError
 
+from app.api.deps import get_current_user
 from app.db.session import get_db
 from app.models.estado_invitacion import EstadoInvitacion
 from app.models.estado_participacion import EstadoParticipacion
@@ -16,11 +17,12 @@ from app.models.participante_viaje import ParticipanteViaje
 from app.models.rol_participante import RolParticipante
 from app.models.usuario import Usuario
 from app.models.viaje import Viaje
-from app.api.routes.users import get_current_user
 from app.schemas.trip import TripCreate, TripRead, InvitationResponse, TripInvitationRead
 from app.services.mail import get_mail_service
-from app.services.notifications.invitation_email_sender import InvitationEmailPayload, InvitationEmailSender
-
+from app.services.notifications.invitation_email_sender import (
+    InvitationEmailPayload,
+    InvitationEmailSender,
+)
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -119,51 +121,72 @@ def respond_to_invitation(
 
 
 @router.get("", response_model=list[TripRead])
-def list_trips(db: Session = Depends(get_db)) -> list[TripRead]:
-    viajes = db.scalars(select(Viaje).order_by(Viaje.FechaCreacion.desc())).all()
+def list_trips(
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> list[TripRead]:
+    viajes = db.scalars(
+        select(Viaje)
+        .join(ParticipanteViaje, ParticipanteViaje.IdViaje == Viaje.IdViaje)
+        .join(EstadoViaje, EstadoViaje.IdEstadoViaje == Viaje.IdEstadoViaje)
+        .where(
+            ParticipanteViaje.IdUsuario == current_user.IdUsuario,
+            EstadoViaje.Nombre.in_(["activo", "finalizado"]),
+        )
+        .order_by(Viaje.FechaCreacion.desc())
+    ).all()
+
+    hoy = date.today()
+
+    def resolver_estado(viaje: Viaje) -> str:
+        if viaje.FechaFin and viaje.FechaFin < hoy:
+            return "finalizado"
+        return viaje.EstadoViaje.Nombre
 
     return [
         TripRead(
             id=viaje.IdViaje,
             title=viaje.Titulo,
             destination=viaje.Destino,
-            status=viaje.EstadoViaje.Nombre,
+            status=resolver_estado(viaje),
             currency=viaje.Moneda,
+            startDate=viaje.FechaInicio,
+            endDate=viaje.FechaFin,
         )
         for viaje in viajes
     ]
 
 
 @router.post("", response_model=TripRead, status_code=status.HTTP_201_CREATED)
-def create_trip(payload: TripCreate, db: Session = Depends(get_db)) -> TripRead:
-    admin_user_id = payload.adminUserId
-    if admin_user_id is None:
-        usuario_actual = get_current_user(db)
-        if usuario_actual is None:
-            raise HTTPException(status_code=404, detail="No hay usuario creador disponible")
-        admin_user_id = usuario_actual.IdUsuario
-
-    administrador = db.get(Usuario, admin_user_id)
-    if administrador is None or not administrador.Activo:
-        raise HTTPException(status_code=404, detail="Administrador no encontrado")
+def create_trip(
+    payload: TripCreate,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> TripRead:
+    # El administrador siempre es el usuario autenticado
+    administrador = current_user
+    admin_user_id = current_user.IdUsuario
 
     participantes_ids = set(payload.participantUserIds) - {admin_user_id}
     if participantes_ids:
         participantes = db.scalars(
-            select(Usuario).where(Usuario.IdUsuario.in_(participantes_ids), Usuario.Activo.is_(True))
+            select(Usuario).where(
+                Usuario.IdUsuario.in_(participantes_ids), Usuario.Activo.is_(True)
+            )
         ).all()
         if len(participantes) != len(participantes_ids):
-            raise HTTPException(status_code=400, detail="Hay participantes inexistentes o inactivos")
+            raise HTTPException(
+                status_code=400, detail="Hay participantes inexistentes o inactivos"
+            )
 
     emails_invitados = set(payload.invitedEmails)
-    usuarios_por_email = {}
     if emails_invitados:
         usuarios_existentes = db.scalars(
             select(Usuario).where(Usuario.Email.in_(emails_invitados))
         ).all()
-        usuarios_por_email = {usuario.Email.lower(): usuario for usuario in usuarios_existentes}
+        usuarios_por_email = {u.Email.lower(): u for u in usuarios_existentes}
 
-        usuarios_inactivos = [usuario.Email for usuario in usuarios_existentes if not usuario.Activo]
+        usuarios_inactivos = [u.Email for u in usuarios_existentes if not u.Activo]
         if usuarios_inactivos:
             raise HTTPException(
                 status_code=400,
@@ -182,37 +205,33 @@ def create_trip(payload: TripCreate, db: Session = Depends(get_db)) -> TripRead:
         emails_invitados.discard(administrador.Email.lower())
 
     participantes_ids = sorted(participantes_ids)
+
     estado_activo = db.scalar(
         select(EstadoViaje).where(EstadoViaje.Nombre == "activo", EstadoViaje.Activo.is_(True))
     )
     rol_admin = db.scalar(
         select(RolParticipante).where(
-            RolParticipante.Nombre == "administrador",
-            RolParticipante.Activo.is_(True),
+            RolParticipante.Nombre == "administrador", RolParticipante.Activo.is_(True)
         )
     )
     rol_participante = db.scalar(
         select(RolParticipante).where(
-            RolParticipante.Nombre == "participante",
-            RolParticipante.Activo.is_(True),
+            RolParticipante.Nombre == "participante", RolParticipante.Activo.is_(True)
         )
     )
     estado_aceptado = db.scalar(
         select(EstadoParticipacion).where(
-            EstadoParticipacion.Nombre == "aceptado",
-            EstadoParticipacion.Activo.is_(True),
+            EstadoParticipacion.Nombre == "aceptado", EstadoParticipacion.Activo.is_(True)
         )
     )
     estado_invitado = db.scalar(
         select(EstadoParticipacion).where(
-            EstadoParticipacion.Nombre == "invitado",
-            EstadoParticipacion.Activo.is_(True),
+            EstadoParticipacion.Nombre == "invitado", EstadoParticipacion.Activo.is_(True)
         )
     )
     estado_invitacion_pendiente = db.scalar(
         select(EstadoInvitacion).where(
-            EstadoInvitacion.Nombre == "pendiente",
-            EstadoInvitacion.Activo.is_(True),
+            EstadoInvitacion.Nombre == "pendiente", EstadoInvitacion.Activo.is_(True)
         )
     )
 
@@ -236,7 +255,7 @@ def create_trip(payload: TripCreate, db: Session = Depends(get_db)) -> TripRead:
         FechaFin=payload.endDate,
         IdEstadoViaje=estado_activo.IdEstadoViaje,
         Moneda=payload.currency.upper(),
-        IdAdministrador=administrador.IdUsuario,
+        IdAdministrador=admin_user_id,
     )
     db.add(viaje)
     db.flush()
@@ -245,13 +264,13 @@ def create_trip(payload: TripCreate, db: Session = Depends(get_db)) -> TripRead:
     db.add(
         ParticipanteViaje(
             IdViaje=viaje.IdViaje,
-            IdUsuario=administrador.IdUsuario,
+            IdUsuario=admin_user_id,
             IdRolParticipante=rol_admin.IdRolParticipante,
             IdEstadoParticipacion=estado_aceptado.IdEstadoParticipacion,
             FechaInvitacion=ahora,
             FechaRespuesta=ahora,
             FechaIncorporacion=ahora,
-            InvitadoPor=administrador.IdUsuario,
+            InvitadoPor=admin_user_id,
         )
     )
 
@@ -262,7 +281,7 @@ def create_trip(payload: TripCreate, db: Session = Depends(get_db)) -> TripRead:
                 IdUsuario=participante_id,
                 IdRolParticipante=rol_participante.IdRolParticipante,
                 IdEstadoParticipacion=estado_invitado.IdEstadoParticipacion,
-                InvitadoPor=administrador.IdUsuario,
+                InvitadoPor=admin_user_id,
             )
         )
 
@@ -278,7 +297,7 @@ def create_trip(payload: TripCreate, db: Session = Depends(get_db)) -> TripRead:
                 TokenInvitacion=token_invitacion,
                 FechaVencimiento=vencimiento,
                 IdEstadoInvitacion=estado_invitacion_pendiente.IdEstadoInvitacion,
-                InvitadoPor=administrador.IdUsuario,
+                InvitadoPor=admin_user_id,
             )
         )
         invitaciones_email.append(
@@ -311,4 +330,6 @@ def create_trip(payload: TripCreate, db: Session = Depends(get_db)) -> TripRead:
         destination=viaje.Destino,
         status=viaje.EstadoViaje.Nombre,
         currency=viaje.Moneda,
+        startDate=viaje.FechaInicio,
+        endDate=viaje.FechaFin,
     )

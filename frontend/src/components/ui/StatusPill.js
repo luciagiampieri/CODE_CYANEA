@@ -3,10 +3,14 @@ import { StyleSheet, Text, View } from "react-native";
 import { colors, radii, spacing, typography } from "../../theme/tokens";
 
 const toneMap = {
+  // Estados de API
   conectada: { backgroundColor: "#e5f5ed", color: colors.success },
   cargando: { backgroundColor: "#eef2fb", color: colors.textSecondary },
   "sin-conexion": { backgroundColor: "#fff1f1", color: colors.danger },
-  note: { backgroundColor: "#fff8da", color: colors.warning }
+  note: { backgroundColor: "#fff8da", color: colors.warning },
+  // Estados de viaje (US-16)
+  activo: { backgroundColor: "#e5f5ed", color: colors.success },
+  finalizado: { backgroundColor: "#eef2fb", color: colors.textSecondary },
 };
 
 export default function StatusPill({ tone = "note", children }) {
@@ -23,10 +27,11 @@ const styles = StyleSheet.create({
   pill: {
     borderRadius: radii.pill,
     paddingHorizontal: spacing.md,
-    paddingVertical: 8
+    paddingVertical: 8,
+    alignSelf: "flex-start",
   },
   label: {
     fontSize: typography.micro,
-    fontWeight: "800"
-  }
+    fontWeight: "800",
+  },
 });
