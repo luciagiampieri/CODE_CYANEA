@@ -1,0 +1,11 @@
+Hola {{ nombre }},
+
+Gracias por registrarte en Cyanea.
+
+Para activar tu cuenta, visitá este enlace (válido por 24 horas):
+{{ confirm_url }}
+
+Si no creaste una cuenta en Cyanea, ignorá este mensaje.
+
+— Equipo Cyanea
+© 2026 Cyanea

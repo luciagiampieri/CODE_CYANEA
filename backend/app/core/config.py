@@ -9,6 +9,7 @@ class Settings(BaseSettings):
     app_name: str = "Cyanea API"
     app_env: str = "development"
     api_v1_prefix: str = "/api/v1"
+    api_base_url: str = "http://127.0.0.1:8000/api/v1"
     database_url: str = "postgresql+psycopg://cyanea:cyanea@localhost:5432/cyanea"
     cors_origins: str = Field(
         default="http://localhost:5173,http://127.0.0.1:5173,http://localhost:8081,http://127.0.0.1:8081,http://localhost:19006,http://127.0.0.1:19006"

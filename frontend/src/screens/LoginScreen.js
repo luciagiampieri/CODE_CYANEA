@@ -10,13 +10,17 @@ import {
   Text,
   TextInput,
   View,
+  TouchableOpacity,
+  Image,
 } from "react-native";
+
 
 import { useAuth } from "../context/AuthContext";
 import { loginUser } from "../services/api";
 import { colors, radii, shadows, spacing, typography } from "../theme/tokens";
+import CyaneaLogo from "../../assets/cyanea_Logo.png";
 
-export default function LoginScreen() {
+export default function LoginScreen({ navigation }) {
   const { login } = useAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -53,7 +57,11 @@ export default function LoginScreen() {
           {/* Marca */}
           <View style={styles.brandRow}>
             <View style={styles.brandIcon}>
-              <FontAwesome6 color={colors.accent} name="location-dot" size={24} />
+              <Image
+                source={CyaneaLogo} 
+                style={styles.logoImage}  
+                resizeMode="contain"
+              />    
             </View>
             <View>
               <Text style={styles.brandName}>CYANEA</Text>
@@ -143,6 +151,16 @@ export default function LoginScreen() {
               <Text style={styles.btnText}>Ingresar</Text>
             )}
           </Pressable>
+          {/*Link de Registro */}
+          <TouchableOpacity 
+            style={styles.registerContainer} 
+            onPress={() => navigation.navigate("Register")}
+          >
+            <Text style={styles.registerText}>
+              ¿No tenés cuenta? <Text style={styles.registerTextBold}>Registrate</Text>
+            </Text>
+          </TouchableOpacity>
+
         </View>
       </KeyboardAvoidingView>
     </LinearGradient>
@@ -175,9 +193,14 @@ const styles = StyleSheet.create({
     width: 48,
     height: 48,
     borderRadius: radii.pill,
-    backgroundColor: colors.primaryStrong,
+    backgroundColor: "#ffffff",
     alignItems: "center",
     justifyContent: "center",
+    overflow: "hidden"
+},
+  logoImage: {
+    width: "100%", 
+    height: "100%", 
   },
   brandName: {
     color: colors.textPrimary,
@@ -248,4 +271,16 @@ const styles = StyleSheet.create({
     fontWeight: "900",
     fontSize: typography.body,
   },
+  registerContainer: {
+    marginTop: spacing.lg,
+    alignItems: "center",
+  },
+  registerText: {
+    color: colors.textSecondary,
+    fontSize: typography.small,
+  },
+  registerTextBold: {
+    color: colors.primaryStrong,
+    fontWeight: "700",
+  }
 });

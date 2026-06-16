@@ -7,6 +7,9 @@ import MainTabs from "./MainTabs";
 import CreateTripScreen from "../screens/CreateTripScreen";
 import LoginScreen from "../screens/LoginScreen";
 import { colors } from "../theme/tokens";
+import RegisterScreen from "../screens/RegisterScreen";          
+import EmailConfirmadoScreen from "../screens/EmailConfirmadoScreen"; 
+import RegistrationSuccessScreen from "../screens/RegistrationSuccessScreen"; 
 
 const Stack = createNativeStackNavigator();
 
@@ -31,11 +34,29 @@ export default function AppNavigator() {
       }}
     >
       {!token ? (
-        <Stack.Screen
-          name="Login"
-          component={LoginScreen}
-          options={{ headerShown: false }}
-        />
+        <>
+          <Stack.Screen
+            name="Login"
+            component={LoginScreen}
+            options={{ headerShown: false }}
+          />
+          <Stack.Screen
+            name="Register"
+            component={RegisterScreen}
+            options={{ headerShown: false }}
+          />
+          {/* CORRECCIÓN: El componente ahora coincide con el import */}
+          <Stack.Screen
+            name="RegistrationSuccess"
+            component={RegistrationSuccessScreen}
+            options={{ headerShown: false }}
+          />
+          <Stack.Screen
+            name="EmailConfirmado"
+            component={EmailConfirmadoScreen}
+            options={{ headerShown: false }}
+          />
+        </>
       ) : (
         <>
           <Stack.Screen

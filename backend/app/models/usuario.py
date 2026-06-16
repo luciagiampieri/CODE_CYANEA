@@ -51,3 +51,7 @@ class Usuario(Base):
         back_populates="UsuarioRegistrado",
         foreign_keys="InvitacionViaje.IdUsuarioRegistrado",
     )
+
+    EmailConfirmado: Mapped[bool] = mapped_column(
+    Boolean, nullable=False, default=False, server_default="false"
+    )

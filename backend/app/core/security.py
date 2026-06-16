@@ -23,3 +23,32 @@ def create_access_token(data: dict) -> str:
 
 def decode_access_token(token: str) -> dict:
     return jwt.decode(token, settings.secret_key, algorithms=[settings.jwt_algorithm])
+
+
+def create_email_confirmation_token(email: str) -> str:
+    """Token de vida corta (24h) para confirmar el correo del usuario."""
+    expire = datetime.now(timezone.utc) + timedelta(hours=24)
+    return jwt.encode(
+        {"sub": email, "exp": expire, "type": "email_confirm"},
+        settings.secret_key,
+        algorithm=settings.jwt_algorithm, 
+    )
+
+
+def decode_email_confirmation_token(token: str) -> str:
+    """
+    Decodifica el token de confirmación.
+    Retorna el email si es válido.
+    Lanza JWTError si expiró o es inválido, ValueError si el tipo no coincide.
+    """
+    payload = jwt.decode(
+        token,
+        settings.secret_key,
+        algorithms=[settings.jwt_algorithm],
+    )
+    if payload.get("type") != "email_confirm":
+        raise ValueError("El token no es de confirmación de email.")
+    email: str | None = payload.get("sub")
+    if not email:
+        raise ValueError("Token sin email asociado.")
+    return email
