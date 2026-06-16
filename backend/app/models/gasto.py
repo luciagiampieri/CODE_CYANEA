@@ -50,7 +50,7 @@ class Gasto(Base):
     # Relaciones directas
     Viaje = relationship("Viaje", back_populates="Gastos", foreign_keys=[IdViaje])
     Pagador = relationship("ParticipanteViaje", back_populates="GastosPagados", foreign_keys=[IdPagador])
-    Categoria = relationship("CategoriaGasto", back_populates="Gastos", foreign_keys=[IdCategoria])
+    Categoria = relationship("CategoriasGastos", back_populates="Gastos", foreign_keys=[IdCategoria])
 
     # Relación intermedia hacia ParticipantesGastos con eliminación en cascada
     ParticipantesAsociados = relationship(

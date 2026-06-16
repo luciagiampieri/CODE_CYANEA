@@ -19,8 +19,8 @@ class Viaje(Base):
     Titulo: Mapped[str] = mapped_column(String(150), nullable=False)
     Destino: Mapped[str] = mapped_column(String(150), nullable=False)
     Descripcion: Mapped[str | None] = mapped_column(nullable=True)
-    FechaInicio: Mapped[date | None] = mapped_column(Date, nullable=True)
-    FechaFin: Mapped[date | None] = mapped_column(Date, nullable=True)
+    FechaInicio: Mapped[date] = mapped_column(Date, nullable=False)
+    FechaFin: Mapped[date] = mapped_column(Date, nullable=False)
     IdEstadoViaje: Mapped[int] = mapped_column(
         ForeignKey("EstadosViajes.IdEstadoViaje", name="FK_Viajes_EstViajes_IdEstadoViaje"),
         nullable=False,
@@ -63,7 +63,7 @@ class Viaje(Base):
         cascade="all, delete-orphan",
         foreign_keys="InvitacionViaje.IdViaje",
     )
-    Gatos = relationship(
+    Gastos = relationship(
         "Gasto",
         back_populates="Viaje",
         cascade="all, delete-orphan",

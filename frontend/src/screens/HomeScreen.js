@@ -26,12 +26,16 @@ const itineraryItems = [
 ];
 
 function formatDateRange(trip) {
-  if (!trip.startDate || !trip.endDate) {
+  const startDateStr = trip.startDate || trip.FechaInicio;
+  const endDateStr = trip.endDate || trip.FechaFin;
+
+  if (!startDateStr || !endDateStr) {
     return "Fechas por definir";
   }
 
-  const start = new Date(trip.startDate);
-  const end = new Date(trip.endDate);
+  const start = new Date(startDateStr);
+  const end = new Date(endDateStr);
+  
   if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
     return "Fechas por definir";
   }
@@ -39,7 +43,8 @@ function formatDateRange(trip) {
   const formatter = new Intl.DateTimeFormat("es-AR", {
     day: "2-digit",
     month: "short",
-    year: "numeric"
+    year: "numeric",
+    timeZone: "UTC" 
   });
 
   return `${formatter.format(start)} - ${formatter.format(end)}`;

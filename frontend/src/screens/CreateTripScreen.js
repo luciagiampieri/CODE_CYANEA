@@ -238,12 +238,12 @@ export default function CreateTripScreen({ navigation }) {
 
     // Validación de lógica de fechas si ambas existen
     if (form.startDate && form.endDate) {
-      const start = new Date(form.startDate);
-      const end = new Date(form.endDate);
+      const start = new Date(form.startDate + "T12:00:00");
+      const end = new Date(form.endDate + "T12:00:00");
       const hoy = new Date();
       hoy.setHours(0, 0, 0, 0);
 
-      if (start < hoy) {
+      if (start <= hoy) {
         localErrors.startDate = "La fecha de inicio debe ser igual o posterior a la actual.";
       }
       if (end < start) {
@@ -359,12 +359,16 @@ export default function CreateTripScreen({ navigation }) {
                     />
                     {showStartPicker && (
                       <DateTimePicker
-                        value={form.startDate ? new Date(form.startDate) : new Date()}
+                        value={form.startDate ? new Date(form.startDate + "T12:00:00") : new Date()} // El truco de la siesta evita desfasajes
                         mode="date"
                         onChange={(event, selectedDate) => {
                           setShowStartPicker(false);
                           if (selectedDate) {
-                            handleInputChange("startDate", selectedDate.toISOString().split("T")[0]);
+                            const year = selectedDate.getFullYear();
+                            const month = String(selectedDate.getMonth() + 1).padStart(2, '0');
+                            const day = String(selectedDate.getDate()).padStart(2, '0');
+                            
+                            handleInputChange("startDate", `${year}-${month}-${day}`);
                           }
                         }}
                       />
@@ -399,7 +403,7 @@ export default function CreateTripScreen({ navigation }) {
                     />
                     {showEndPicker && (
                       <DateTimePicker
-                        value={form.endDate ? new Date(form.endDate) : new Date()}
+                        value={form.endDate ? new Date(form.endDate + "T12:00:00") : new Date()} 
                         mode="date"
                         onChange={(event, selectedDate) => {
                           setShowEndPicker(false);
@@ -512,7 +516,6 @@ function Field({ label, name, onChange, value, placeholder, multiline = false, e
         onChangeText={(text) => onChange(name, text)}
         placeholder={placeholder}
         placeholderTextColor={colors.textMuted}
-        // Si hay un error, le pintamos el borde rojo al input usando los tokens
         style={[
           styles.input, 
           multiline && styles.inputMultiline,
@@ -520,7 +523,6 @@ function Field({ label, name, onChange, value, placeholder, multiline = false, e
         ]}
         value={value}
       />
-      {/* Si existe un error para este campo, se dibuja acá abajo */}
       {error ? <Text style={styles.fieldError}>{error}</Text> : null}
     </View>
   );
@@ -528,8 +530,8 @@ function Field({ label, name, onChange, value, placeholder, multiline = false, e
 
 const styles = StyleSheet.create({
   fieldError: {
-    color: colors.danger, // Usa el rojo #c84949 de tus tokens
-    fontSize: typography.micro, // Tamaño 12
+    color: colors.danger, 
+    fontSize: typography.micro,
     fontWeight: "700",
     marginTop: 4,
     paddingLeft: 4,
