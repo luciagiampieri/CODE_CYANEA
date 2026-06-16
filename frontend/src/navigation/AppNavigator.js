@@ -106,19 +106,11 @@ export default function AppNavigator() {
           <Stack.Screen
             name="AddGasto"
             component={AddGastoScreen}
-            options={({ navigation }) => ({
-              presentation: "fullScreenModal",
-              title: "Nuevo Gasto",
-              headerLeft: () => (
-                <Pressable
-                  accessibilityRole="button"
-                  onPress={() => navigation.goBack()}
-                  style={{ paddingLeft: 16, paddingRight: 10 }}
-                >
-                  <FontAwesome6 color={colors.surface} name="arrow-left" size={18} />
-                </Pressable>
-              ),
-            })}
+            options={{
+              headerShown: false,
+              gestureEnabled: true,
+              animation: "slide_from_right",
+            }}
           />
         </>
       )}

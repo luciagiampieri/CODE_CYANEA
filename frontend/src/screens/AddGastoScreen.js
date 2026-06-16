@@ -192,7 +192,21 @@ export default function AddGastoScreen({ route, navigation }) {
 
     return (
         <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-            <Text style={styles.title}>Nuevo gasto</Text>
+            <View style={styles.header}>
+                <TouchableOpacity
+                style={styles.backButton}
+                onPress={() => navigation.goBack()}
+                >
+
+                <FontAwesome6 
+                    name="arrow-left" 
+                    size={18} 
+                    color={colors.primary} 
+                />
+                
+                </TouchableOpacity>
+                <Text style={styles.title}>Nuevo gasto</Text>
+            </View>
 
             {/* NOMBRE */}
             <Text style={styles.label}>Concepto</Text>
@@ -439,6 +453,28 @@ export default function AddGastoScreen({ route, navigation }) {
 }
 
 const styles = StyleSheet.create({
+    
+    header: {
+        height: 50,
+        flexDirection: "row",
+        alignItems: "center",
+        justifyContent: "center",
+        marginBottom: 20,
+        position: "relative",
+    },
+
+    backButton: {
+        position: "absolute",
+        left: 0,
+        width: 42,
+        height: 42,
+        borderRadius: 21,
+        backgroundColor: "#fff",
+        justifyContent: "center",
+        alignItems: "center",
+        ...shadows.card,
+    },
+
     container: {
         flex: 1,
         backgroundColor: colors.background
@@ -456,7 +492,7 @@ const styles = StyleSheet.create({
         fontSize: 28,
         fontWeight: "800",
         color: colors.primary,
-        marginBottom: 20
+        textAlign: "center"
     },
     label: {
         fontWeight: "700",
@@ -620,3 +656,4 @@ const styles = StyleSheet.create({
         fontWeight: "700"
     }
 });
+
