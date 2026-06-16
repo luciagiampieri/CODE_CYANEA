@@ -45,3 +45,28 @@ class TripCreate(BaseModel):
             raise ValueError("La fecha de finalización debe ser posterior o igual a la fecha de inicio")
             
         return self
+
+
+class InvitationResponse(BaseModel):
+    decision: str = Field(..., description="La decisión del usuario: 'aceptar' o 'rechazar'")
+
+    @field_validator("decision")
+    @classmethod
+    def validate_decision(cls, value: str) -> str:
+        cleaned_value = value.strip().lower()
+        
+        if cleaned_value not in ["aceptar", "rechazar"]:
+            raise ValueError("La decisión enviada no es válida. Debe ser 'aceptar' o 'rechazar'.")
+            
+        return cleaned_value
+
+
+class TripInvitationRead(BaseModel):
+    tripId: int = Field(..., description="ID del viaje invitado")
+    title: str = Field(..., description="Título del viaje")
+    destination: str = Field(..., description="Destino del viaje")
+    status: str = Field(..., description="Estado actual de la participación (ej: 'invitado')")
+    role: str = Field(..., description="Rol asignado en el viaje")
+
+    class Config:
+        from_attributes = True

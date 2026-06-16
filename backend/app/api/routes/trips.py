@@ -17,13 +17,105 @@ from app.models.rol_participante import RolParticipante
 from app.models.usuario import Usuario
 from app.models.viaje import Viaje
 from app.api.routes.users import get_current_user
-from app.schemas.trip import TripCreate, TripRead
+from app.schemas.trip import TripCreate, TripRead, InvitationResponse, TripInvitationRead
 from app.services.mail import get_mail_service
 from app.services.notifications.invitation_email_sender import InvitationEmailPayload, InvitationEmailSender
 
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
+@router.get("/invitations/pending", response_model=None)
+def get_pending_invitations(
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user)
+):
+    
+    # Retorna todas las invitaciones a viajes que el usuario autenticado tiene en estado 'invitado'.
+    participaciones = db.scalars(
+        select(ParticipanteViaje)
+        .join(ParticipanteViaje.EstadoParticipacion)
+        .where(
+            ParticipanteViaje.IdUsuario == current_user.IdUsuario,
+            EstadoParticipacion.Nombre == "invitado"
+        )
+    ).all()
+
+    return [
+        TripInvitationRead(
+            tripId=p.Viaje.IdViaje,
+            title=p.Viaje.Titulo,
+            destination=p.Viaje.Destino,
+            status=p.EstadoParticipacion.Nombre,
+            role=p.RolParticipante.Nombre
+        )
+        for p in participaciones
+    ]
+
+
+@router.post("/invitations/{trip_id}/respond", status_code=status.HTTP_200_OK)
+def respond_to_invitation(
+    trip_id: int,
+    payload: InvitationResponse,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user)
+):
+    #Permite aceptar o rechazar una invitación a un viaje.
+    decision = payload.decision 
+
+    participacion = db.scalar(
+        select(ParticipanteViaje)
+        .where(
+            ParticipanteViaje.IdViaje == trip_id,
+            ParticipanteViaje.IdUsuario == current_user.IdUsuario
+        )
+    )
+
+    if not participacion:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, 
+            detail="No se encontró una invitación para este viaje."
+        )
+
+    if participacion.EstadoParticipacion.Nombre != "invitado":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Esta invitación ya fue respondida previamente."
+        )
+
+    nuevo_estado_nombre = "aceptado" if decision == "aceptar" else "rechazado"
+    estado_maestro = db.scalar(
+        select(EstadoParticipacion).where(EstadoParticipacion.Nombre == nuevo_estado_nombre)
+    )
+    
+    if not estado_maestro:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, 
+            detail="Falta el estado maestro requerido para la respuesta"
+        )
+
+    ahora = datetime.now()
+    participacion.IdEstadoParticipacion = estado_maestro.IdEstadoParticipacion
+    participacion.FechaRespuesta = ahora
+    
+    if decision == "aceptar":
+        participacion.FechaIncorporacion = ahora
+
+    db.commit()
+
+    administrador_viaje = participacion.Viaje.Administrador
+    if administrador_viaje:
+        logger.info(
+            f"NOTIFICACIÓN AUTOMÁTICA -> Destinatario: {administrador_viaje.Email} | "
+            f"El usuario {current_user.Nombre} {current_user.Apellido} ha "
+            f"{decision.upper() + 'ADO'} la invitación al viaje '{participacion.Viaje.Titulo}'."
+        )
+
+    return {
+        "status": "success",
+        "message": f"Invitación {nuevo_estado_nombre} correctamente."
+    }
+
 
 
 @router.get("", response_model=list[TripRead])

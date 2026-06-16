@@ -3,6 +3,7 @@ import { FontAwesome6 } from "@expo/vector-icons";
 
 import HomeScreen from "../screens/HomeScreen";
 import PlaceholderScreen from "../screens/PlaceholderScreen";
+import InvitationsScreen from "../screens/InvitationsScreen";
 import { colors } from "../theme/tokens";
 
 const Tab = createBottomTabNavigator();
@@ -32,14 +33,11 @@ const tabs = [
     }
   },
   {
-    name: "Guardados",
-    component: PlaceholderScreen,
-    icon: "bookmark",
-    params: {
-      title: "Guardados",
-      message: "Aqui podran quedar destinos, alojamientos o ideas favoritas."
-    }
-  },
+      name: "Invitaciones", 
+      component: InvitationsScreen,
+      icon: "envelope-open-text", 
+      params: {}
+    },
   {
     name: "Perfil",
     component: PlaceholderScreen,
