@@ -63,3 +63,9 @@ class Viaje(Base):
         cascade="all, delete-orphan",
         foreign_keys="InvitacionViaje.IdViaje",
     )
+    Gatos = relationship(
+        "Gasto",
+        back_populates="Viaje",
+        cascade="all, delete-orphan",
+        foreign_keys="Gasto.IdViaje",
+    )

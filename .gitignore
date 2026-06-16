@@ -32,6 +32,7 @@ backend/.pytest_cache/
 backend/.mypy_cache/
 backend/.ruff_cache/
 backend/*.egg-info/
+backend/node_modules/
 
 # Local env
 .env

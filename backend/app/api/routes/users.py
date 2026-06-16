@@ -10,14 +10,22 @@ from app.schemas.usuario import UsuarioRead
 router = APIRouter()
 
 
-"""def get_current_user(db: Session) -> Usuario | None:
+"""def get_current_user(db: Session = Depends(get_db)) -> Usuario:
     usuario_actual = db.scalar(
-        select(Usuario).where(Usuario.NombreUsuario == "luciano", Usuario.Activo.is_(True))
+        select(Usuario).where(
+            Usuario.NombreUsuario == "luciano",
+            Usuario.Activo.is_(True)
+        )
     )
-    if usuario_actual is not None:
+
+    if usuario_actual:
         return usuario_actual
 
-    return db.scalar(select(Usuario).where(Usuario.Activo.is_(True)).order_by(Usuario.NombreUsuario))"""
+    return db.scalar(
+        select(Usuario)
+        .where(Usuario.Activo.is_(True))
+        .order_by(Usuario.NombreUsuario)
+    )"""
 
 @router.get("/me", response_model=UsuarioRead)
 def get_me(current_user: Usuario = Depends(get_current_user)) -> UsuarioRead:
