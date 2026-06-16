@@ -1,300 +1,388 @@
-import React, { useState, useEffect } from "react";
-import {
-  View,
-  Text,
-  StyleSheet,
-  TouchableOpacity,
-  ScrollView,
-  ActivityIndicator,
-  SafeAreaView
-} from "react-native";
 import { FontAwesome6 } from "@expo/vector-icons";
+import { LinearGradient } from "expo-linear-gradient";
+import { useEffect, useState } from "react";
+import {
+  ActivityIndicator,
+  ImageBackground,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
 
-// Simulamos los tokens visuales oscuros/claros que venís usando en tu app
-const COLORS = {
-  primary: "#1e3e7b",      // Azul oscuro principal
-  secondary: "#ffec80",    // Amarillo/dorado para contrastes notables
-  background: "#f0f4f8",   // Fondo gris claro de la app
-  cardBg: "#ffffff",       // Fondo blanco para contenedores
-  textDark: "#1a1a1a",     // Texto principal
-  textMuted: "#666666",    // Texto secundario
-  border: "#e1e8ed"        // Separadores de pestañas
+import ScreenContainer from "../components/layout/ScreenContainer";
+import StatusPill from "../components/ui/StatusPill";
+import { getTripById } from "../services/api";
+import { colors, radii, spacing, typography, shadows } from "../theme/tokens";
+
+const STATUS_LABEL = {
+  activo: "Activo",
+  finalizado: "Finalizado",
 };
 
-export default function TripDetailsScreen({ route, navigation }) {
-  // Capturamos el IdViaje enviado desde el listado por los parámetros de navegación
-  const { IdViaje } = route.params || { IdViaje: 1 };
-  
-  const [tabActiva, setTabActiva] = useState("Itinerario");
-  const [viaje, setViaje] = useState(null);
+// El backend devuelve exactamente: id, title, destination, status,
+// currency, startDate, endDate  (ver TripRead schema y GET /trips/{id}).
+// Para el trip que viene del listado (initialTrip) los campos son los mismos
+// porque list_trips usa el mismo TripRead.
+function normalizeTrip(raw) {
+  if (!raw) return raw;
+  return {
+    id:          raw.id          ?? null,
+    title:       raw.title       ?? "",
+    destination: raw.destination ?? "",
+    description: raw.description ?? "",   // null si no hay descripción
+    status:      raw.status      ?? "",
+    currency:    raw.currency    ?? "",
+    startDate:   raw.startDate   ?? "",
+    endDate:     raw.endDate     ?? "",
+    // campos opcionales que el backend podría agregar en el futuro
+    budget:             raw.budget             ?? null,
+    participants_count: raw.participants_count ?? null,
+    owner_name:         raw.owner_name         ?? "",
+  };
+}
+
+function formatDateRange(trip) {
+  const startDateStr = trip.startDate;
+  const endDateStr   = trip.endDate;
+
+  if (!startDateStr || !endDateStr) return "Fechas por definir";
+
+  const start = new Date(startDateStr);
+  const end   = new Date(endDateStr);
+
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()))
+    return "Fechas por definir";
+
+  const formatter = new Intl.DateTimeFormat("es-AR", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    timeZone: "UTC",
+  });
+
+  return `${formatter.format(start)} — ${formatter.format(end)}`;
+}
+
+const FALLBACK_IMAGE =
+  "https://images.unsplash.com/photo-1570077188670-e3a8d69ac5ff?auto=format&fit=crop&w=1200&q=80";
+
+export default function TripDetailScreen({ route, navigation }) {
+  const { trip: rawInitialTrip } = route.params;
+  const initialTrip = normalizeTrip(rawInitialTrip);
+
+  const [trip, setTrip]       = useState(initialTrip);
   const [loading, setLoading] = useState(true);
+  const [error, setError]     = useState(null);
 
-  // Efecto simulado para cargar los datos del viaje usando el IdViaje recibido
   useEffect(() => {
-    // Aquí eventualmente llamarás a tu API real: const data = await getTripById(IdViaje);
-    setTimeout(() => {
-      setViaje({
-        IdViaje: IdViaje,
-        Titulo: "Escapada a Córdoba",
-        Destino: "Córdoba, Argentina",
-        Descripcion: "Viaje grupal con amigos para recorrer las sierras y pasar un finde increíble.",
-        Fechas: "18 Jun - 21 Jun, 2026",
-        Integrantes: 4
-      });
-      setLoading(false);
-    }, 800);
-  }, [IdViaje]);
+    async function loadDetail() {
+      try {
+        const raw  = await getTripById(initialTrip.id);
+        const data = normalizeTrip(raw);
+        setTrip(data);
+      } catch (err) {
+        // Queda con los datos del listado; mostramos aviso no bloqueante
+        setError("No se pudo actualizar la información del viaje.");
+        console.warn("[TripDetail] getTripById error:", err?.message ?? err);
+      } finally {
+        setLoading(false);
+      }
+    }
+    loadDetail();
+  }, [initialTrip.id]);
 
-  if (loading) {
-    return (
-      <View style={styles.center}>
-        <ActivityIndicator size="large" color={COLORS.primary} />
-      </View>
-    );
+  // En Expo Web no siempre hay historial de navegación React Navigation,
+  // así que usamos window.history como fallback.
+  function handleBack() {
+    if (navigation.canGoBack()) {
+      navigation.goBack();
+    } else if (Platform.OS === "web" && typeof window !== "undefined") {
+      window.history.back();
+    } else {
+      navigation.navigate("Tabs");
+    }
   }
 
-  // Listado de pestañas requerido tal cual lo solicitaste
-  const tabs = ["Itinerario", "Gastos", "Documentos", "Votaciones", "Checklists"];
-
-  // Renderizado dinámico del contenido de cada pestaña
-  const renderContenidoTab = () => {
-    switch (tabActiva) {
-      case "Itinerario":
-        return (
-          <View style={styles.tabContainerPlaceholder}>
-            <FontAwesome6 name="calendar-days" size={40} color={COLORS.primary} />
-            <Text style={styles.tabTitlePlaceholder}>Itinerario del Viaje</Text>
-            <Text style={styles.tabTextPlaceholder}>Acá se listarán los días, actividades y puntos de encuentro planificados.</Text>
-          </View>
-        );
-      case "Gastos":
-        return (
-          <View style={styles.tabContainerPlaceholder}>
-            <FontAwesome6 name="money-bill-transfer" size={40} color={COLORS.primary} />
-            <Text style={styles.tabTitlePlaceholder}>Gestión de Gastos</Text>
-            <Text style={styles.tabTextPlaceholder}>Espacio destinado para registrar las cuentas, divisiones y saldos compartidos.</Text>
-            {/* Botón sugerido en tus US anteriores para añadir un gasto */}
-            <TouchableOpacity 
-              style={styles.actionBtn} 
-              onPress={() => navigation.navigate("AddGasto", { IdViaje: viaje.IdViaje })}
-            >
-              <Text style={styles.actionBtnText}>Añadir nuevo gasto</Text>
-            </TouchableOpacity>
-          </View>
-        );
-      case "Documentos":
-        return (
-          <View style={styles.tabContainerPlaceholder}>
-            <FontAwesome6 name="file-lines" size={40} color={COLORS.primary} />
-            <Text style={styles.tabTitlePlaceholder}>Documentos y Pasajes</Text>
-            <Text style={styles.tabTextPlaceholder}>Espacio para guardar reservas de hotel, pasajes de avión, PDFs y vouchers importantes.</Text>
-          </View>
-        );
-      case "Votaciones":
-        return (
-          <View style={styles.tabContainerPlaceholder}>
-            <FontAwesome6 name="square-poll-vertical" size={40} color={COLORS.primary} />
-            <Text style={styles.tabTitlePlaceholder}>Votaciones Grupales</Text>
-            <Text style={styles.tabTextPlaceholder}>Encuestas para decidir democráticamente dónde comer, qué hacer o qué auto alquilar.</Text>
-          </View>
-        );
-      case "Checklists":
-        return (
-          <View style={styles.tabContainerPlaceholder}>
-            <FontAwesome6 name="list-check" size={40} color={COLORS.primary} />
-            <Text style={styles.tabTitlePlaceholder}>Listas de Control (Checklists)</Text>
-            <Text style={styles.tabTextPlaceholder}>Tareas pendientes y valijas listas. Controlá que nadie se olvide nada fundamental.</Text>
-          </View>
-        );
-      default:
-        return null;
-    }
-  };
+  const statusKey  = trip.status?.toLowerCase();
+  const statusLabel = STATUS_LABEL[statusKey] ?? trip.status ?? "";
+  const dateLabel  = formatDateRange(trip);
+  const heroImage  = rawInitialTrip.image ?? FALLBACK_IMAGE;
 
   return (
-    <SafeAreaView style={styles.container}>
-      {/* SECCIÓN DEL HEADER PRINCIPAL: Info básica del Viaje */}
-      <View style={styles.headerCard}>
-        <View style={styles.headerTopRow}>
-          <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
-            <FontAwesome6 name="arrow-left" size={18} color={COLORS.primary} />
-          </TouchableOpacity>
-          <Text style={styles.headerMainTitle}>{viaje?.Titulo}</Text>
-          <View style={{ width: 32 }} /> {/* Espaciador óptico para centrar */}
-        </View>
-
-        <View style={styles.headerDetailsBox}>
-          <Text style={styles.headerDestino}>📍 {viaje?.Destino}</Text>
-          <View style={styles.metaRow}>
-            <Text style={styles.headerMeta}><FontAwesome6 name="calendar" size={12} /> {viaje?.Fechas}</Text>
-            <Text style={styles.headerMeta}><FontAwesome6 name="users" size={12} /> {viaje?.Integrantes} viajeros</Text>
-          </View>
-          <Text style={styles.headerDesc}>{viaje?.Descripcion}</Text>
-        </View>
-      </View>
-
-      {/* BARRA HORIZONTAL DE PESTAÑAS (TABS) */}
-      <View style={styles.tabsWrapper}>
-        <ScrollView 
-          horizontal 
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.tabsScrollContent}
+    <ScreenContainer>
+      {/* Hero con imagen */}
+      <ImageBackground
+        imageStyle={styles.heroImage}
+        source={{ uri: heroImage }}
+        style={styles.hero}
+      >
+        <LinearGradient
+          colors={["transparent", "rgba(10,20,50,0.85)"]}
+          style={styles.heroGradient}
         >
-          {tabs.map((tab) => {
-            const esActiva = tabActiva === tab;
-            return (
-              <TouchableOpacity
-                key={tab}
-                style={[styles.tabItem, esActiva && styles.tabItemActiva]}
-                onPress={() => setTabActiva(tab)}
-                activeOpacity={0.7}
-              >
-                <Text style={[styles.tabItemText, esActiva && styles.tabItemTextActiva]}>
-                  {tab}
-                </Text>
-              </TouchableOpacity>
-            );
-          })}
-        </ScrollView>
-      </View>
+          {/* Botón volver — siempre visible, fuera del scroll */}
+          <Pressable
+            accessibilityLabel="Volver al listado"
+            accessibilityRole="button"
+            onPress={handleBack}
+            style={({ pressed }) => [
+              styles.backButton,
+              pressed && styles.backButtonPressed,
+            ]}
+          >
+            <FontAwesome6 color={colors.surface} name="arrow-left" size={16} />
+          </Pressable>
 
-      {/* CONTENIDO INTERNO DE LA PESTAÑA SELECCIONADA */}
-      <ScrollView contentContainerStyle={styles.scrollContent}>
-        {renderContenidoTab()}
-      </ScrollView>
-    </SafeAreaView>
+          <View style={styles.heroContent}>
+            {statusLabel ? (
+              <View style={styles.pillWrap}>
+                <StatusPill tone={statusKey}>{statusLabel}</StatusPill>
+              </View>
+            ) : null}
+            <Text style={styles.heroTitle}>
+              {trip.title || "Sin nombre"}
+            </Text>
+            {trip.destination ? (
+              <Text style={styles.heroSubtitle}>{trip.destination}</Text>
+            ) : null}
+          </View>
+        </LinearGradient>
+      </ImageBackground>
+
+      {/* Cuerpo */}
+      {loading ? (
+        <View style={styles.loadingWrap}>
+          <ActivityIndicator color={colors.primary} size="large" />
+        </View>
+      ) : (
+        <ScrollView
+          contentContainerStyle={styles.body}
+          showsVerticalScrollIndicator={false}
+        >
+          {error ? (
+            <View style={styles.errorBanner}>
+              <FontAwesome6
+                color={colors.warning ?? "#b45309"}
+                name="triangle-exclamation"
+                size={14}
+              />
+              <Text style={styles.errorText}>{error}</Text>
+            </View>
+          ) : null}
+
+          {/* Fechas */}
+          <View style={styles.card}>
+            <View style={styles.cardRow}>
+              <FontAwesome6
+                color={colors.primary}
+                name="calendar-days"
+                size={16}
+              />
+              <View style={styles.cardRowContent}>
+                <Text style={styles.cardLabel}>Fechas</Text>
+                <Text style={styles.cardValue}>{dateLabel}</Text>
+              </View>
+            </View>
+          </View>
+
+          {/* Descripción */}
+          {trip.description ? (
+            <View style={styles.card}>
+              <Text style={styles.sectionTitle}>Descripción</Text>
+              <Text style={styles.descriptionText}>{trip.description}</Text>
+            </View>
+          ) : null}
+
+          {/* Datos adicionales */}
+          <View style={styles.card}>
+            <Text style={styles.sectionTitle}>Información del viaje</Text>
+
+            <InfoRow icon="hashtag" label="ID" value={String(trip.id)} />
+
+            {trip.budget != null ? (
+              <InfoRow
+                icon="coins"
+                label="Presupuesto"
+                value={`$${trip.budget}`}
+              />
+            ) : null}
+
+            {trip.participants_count != null ? (
+              <InfoRow
+                icon="users"
+                label="Participantes"
+                value={String(trip.participants_count)}
+              />
+            ) : null}
+
+            {trip.owner_name ? (
+              <InfoRow
+                icon="user-tie"
+                label="Organizador"
+                value={trip.owner_name}
+              />
+            ) : null}
+          </View>
+        </ScrollView>
+      )}
+    </ScreenContainer>
+  );
+}
+
+function InfoRow({ icon, label, value }) {
+  return (
+    <View style={styles.infoRow}>
+      <FontAwesome6
+        color={colors.textSecondary}
+        name={icon}
+        size={13}
+        style={styles.infoIcon}
+      />
+      <Text style={styles.infoLabel}>{label}</Text>
+      <Text style={styles.infoValue}>{value}</Text>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
+  hero: {
+    height: 280,
+    borderRadius: radii.lg,
+    overflow: "hidden",
+    ...shadows.card,
+  },
+  heroImage: {
+    borderRadius: radii.lg,
+  },
+  heroGradient: {
     flex: 1,
-    backgroundColor: COLORS.background,
-  },
-  center: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: COLORS.background,
-  },
-  headerCard: {
-    backgroundColor: COLORS.cardBg,
-    paddingHorizontal: 16,
-    paddingTop: 16,
-    paddingBottom: 20,
-    borderBottomWidth: 1,
-    borderBottomColor: COLORS.border,
-  },
-  headerTopRow: {
-    flexDirection: "row",
-    alignItems: "center",
     justifyContent: "space-between",
-    marginBottom: 16,
+    padding: spacing.lg,
   },
-  backBtn: {
-    padding: 6,
-  },
-  headerMainTitle: {
-    fontSize: 20,
-    fontWeight: "800",
-    color: COLORS.primary,
-    textAlign: "center",
-  },
-  headerDetailsBox: {
-    marginTop: 4,
-  },
-  headerDestino: {
-    fontSize: 16,
-    fontWeight: "700",
-    color: COLORS.textDark,
-    marginBottom: 6,
-  },
-  metaRow: {
-    flexDirection: "row",
-    gap: 16,
-    marginBottom: 8,
-  },
-  headerMeta: {
-    fontSize: 13,
-    color: COLORS.textMuted,
-    fontWeight: "500",
-  },
-  headerDesc: {
-    fontSize: 13,
-    color: COLORS.textMuted,
-    lineHeight: 18,
-  },
-  /* Estilos de la barra de Navegación por pestañas */
-  tabsWrapper: {
-    backgroundColor: COLORS.cardBg,
-    borderBottomWidth: 1,
-    borderBottomColor: COLORS.border,
-  },
-  tabsScrollContent: {
-    paddingHorizontal: 12,
-    alignItems: "center",
-  },
-  tabItem: {
-    paddingVertical: 14,
-    paddingHorizontal: 16,
-    borderBottomWidth: 3,
-    borderBottomColor: "transparent",
-  },
-  tabItemActiva: {
-    borderBottomColor: COLORS.primary, // Línea inferior resaltada para la activa
-  },
-  tabItemText: {
-    fontSize: 14,
-    fontWeight: "600",
-    color: COLORS.textMuted,
-  },
-  tabItemTextActiva: {
-    color: COLORS.primary,
-    fontWeight: "700",
-  },
-  /* Contenedor del contenido interno de la pestaña */
-  scrollContent: {
-    flexGrow: 1,
-    padding: 16,
-  },
-  tabContainerPlaceholder: {
-    backgroundColor: COLORS.cardBg,
-    borderRadius: 14,
-    padding: 24,
+  backButton: {
+    width: 40,
+    height: 40,
+    borderRadius: radii.pill,
+    backgroundColor: "rgba(0,0,0,0.40)",
     alignItems: "center",
     justifyContent: "center",
-    textAlign: "center",
-    elevation: 2,
+    alignSelf: "flex-start",
+    // Sombra para que destaque sobre imágenes claras
     shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
+    shadowOpacity: 0.25,
     shadowRadius: 4,
-    marginTop: 8,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 4,
   },
-  tabTitlePlaceholder: {
-    fontSize: 18,
+  backButtonPressed: {
+    backgroundColor: "rgba(0,0,0,0.60)",
+    transform: [{ scale: 0.93 }],
+  },
+  heroContent: {
+    gap: spacing.xs,
+  },
+  pillWrap: {
+    marginBottom: spacing.xs,
+  },
+  heroTitle: {
+    color: colors.surface,
+    fontSize: typography.hero ?? 28,
+    fontWeight: "900",
+  },
+  heroSubtitle: {
+    color: "#dfe6f5",
+    fontSize: typography.body,
+  },
+  loadingWrap: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingTop: spacing.xl,
+  },
+  body: {
+    paddingTop: spacing.lg,
+    gap: spacing.lg,
+    paddingBottom: spacing.xl,
+  },
+  errorBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+    backgroundColor: "#fef3c7",
+    borderRadius: radii.md,
+    padding: spacing.md,
+  },
+  errorText: {
+    color: "#92400e",
+    fontSize: typography.small,
+    flex: 1,
+  },
+  card: {
+    backgroundColor: colors.surface,
+    borderRadius: radii.lg,
+    borderWidth: 1,
+    borderColor: colors.border,
+    padding: spacing.lg,
+    gap: spacing.md,
+    ...shadows.card,
+  },
+  cardRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: spacing.md,
+  },
+  cardRowContent: {
+    flex: 1,
+    gap: spacing.xs,
+  },
+  cardLabel: {
+    color: colors.textSecondary,
+    fontSize: typography.small,
+    textTransform: "uppercase",
+    letterSpacing: 0.8,
     fontWeight: "700",
-    color: COLORS.primary,
-    marginTop: 14,
-    marginBottom: 8,
   },
-  tabTextPlaceholder: {
-    fontSize: 13,
-    color: COLORS.textMuted,
+  cardValue: {
+    color: colors.textPrimary,
+    fontSize: typography.body,
+    fontWeight: "700",
+  },
+  sectionTitle: {
+    color: colors.primary,
+    fontWeight: "800",
+    fontSize: typography.small,
+    textTransform: "uppercase",
+    letterSpacing: 1,
+    marginBottom: spacing.xs,
+  },
+  descriptionText: {
+    color: colors.textSecondary,
+    fontSize: typography.body,
+    lineHeight: 22,
+  },
+  infoRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+    paddingVertical: spacing.xs,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
+  infoIcon: {
+    width: 20,
     textAlign: "center",
-    lineHeight: 18,
-    horizontalPadding: 10,
   },
-  actionBtn: {
-    backgroundColor: COLORS.primary,
-    borderRadius: 10,
-    paddingVertical: 12,
-    paddingHorizontal: 20,
-    marginTop: 20,
+  infoLabel: {
+    color: colors.textSecondary,
+    fontSize: typography.small,
+    flex: 1,
   },
-  actionBtnText: {
-    color: COLORS.secondary,
+  infoValue: {
+    color: colors.textPrimary,
     fontWeight: "700",
-    fontSize: 14,
-  }
+    fontSize: typography.small,
+  },
 });

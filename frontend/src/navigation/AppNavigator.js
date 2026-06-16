@@ -7,9 +7,9 @@ import MainTabs from "./MainTabs";
 import CreateTripScreen from "../screens/CreateTripScreen";
 import LoginScreen from "../screens/LoginScreen";
 import { colors } from "../theme/tokens";
-import RegisterScreen from "../screens/RegisterScreen";          
-import EmailConfirmadoScreen from "../screens/EmailConfirmadoScreen"; 
-import RegistrationSuccessScreen from "../screens/RegistrationSuccessScreen"; 
+import RegisterScreen from "../screens/RegisterScreen";
+import EmailConfirmadoScreen from "../screens/EmailConfirmadoScreen";
+import RegistrationSuccessScreen from "../screens/RegistrationSuccessScreen";
 import TripDetailScreen from "../screens/TripDetailScreen";
 import AddGastoScreen from "../screens/AddGastoScreen";
 
@@ -20,7 +20,14 @@ export default function AppNavigator() {
 
   if (isLoading) {
     return (
-      <View style={{ flex: 1, justifyContent: "center", alignItems: "center", backgroundColor: colors.background }}>
+      <View
+        style={{
+          flex: 1,
+          justifyContent: "center",
+          alignItems: "center",
+          backgroundColor: colors.background,
+        }}
+      >
         <ActivityIndicator color={colors.primary} size="large" />
       </View>
     );
@@ -47,7 +54,6 @@ export default function AppNavigator() {
             component={RegisterScreen}
             options={{ headerShown: false }}
           />
-          {/* CORRECCIÓN: El componente ahora coincide con el import */}
           <Stack.Screen
             name="RegistrationSuccess"
             component={RegistrationSuccessScreen}
@@ -77,27 +83,26 @@ export default function AppNavigator() {
                   onPress={() => navigation.goBack()}
                   style={{ paddingLeft: 16, paddingRight: 10 }}
                 >
-                  <FontAwesome6 color={colors.surface} name="arrow-left" size={18} />
+                  <FontAwesome6
+                    color={colors.surface}
+                    name="arrow-left"
+                    size={18}
+                  />
                 </Pressable>
               ),
             })}
           />
+          {/* US-16: Se restaura el Detalle de viaje con animaciones de incoming */}
           <Stack.Screen
             name="TripDetail"
             component={TripDetailScreen}
-            options={({ navigation }) => ({
-              title: "Detalle del Viaje",
-              headerLeft: () => (
-                <Pressable
-                  accessibilityRole="button"
-                  onPress={() => navigation.goBack()}
-                  style={{ paddingLeft: 16, paddingRight: 10 }}
-                >
-                  <FontAwesome6 color={colors.surface} name="arrow-left" size={18} />
-                </Pressable>
-              ),
-            })}
+            options={{
+              headerShown: false,
+              gestureEnabled: true,
+              animation: "slide_from_right",
+            }}
           />
+          {/* US-Crear Gasto: Se restaura el Formulario de gastos de tu rama local */}
           <Stack.Screen
             name="AddGasto"
             component={AddGastoScreen}
