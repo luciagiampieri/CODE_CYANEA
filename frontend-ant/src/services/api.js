@@ -58,3 +58,15 @@ export async function createTrip(payload) {
 
   return parseResponse(response, "No se pudo crear el viaje");
 }
+
+export async function registerUser(userData) {
+  const response = await fetch(`${API_BASE_URL}/auth/register`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(userData) 
+  });
+
+  return parseResponse(response, "No se pudo registrar el usuario");
+}
