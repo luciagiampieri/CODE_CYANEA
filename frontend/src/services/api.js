@@ -114,3 +114,44 @@ export async function respondToInvitation(tripId, decision) {
 
   return parseResponse(response, "No se pudo procesar la respuesta a la invitación");
 }
+
+export async function getExpenseCategories() {
+  const response = await fetch(`${API_BASE_URL}/gastos/categories`, {
+    headers: await authHeaders(),
+  });
+
+  return parseResponse(
+    response,
+    "No se pudieron obtener las categorías"
+  );
+}
+
+export async function getTripParticipants(tripId) {
+  const response = await fetch(
+    `${API_BASE_URL}/gastos/trips/${tripId}/participants`,
+    {
+      headers: await authHeaders(),
+    }
+  );
+
+  return parseResponse(
+    response,
+    "No se pudieron obtener los participantes"
+  );
+}
+
+export async function createExpense(payload) {
+  const response = await fetch(`${API_BASE_URL}/gastos`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(await authHeaders()),
+    },
+    body: JSON.stringify(payload),
+  });
+
+  return parseResponse(
+    response,
+    "No se pudo crear el gasto"
+  );
+}

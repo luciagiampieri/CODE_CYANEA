@@ -1,5 +1,12 @@
 import { FontAwesome6 } from "@expo/vector-icons";
-import { ImageBackground, StyleSheet, Text, View } from "react-native";
+import { useNavigation } from "@react-navigation/native";
+import {
+  ImageBackground,
+  StyleSheet,
+  Text,
+  View,
+  TouchableOpacity,
+} from "react-native";
 
 import StatusPill from "../ui/StatusPill";
 import { colors, radii, spacing, typography, shadows } from "../../theme/tokens";
@@ -10,27 +17,47 @@ const STATUS_LABEL = {
 };
 
 export default function TripCard({ trip }) {
+  const navigation = useNavigation();
+
   const statusKey = trip.status?.toLowerCase();
   const statusLabel = STATUS_LABEL[statusKey] ?? trip.status ?? "";
 
+  const handlePress = () => {
+    navigation.navigate("TripDetail", {
+      IdViaje: trip.id,
+    });
+  };
+
   return (
-    <ImageBackground imageStyle={styles.image} source={{ uri: trip.image }} style={styles.card}>
-      <View style={styles.overlay}>
-        <View style={styles.content}>
-          {statusLabel ? (
-            <View style={styles.pillWrap}>
-              <StatusPill tone={statusKey}>{statusLabel}</StatusPill>
-            </View>
-          ) : null}
-          <Text style={styles.title}>{trip.title}</Text>
-          <Text style={styles.subtitle}>{trip.destination}</Text>
-          <Text style={styles.date}>{trip.dateLabel}</Text>
+    <TouchableOpacity activeOpacity={0.9} onPress={handlePress}>
+      <ImageBackground
+        imageStyle={styles.image}
+        source={{ uri: trip.image }}
+        style={styles.card}
+      >
+        <View style={styles.overlay}>
+          <View style={styles.content}>
+            {statusLabel ? (
+              <View style={styles.pillWrap}>
+                <StatusPill tone={statusKey}>{statusLabel}</StatusPill>
+              </View>
+            ) : null}
+
+            <Text style={styles.title}>{trip.title}</Text>
+            <Text style={styles.subtitle}>{trip.destination}</Text>
+            <Text style={styles.date}>{trip.dateLabel}</Text>
+          </View>
+
+          <View style={styles.arrowBubble}>
+            <FontAwesome6
+              color={colors.primary}
+              name="arrow-right"
+              size={18}
+            />
+          </View>
         </View>
-        <View style={styles.arrowBubble}>
-          <FontAwesome6 color={colors.primary} name="arrow-right" size={18} />
-        </View>
-      </View>
-    </ImageBackground>
+      </ImageBackground>
+    </TouchableOpacity>
   );
 }
 

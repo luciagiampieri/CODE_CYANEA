@@ -10,6 +10,8 @@ import { colors } from "../theme/tokens";
 import RegisterScreen from "../screens/RegisterScreen";          
 import EmailConfirmadoScreen from "../screens/EmailConfirmadoScreen"; 
 import RegistrationSuccessScreen from "../screens/RegistrationSuccessScreen"; 
+import TripDetailScreen from "../screens/TripDetailScreen";
+import AddGastoScreen from "../screens/AddGastoScreen";
 
 const Stack = createNativeStackNavigator();
 
@@ -80,8 +82,42 @@ export default function AppNavigator() {
               ),
             })}
           />
+          <Stack.Screen
+            name="TripDetail"
+            component={TripDetailScreen}
+            options={({ navigation }) => ({
+              title: "Detalle del Viaje",
+              headerLeft: () => (
+                <Pressable
+                  accessibilityRole="button"
+                  onPress={() => navigation.goBack()}
+                  style={{ paddingLeft: 16, paddingRight: 10 }}
+                >
+                  <FontAwesome6 color={colors.surface} name="arrow-left" size={18} />
+                </Pressable>
+              ),
+            })}
+          />
+          <Stack.Screen
+            name="AddGasto"
+            component={AddGastoScreen}
+            options={({ navigation }) => ({
+              presentation: "fullScreenModal",
+              title: "Nuevo Gasto",
+              headerLeft: () => (
+                <Pressable
+                  accessibilityRole="button"
+                  onPress={() => navigation.goBack()}
+                  style={{ paddingLeft: 16, paddingRight: 10 }}
+                >
+                  <FontAwesome6 color={colors.surface} name="arrow-left" size={18} />
+                </Pressable>
+              ),
+            })}
+          />
         </>
       )}
+      
     </Stack.Navigator>
   );
 }
