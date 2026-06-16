@@ -64,6 +64,7 @@ def create_gasto(data: GastoCreate, db: Session = Depends(get_db)):
     else:
         participantes_ids = data.IdParticipantes
 
+
     # 3. Crear relaciones en tabla intermedia
     for id_part in participantes_ids:
         db.add(
@@ -76,8 +77,7 @@ def create_gasto(data: GastoCreate, db: Session = Depends(get_db)):
     if not participantes_ids:
         raise HTTPException(
             status_code=400,
-            detail="El gasto debe tener al menos un participante"
-        )
+            detail="El gasto debe tener al menos un participante" )
 
     # 4. Guardar todo
     db.commit()

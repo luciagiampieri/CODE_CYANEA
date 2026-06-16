@@ -13,6 +13,12 @@ export default function TripCard({ trip, onPress }) {
   const statusKey = trip.status?.toLowerCase();
   const statusLabel = STATUS_LABEL[statusKey] ?? trip.status ?? "";
 
+  const handlePress = () => {
+    navigation.navigate("TripDetail", {
+      IdViaje: trip.id,
+    });
+  };
+
   return (
     <Pressable
       accessibilityRole="button"

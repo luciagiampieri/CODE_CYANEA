@@ -5,12 +5,13 @@ import { ActivityIndicator, Pressable, View } from "react-native";
 import { useAuth } from "../context/AuthContext";
 import MainTabs from "./MainTabs";
 import CreateTripScreen from "../screens/CreateTripScreen";
-import TripDetailScreen from "../screens/TripDetailScreen";
 import LoginScreen from "../screens/LoginScreen";
 import { colors } from "../theme/tokens";
 import RegisterScreen from "../screens/RegisterScreen";
 import EmailConfirmadoScreen from "../screens/EmailConfirmadoScreen";
 import RegistrationSuccessScreen from "../screens/RegistrationSuccessScreen";
+import TripDetailScreen from "../screens/TripDetailScreen";
+import AddGastoScreen from "../screens/AddGastoScreen";
 
 const Stack = createNativeStackNavigator();
 
@@ -91,7 +92,7 @@ export default function AppNavigator() {
               ),
             })}
           />
-          {/* US-16: Detalle de viaje (activo y finalizado) */}
+          {/* US-16: Se restaura el Detalle de viaje con animaciones de incoming */}
           <Stack.Screen
             name="TripDetail"
             component={TripDetailScreen}
@@ -101,8 +102,19 @@ export default function AppNavigator() {
               animation: "slide_from_right",
             }}
           />
+          {/* US-Crear Gasto: Se restaura el Formulario de gastos de tu rama local */}
+          <Stack.Screen
+            name="AddGasto"
+            component={AddGastoScreen}
+            options={{
+              headerShown: false,
+              gestureEnabled: true,
+              animation: "slide_from_right",
+            }}
+          />
         </>
       )}
+      
     </Stack.Navigator>
   );
 }
