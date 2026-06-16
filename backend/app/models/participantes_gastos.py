@@ -1,0 +1,29 @@
+from sqlalchemy import BigInteger,ForeignKey, UniqueConstraint
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+
+from app.db.session import Base
+
+class ParticipanteGasto(Base):
+    __tablename__ = "ParticipantesGastos"
+
+    __table_args__ = (
+        UniqueConstraint("IdGasto", "IdParticipanteViaje", name="UX_ParticipantesGastos_IdGasto_IdParticipanteViaje"),
+    )
+
+    IdParticipanteGasto: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    
+    IdGasto: Mapped[int] = mapped_column(
+        BigInteger,
+        ForeignKey("Gastos.IdGasto", ondelete="CASCADE", name="FK_ParticipantesGastos_Gastos_IdGasto"),
+        nullable=False,
+    )
+
+    IdParticipanteViaje: Mapped[int] = mapped_column(
+        BigInteger,
+        ForeignKey("ParticipantesViajes.IdParticipanteViaje", name="FK_ParticipantesGastos_ParticipantesViajes_IdParticipanteViaje"),
+        nullable=False,
+    )
+
+    # Relaciones
+    Gasto = relationship("Gasto", back_populates="ParticipantesAsociados", foreign_keys=[IdGasto])
+    ParticipanteViaje = relationship("ParticipanteViaje", back_populates="GastosDondeParticipa", foreign_keys=[IdParticipanteViaje])
