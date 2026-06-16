@@ -13,6 +13,13 @@ class Settings(BaseSettings):
     cors_origins: str = Field(
         default="http://localhost:5173,http://127.0.0.1:5173,http://localhost:8081,http://127.0.0.1:8081,http://localhost:19006,http://127.0.0.1:19006"
     )
+
+    # JWT
+    secret_key: str = Field(default="cambia-esto-en-produccion-usa-un-secreto-real")
+    jwt_algorithm: str = "HS256"
+    access_token_expire_minutes: int = 60 * 24  # 24 horas
+
+    # Mail
     mail_enabled: bool = False
     mail_provider: str = "smtp"
     mail_host: str = "localhost"

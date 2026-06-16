@@ -1,18 +1,35 @@
 ﻿import { Platform } from "react-native";
 
+const AUTH_TOKEN_KEY = "auth_token";
+
 function resolveApiBaseUrl() {
   if (process.env.EXPO_PUBLIC_API_BASE_URL) {
     return process.env.EXPO_PUBLIC_API_BASE_URL;
   }
-
   if (Platform.OS === "web" && typeof window !== "undefined") {
     return `${window.location.protocol}//${window.location.hostname}:8000/api/v1`;
   }
-
   return "http://127.0.0.1:8000/api/v1";
 }
 
 const API_BASE_URL = resolveApiBaseUrl();
+
+async function getStoredToken() {
+  try {
+    if (Platform.OS === "web") {
+      return typeof localStorage !== "undefined" ? localStorage.getItem(AUTH_TOKEN_KEY) : null;
+    }
+    const SecureStore = await import("expo-secure-store");
+    return SecureStore.getItemAsync(AUTH_TOKEN_KEY);
+  } catch {
+    return null;
+  }
+}
+
+async function authHeaders() {
+  const token = await getStoredToken();
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
 
 async function parseResponse(response, fallbackMessage) {
   if (response.ok) {
@@ -36,24 +53,37 @@ async function parseResponse(response, fallbackMessage) {
   throw new Error(message);
 }
 
+export async function loginUser(email, password) {
+  const response = await fetch(`${API_BASE_URL}/auth/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, password }),
+  });
+  return parseResponse(response, "No se pudo iniciar sesión");
+}
+
 export async function getTrips() {
-  const response = await fetch(`${API_BASE_URL}/trips`);
+  const response = await fetch(`${API_BASE_URL}/trips`, {
+    headers: await authHeaders(),
+  });
   return parseResponse(response, "No se pudieron obtener los viajes");
 }
 
 export async function getUsers(search = "", limit = 8) {
   const params = new URLSearchParams();
-  if (search.trim()) {
-    params.set("q", search.trim());
-  }
+  if (search.trim()) params.set("q", search.trim());
   params.set("limit", String(limit));
 
-  const response = await fetch(`${API_BASE_URL}/users?${params.toString()}`);
+  const response = await fetch(`${API_BASE_URL}/users?${params.toString()}`, {
+    headers: await authHeaders(),
+  });
   return parseResponse(response, "No se pudieron obtener los usuarios");
 }
 
 export async function getCurrentUser() {
-  const response = await fetch(`${API_BASE_URL}/users/me`);
+  const response = await fetch(`${API_BASE_URL}/users/me`, {
+    headers: await authHeaders(),
+  });
   return parseResponse(response, "No se pudo obtener el usuario actual");
 }
 
@@ -61,10 +91,26 @@ export async function createTrip(payload) {
   const response = await fetch(`${API_BASE_URL}/trips`, {
     method: "POST",
     headers: {
-      "Content-Type": "application/json"
+      "Content-Type": "application/json",
+      ...(await authHeaders()),
     },
-    body: JSON.stringify(payload)
+    body: JSON.stringify(payload),
+  });
+  return parseResponse(response, "No se pudo crear el viaje");
+}
+export async function getPendingInvitations() {
+  const response = await fetch(`${API_BASE_URL}/trips/invitations/pending`);
+  return parseResponse(response, "No se pudieron obtener las invitaciones pendientes");
+}
+
+export async function respondToInvitation(tripId, decision) {
+  const response = await fetch(`${API_BASE_URL}/trips/invitations/${tripId}/respond`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ decision }),
   });
 
-  return parseResponse(response, "No se pudo crear el viaje");
+  return parseResponse(response, "No se pudo procesar la respuesta a la invitación");
 }

@@ -14,8 +14,10 @@ import ParticipantSearch from "../components/trip/ParticipantSearch";
 import PrimaryButton from "../components/ui/PrimaryButton";
 import StatusPill from "../components/ui/StatusPill";
 import useResponsive from "../hooks/useResponsive";
+import DateTimePicker from "@react-native-community/datetimepicker";
 import { createTrip, getCurrentUser, getUsers } from "../services/api.js";
 import { colors, radii, spacing, typography, shadows } from "../theme/tokens";
+import { Picker } from "@react-native-picker/picker";
 
 const initialForm = {
   title: "",
@@ -46,8 +48,11 @@ export default function CreateTripScreen({ navigation }) {
   const [apiStatus, setApiStatus] = useState("conectada");
   const [usersStatus, setUsersStatus] = useState("cargando");
   const [form, setForm] = useState(initialForm);
+  const [errors, setErrors] = useState({});
   const [submitStatus, setSubmitStatus] = useState("idle");
   const [submitMessage, setSubmitMessage] = useState("");
+  const [showStartPicker, setShowStartPicker] = useState(false);
+  const [showEndPicker, setShowEndPicker] = useState(false);
   const normalizedSearch = participantSearch.trim().toLowerCase();
   const { isDesktop } = useResponsive();
 
@@ -137,9 +142,15 @@ export default function CreateTripScreen({ navigation }) {
 
   function handleInputChange(name, value) {
     setForm((current) => ({
+    ...current,
+    [name]: value
+  }));
+  if (errors[name]) {
+    setErrors((current) => ({
       ...current,
-      [name]: value
+      [name]: null
     }));
+  }
   }
 
   function handleParticipantSearchChange(value) {
@@ -209,7 +220,48 @@ export default function CreateTripScreen({ navigation }) {
     }));
   }
 
+  function validateForm() {
+    const localErrors = {};
+
+    if (!form.title.trim()) {
+      localErrors.title = "El título del viaje no puede quedar vacío.";
+    }
+    if (!form.destination.trim()) {
+      localErrors.destination = "Al menos un destino es requerido.";
+    }
+    if (!form.startDate.trim()) {
+      localErrors.startDate = "La fecha de inicio es obligatoria.";
+    }
+    if (!form.endDate.trim()) {
+      localErrors.endDate = "La fecha de finalización es obligatoria.";
+    }
+
+    // Validación de lógica de fechas si ambas existen
+    if (form.startDate && form.endDate) {
+      const start = new Date(form.startDate);
+      const end = new Date(form.endDate);
+      const hoy = new Date();
+      hoy.setHours(0, 0, 0, 0);
+
+      if (start < hoy) {
+        localErrors.startDate = "La fecha de inicio debe ser igual o posterior a la actual.";
+      }
+      if (end < start) {
+        localErrors.endDate = "La fecha de finalización no puede ser anterior a la de inicio.";
+      }
+    }
+
+    setErrors(localErrors);
+    return Object.keys(localErrors).length === 0;
+  }
+
   async function handleSubmit() {
+    if (!validateForm()) {
+      setSubmitStatus("error");
+      setSubmitMessage("Por favor, corrige los errores en el formulario.");
+      return;
+    }
+
     setSubmitStatus("submitting");
     setSubmitMessage("");
 
@@ -259,6 +311,7 @@ export default function CreateTripScreen({ navigation }) {
                   onChange={handleInputChange}
                   placeholder="Escapada a Cordoba"
                   value={form.title}
+                  error={errors.title}
                 />
                 <Field
                   label="Destino"
@@ -266,6 +319,7 @@ export default function CreateTripScreen({ navigation }) {
                   onChange={handleInputChange}
                   placeholder="Cordoba"
                   value={form.destination}
+                  error={errors.destination}
                 />
               </View>
 
@@ -276,33 +330,116 @@ export default function CreateTripScreen({ navigation }) {
                 onChange={handleInputChange}
                 placeholder="Resumen del viaje, objetivos o notas iniciales."
                 value={form.description}
+                error={errors.description}
               />
 
-              <View style={styles.row}>
-                <Field
-                  label="Fecha inicio"
-                  name="startDate"
-                  onChange={handleInputChange}
-                  placeholder="2026-06-12"
-                  value={form.startDate}
-                />
-                <Field
-                  label="Fecha fin"
-                  name="endDate"
-                  onChange={handleInputChange}
-                  placeholder="2026-06-19"
-                  value={form.endDate}
-                />
+            <View style={styles.row}>
+              <View style={styles.field}>
+                <Text style={styles.fieldLabel}>Fecha inicio</Text>
+                {Platform.OS === "web" ? (
+                  <>
+                    <TextInput
+                      style={[
+                        styles.input,
+                        errors.startDate && { borderColor: colors.danger }
+                      ]}
+                      placeholder="AAAA-MM-DD"
+                      placeholderTextColor={colors.textMuted}
+                      value={form.startDate}
+                      onChangeText={(text) => handleInputChange("startDate", text)}
+                    />
+                    {errors.startDate ? <Text style={styles.fieldError}>{errors.startDate}</Text> : null}
+                  </>
+                ) : (
+                  <>
+                    <PrimaryButton
+                      label={form.startDate || "Seleccionar fecha"}
+                      onPress={() => setShowStartPicker(true)}
+                      variant="secondary"
+                    />
+                    {showStartPicker && (
+                      <DateTimePicker
+                        value={form.startDate ? new Date(form.startDate) : new Date()}
+                        mode="date"
+                        onChange={(event, selectedDate) => {
+                          setShowStartPicker(false);
+                          if (selectedDate) {
+                            handleInputChange("startDate", selectedDate.toISOString().split("T")[0]);
+                          }
+                        }}
+                      />
+                    )}
+                    {errors.startDate ? <Text style={styles.fieldError}>{errors.startDate}</Text> : null}
+                  </>
+                )}
               </View>
 
+              <View style={styles.field}>
+                <Text style={styles.fieldLabel}>Fecha fin</Text>
+                {Platform.OS === "web" ? (
+                  <>
+                    <TextInput
+                      style={[
+                        styles.input,
+                        errors.endDate && { borderColor: colors.danger }
+                      ]}
+                      placeholder="AAAA-MM-DD"
+                      placeholderTextColor={colors.textMuted}
+                      value={form.endDate}
+                      onChangeText={(text) => handleInputChange("endDate", text)}
+                    />
+                    {errors.endDate ? <Text style={styles.fieldError}>{errors.endDate}</Text> : null}
+                  </>
+                ) : (
+                  <>
+                    <PrimaryButton
+                      label={form.endDate || "Seleccionar fecha"}
+                      onPress={() => setShowEndPicker(true)}
+                      variant="secondary"
+                    />
+                    {showEndPicker && (
+                      <DateTimePicker
+                        value={form.endDate ? new Date(form.endDate) : new Date()}
+                        mode="date"
+                        onChange={(event, selectedDate) => {
+                          setShowEndPicker(false);
+                          if (selectedDate) {
+                            handleInputChange("endDate", selectedDate.toISOString().split("T")[0]);
+                          }
+                        }}
+                      />
+                    )}
+                    {errors.endDate ? <Text style={styles.fieldError}>{errors.endDate}</Text> : null}
+                  </>
+                )}
+              </View>
+            </View>
+
               <View style={styles.row}>
-                <Field
-                  label="Moneda"
-                  name="currency"
-                  onChange={handleInputChange}
-                  placeholder="ARS"
-                  value={form.currency}
-                />
+                <Text style={styles.fieldLabel}>Moneda</Text>
+                <View style={styles.currencyContainer}>
+                  {[
+                    { code: "ARS", label: "ARS" },
+                    { code: "USD", label: "USD" },
+                    { code: "EUR", label: "EUR" },
+                    { code: "BRL", label: "BRL" }
+                  ].map((currency) => (
+                    <Text
+                      key={currency.code}
+                      onPress={() =>
+                        handleInputChange("currency", currency.code)
+                      }
+                      style={[
+                        styles.currencyChip,
+                        form.currency === currency.code &&
+                          styles.currencyChipSelected
+                      ]}
+                    >
+                      {currency.label}
+                    </Text>
+                  ))}
+                </View>
+
                 <View style={styles.field}>
                   <Text style={styles.fieldLabel}>Creador / Administrador</Text>
                   <View style={styles.readOnlyBox}>
@@ -366,7 +503,7 @@ export default function CreateTripScreen({ navigation }) {
   );
 }
 
-function Field({ label, name, onChange, value, placeholder, multiline = false }) {
+function Field({ label, name, onChange, value, placeholder, multiline = false, error = null }) {
   return (
     <View style={styles.field}>
       <Text style={styles.fieldLabel}>{label}</Text>
@@ -375,14 +512,48 @@ function Field({ label, name, onChange, value, placeholder, multiline = false })
         onChangeText={(text) => onChange(name, text)}
         placeholder={placeholder}
         placeholderTextColor={colors.textMuted}
-        style={[styles.input, multiline && styles.inputMultiline]}
+        // Si hay un error, le pintamos el borde rojo al input usando los tokens
+        style={[
+          styles.input, 
+          multiline && styles.inputMultiline,
+          error && { borderColor: colors.danger } 
+        ]}
         value={value}
       />
+      {/* Si existe un error para este campo, se dibuja acá abajo */}
+      {error ? <Text style={styles.fieldError}>{error}</Text> : null}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
+  fieldError: {
+    color: colors.danger, // Usa el rojo #c84949 de tus tokens
+    fontSize: typography.micro, // Tamaño 12
+    fontWeight: "700",
+    marginTop: 4,
+    paddingLeft: 4,
+  },
+  currencyContainer: {
+  flexDirection: "row",
+  flexWrap: "wrap",
+  gap: spacing.sm
+},
+currencyChip: {
+  borderWidth: 1,
+  borderColor: colors.border,
+  borderRadius: radii.md,
+  paddingHorizontal: spacing.md,
+  paddingVertical: spacing.sm,
+  backgroundColor: colors.surfaceMuted,
+  color: colors.textPrimary,
+  fontWeight: "700"
+},
+currencyChipSelected: {
+  backgroundColor: colors.primary,
+  borderColor: colors.primary,
+  color: colors.surface
+},
   heroCard: {
     borderRadius: radii.lg,
     backgroundColor: colors.surface,

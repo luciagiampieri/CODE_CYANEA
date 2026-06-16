@@ -1,7 +1,7 @@
 import { FontAwesome6 } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { useEffect, useMemo, useState } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { Pressable, StyleSheet, Text, View, Image } from "react-native";
 
 import ScreenContainer from "../components/layout/ScreenContainer";
 import TripCard from "../components/home/TripCard";
@@ -10,6 +10,7 @@ import StatusPill from "../components/ui/StatusPill";
 import useResponsive from "../hooks/useResponsive";
 import { getTrips } from "../services/api.js";
 import { colors, radii, spacing, typography, shadows } from "../theme/tokens";
+import CyaneaLogo from "../../assets/cyanea_Logo.png";
 
 const fallbackImages = [
   "https://images.unsplash.com/photo-1570077188670-e3a8d69ac5ff?auto=format&fit=crop&w=1200&q=80",
@@ -79,11 +80,15 @@ export default function HomeScreen({ navigation }) {
         <View style={styles.brandRow}>
           <View style={styles.brandBlock}>
             <View style={styles.brandIcon}>
-              <FontAwesome6 color={colors.accent} name="location-dot" size={22} />
+              <Image 
+                source={CyaneaLogo} 
+                style={styles.logoImage} 
+                resizeMode="contain"
+              />
             </View>
             <View>
               <Text style={styles.brandName}>CYANEA</Text>
-              <Text style={styles.brandSubtitle}>Planificacion colaborativa</Text>
+              <Text style={styles.brandSubtitle}>Muchas manos, un único destino</Text>
             </View>
           </View>
 
@@ -178,10 +183,14 @@ const styles = StyleSheet.create({
     width: 42,
     height: 42,
     borderRadius: radii.pill,
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.2)",
+    backgroundColor: "#ffffff",
     alignItems: "center",
-    justifyContent: "center"
+    justifyContent: "center",
+    overflow: 'hidden'
+  },
+  logoImage: {
+    width: 28, 
+    height: 28,
   },
   brandName: {
     color: colors.surface,

@@ -4,7 +4,7 @@
     "slug": "cyanea",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/icon.png",
+    "icon": "./assets/cyanea_Logo.png",
     "userInterfaceStyle": "light",
     "ios": {
       "supportsTablet": true
@@ -18,7 +18,12 @@
       }
     },
     "web": {
-      "favicon": "./assets/favicon.png"
-    }
+      "name": "Cyanea",
+      "favicon": "./assets/cyanea_Logo.png"
+    },
+    "plugins": [
+      "@react-native-community/datetimepicker",
+      "expo-secure-store"
+    ]
   }
 }
