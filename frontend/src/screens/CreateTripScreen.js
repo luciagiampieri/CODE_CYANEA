@@ -179,7 +179,7 @@ export default function CreateTripScreen({ navigation }) {
       return;
     }
     if (!isValidEmail(email)) {
-      setInviteMessage("El correo ingresado no tiene un formato valido.");
+      setInviteMessage("El correo ingresado no tiene un formato válido.");
       return;
     }
     if (currentUser && currentUser.email.toLowerCase() === email) {
@@ -187,7 +187,7 @@ export default function CreateTripScreen({ navigation }) {
       return;
     }
     if (selectedParticipants.some((user) => user.email.toLowerCase() === email)) {
-      setInviteMessage("Ese correo ya corresponde a un participante registrado seleccionado.");
+      setInviteMessage("Ese correo ya corresponde a un participante registrado.");
       return;
     }
     if (form.invitedEmails.includes(email)) {
@@ -236,7 +236,6 @@ export default function CreateTripScreen({ navigation }) {
       localErrors.endDate = "La fecha de finalización es obligatoria.";
     }
 
-    // Validación de lógica de fechas si ambas existen
     if (form.startDate && form.endDate) {
       const start = new Date(form.startDate + "T12:00:00");
       const end = new Date(form.endDate + "T12:00:00");
@@ -287,29 +286,46 @@ export default function CreateTripScreen({ navigation }) {
     <ScreenContainer>
       <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined}>
         <View style={styles.heroCard}>
-          <Text style={styles.heroEyebrow}>Nuevo Viaje</Text>
-          <Text style={styles.heroTitle}>Arma el viaje y el grupo desde una sola pantalla.</Text>
+          <Text style={styles.heroTitle}>Nuevo viaje</Text>
+
           <Text style={styles.heroCopy}>
-            El administrador es el creador. Puedes sumar participantes registrados e invitados
-            externos sin salir del flujo.
+            Completá la información del viaje y agregá a los participantes.
           </Text>
 
-          <View style={styles.heroStatus}>
-            <StatusPill tone={apiStatus}>API {apiStatus.replace("-", " ")}</StatusPill>
-            <StatusPill tone={usersStatus}>Usuarios {usersStatus.replace("-", " ")}</StatusPill>
+          <View style={styles.tripSummary}>
+            <View style={styles.summaryItem}>
+              <Text style={styles.summaryLabel}>Administrador</Text>
+              <Text style={styles.summaryValue}>
+                {currentUser?.nombreCompleto || "Cargando..."}
+              </Text>
+            </View>
+
+            <View style={styles.summaryItem}>
+              <Text style={styles.summaryLabel}>Participantes</Text>
+              <Text style={styles.summaryValue}>
+                {participantItems.length}
+              </Text>
+            </View>
+
+            <View style={styles.summaryItem}>
+              <Text style={styles.summaryLabel}>Moneda</Text>
+              <Text style={styles.summaryValue}>
+                {form.currency}
+              </Text>
+            </View>
           </View>
         </View>
 
         <View style={[styles.contentLayout, isDesktop && styles.contentLayoutDesktop]}>
           <View style={[styles.formColumn, isDesktop && styles.formColumnDesktop]}>
             <View style={styles.card}>
-              <Text style={styles.cardTitle}>Informacion del viaje</Text>
+              <Text style={styles.cardTitle}>Información del Viaje</Text>
               <View style={styles.row}>
                 <Field
-                  label="Titulo"
+                  label="Nombre del viaje"
                   name="title"
                   onChange={handleInputChange}
-                  placeholder="Escapada a Cordoba"
+                  placeholder="Escapada a Córdoba"
                   value={form.title}
                   error={errors.title}
                 />
@@ -317,14 +333,14 @@ export default function CreateTripScreen({ navigation }) {
                   label="Destino"
                   name="destination"
                   onChange={handleInputChange}
-                  placeholder="Cordoba"
+                  placeholder="Córdoba"
                   value={form.destination}
                   error={errors.destination}
                 />
               </View>
 
               <Field
-                label="Descripcion"
+                label="Descripción"
                 multiline
                 name="description"
                 onChange={handleInputChange}
@@ -335,7 +351,7 @@ export default function CreateTripScreen({ navigation }) {
 
             <View style={styles.row}>
               <View style={styles.field}>
-                <Text style={styles.fieldLabel}>Fecha inicio</Text>
+                <Text style={styles.fieldLabel}>Fecha Ida</Text>
                 {Platform.OS === "web" ? (
                   <>
                     <TextInput
@@ -379,7 +395,7 @@ export default function CreateTripScreen({ navigation }) {
               </View>
 
               <View style={styles.field}>
-                <Text style={styles.fieldLabel}>Fecha fin</Text>
+                <Text style={styles.fieldLabel}>Fecha Vuelta</Text>
                 {Platform.OS === "web" ? (
                   <>
                     <TextInput
@@ -420,7 +436,7 @@ export default function CreateTripScreen({ navigation }) {
             </View>
 
               <View style={styles.row}>
-                <Text style={styles.fieldLabel}>Moneda</Text>
+                <Text style={styles.fieldLabel}>Moneda del Viaje</Text>
                 <View style={styles.currencyContainer}>
                   {[
                     { code: "ARS", label: "ARS" },
@@ -496,7 +512,7 @@ export default function CreateTripScreen({ navigation }) {
         <View style={styles.actions}>
           <PrimaryButton
             disabled={!currentUser}
-            label={submitStatus === "submitting" ? "Creando..." : "Guardar viaje"}
+            label={submitStatus === "submitting" ? "Creando..." : "Crear viaje"}
             loading={submitStatus === "submitting"}
             onPress={handleSubmit}
           />
@@ -529,6 +545,36 @@ function Field({ label, name, onChange, value, placeholder, multiline = false, e
 }
 
 const styles = StyleSheet.create({
+    tripSummary: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: spacing.md,
+    marginTop: spacing.lg,
+  },
+
+  summaryItem: {
+    flex: 1,
+    minWidth: 120,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radii.md,
+    backgroundColor: colors.surfaceMuted,
+    padding: spacing.md,
+  },
+
+  summaryLabel: {
+    color: colors.textSecondary,
+    fontSize: typography.micro,
+    fontWeight: "700",
+    textTransform: "uppercase",
+  },
+
+  summaryValue: {
+    color: colors.textPrimary,
+    fontSize: typography.body,
+    fontWeight: "800",
+    marginTop: 4,
+  },
   fieldError: {
     color: colors.danger, 
     fontSize: typography.micro,

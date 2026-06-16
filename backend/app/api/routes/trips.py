@@ -129,9 +129,11 @@ def list_trips(
         select(Viaje)
         .join(ParticipanteViaje, ParticipanteViaje.IdViaje == Viaje.IdViaje)
         .join(EstadoViaje, EstadoViaje.IdEstadoViaje == Viaje.IdEstadoViaje)
+        .join(EstadoParticipacion, EstadoParticipacion.IdEstadoParticipacion == ParticipanteViaje.IdEstadoParticipacion)
         .where(
             ParticipanteViaje.IdUsuario == current_user.IdUsuario,
             EstadoViaje.Nombre.in_(["activo", "finalizado"]),
+            EstadoParticipacion.Nombre == "aceptado"
         )
         .order_by(Viaje.FechaCreacion.desc())
     ).all()

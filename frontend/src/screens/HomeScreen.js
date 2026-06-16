@@ -1,12 +1,11 @@
 import { FontAwesome6 } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { useEffect, useMemo, useState } from "react";
-import { Pressable, StyleSheet, Text, View, Image } from "react-native";
+import { Pressable, StyleSheet, Text, View, Image, ScrollView } from "react-native";
 
 import ScreenContainer from "../components/layout/ScreenContainer";
 import TripCard from "../components/home/TripCard";
 import PrimaryButton from "../components/ui/PrimaryButton";
-import StatusPill from "../components/ui/StatusPill";
 import useResponsive from "../hooks/useResponsive";
 import { getTrips } from "../services/api.js";
 import { colors, radii, spacing, typography, shadows } from "../theme/tokens";
@@ -79,103 +78,140 @@ export default function HomeScreen({ navigation }) {
     [trips]
   );
 
+  const nextTrip = useMemo(() => {
+    if (decoratedTrips.length === 0) return null;
+
+    return [...decoratedTrips]
+      .filter((trip) => {
+        const date = new Date(trip.startDate || trip.FechaInicio);
+        return !Number.isNaN(date.getTime());
+      })
+      .sort(
+        (a, b) =>
+          new Date(a.startDate || a.FechaInicio) -
+          new Date(b.startDate || b.FechaInicio)
+      )[0];
+  }, [decoratedTrips]);
+
   return (
     <ScreenContainer>
-      <LinearGradient colors={[colors.primaryStrong, colors.primary]} style={styles.header}>
-        <View style={styles.brandRow}>
-          <View style={styles.brandBlock}>
-            <View style={styles.brandIcon}>
-              <Image 
-                source={CyaneaLogo} 
-                style={styles.logoImage} 
-                resizeMode="contain"
-              />
-            </View>
-            <View>
-              <Text style={styles.brandName}>CYANEA</Text>
-              <Text style={styles.brandSubtitle}>Muchas manos, un único destino</Text>
-            </View>
-          </View>
-
-          <Pressable onPress={() => navigation.navigate("NuevoViaje")} style={styles.actionIcon}>
-            <FontAwesome6 color={colors.surface} name="plus" size={18} />
-          </Pressable>
-        </View>
-
-        <View style={styles.heroText}>
-          <Text style={styles.heroTitle}>Mis Viajes</Text>
-          <Text style={styles.heroSubtitle}>Explora tus proximas aventuras y organiza el grupo.</Text>
-        </View>
-
-        <View style={styles.heroActions}>
-          <StatusPill tone={apiStatus}>API {apiStatus.replace("-", " ")}</StatusPill>
-          <StatusPill tone="note">{decoratedTrips.length} viajes</StatusPill>
-        </View>
-
-        <View style={styles.buttonWrap}>
-          <PrimaryButton label="Nuevo Viaje" onPress={() => navigation.navigate("NuevoViaje")} />
-        </View>
-      </LinearGradient>
-
-      <View style={[styles.mainLayout, isDesktop && styles.mainLayoutDesktop]}>
-        <View style={[styles.primaryColumn, isDesktop && styles.primaryColumnDesktop]}>
-          {decoratedTrips.length === 0 ? (
-            <View style={styles.emptyCard}>
-              <Text style={styles.emptyTitle}>Todavia no hay viajes cargados.</Text>
-              <Text style={styles.emptyCopy}>Crea el primero para empezar a armar el grupo.</Text>
-            </View>
-          ) : (
-            <View style={styles.tripList}>
-              {decoratedTrips.map((trip) => (
-                <TripCard
-                  key={trip.id}
-                  trip={trip}
-                  onPress={() => navigation.navigate("TripDetail", { trip })}
+      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContainer}>
+        
+        {/* Cabecera Hero */}
+        <LinearGradient colors={[colors.primaryStrong, colors.primary]} style={styles.header}>
+          <View style={styles.brandRow}>
+            <View style={styles.brandBlock}>
+              <View style={styles.brandIcon}>
+                <Image 
+                  source={CyaneaLogo} 
+                  style={styles.logoImage} 
+                  resizeMode="contain"
                 />
-              ))}
-            </View>
-          )}
-        </View>
-
-        <View style={[styles.sideColumn, isDesktop && styles.sideColumnDesktop]}>
-          <View style={styles.panelCard}>
-            <Text style={styles.panelEyebrow}>Resumen</Text>
-            <Text style={styles.panelTitle}>Itinerario sugerido</Text>
-            <Text style={styles.panelCopy}>
-              Base visual para la agenda del viaje y las acciones del grupo.
-            </Text>
-
-            <View style={styles.dayPill}>
-              <Text style={styles.dayPillTitle}>Dia 1</Text>
-              <Text style={styles.dayPillSubtitle}>12 Jun</Text>
-            </View>
-
-            <View style={styles.agendaList}>
-              {itineraryItems.map((item, index) => (
-                <View key={`${item.time}-${item.title}`} style={styles.agendaItem}>
-                  <Text style={styles.agendaTime}>{item.time}</Text>
-                  <View style={styles.agendaTrack}>
-                    <View style={[styles.agendaDot, index === 0 && styles.agendaDotActive]} />
-                    {index < itineraryItems.length - 1 ? <View style={styles.agendaLine} /> : null}
-                  </View>
-                  <View style={[styles.agendaCard, index === 0 && styles.agendaCardActive]}>
-                    <Text style={styles.agendaTitle}>{item.title}</Text>
-                    <Text style={styles.agendaNote}>{item.note}</Text>
-                  </View>
-                </View>
-              ))}
+              </View>
+              <View>
+                <Text style={styles.brandName}>CYANEA</Text>
+                <Text style={styles.brandSubtitle}>Muchas manos, un único destino</Text>
+              </View>
             </View>
           </View>
+
+          <View style={styles.heroText}>
+            <Text style={styles.heroTitle}>Mis Viajes</Text>
+            <Text style={styles.heroSubtitle}>Explorá tus próximas aventuras y organizá tu viaje en grupo.</Text>
+          </View>
+
+          <View style={styles.heroStats}>
+            <View style={styles.statCard}>
+              <Text style={styles.statValue}>{decoratedTrips.length}</Text>
+              <Text style={styles.statLabel}>
+                {decoratedTrips.length === 1 ? "Viaje" : "Viajes"}
+              </Text>
+            </View>
+
+            <View style={styles.statCard}>
+              <Text style={styles.statValue} numberOfLines={1}>
+                {nextTrip ? (nextTrip.title || nextTrip.Titulo) : "--"}
+              </Text>
+              <Text style={styles.statLabel}>Próximo viaje</Text>
+            </View>
+          </View>
+
+          <View style={styles.buttonWrap}>
+            <PrimaryButton label="Nuevo Viaje" onPress={() => navigation.navigate("NuevoViaje")} />
+          </View>
+        </LinearGradient>
+
+        <View style={styles.contentFeed}>
+
+          <View style={[styles.mainLayout, isDesktop && styles.mainLayoutDesktop]}>
+            
+            <View style={[styles.primaryColumn, isDesktop && styles.primaryColumnDesktop]}>
+              {decoratedTrips.length === 0 ? (
+                <View style={styles.emptyCard}>
+                  <Text style={styles.emptyTitle}>Todavía no hay viajes cargados.</Text>
+                  <Text style={styles.emptyCopy}>Creá el primero para empezar a armar el grupo.</Text>
+                </View>
+              ) : (
+                <View style={styles.tripList}>
+                  {decoratedTrips.map((trip) => (
+                    <TripCard
+                      key={trip.id || trip.IdViaje}
+                      trip={trip}
+                      onPress={() => navigation.navigate("TripDetail", { trip })}
+                    />
+                  ))}
+                </View>
+              )}
+            </View>
+
+            <View style={[styles.sideColumn, isDesktop && styles.sideColumnDesktop]}>
+              <View style={styles.panelCard}>
+                <Text style={styles.panelEyebrow}>Resumen</Text>
+                <Text style={styles.panelTitle}>Itinerario sugerido</Text>
+                <Text style={styles.panelCopy}>
+                  Base visual para la agenda del viaje y las acciones del grupo.
+                </Text>
+
+                <View style={styles.dayPill}>
+                  <Text style={styles.dayPillTitle}>Día 1</Text>
+                  <Text style={styles.dayPillSubtitle}>12 Jun</Text>
+                </View>
+
+                <View style={styles.agendaList}>
+                  {itineraryItems.map((item, index) => (
+                    <View key={`${item.time}-${item.title}`} style={styles.agendaItem}>
+                      <Text style={styles.agendaTime}>{item.time}</Text>
+                      <View style={styles.agendaTrack}>
+                        <View style={[styles.agendaDot, index === 0 && styles.agendaDotActive]} />
+                        {index < itineraryItems.length - 1 ? <View style={styles.agendaLine} /> : null}
+                      </View>
+                      <View style={[styles.agendaCard, index === 0 && styles.agendaCardActive]}>
+                        <Text style={styles.agendaTitle}>{item.title}</Text>
+                        <Text style={styles.agendaNote}>{item.note}</Text>
+                      </View>
+                    </View>
+                  ))}
+                </View>
+              </View>
+            </View>
+
+          </View>
         </View>
-      </View>
+
+      </ScrollView>
     </ScreenContainer>
   );
 }
 
 const styles = StyleSheet.create({
+  scrollContainer: {
+    paddingBottom: 32,
+  },
   header: {
     borderRadius: radii.lg,
     padding: spacing.lg,
+    marginHorizontal: 16, 
+    marginTop: 12,
     ...shadows.card
   },
   brandRow: {
@@ -211,17 +247,8 @@ const styles = StyleSheet.create({
     color: "#dbe6fb",
     fontSize: typography.micro
   },
-  actionIcon: {
-    width: 44,
-    height: 44,
-    borderRadius: radii.pill,
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.18)",
-    alignItems: "center",
-    justifyContent: "center"
-  },
   heroText: {
-    marginTop: spacing.xl,
+    marginTop: spacing.lg,
     gap: spacing.sm
   },
   heroTitle: {
@@ -234,18 +261,44 @@ const styles = StyleSheet.create({
     fontSize: typography.body,
     maxWidth: 560
   },
-  heroActions: {
+  heroStats: {
     flexDirection: "row",
-    flexWrap: "wrap",
-    gap: spacing.sm,
-    marginTop: spacing.lg
+    flexWrap: "nowrap", 
+    gap: spacing.md,
+    marginTop: spacing.lg,
+  },
+  statCard: {
+    flex: 1, 
+    backgroundColor: "rgba(255,255,255,0.12)",
+    borderRadius: radii.md,
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.md,
+  },
+  statValue: {
+    color: colors.surface,
+    fontSize: 16,
+    fontWeight: "900",
+  },
+  statLabel: {
+    color: "#dfe7f7",
+    fontSize: typography.micro,
+    marginTop: 4,
   },
   buttonWrap: {
     marginTop: spacing.lg,
-    maxWidth: 220
+    maxWidth: 200
+  },
+  contentFeed: {
+    paddingHorizontal: 16, 
+    marginTop: 24,
+  },
+  sectionTitle: {
+    fontSize: 20,
+    fontWeight: "800",
+    color: "#1a202c",
+    marginBottom: 16,
   },
   mainLayout: {
-    marginTop: spacing.xl,
     gap: spacing.lg
   },
   mainLayoutDesktop: {
@@ -265,7 +318,7 @@ const styles = StyleSheet.create({
     flex: 0.8
   },
   tripList: {
-    gap: spacing.lg
+    gap: spacing.md 
   },
   emptyCard: {
     borderRadius: radii.lg,

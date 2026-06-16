@@ -107,7 +107,9 @@ export async function createTrip(payload) {
 }
 
 export async function getPendingInvitations() {
-  const response = await fetch(`${API_BASE_URL}/trips/invitations/pending`);
+  const response = await fetch(`${API_BASE_URL}/trips/invitations/pending`, {
+    headers: await authHeaders(), 
+  });
   return parseResponse(response, "No se pudieron obtener las invitaciones pendientes");
 }
 
@@ -116,6 +118,7 @@ export async function respondToInvitation(tripId, decision) {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
+      ...(await authHeaders()), 
     },
     body: JSON.stringify({ decision }),
   });

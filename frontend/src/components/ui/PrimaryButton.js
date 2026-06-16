@@ -7,7 +7,9 @@ export default function PrimaryButton({
   onPress,
   variant = "primary",
   disabled = false,
-  loading = false
+  loading = false,
+  style,
+  textStyle
 }) {
   const isPrimary = variant === "primary";
 
@@ -18,6 +20,7 @@ export default function PrimaryButton({
       style={({ pressed }) => [
         styles.button,
         isPrimary ? styles.buttonPrimary : styles.buttonSecondary,
+        style,
         (disabled || loading) && styles.buttonDisabled,
         pressed && !disabled && !loading ? styles.buttonPressed : null
       ]}
@@ -25,7 +28,7 @@ export default function PrimaryButton({
       {loading ? (
         <ActivityIndicator color={isPrimary ? colors.primary : colors.surface} />
       ) : (
-        <Text style={[styles.label, isPrimary ? styles.labelPrimary : styles.labelSecondary]}>
+        <Text style={[styles.label,isPrimary ? styles.labelPrimary : styles.labelSecondary, textStyle]}>
           {label}
         </Text>
       )}

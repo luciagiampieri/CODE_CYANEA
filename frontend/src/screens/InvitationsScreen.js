@@ -3,7 +3,7 @@ import { View, Text, FlatList, StyleSheet, Alert, ActivityIndicator } from "reac
 import { getPendingInvitations, respondToInvitation } from "../services/api";
 import ScreenContainer from "../components/layout/ScreenContainer";
 import PrimaryButton from "../components/ui/PrimaryButton";
-import { colors, radii, spacing, typography } from "../theme/tokens";
+import { colors } from "../theme/tokens";
 
 export default function InvitationsScreen() {
     const [invitations, setInvitations] = useState([]);
@@ -26,51 +26,57 @@ export default function InvitationsScreen() {
         loadInvitations();
     }, []);
 
-    const handleResponse = async (tripId, decision) => {
-        if (submitting) return; // Bloquea clics duplicados antes de que finalice el proceso
+    const handleResponse = async (idViaje, decision) => {
+        if (submitting) return;
 
-    try {
-        setSubmitting(true);
-        const result = await respondToInvitation(tripId, decision);
-    
-        Alert.alert("Éxito", result.message || `Invitación procesada correctamente.`);
-    
-      // Volver a cargar la lista remueve la invitación de la UI e impide re-acciones
-        await loadInvitations();
-    } catch (error) {
-      // Captura el error 400 del backend ("Esta invitación ya fue respondida previamente.")
-        Alert.alert("Atención", error.message);
-      // Recargamos por las dudas de que el estado local haya quedado desactualizado
-        loadInvitations();
-    } finally {
-        setSubmitting(false);
+        try {
+            setSubmitting(true);
+            const result = await respondToInvitation(idViaje, decision);
+        
+            Alert.alert("Éxito", result.message || `Invitación procesada correctamente.`);
+            await loadInvitations();
+        } catch (error) {
+            Alert.alert("Atención", error.message || "Ocurrió un error al procesar la invitación.");
+            loadInvitations();
+        } finally {
+            setSubmitting(false);
         }
     };
 
-    const renderItem = ({ item }) => (
-        <View style={styles.card}>
-            <View style={styles.infoContainer}>
-                    <Text style={styles.title}>{item.title}</Text>
-                    <Text style={styles.destination}>📍 Destino: {item.destination}</Text>
-                    <Text style={styles.role}>Rol propuesto: {item.role}</Text>
+    const renderItem = ({ item }) => {
+        const idViaje = item.id || item.tripId || item.IdViaje;
+        const titulo = item.title || item.titulo || item.Titulo;
+        const destino = item.destination || item.destino || item.Destino;
+        const rol = item.role || item.rol || "Participante";
+
+        return (
+            <View style={styles.card}>
+                <View style={styles.infoContainer}>
+                    <Text style={styles.title}>{titulo}</Text>
+                    <Text style={styles.destination}>📍 Destino: {destino}</Text>
+                    <Text style={styles.role}>Rol propuesto: {rol}</Text>
+                </View>
+                <View style={styles.actionsContainer}>
+                    <View style={styles.buttonWrapper}>
+                        <PrimaryButton
+                            label="Rechazar"
+                            onPress={() => handleResponse(idViaje, "rechazar")}
+                            disabled={submitting}
+                            style={styles.rejectButton}
+                            textStyle={styles.rejectText} 
+                        />
+                    </View>
+                    <View style={styles.buttonWrapper}>
+                        <PrimaryButton
+                            label="Unirme"
+                            onPress={() => handleResponse(idViaje, "aceptar")}
+                            disabled={submitting}
+                        />
+                    </View>
+                </View>
             </View>
-        <View style={styles.actionsContainer}>
-        <PrimaryButton
-            title="Rechazar"
-            onPress={() => handleResponse(item.tripId, "rechazar")}
-            disabled={submitting}
-            style={styles.rejectButton}
-            textStyle={styles.rejectText}
-        />
-        <PrimaryButton
-            title="Aceptar"
-            onPress={() => handleResponse(item.tripId, "aceptar")}
-            disabled={submitting}
-            style={styles.acceptButton}
-        />
-        </View>
-    </View>
-    );
+        );
+    };
 
     if (loading) {
         return (
@@ -84,41 +90,55 @@ export default function InvitationsScreen() {
         <ScreenContainer>
             <Text style={styles.header}>Mis Invitaciones Pendientes</Text>
             {invitations.length === 0 ? (
-            <View style={styles.emptyContainer}>
-                <Text style={styles.emptyText}>No tenés invitaciones de viaje pendientes 🐙</Text>
-            </View>
-        ) : (
-        <FlatList
-            data={invitations}
-            keyExtractor={(item) => item.tripId.toString()}
-            renderItem={renderItem}
-            contentContainerStyle={styles.list}
-        />
-        )}
+                <View style={styles.emptyContainer}>
+                    <Text style={styles.emptyText}>No tenés invitaciones de viaje pendientes 🐙</Text>
+                </View>
+            ) : (
+                <FlatList
+                    data={invitations}
+                    keyExtractor={(item) => (item.id || item.tripId || item.IdViaje || Math.random()).toString()}
+                    renderItem={renderItem}
+                    contentContainerStyle={styles.list}
+                />
+            )}
         </ScreenContainer>
     );
 }
 
 const styles = StyleSheet.create({
     center: { flex: 1, justifyContent: "center", alignItems: "center" },
-    header: { fontSize: 22, fontWeight: "bold", marginVertical: 15, color: "#333" },
+    header: { fontSize: 22, fontWeight: "bold", marginVertical: 15, color: "#222" },
     list: { paddingBottom: 20 },
     card: {
         backgroundColor: "#fff",
-        borderRadius: 10,
-        padding: 15,
-        marginBottom: 12,
+        borderRadius: 12,
+        padding: 18,
+        marginBottom: 14,
         borderWidth: 1,
-        borderColor: "#e0e0e0",
+        borderColor: "#eceff1",
+        shadowColor: "#000",
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.04,
+        shadowRadius: 3,
+        elevation: 1,
     },
-    infoContainer: { marginBottom: 15 },
-    title: { fontSize: 18, fontWeight: "bold", color: "#111" },
-    destination: { fontSize: 14, color: "#666", marginTop: 4 },
-    role: { fontSize: 12, color: "#999", marginTop: 2, fontStyle: "italic" },
-    actionsContainer: { flexDirection: "row", justifyContent: "space-between" },
-    acceptButton: { flex: 1, marginLeft: 8, backgroundColor: "#4CAF50" },
-    rejectButton: { flex: 1, marginRight: 8, backgroundColor: "#fff", borderWidth: 1, borderColor: "#F44336" },
-    rejectText: { color: "#F44336" },
-    emptyContainer: { flex: 1, justifyContent: "center", alignItems: "center", marginTop: 40 },
-    emptyText: { fontSize: 16, color: "#777", textAlign: "center" }
-    });
+    infoContainer: { marginBottom: 16 },
+    title: { fontSize: 18, fontWeight: "800", color: "#1a202c" },
+    destination: { fontSize: 14, color: "#4a5568", marginTop: 6 },
+    role: { fontSize: 13, color: "#718096", marginTop: 4, fontStyle: "italic" },
+    actionsContainer: { 
+        flexDirection: "row", 
+        justifyContent: "space-between", 
+        gap: 12 
+    },
+    buttonWrapper: {
+        flex: 1
+    },
+    rejectButton: { 
+        backgroundColor: "#e2e8f0", 
+    },
+    rejectText: {
+        color: "#4a5568", 
+        fontWeight: "bold"
+    }
+});
