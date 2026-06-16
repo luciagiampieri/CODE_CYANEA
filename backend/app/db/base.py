@@ -8,8 +8,8 @@ from app.models.rol_participante import RolParticipante
 from app.models.usuario import Usuario
 from app.models.viaje import Viaje
 from app.models.gasto import Gasto
-from app.models.participantes_gastos import ParticipanteGasto
-from app.models.categorias_gastos import CategoriaGasto
+from app.models.participantes_gastos import ParticipantesGastos
+from app.models.categorias_gastos import CategoriasGastos
 
 __all__ = [
     "Base",
@@ -22,6 +22,6 @@ __all__ = [
     "Usuario",
     "Viaje",
     "Gasto",
-    "ParticipanteGasto",
-    "CategoriaGasto",
+    "ParticipantesGastos",
+    "CategoriasGastos",
 ]

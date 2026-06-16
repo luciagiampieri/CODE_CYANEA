@@ -14,7 +14,7 @@ class Usuario(Base):
     Nombre: Mapped[str] = mapped_column(String(100), nullable=False)
     Apellido: Mapped[str] = mapped_column(String(100), nullable=False)
     NombreUsuario: Mapped[str] = mapped_column(String(50), nullable=False)
-    HashedPassword: Mapped[str] = mapped_column("hashedpassword", String(255), nullable=False)
+    HashedPassword: Mapped[str] = mapped_column("HashedPassword", String(255), nullable=False)
     FotoUrl: Mapped[str | None] = mapped_column(nullable=True)
     FechaAlta: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

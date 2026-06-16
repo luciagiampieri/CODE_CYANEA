@@ -81,7 +81,7 @@ class ParticipanteViaje(Base):
         foreign_keys="Gasto.IdPagador",
     )
     GastosDondeParticipa = relationship(
-        "ParticipanteGasto",
+        "ParticipantesGastos",
         back_populates="ParticipanteViaje",
-        foreign_keys="ParticipanteGasto.IdParticipanteViaje",
+        foreign_keys="ParticipantesGastos.IdParticipanteViaje",
     )

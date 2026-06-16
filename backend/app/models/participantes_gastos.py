@@ -3,7 +3,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.session import Base
 
-class ParticipanteGasto(Base):
+class ParticipantesGastos(Base):
     __tablename__ = "ParticipantesGastos"
 
     __table_args__ = (
