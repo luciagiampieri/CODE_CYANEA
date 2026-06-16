@@ -127,7 +127,11 @@ export default function HomeScreen({ navigation }) {
           ) : (
             <View style={styles.tripList}>
               {decoratedTrips.map((trip) => (
-                <TripCard key={trip.id} trip={trip} />
+                <TripCard
+                  key={trip.id}
+                  trip={trip}
+                  onPress={() => navigation.navigate("TripDetail", { trip })}
+                />
               ))}
             </View>
           )}

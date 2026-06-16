@@ -1,5 +1,5 @@
 import { FontAwesome6 } from "@expo/vector-icons";
-import { ImageBackground, StyleSheet, Text, View } from "react-native";
+import { ImageBackground, Pressable, StyleSheet, Text, View } from "react-native";
 
 import StatusPill from "../ui/StatusPill";
 import { colors, radii, spacing, typography, shadows } from "../../theme/tokens";
@@ -9,32 +9,50 @@ const STATUS_LABEL = {
   finalizado: "Finalizado",
 };
 
-export default function TripCard({ trip }) {
+export default function TripCard({ trip, onPress }) {
   const statusKey = trip.status?.toLowerCase();
   const statusLabel = STATUS_LABEL[statusKey] ?? trip.status ?? "";
 
   return (
-    <ImageBackground imageStyle={styles.image} source={{ uri: trip.image }} style={styles.card}>
-      <View style={styles.overlay}>
-        <View style={styles.content}>
-          {statusLabel ? (
-            <View style={styles.pillWrap}>
-              <StatusPill tone={statusKey}>{statusLabel}</StatusPill>
-            </View>
-          ) : null}
-          <Text style={styles.title}>{trip.title}</Text>
-          <Text style={styles.subtitle}>{trip.destination}</Text>
-          <Text style={styles.date}>{trip.dateLabel}</Text>
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={`Ver detalle de ${trip.title}`}
+      onPress={onPress}
+      style={({ pressed }) => [styles.pressable, pressed && styles.pressed]}
+    >
+      <ImageBackground
+        imageStyle={styles.image}
+        source={{ uri: trip.image }}
+        style={styles.card}
+      >
+        <View style={styles.overlay}>
+          <View style={styles.content}>
+            {statusLabel ? (
+              <View style={styles.pillWrap}>
+                <StatusPill tone={statusKey}>{statusLabel}</StatusPill>
+              </View>
+            ) : null}
+            <Text style={styles.title}>{trip.title}</Text>
+            <Text style={styles.subtitle}>{trip.destination}</Text>
+            <Text style={styles.date}>{trip.dateLabel}</Text>
+          </View>
+          <View style={styles.arrowBubble}>
+            <FontAwesome6 color={colors.primary} name="arrow-right" size={18} />
+          </View>
         </View>
-        <View style={styles.arrowBubble}>
-          <FontAwesome6 color={colors.primary} name="arrow-right" size={18} />
-        </View>
-      </View>
-    </ImageBackground>
+      </ImageBackground>
+    </Pressable>
   );
 }
 
 const styles = StyleSheet.create({
+  pressable: {
+    borderRadius: radii.lg,
+  },
+  pressed: {
+    opacity: 0.88,
+    transform: [{ scale: 0.985 }],
+  },
   card: {
     minHeight: 250,
     borderRadius: radii.lg,

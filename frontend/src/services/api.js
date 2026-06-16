@@ -69,6 +69,13 @@ export async function getTrips() {
   return parseResponse(response, "No se pudieron obtener los viajes");
 }
 
+export async function getTripById(id) {
+  const response = await fetch(`${API_BASE_URL}/trips/${id}`, {
+    headers: await authHeaders(),
+  });
+  return parseResponse(response, "No se pudo obtener el detalle del viaje");
+}
+
 export async function getUsers(search = "", limit = 8) {
   const params = new URLSearchParams();
   if (search.trim()) params.set("q", search.trim());
@@ -98,6 +105,7 @@ export async function createTrip(payload) {
   });
   return parseResponse(response, "No se pudo crear el viaje");
 }
+
 export async function getPendingInvitations() {
   const response = await fetch(`${API_BASE_URL}/trips/invitations/pending`);
   return parseResponse(response, "No se pudieron obtener las invitaciones pendientes");
@@ -111,6 +119,5 @@ export async function respondToInvitation(tripId, decision) {
     },
     body: JSON.stringify({ decision }),
   });
-
   return parseResponse(response, "No se pudo procesar la respuesta a la invitación");
 }
