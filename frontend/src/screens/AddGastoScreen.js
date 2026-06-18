@@ -30,12 +30,20 @@ import {
     shadows,
 } from "../theme/tokens";
 
-import { guardarGastoOffline } from "../database/gastosLocal";
+import { 
+    guardarGastoOffline,
+    guardarCategoriasEnCache, 
+    obtenerCategoriasCache, 
+    guardarParticipantesEnCache, 
+    obtenerParticipantesCache
+ } from "../database/gastosLocal";
+
 import NetInfo from "@react-native-community/netinfo";
 
 export default function AddGastoScreen({ route, navigation }) {
 
-    const { IdViaje } = route.params;
+    const { IdViaje, Moneda } = route.params;
+    const monedaBase = Moneda || "USD";
 
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
@@ -52,7 +60,7 @@ export default function AddGastoScreen({ route, navigation }) {
     // Estados para controlar la visibilidad de los menús desplegables modales
     const [modalCategoriaVisible, setModalCategoriaVisible] = useState(false);
     const [modalPagadorVisible, setModalPagadorVisible] = useState(false);
-    const [modalParticipantesVisible, setModalParticipantesVisible] = useState(false); // Nuevo modal desplegable
+    const [modalParticipantesVisible, setModalParticipantesVisible] = useState(false); 
 
     // CONTROL DE DIVISIÓN DE GASTOS
     const [dividirEntreTodos, setDividirEntreTodos] = useState(true);
@@ -63,28 +71,8 @@ export default function AddGastoScreen({ route, navigation }) {
 
     const [errores, setErrores] = useState({});
 
-    useEffect(() => {
-        async function cargarDatos() {
-            try {
-                const [cats, parts] = await Promise.all([
-                    getExpenseCategories(),
-                    getTripParticipants(IdViaje),
-                ]);
-
-                setCategorias(cats);
-                setParticipantes(parts);
-            } catch (error) {
-                Alert.alert("Error", error.message);
-            } finally {
-                setLoading(false);
-            }
-        }
-
-        cargarDatos();
-    }, [IdViaje]);
-
-    function fechaFormato() {
-        return fecha.toISOString().split("T")[0];
+    function fechaFormato(dateObj = fecha) {
+        return dateObj.toISOString().split("T")[0];
     }
 
     // Helpers para obtener el nombre del item seleccionado en los dropdowns
@@ -93,12 +81,64 @@ export default function AddGastoScreen({ route, navigation }) {
 
     // Función para tildar / destildar un participante de la lista específica
     function toggleSeleccionParticipante(id) {
+        if (id === idPagador) {
+            Alert.alert("Acción no permitida", "El responsable del gasto debe estar incluido sí o sí.");
+            return;
+        }
         if (idsParticipantesSeleccionados.includes(id)) {
             setIdsParticipantesSeleccionados(idsParticipantesSeleccionados.filter(item => item !== id));
         } else {
             setIdsParticipantesSeleccionados([...idsParticipantesSeleccionados, id]);
         }
     }
+
+    useEffect(() => {
+        async function cargarDatos() {
+            try {
+                setLoading(true);
+
+                const [cats, parts] = await Promise.all([
+                    getExpenseCategories(),
+                    getTripParticipants(IdViaje),
+                ]);
+
+                setCategorias(cats);
+                setParticipantes(parts);
+
+                guardarCategoriasEnCache(cats);
+                guardarParticipantesEnCache(IdViaje, parts);
+
+            } catch (error) {
+                console.log("📡 API caída o modo avión detectado. Buscando respaldo local en SQLite...");
+
+                const catsLocal = obtenerCategoriasCache();
+                const partsLocal = obtenerParticipantesCache(IdViaje);
+
+                if (catsLocal.length > 0 || partsLocal.length > 0) {
+                    setCategorias(catsLocal);
+                    setParticipantes(partsLocal);
+                    console.log("Formulario cargado con datos de respaldo local exitosamente.");
+                } else {
+                    Alert.alert("Sin conexión", "No hay datos locales guardados para este viaje todavía.");
+                }
+            } finally {
+                setLoading(false);
+            }
+        }
+        cargarDatos();
+    }, [IdViaje]);
+
+    // Cada vez que cambia el switch "Dividir entre todos" a falso, nos aseguramos de meter al pagador actual por defecto
+    useEffect(() => {
+        if (!dividirEntreTodos && idPagador) {
+            setIdsParticipantesSeleccionados(prev => {
+                if (!prev.includes(idPagador)) {
+                    return [...prev, idPagador];
+                }
+                return prev;
+            });
+        }
+    }, [dividirEntreTodos, idPagador]);
 
     async function handleGuardar() {
         let nuevosErrores = {};
@@ -122,11 +162,23 @@ export default function AddGastoScreen({ route, navigation }) {
             nuevosErrores.pagador = "Seleccioná quién pagó";
         }
 
-        if (!dividirEntreTodos && idsParticipantesSeleccionados.length === 0) {
-            nuevosErrores.participantes = "Debes seleccionar al menos un participante";
+        // Validación estricta de fecha para evitar manipulación manual
+        const hoy = new Date();
+        hoy.setHours(23, 59, 59, 999); // Margen para el día de hoy completo
+        if (fecha > hoy) {
+            nuevosErrores.fecha = "La fecha del gasto no puede ser posterior a hoy";
         }
 
-        setErrores(nuevosErrores); // <-- Uso correcto de la variable vinculada al estado
+        if (!dividirEntreTodos) {
+            if (idsParticipantesSeleccionados.length < 2) {
+                nuevosErrores.participantes = "Debes seleccionar al menos un participante adicional además del pagador";
+            }
+            else if (!idsParticipantesSeleccionados.includes(idPagador)) {
+                nuevosErrores.participantes = "El pagador debe formar parte de la división del gasto";
+            }
+        }
+
+        setErrores(nuevosErrores);
 
         if (Object.keys(nuevosErrores).length > 0) {
             return;
@@ -148,16 +200,13 @@ export default function AddGastoScreen({ route, navigation }) {
 
             try {
                 await createExpense(nuevoGasto);
-
-                Alert.alert(
-                    "Éxito",
-                    "Gasto registrado correctamente en el servidor."
-                );
+                Alert.alert("Éxito", "Gasto registrado correctamente en el servidor.");
                 navigation.goBack();
-
             } catch (apiError) {
+                console.log("ERROR createExpense:");
+                console.log(apiError);
+                
                 console.log("⚠️ Sin conexión. Guardando gasto localmente...");
-
                 const guardadoConExito = guardarGastoOffline(nuevoGasto);
 
                 if (guardadoConExito) {
@@ -193,17 +242,8 @@ export default function AddGastoScreen({ route, navigation }) {
     return (
         <ScrollView style={styles.container} contentContainerStyle={styles.content}>
             <View style={styles.header}>
-                <TouchableOpacity
-                style={styles.backButton}
-                onPress={() => navigation.goBack()}
-                >
-
-                <FontAwesome6 
-                    name="arrow-left" 
-                    size={18} 
-                    color={colors.primary} 
-                />
-                
+                <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
+                    <FontAwesome6 name="arrow-left" size={18} color={colors.primary} />
                 </TouchableOpacity>
                 <Text style={styles.title}>Nuevo gasto</Text>
             </View>
@@ -224,7 +264,7 @@ export default function AddGastoScreen({ route, navigation }) {
             {/* MONTO */}
             <Text style={styles.label}>Monto</Text>
             <View style={styles.inputBox}>
-                <FontAwesome6 name="dollar-sign" size={14} color={colors.textMuted} />
+                <Text style={styles.currencyCodePrefix}>{monedaBase.toUpperCase()}</Text>
                 <TextInput
                     style={styles.input}
                     placeholder="0"
@@ -242,9 +282,19 @@ export default function AddGastoScreen({ route, navigation }) {
                     <input
                         type="date"
                         value={fechaFormato()}
+                        max={fechaFormato(new Date())} // 🎯 Evita elegir fechas futuras en Navegadores Web
                         onChange={(e) => {
                             const p = e.target.value.split("-");
-                            setFecha(new Date(p[0], p[1] - 1, p[2]));
+                            const nuevaFecha = new Date(p[0], p[1] - 1, p[2]);
+                            const limiteHoy = new Date();
+                            limiteHoy.setHours(23, 59, 59, 999);
+
+                            if (nuevaFecha > limiteHoy) {
+                                Alert.alert("Fecha inválida", "No podés registrar un gasto en una fecha futura.");
+                                setFecha(new Date());
+                            } else {
+                                setFecha(nuevaFecha);
+                            }
                         }}
                         style={{ border: 'none', width: '100%', outline: 'none' }}
                     />
@@ -260,21 +310,31 @@ export default function AddGastoScreen({ route, navigation }) {
                         <DateTimePicker
                             value={fecha}
                             mode="date"
+                            maximumDate={new Date()} // Restringe visualmente en iOS/Android
                             onChange={(e, date) => {
                                 setMostrarFecha(false);
-                                if (date) { setFecha(date); }
+                                if (date) { 
+                                    const limiteHoy = new Date();
+                                    limiteHoy.setHours(23, 59, 59, 999);
+                                    
+                                    // 🎯 Control de seguridad si el sistema operativo dejó saltar el bloqueo
+                                    if (date > limiteHoy) {
+                                        Alert.alert("Fecha inválida", "No podés registrar un gasto en una fecha futura.");
+                                        setFecha(new Date());
+                                    } else {
+                                        setFecha(date); 
+                                    }
+                                }
                             }}
                         />
                     )}
                 </>
             )}
+            {errores.fecha && <Text style={styles.error}>{errores.fecha}</Text>}
 
             {/* MENÚ DESPLEGABLE: CATEGORIAS */}
             <Text style={styles.label}>Categoría</Text>
-            <TouchableOpacity
-                style={styles.dropdownButton}
-                onPress={() => setModalCategoriaVisible(true)}
-            >
+            <TouchableOpacity style={styles.dropdownButton} onPress={() => setModalCategoriaVisible(true)}>
                 <View style={styles.dropdownLeftContent}>
                     <FontAwesome6 name="tags" size={14} color={colors.textMuted} style={{ marginRight: 10 }} />
                     <Text style={idCategoria ? styles.dropdownText : styles.dropdownPlaceholder}>
@@ -287,10 +347,7 @@ export default function AddGastoScreen({ route, navigation }) {
 
             {/* MENÚ DESPLEGABLE: PAGADOR */}
             <Text style={styles.label}>¿Quién pagó?</Text>
-            <TouchableOpacity
-                style={styles.dropdownButton}
-                onPress={() => setModalPagadorVisible(true)}
-            >
+            <TouchableOpacity style={styles.dropdownButton} onPress={() => setModalPagadorVisible(true)}>
                 <View style={styles.dropdownLeftContent}>
                     <FontAwesome6 name="user" size={14} color={colors.textMuted} style={{ marginRight: 10 }} />
                     <Text style={idPagador ? styles.dropdownText : styles.dropdownPlaceholder}>
@@ -313,7 +370,7 @@ export default function AddGastoScreen({ route, navigation }) {
                 <Switch value={dividirEntreTodos} onValueChange={setDividirEntreTodos} />
             </View>
 
-            {/* CHECKLIST DESPLEGABLE INTELIGENTE (Solo aparece si el switch está apagado) */}
+            {/* CHECKLIST DESPLEGABLE INTELIGENTE */}
             {!dividirEntreTodos && (
                 <View style={{ marginTop: 15 }}>
                     <Text style={styles.label}>¿Entre quiénes se divide?</Text>
@@ -390,8 +447,18 @@ export default function AddGastoScreen({ route, navigation }) {
                                 <TouchableOpacity
                                     style={[styles.modalItem, idPagador === item.IdParticipanteViaje && styles.modalItemActive]}
                                     onPress={() => {
-                                        setIdPagador(item.IdParticipanteViaje);
+                                        const nuevoPagadorId = item.IdParticipanteViaje;
+                                        setIdPagador(nuevoPagadorId);
                                         setModalPagadorVisible(false);
+                                        
+                                        if (!dividirEntreTodos) {
+                                            setIdsParticipantesSeleccionados(prev => {
+                                                if (!prev.includes(nuevoPagadorId)) {
+                                                    return [...prev, nuevoPagadorId];
+                                                }
+                                                return prev;
+                                            });
+                                        }
                                     }}
                                 >
                                     <View style={{ flex: 1 }}>
@@ -426,18 +493,31 @@ export default function AddGastoScreen({ route, navigation }) {
                             keyExtractor={(item) => item.IdParticipanteViaje.toString()}
                             renderItem={({ item }) => {
                                 const estaSeleccionado = idsParticipantesSeleccionados.includes(item.IdParticipanteViaje);
+                                const esElPagador = item.IdParticipanteViaje === idPagador;
                                 return (
                                     <TouchableOpacity
-                                        style={[styles.modalItem, estaSeleccionado && styles.modalItemActive]}
+                                        style={[
+                                            styles.modalItem, 
+                                            estaSeleccionado && styles.modalItemActive,
+                                            esElPagador && { backgroundColor: "#f9fafb" }
+                                        ]}
                                         onPress={() => toggleSeleccionParticipante(item.IdParticipanteViaje)}
                                     >
                                         <View style={{ flex: 1 }}>
-                                            <Text style={[styles.modalItemText, estaSeleccionado && styles.modalItemTextActive]}>
-                                                {item.Nombre} {item.Apellido}
+                                            <Text style={[
+                                                styles.modalItemText, 
+                                                estaSeleccionado && styles.modalItemTextActive,
+                                                esElPagador && { color: "#6b7280", fontWeight: "600" }
+                                            ]}>
+                                                {item.Nombre} {item.Apellido} {esElPagador && "(Responsable)"}
                                             </Text>
                                             <Text style={{ fontSize: 12, color: colors.textMuted }}>@{item.NombreUsuario}</Text>
                                         </View>
-                                        <View style={[styles.customCheckbox, estaSeleccionado && styles.customCheckboxChecked]}>
+                                        <View style={[
+                                            styles.customCheckbox, 
+                                            estaSeleccionado && styles.customCheckboxChecked,
+                                            esElPagador && { backgroundColor: "#9ca3af", borderColor: "#9ca3af" }
+                                        ]}>
                                             {estaSeleccionado && <FontAwesome6 name="check" size={10} color="#fff" />}
                                         </View>
                                     </TouchableOpacity>
@@ -453,7 +533,6 @@ export default function AddGastoScreen({ route, navigation }) {
 }
 
 const styles = StyleSheet.create({
-    
     header: {
         height: 50,
         flexDirection: "row",
@@ -462,7 +541,6 @@ const styles = StyleSheet.create({
         marginBottom: 20,
         position: "relative",
     },
-
     backButton: {
         position: "absolute",
         left: 0,
@@ -474,7 +552,6 @@ const styles = StyleSheet.create({
         alignItems: "center",
         ...shadows.card,
     },
-
     container: {
         flex: 1,
         backgroundColor: colors.background
@@ -513,6 +590,12 @@ const styles = StyleSheet.create({
     },
     input: {
         flex: 1
+    },
+    currencyCodePrefix: {
+        fontSize: 14,
+        fontWeight: "800",
+        color: "#6b7280",
+        marginRight: 2,
     },
     dateBox: {
         backgroundColor: "#fff",
@@ -656,4 +739,3 @@ const styles = StyleSheet.create({
         fontWeight: "700"
     }
 });
-

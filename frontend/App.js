@@ -29,6 +29,8 @@ export default function App() {
     // 1. Inicializar la DB local al abrir la aplicación
     inicializarBaseDeDatos();
 
+    sincronizarGastosOffline();
+
     // 2. Escuchar cambios de red con NetInfo
     const unsubscribe = NetInfo.addEventListener(async (state) => {
       const tieneInternet = state.isConnected && state.isInternetReachable;

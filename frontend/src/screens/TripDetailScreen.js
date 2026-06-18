@@ -17,7 +17,7 @@ import StatusPill from "../components/ui/StatusPill";
 import ParticipantSearch from "../components/trip/ParticipantSearch";
 import ParticipantList from "../components/trip/ParticipantList";
 
-import { getTripById, getUsers } from "../services/api";
+import { getUsers} from "../services/api";
 import { colors, radii, spacing, typography, shadows } from "../theme/tokens";
 
 const STATUS_LABEL = {
@@ -82,20 +82,10 @@ export default function TripDetailScreen({ route, navigation }) {
   const [userOptions, setUserOptions] = useState([]);
 
   useEffect(() => {
-    async function loadDetail() {
-      try {
-        const raw = await getTripById(initialTrip.id);
-        setTrip(normalizeTrip(raw));
-      } catch (err) {
-        setError("No se pudo actualizar la información del viaje.");
-        console.warn("[TripDetail] getTripById error:", err?.message ?? err);
-      } finally {
-        setLoading(false);
-      }
-    }
-    loadDetail();
-  }, [initialTrip.id]);
+    setLoading(false);
+  }, []);
 
+  
   useEffect(() => {
     const timeoutId = setTimeout(async () => {
       if (!participantSearch.trim()) {
@@ -296,7 +286,10 @@ export default function TripDetailScreen({ route, navigation }) {
                       styles.addGastoButton,
                       pressed && styles.addGastoButtonPressed
                     ]}
-                    onPress={() => navigation.navigate("AddGasto", { IdViaje: trip.id })}
+                    onPress={() => navigation.navigate("AddGasto", {
+                       IdViaje: trip.id,
+                       Moneda: trip.currency
+                      })}
                   >
                     <FontAwesome6 name="plus" size={12} color={colors.surface} />
                     <Text style={styles.addGastoButtonText}>Agregar</Text>

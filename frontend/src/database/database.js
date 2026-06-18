@@ -11,7 +11,7 @@ if (Platform.OS !== "web") {
 export function inicializarBaseDeDatos() {
   // En la web no inicializamos tablas nativas
   if (Platform.OS === "web") {
-    console.log("🌐 Entorno Web detectado: Omitiendo inicialización nativa de SQLite.");
+    console.log("Entorno Web detectado: Omitiendo inicialización nativa de SQLite.");
     return;
   }
 
@@ -30,7 +30,25 @@ export function inicializarBaseDeDatos() {
         creado_en TEXT
       );
     `);
-    console.log("SQLite inicializado correctamente");
+
+    db.execSync(`
+      CREATE TABLE IF NOT EXISTS cache_categorias (
+        id_categoria INTEGER PRIMARY KEY,
+        nombre TEXT NOT NULL
+      );
+    `);
+
+    db.execSync(`
+      CREATE TABLE IF NOT EXISTS cache_participantes (
+        id_participante_viaje INTEGER PRIMARY KEY,
+        id_viaje INTEGER NOT NULL,
+        nombre TEXT NOT NULL,
+        apellido TEXT,
+        nombre_usuario TEXT NOT NULL
+      );
+    `);
+
+    console.log("SQLite inicializado correctamente con tablas de caché.");
   } catch (error) {
     console.error("Error SQLite:", error);
   }

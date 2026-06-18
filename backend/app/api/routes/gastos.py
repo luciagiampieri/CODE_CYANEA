@@ -1,3 +1,5 @@
+from datetime import date
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -19,8 +21,23 @@ router = APIRouter()
 
 @router.post("/")
 def create_gasto(data: GastoCreate, db: Session = Depends(get_db)):
+
+    # Convertimos a string por seguridad, por si llega como objeto desde la web
+    fecha_str = str(data.FechaGasto)
+    # Si viene con hora (formato ISO completo), tomamos solo la parte de la fecha antes de la "T"
+    fecha_limpia = fecha_str.split("T")[0]
+    # Ahora sí, parseamos
+    fecha_gasto_dt = date.fromisoformat(fecha_limpia)
+
+    if fecha_gasto_dt > date.today():
+        raise HTTPException(
+            status_code=400,
+            detail="La fecha del gasto no puede ser posterior a la fecha actual."
+        )
+
     # 1. Crear el gasto principal
     gasto = Gasto(
+
         IdViaje=data.IdViaje,
         Nombre=data.Nombre,
         Monto=data.Monto,
@@ -36,9 +53,7 @@ def create_gasto(data: GastoCreate, db: Session = Depends(get_db)):
     # 2. Definir participantes del gasto
     participantes = []
 
-
     if data.DividirEntreTodos:
-
         estado_aceptado = (
             db.query(EstadoParticipacion)
             .filter(
@@ -62,8 +77,19 @@ def create_gasto(data: GastoCreate, db: Session = Depends(get_db)):
         )
         participantes_ids = [p.IdParticipanteViaje for p in participantes]
     else:
-        participantes_ids = data.IdParticipantes
+        participantes_ids = data.IdParticipantes if data.IdParticipantes else []
 
+        if data.IdPagador not in participantes_ids:
+            raise HTTPException(
+                status_code=400, 
+                detail="El participante responsable del gasto debe estar incluido por defecto."
+            )
+        
+        if len(participantes_ids) < 2:
+            raise HTTPException(
+                status_code=400, 
+                detail="Para dividir entre ciertos participantes, debés seleccionar al menos a un amigo además del pagador."
+            )
 
     # 3. Crear relaciones en tabla intermedia
     for id_part in participantes_ids:
