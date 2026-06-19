@@ -290,6 +290,7 @@ Orden actual:
 - los componentes reutilizables viven en `frontend/src/components/`
 - el acceso HTTP vive en `frontend/src/services/api.js`
 - los tokens de diseno viven en `frontend/src/theme/tokens.js`
+- antes de crear estilos nuevos para una pantalla, revisar si el patron ya puede resolverse con componentes base como `PrimaryButton`, `Avatar`, `AvatarStack`, `IconCircleButton`, `MetricCard`, `AuthSwitch` o `StatusPill`
 
 ### Estilo e identidad visual
 
@@ -298,6 +299,14 @@ Orden actual:
 - estilo limpio, profesional y mobile-first
 - en Expo no se usa un `styles.css` global; la identidad visual debe centralizarse en tokens compartidos y helpers de estilo
 - evitar hardcodear colores, radios o espaciados por componente si ya existe token equivalente
+- la interfaz activa toma como referencia una app de viajes mobile-first con header azul profundo, superficies marfil y tarjetas con imagen protagonista
+- usar serif editorial para wordmark de marca, titulos grandes de pantalla, nombres de viajes y valores KPI
+- usar sans para labels, formularios, navegacion, metadata, tabs y acciones
+- los avatares del grupo deben mostrarse en formato circular, con borde claro y posibilidad de stack solapado
+- los CTAs primarios usan fondo azul y texto blanco; el manteca se reserva para acentos, badges, FABs y highlights
+- login y registro comparten shell visual con cabecera azul, superficie marfil y selector segmentado `Iniciar sesion / Crear cuenta`
+- la home base usa saludo superior, KPI cards, cards de viaje con imagen, badge de estado, fecha, avatares y progreso, mas un FAB para crear viaje
+- el detalle de viaje usa hero con imagen, acciones circulares flotantes, stack de avatares, tabs secundarios visuales y cards de agenda por dia
 
 ### Responsive
 

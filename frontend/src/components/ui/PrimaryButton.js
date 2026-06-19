@@ -1,6 +1,7 @@
 import { ActivityIndicator, Pressable, StyleSheet, Text } from "react-native";
+import { FontAwesome6 } from "@expo/vector-icons";
 
-import { colors, radii, spacing, typography } from "../../theme/tokens";
+import { colors, radii, shadows, spacing, textStyles } from "../../theme/tokens";
 
 export default function PrimaryButton({
   label,
@@ -9,9 +10,12 @@ export default function PrimaryButton({
   disabled = false,
   loading = false,
   style,
-  textStyle
+  textStyle,
+  icon,
+  iconPosition = "right",
 }) {
   const isPrimary = variant === "primary";
+  const indicatorColor = isPrimary ? colors.textInverse : colors.primary;
 
   return (
     <Pressable
@@ -20,17 +24,25 @@ export default function PrimaryButton({
       style={({ pressed }) => [
         styles.button,
         isPrimary ? styles.buttonPrimary : styles.buttonSecondary,
-        style,
         (disabled || loading) && styles.buttonDisabled,
-        pressed && !disabled && !loading ? styles.buttonPressed : null
+        pressed && !disabled && !loading ? styles.buttonPressed : null,
+        style,
       ]}
     >
       {loading ? (
-        <ActivityIndicator color={isPrimary ? colors.primary : colors.surface} />
+        <ActivityIndicator color={indicatorColor} />
       ) : (
-        <Text style={[styles.label,isPrimary ? styles.labelPrimary : styles.labelSecondary, textStyle]}>
-          {label}
-        </Text>
+        <>
+          {icon && iconPosition === "left" ? (
+            <FontAwesome6 color={indicatorColor} name={icon} size={14} style={styles.iconLeft} />
+          ) : null}
+          <Text style={[styles.label, isPrimary ? styles.labelPrimary : styles.labelSecondary, textStyle]}>
+            {label}
+          </Text>
+          {icon && iconPosition === "right" ? (
+            <FontAwesome6 color={indicatorColor} name={icon} size={14} style={styles.iconRight} />
+          ) : null}
+        </>
       )}
     </Pressable>
   );
@@ -39,31 +51,40 @@ export default function PrimaryButton({
 const styles = StyleSheet.create({
   button: {
     minHeight: 54,
-    borderRadius: radii.pill,
+    borderRadius: radii.md,
     alignItems: "center",
     justifyContent: "center",
-    paddingHorizontal: spacing.lg
+    paddingHorizontal: spacing.lg,
+    flexDirection: "row",
+    ...shadows.card,
   },
   buttonPrimary: {
-    backgroundColor: colors.accent
+    backgroundColor: colors.primary,
   },
   buttonSecondary: {
-    backgroundColor: colors.primary
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
   },
   buttonDisabled: {
-    opacity: 0.6
+    opacity: 0.6,
   },
   buttonPressed: {
-    transform: [{ scale: 0.98 }]
+    transform: [{ scale: 0.985 }],
   },
   label: {
-    fontSize: typography.body,
-    fontWeight: "800"
+    ...textStyles.button,
   },
   labelPrimary: {
-    color: colors.primary
+    color: colors.textInverse,
   },
   labelSecondary: {
-    color: colors.surface
-  }
+    color: colors.primary,
+  },
+  iconLeft: {
+    marginRight: spacing.sm,
+  },
+  iconRight: {
+    marginLeft: spacing.sm,
+  },
 });

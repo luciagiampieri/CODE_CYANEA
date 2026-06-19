@@ -1,9 +1,9 @@
 import { Image, StyleSheet, Text, View } from "react-native";
 
-import { colors, radii, typography } from "../../theme/tokens";
+import { colors, radii, textStyles } from "../../theme/tokens";
 
 function getInitials(name) {
-  return name
+  return String(name ?? "")
     .split(" ")
     .filter(Boolean)
     .slice(0, 2)
@@ -11,13 +11,18 @@ function getInitials(name) {
     .join("");
 }
 
-export default function Avatar({ name, imageUrl, size = 42 }) {
+export default function Avatar({ name, imageUrl, size = 42, outlined = false, ringColor = colors.surface }) {
+  const shared = [
+    { width: size, height: size, borderRadius: size / 2 },
+    outlined && { borderWidth: 2, borderColor: ringColor },
+  ];
+
   if (imageUrl) {
-    return <Image source={{ uri: imageUrl }} style={[styles.image, { width: size, height: size }]} />;
+    return <Image source={{ uri: imageUrl }} style={[styles.image, ...shared]} />;
   }
 
   return (
-    <View style={[styles.fallback, { width: size, height: size }]}>
+    <View style={[styles.fallback, ...shared]}>
       <Text style={styles.initials}>{getInitials(name)}</Text>
     </View>
   );
@@ -25,18 +30,16 @@ export default function Avatar({ name, imageUrl, size = 42 }) {
 
 const styles = StyleSheet.create({
   image: {
-    borderRadius: radii.pill,
-    backgroundColor: colors.surfaceMuted
+    backgroundColor: colors.surfaceAlt,
   },
   fallback: {
-    borderRadius: radii.pill,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: colors.surfaceMuted
+    backgroundColor: colors.accentMuted,
   },
   initials: {
+    ...textStyles.nav,
     color: colors.primary,
-    fontWeight: "800",
-    fontSize: typography.small
-  }
+    fontWeight: "700",
+  },
 });

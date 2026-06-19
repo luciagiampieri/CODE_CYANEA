@@ -1,472 +1,397 @@
+import { FontAwesome6 } from "@expo/vector-icons";
 import { useState } from "react";
 import {
-    View,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    StyleSheet,
-    ScrollView,
-    ActivityIndicator,
-    Switch,
-    KeyboardAvoidingView,
-    Platform,
+  ActivityIndicator,
+  Image,
+  KeyboardAvoidingView,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Switch,
+  Text,
+  TextInput,
+  View,
 } from "react-native";
-import { FontAwesome6 } from "@expo/vector-icons";
-const API_BASE = process.env.EXPO_PUBLIC_API_BASE_URL ?? "http://localhost:8000/api/v1";
 
+import AuthSwitch from "../components/ui/AuthSwitch";
+import {
+  colors,
+  fontFamilies,
+  radii,
+  spacing,
+  textStyles,
+} from "../theme/tokens";
+
+import CyaneaLogo from "../../assets/cyanea_Logo.png";
+
+const API_BASE = process.env.EXPO_PUBLIC_API_BASE_URL ?? "http://localhost:8000/api/v1";
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const PASSWORD_REGEX = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0-9]).{8,}$/;
 
 export default function RegisterScreen({ navigation }) {
-    const [form, setForm] = useState({
-        nombre: "",
-        apellido: "",
-        nombreUsuario: "",
-        email: "",
-        password: "",
-        confirmarPassword: "",
-        aceptaTerminos: false,
-    });
+  const [form, setForm] = useState({
+    nombre: "",
+    apellido: "",
+    nombreUsuario: "",
+    email: "",
+    password: "",
+    confirmarPassword: "",
+    aceptaTerminos: false,
+  });
+  const [errors, setErrors] = useState({});
+  const [loading, setLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirm, setShowConfirm] = useState(false);
 
-    const [errors, setErrors] = useState({});
-    const [loading, setLoading] = useState(false);
-    const [showPassword, setShowPassword] = useState(false);
-    const [showConfirm, setShowConfirm] = useState(false);
-
-    function setField(key, value) {
-        setForm((prev) => ({ ...prev, [key]: value }));
-        if (errors[key]) {
-            setErrors((prev) => ({ ...prev, [key]: undefined }));
-        }
+  function setField(key, value) {
+    setForm((prev) => ({ ...prev, [key]: value }));
+    if (errors[key]) {
+      setErrors((prev) => ({ ...prev, [key]: undefined, general: undefined }));
     }
+  }
 
-    function validate() {
-        const e = {};
+  function validate() {
+    const e = {};
+    if (!form.nombre.trim()) e.nombre = "El nombre es requerido.";
+    if (!form.apellido.trim()) e.apellido = "El apellido es requerido.";
+    if (!form.nombreUsuario.trim()) e.nombreUsuario = "El nombre de usuario es requerido.";
+    if (!form.email.trim()) e.email = "El correo es requerido.";
+    else if (!EMAIL_REGEX.test(form.email)) e.email = "El correo no tiene un formato válido.";
+    if (!form.password) e.password = "La contraseña es requerida.";
+    else if (!PASSWORD_REGEX.test(form.password)) e.password = "La contraseña no cumple con la complejidad mínima.";
+    if (!form.confirmarPassword) e.confirmarPassword = "Confirmá tu contraseña.";
+    else if (form.password !== form.confirmarPassword) e.confirmarPassword = "Las contraseñas no coinciden.";
+    if (!form.aceptaTerminos) e.aceptaTerminos = "Debés aceptar los términos y condiciones.";
+    setErrors(e);
+    return Object.keys(e).length === 0;
+  }
 
-        if (!form.nombre.trim()) e.nombre = "El nombre es requerido.";
-        if (!form.apellido.trim()) e.apellido = "El apellido es requerido.";
+  async function handleSubmit() {
+    if (!validate()) return;
 
-        if (!form.nombreUsuario.trim()) {
-            e.nombreUsuario = "El nombre de usuario es requerido.";
-        } else if (form.nombreUsuario.length < 3) {
-            e.nombreUsuario = "Debe tener al menos 3 caracteres.";
-        }
+    setLoading(true);
+    setErrors({});
 
-        if (!form.email.trim()) {
-            e.email = "El correo es requerido.";
-        } else if (!EMAIL_REGEX.test(form.email)) {
-            e.email = "El correo no tiene un formato válido.";
-        }
-
-        if (!form.password) {
-            e.password = "La contraseña es requerida.";
-        } else if (!PASSWORD_REGEX.test(form.password)) {
-            e.password =
-                "Mínimo 8 caracteres, una mayúscula, una minúscula, un número y un carácter especial.";
-        }
-
-        if (!form.confirmarPassword) {
-            e.confirmarPassword = "Confirmá tu contraseña.";
-        } else if (form.password !== form.confirmarPassword) {
-            e.confirmarPassword = "Las contraseñas no coinciden.";
-        }
-
-        if (!form.aceptaTerminos) {
-            e.aceptaTerminos = "Debés aceptar los Términos y Condiciones.";
-        }
-
-        setErrors(e);
-        return Object.keys(e).length === 0;
+    try {
+      const res = await fetch(`${API_BASE}/auth/register`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          nombre: form.nombre.trim(),
+          apellido: form.apellido.trim(),
+          nombreUsuario: form.nombreUsuario.trim(),
+          email: form.email.trim().toLowerCase(),
+          password: form.password,
+          aceptaTerminos: form.aceptaTerminos,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setErrors({ general: data.detail ?? "Error al registrarse." });
+        return;
+      }
+      navigation.replace("RegistrationSuccess", { email: form.email });
+    } catch {
+      setErrors({ general: "No se pudo conectar con el servidor." });
+    } finally {
+      setLoading(false);
     }
+  }
 
-    async function handleSubmit() {
-        if (!validate()) return;
+  return (
+    <View style={styles.screen}>
+      <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={styles.flex}>
+        <ScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
+          <View style={styles.topPanel}>
+            <View style={styles.brandRow}>
+              <View style={styles.logoBadge}>
+                <Image resizeMode="contain" source={CyaneaLogo} style={styles.logoImage} />
+              </View>
+              <Text style={styles.brandName}>CYANEA</Text>
+            </View>
+            <Text style={styles.brandClaim}>MUCHAS MANOS . UN ÚNICO DESTINO</Text>
+          </View>
 
-        setLoading(true);
-        setErrors({});
+          <View style={styles.body}>
+            <AuthSwitch active="register" onChange={(key) => key === "login" && navigation.navigate("Login")} />
 
-        try {
-            const res = await fetch(`${API_BASE}/auth/register`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                    nombre: form.nombre.trim(),
-                    apellido: form.apellido.trim(),
-                    nombreUsuario: form.nombreUsuario.trim(),
-                    email: form.email.trim().toLowerCase(),
-                    password: form.password,
-                    aceptaTerminos: form.aceptaTerminos,
-                }),
-            });
+            <View style={styles.form}>
+              <View style={styles.row}>
+                <Field label="Nombre" value={form.nombre} onChangeText={(value) => setField("nombre", value)} error={errors.nombre} />
+                <Field label="Apellido" value={form.apellido} onChangeText={(value) => setField("apellido", value)} error={errors.apellido} />
+              </View>
 
-            const data = await res.json();
+              <Field
+                autoCapitalize="none"
+                label="Usuario"
+                value={form.nombreUsuario}
+                onChangeText={(value) => setField("nombreUsuario", value)}
+                error={errors.nombreUsuario}
+              />
 
-            if (!res.ok) {
-                setErrors({ general: data.detail ?? "Error al registrarse." });
-                return;
-            }
+              <Field
+                autoCapitalize="none"
+                keyboardType="email-address"
+                label="Correo electrónico"
+                value={form.email}
+                onChangeText={(value) => setField("email", value)}
+                error={errors.email}
+              />
 
-            navigation.replace("RegistrationSuccess", { email: form.email });
-            
-        } catch {
-            setErrors({ general: "No se pudo conectar con el servidor." });
-        } finally {
-            setLoading(false);
-        }
-    }
+              <Field
+                autoCapitalize="none"
+                label="Contraseña"
+                secureTextEntry={!showPassword}
+                value={form.password}
+                onChangeText={(value) => setField("password", value)}
+                rightIcon={showPassword ? "eye-slash" : "eye"}
+                onPressRightIcon={() => setShowPassword((current) => !current)}
+                error={errors.password}
+              />
 
-    return (
-        <KeyboardAvoidingView
-            style={{ flex: 1 }}
-            behavior={Platform.OS === "ios" ? "padding" : undefined}
-        >
-            <ScrollView
-                contentContainerStyle={styles.scrollContent}
-                keyboardShouldPersistTaps="handled"
-            >
-                {/* contenedor "card" para centrar y achicar el formulario */}
-                <View style={styles.card}>
-                    {/* Header */}
-                    <View style={styles.header}>
-                        <Text style={styles.logo}>CYANEA</Text>
-                        <Text style={styles.tagline}>Muchas manos, un único destino</Text>
-                        <Text style={styles.title}>Crear cuenta</Text>
-                    </View>
+              <Field
+                autoCapitalize="none"
+                label="Confirmar contraseña"
+                secureTextEntry={!showConfirm}
+                value={form.confirmarPassword}
+                onChangeText={(value) => setField("confirmarPassword", value)}
+                rightIcon={showConfirm ? "eye-slash" : "eye"}
+                onPressRightIcon={() => setShowConfirm((current) => !current)}
+                error={errors.confirmarPassword}
+              />
 
-                    {/* Error general */}
-                    {errors.general && (
-                        <View style={styles.errorBanner}>
-                            <Text style={styles.errorBannerText}>{errors.general}</Text>
-                        </View>
-                    )}
+              <Text style={styles.hint}>
+                Debe contener mayúscula, minúscula, número y carácter especial.
+              </Text>
 
-                    {/* Nombre */}
-                    <View style={styles.field}>
-                        <Text style={styles.label}>Nombre *</Text>
-                        <TextInput
-                            style={[styles.input, errors.nombre && styles.inputError]}
-                            placeholder="Tu nombre"
-                            placeholderTextColor="#aaa"
-                            value={form.nombre}
-                            onChangeText={(v) => setField("nombre", v)}
-                            autoCapitalize="words"
-                        />
-                        {errors.nombre && <Text style={styles.errorText}>{errors.nombre}</Text>}
-                    </View>
+              <View style={styles.termsRow}>
+                <Switch
+                  trackColor={{ true: colors.primary, false: colors.borderStrong }}
+                  thumbColor={form.aceptaTerminos ? colors.accent : colors.surface}
+                  value={form.aceptaTerminos}
+                  onValueChange={(value) => setField("aceptaTerminos", value)}
+                />
+                <Text style={styles.termsText}>
+                  Acepto los <Text style={styles.termsStrong}>Términos y Condiciones</Text>
+                </Text>
+              </View>
+              {errors.aceptaTerminos ? <Text style={styles.fieldError}>{errors.aceptaTerminos}</Text> : null}
 
-                    {/* Apellido */}
-                    <View style={styles.field}>
-                        <Text style={styles.label}>Apellido *</Text>
-                        <TextInput
-                            style={[styles.input, errors.apellido && styles.inputError]}
-                            placeholder="Tu apellido"
-                            placeholderTextColor="#aaa"
-                            value={form.apellido}
-                            onChangeText={(v) => setField("apellido", v)}
-                            autoCapitalize="words"
-                        />
-                        {errors.apellido && <Text style={styles.errorText}>{errors.apellido}</Text>}
-                    </View>
-
-                    {/* Nombre de usuario */}
-                    <View style={styles.field}>
-                        <Text style={styles.label}>Nombre de usuario *</Text>
-                        <TextInput
-                            style={[styles.input, errors.nombreUsuario && styles.inputError]}
-                            placeholder="@tunombre"
-                            placeholderTextColor="#aaa"
-                            value={form.nombreUsuario}
-                            onChangeText={(v) => setField("nombreUsuario", v)}
-                            autoCapitalize="none"
-                            autoCorrect={false}
-                        />
-                        {errors.nombreUsuario && (
-                            <Text style={styles.errorText}>{errors.nombreUsuario}</Text>
-                        )}
-                    </View>
-
-                    {/* Email */}
-                    <View style={styles.field}>
-                        <Text style={styles.label}>Correo electrónico *</Text>
-                        <TextInput
-                            style={[styles.input, errors.email && styles.inputError]}
-                            placeholder="tu@correo.com"
-                            placeholderTextColor="#aaa"
-                            value={form.email}
-                            onChangeText={(v) => setField("email", v)}
-                            keyboardType="email-address"
-                            autoCapitalize="none"
-                            autoCorrect={false}
-                        />
-                        {errors.email && <Text style={styles.errorText}>{errors.email}</Text>}
-                    </View>
-
-                    {/* Contraseña */}
-                    <View style={styles.field}>
-                        <Text style={styles.label}>Contraseña *</Text>
-                        <View style={styles.passwordRow}>
-                            <TextInput
-                                style={[
-                                    styles.input,
-                                    styles.inputFlex,
-                                    errors.password && styles.inputError,
-                                ]}
-                                placeholder="Mínimo 8 caracteres"
-                                placeholderTextColor="#aaa"
-                                value={form.password}
-                                onChangeText={(v) => setField("password", v)}
-                                secureTextEntry={!showPassword}
-                                autoCapitalize="none"
-                            />
-                            <TouchableOpacity
-                                style={styles.eyeBtn}
-                                onPress={() => setShowPassword((v) => !v)}
-                            >
-                                <FontAwesome6
-                                    name={showPassword ? "eye-slash" : "eye"}
-                                    size={13}
-                                    color="#666"
-                                />
-                            </TouchableOpacity>
-                        </View>
-                        <Text style={styles.hint}>
-                            Debe contener mayúscula, minúscula, número y carácter especial.
-                        </Text>
-                        {errors.password && (
-                            <Text style={styles.errorText}>{errors.password}</Text>
-                        )}
-                    </View>
-
-                    {/* Confirmar contraseña */}
-                    <View style={styles.field}>
-                        <Text style={styles.label}>Confirmar contraseña *</Text>
-                        <View style={styles.passwordRow}>
-                            <TextInput
-                                style={[
-                                    styles.input,
-                                    styles.inputFlex,
-                                    errors.confirmarPassword && styles.inputError,
-                                ]}
-                                placeholder="Repetí tu contraseña"
-                                placeholderTextColor="#aaa"
-                                value={form.confirmarPassword}
-                                onChangeText={(v) => setField("confirmarPassword", v)}
-                                secureTextEntry={!showConfirm}
-                                autoCapitalize="none"
-                            />
-                            <TouchableOpacity
-                                style={styles.eyeBtn}
-                                onPress={() => setShowConfirm((v) => !v)}
-                            >
-                                <FontAwesome6
-                                    name={showConfirm ? "eye-slash" : "eye"}
-                                    size={13}
-                                    color="#666"
-                                />
-                            </TouchableOpacity>
-                        </View>
-                        {errors.confirmarPassword && (
-                            <Text style={styles.errorText}>{errors.confirmarPassword}</Text>
-                        )}
-                    </View>
-
-                    {/* Términos */}
-                    <View style={styles.termsRow}>
-                        <Switch
-                            value={form.aceptaTerminos}
-                            onValueChange={(v) => setField("aceptaTerminos", v)}
-                            trackColor={{ true: "#1e3e7b", false: "#ccc" }}
-                            thumbColor={form.aceptaTerminos ? "#ffec80" : "#fff"}
-                        />
-                        <Text style={styles.termsText}>
-                            Acepto los{" "}
-                            <Text style={styles.termsLink}>Términos y Condiciones</Text>
-                        </Text>
-                    </View>
-                    {errors.aceptaTerminos && (
-                        <Text style={styles.errorText}>{errors.aceptaTerminos}</Text>
-                    )}
-
-                    {/* Botón */}
-                    <TouchableOpacity
-                        style={[styles.btn, loading && styles.btnDisabled]}
-                        onPress={handleSubmit}
-                        disabled={loading}
-                        activeOpacity={0.8}
-                    >
-                        {loading ? (
-                            <ActivityIndicator color="#ffec80" />
-                        ) : (
-                            <Text style={styles.btnText}>Crear cuenta</Text>
-                        )}
-                    </TouchableOpacity>
-
-                    {/* Link al login */}
-                    <View style={styles.loginRow}>
-                        <Text style={styles.loginText}>¿Ya tenés cuenta? </Text>
-                        <TouchableOpacity onPress={() => navigation.navigate("Login")}>
-                            <Text style={styles.loginLink}>Iniciá sesión</Text>
-                        </TouchableOpacity>
-                    </View>
+              {errors.general ? (
+                <View style={styles.errorBox}>
+                  <FontAwesome6 color={colors.danger} name="circle-exclamation" size={14} />
+                  <Text style={styles.errorText}>{errors.general}</Text>
                 </View>
-            </ScrollView>
-        </KeyboardAvoidingView>
-    );
+              ) : null}
+
+              <Pressable disabled={loading} onPress={handleSubmit} style={({ pressed }) => [styles.submitButton, pressed && styles.buttonPressed, loading && styles.buttonDisabled]}>
+                {loading ? (
+                  <ActivityIndicator color={colors.textInverse} />
+                ) : (
+                  <Text style={styles.submitText}>Crear cuenta</Text>
+                )}
+              </Pressable>
+
+              <Pressable onPress={() => navigation.navigate("Login")} style={styles.switchLink}>
+                <Text style={styles.switchCopy}>
+                  ¿Ya tienes cuenta? <Text style={styles.switchStrong}>Inicia sesión</Text>
+                </Text>
+              </Pressable>
+            </View>
+          </View>
+        </ScrollView>
+      </KeyboardAvoidingView>
+    </View>
+  );
 }
 
-const C = {
-    dark: "#1e3e7b",
-    yellow: "#ffec80",
-    error: "#b3261e",
-    muted: "#666",
-    border: "#d0d7e8",
-    bg: "#f0f4f8",
-};
+function Field({ label, error, rightIcon, onPressRightIcon, ...props }) {
+  return (
+    <View style={styles.field}>
+      <Text style={styles.fieldLabel}>{label}</Text>
+      <View style={[styles.inputShell, error && styles.inputShellError]}>
+        <TextInput
+          placeholderTextColor={colors.textMuted}
+          style={styles.input}
+          {...props}
+        />
+        {rightIcon ? (
+          <Pressable onPress={onPressRightIcon} style={styles.trailingIcon}>
+            <FontAwesome6 color={colors.textMuted} name={rightIcon} size={14} />
+          </Pressable>
+        ) : null}
+      </View>
+      {error ? <Text style={styles.fieldError}>{error}</Text> : null}
+    </View>
+  );
+}
 
 const styles = StyleSheet.create({
-    scrollContent: {
-        flexGrow: 1,
-        backgroundColor: C.bg,
-        alignItems: "center", 
-        justifyContent: "center", 
-        padding: 24,
-        paddingTop: 10,
-        paddingBottom: 48,
-    },
-    card: {
-        backgroundColor: "#fff",
-        width: "100%",
-        maxWidth: 550, 
-        padding: 22,
-        borderRadius: 16,
-        elevation: 4, 
-        shadowColor: "#000", 
-        shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.1,
-        shadowRadius: 12,
-    },
-    header: {
-        alignItems: "center",
-        marginBottom: 8,
-    },
-    logo: {
-        fontSize: 40,
-        fontWeight: "800",
-        color: C.dark,
-        letterSpacing: 1,
-    },
-    tagline: {
-        fontSize: 12,
-        color: C.muted,
-        marginBottom: 12,
-    },
-    title: {
-        fontSize: 22,
-        fontWeight: "700",
-        color: C.dark,
-    },
-    errorBanner: {
-        backgroundColor: "#fdecea",
-        borderColor: C.error,
-        borderWidth: 1,
-        borderRadius: 8,
-        padding: 12,
-        marginBottom: 16,
-    },
-    errorBannerText: {
-        color: C.error,
-        fontSize: 14,
-        textAlign: "center",
-    },
-    field: {
-        marginBottom: 16,
-    },
-    label: {
-        fontSize: 14,
-        fontWeight: "600",
-        color: C.dark,
-        marginBottom: 6,
-    },
-    input: {
-        backgroundColor: "#fff",
-        borderWidth: 1,
-        borderColor: C.border,
-        borderRadius: 10,
-        paddingHorizontal: 14,
-        paddingVertical: 12,
-        fontSize: 15,
-        color: "#222",
-    },
-    inputError: {
-        borderColor: C.error,
-    },
-    inputFlex: {
-        flex: 1,
-        borderTopRightRadius: 0,
-        borderBottomRightRadius: 0,
-    },
-    passwordRow: {
-        flexDirection: "row",
-        alignItems: "center",
-    },
-    eyeBtn: {
-        backgroundColor: "#fff",
-        borderWidth: 1,
-        borderLeftWidth: 0,
-        borderColor: C.border,
-        borderTopRightRadius: 10,
-        borderBottomRightRadius: 10,
-        paddingHorizontal: 12,
-        paddingVertical: 8,
-    },
-    eyeText: {
-        fontSize: 18,
-    },
-    hint: {
-        fontSize: 11,
-        color: C.muted,
-        marginTop: 4,
-    },
-    errorText: {
-        color: C.error,
-        fontSize: 12,
-        marginTop: 4,
-    },
-    termsRow: {
-        flexDirection: "row",
-        alignItems: "center",
-        marginBottom: 12,
-        gap: 10,
-    },
-    termsText: {
-        flex: 1,
-        fontSize: 14,
-        color: C.muted,
-    },
-    termsLink: {
-        color: C.dark,
-        fontWeight: "700",
-        textDecorationLine: "underline",
-    },
-    btn: {
-        backgroundColor: C.dark,
-        borderRadius: 12,
-        paddingVertical: 16,
-        alignItems: "center",
-        marginTop: 8,
-        elevation: 4,
-    },
-    btnDisabled: { opacity: 0.7 },
-    btnText: {
-        color: C.yellow,
-        fontSize: 16,
-        fontWeight: "700",
-    },
-    loginRow: {
-        flexDirection: "row",
-        justifyContent: "center",
-        marginTop: 20,
-    },
-    loginText: { color: C.muted, fontSize: 14 },
-    loginLink: { color: C.dark, fontSize: 14, fontWeight: "700" },
+  flex: {
+    flex: 1,
+  },
+  screen: {
+    flex: 1,
+    backgroundColor: colors.backgroundCanvas,
+  },
+  scrollContent: {
+    flexGrow: 1,
+    paddingTop: spacing.xl,
+    paddingBottom: spacing.xxxl,
+  },
+  topPanel: {
+    backgroundColor: colors.primarySoft,
+    paddingTop: spacing.xl,
+    paddingHorizontal: spacing.xl,
+    paddingBottom: spacing.xl,
+    alignItems: "center",
+  },
+  brandRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+  },
+  logoBadge: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: colors.accent,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  logoImage: {
+    width: 26,
+    height: 26,
+  },
+  brandName: {
+    ...textStyles.brandTitle,
+    color: colors.accent,
+    fontSize: 26,
+  },
+  brandClaim: {
+    ...textStyles.sectionLabel,
+    color: "#9fb0d8",
+    marginTop: spacing.sm,
+    fontSize: 12,
+  },
+  body: {
+    flex: 1,
+    backgroundColor: colors.background,
+    borderTopLeftRadius: radii.xl,
+    borderTopRightRadius: radii.xl,
+    marginTop: -radii.lg,
+    paddingHorizontal: spacing.xl,
+    paddingTop: spacing.lg,
+    paddingBottom: spacing.xxxl,
+  },
+  form: {
+    marginTop: spacing.xl,
+  },
+  row: {
+    flexDirection: Platform.OS === "web" ? "row" : "column",
+    gap: spacing.md,
+  },
+  field: {
+    flex: 1,
+    marginBottom: spacing.md,
+  },
+  fieldLabel: {
+    ...textStyles.label,
+    color: colors.primary,
+    marginBottom: spacing.xs,
+  },
+  inputShell: {
+    minHeight: 52,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+    paddingHorizontal: spacing.md,
+    justifyContent: "center",
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  inputShellError: {
+    borderColor: colors.danger,
+  },
+  input: {
+    flex: 1,
+    minHeight: 52,
+    color: colors.textPrimary,
+    fontFamily: fontFamilies.sans,
+    fontSize: 16,
+  },
+  trailingIcon: {
+    paddingLeft: spacing.sm,
+  },
+  hint: {
+    ...textStyles.meta,
+    color: colors.textSecondary,
+    marginTop: -spacing.xs,
+    marginBottom: spacing.md,
+  },
+  termsRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+  },
+  termsText: {
+    ...textStyles.meta,
+    color: colors.textSecondary,
+    flex: 1,
+  },
+  termsStrong: {
+    color: colors.primary,
+    fontWeight: "700",
+  },
+  errorBox: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+    backgroundColor: colors.dangerSurface,
+    borderRadius: radii.md,
+    padding: spacing.md,
+    marginVertical: spacing.md,
+  },
+  errorText: {
+    ...textStyles.meta,
+    color: colors.danger,
+    flex: 1,
+  },
+  fieldError: {
+    ...textStyles.meta,
+    color: colors.danger,
+    marginTop: spacing.xs,
+  },
+  submitButton: {
+    minHeight: 54,
+    borderRadius: radii.md,
+    backgroundColor: colors.primary,
+    alignItems: "center",
+    justifyContent: "center",
+    marginTop: spacing.md,
+  },
+  submitText: {
+    ...textStyles.button,
+    color: colors.textInverse,
+  },
+  switchLink: {
+    alignItems: "center",
+    marginTop: spacing.xl,
+  },
+  switchCopy: {
+    ...textStyles.body,
+    color: colors.textSecondary,
+  },
+  switchStrong: {
+    color: colors.primary,
+    fontWeight: "700",
+  },
+  buttonPressed: {
+    transform: [{ scale: 0.985 }],
+  },
+  buttonDisabled: {
+    opacity: 0.7,
+  },
 });

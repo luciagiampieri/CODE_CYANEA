@@ -1,6 +1,5 @@
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
-import { FontAwesome6 } from "@expo/vector-icons";
-import { ActivityIndicator, Pressable, View } from "react-native";
+import { ActivityIndicator, View } from "react-native";
 
 import { useAuth } from "../context/AuthContext";
 import MainTabs from "./MainTabs";
@@ -12,6 +11,7 @@ import EmailConfirmadoScreen from "../screens/EmailConfirmadoScreen";
 import RegistrationSuccessScreen from "../screens/RegistrationSuccessScreen";
 import TripDetailScreen from "../screens/TripDetailScreen";
 import AddGastoScreen from "../screens/AddGastoScreen";
+import InvitationsScreen from "../screens/InvitationsScreen";
 
 const Stack = createNativeStackNavigator();
 
@@ -75,24 +75,8 @@ export default function AppNavigator() {
           <Stack.Screen
             name="NuevoViaje"
             component={CreateTripScreen}
-            options={({ navigation }) => ({
-              title: "Nuevo Viaje",
-              headerLeft: () => (
-                <Pressable
-                  accessibilityRole="button"
-                  onPress={() => navigation.goBack()}
-                  style={{ paddingLeft: 16, paddingRight: 10 }}
-                >
-                  <FontAwesome6
-                    color={colors.surface}
-                    name="arrow-left"
-                    size={18}
-                  />
-                </Pressable>
-              ),
-            })}
+            options={{ headerShown: false }}
           />
-          {/* US-16: Se restaura el Detalle de viaje con animaciones de incoming */}
           <Stack.Screen
             name="TripDetail"
             component={TripDetailScreen}
@@ -102,7 +86,6 @@ export default function AppNavigator() {
               animation: "slide_from_right",
             }}
           />
-          {/* US-Crear Gasto: Se restaura el Formulario de gastos de tu rama local */}
           <Stack.Screen
             name="AddGasto"
             component={AddGastoScreen}
@@ -110,6 +93,14 @@ export default function AppNavigator() {
               headerShown: false,
               gestureEnabled: true,
               animation: "slide_from_right",
+            }}
+          />
+          <Stack.Screen
+            name="Invitaciones"
+            component={InvitationsScreen}
+            options={{
+              title: "Invitaciones",
+              headerShown: false,
             }}
           />
         </>

@@ -1,46 +1,42 @@
 import { StyleSheet, Text, View } from "react-native";
 
 import ScreenContainer from "../components/layout/ScreenContainer";
-import { colors, radii, spacing, typography, shadows } from "../theme/tokens";
+import { colors, spacing, surfaces, textStyles } from "../theme/tokens";
 
 export default function PlaceholderScreen({ route }) {
   const { title, message } = route.params ?? {};
 
   return (
     <ScreenContainer>
-      <View style={styles.card}>
-        <Text style={styles.eyebrow}>Seccion base</Text>
+      <View style={styles.shell}>
+        <Text style={styles.eyebrow}>Sección base</Text>
         <Text style={styles.title}>{title ?? "Pendiente"}</Text>
-        <Text style={styles.copy}>{message ?? "Pantalla reservada para una proxima historia."}</Text>
+        <Text style={styles.copy}>{message ?? "Pantalla reservada para una próxima historia."}</Text>
       </View>
     </ScreenContainer>
   );
 }
 
 const styles = StyleSheet.create({
-  card: {
-    borderRadius: radii.lg,
-    backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderColor: colors.border,
+  shell: {
+    ...surfaces.card,
     padding: spacing.xl,
-    ...shadows.card
+    marginTop: spacing.lg,
   },
   eyebrow: {
-    color: colors.primary,
-    fontWeight: "800",
-    textTransform: "uppercase",
-    fontSize: typography.micro,
-    letterSpacing: 1.1
+    ...textStyles.sectionLabel,
+    color: "#8b6c37",
+    fontSize: 13,
   },
   title: {
-    color: colors.textPrimary,
-    fontWeight: "900",
-    fontSize: typography.title,
-    marginTop: spacing.sm
+    ...textStyles.tripTitle,
+    color: colors.primary,
+    fontSize: 28,
+    marginTop: spacing.sm,
   },
   copy: {
+    ...textStyles.body,
     color: colors.textSecondary,
-    marginTop: spacing.md
-  }
+    marginTop: spacing.md,
+  },
 });

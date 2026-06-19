@@ -1,27 +1,40 @@
-import { FontAwesome6 } from "@expo/vector-icons";
-import { LinearGradient } from "expo-linear-gradient";
 import { useEffect, useMemo, useState } from "react";
-import { Pressable, StyleSheet, Text, View, Image, ScrollView } from "react-native";
+import {
+  Image,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
 
 import ScreenContainer from "../components/layout/ScreenContainer";
 import TripCard from "../components/home/TripCard";
-import PrimaryButton from "../components/ui/PrimaryButton";
+import Avatar from "../components/ui/Avatar";
+import IconCircleButton from "../components/ui/IconCircleButton";
+import MetricCard from "../components/ui/MetricCard";
 import useResponsive from "../hooks/useResponsive";
-import { getTrips } from "../services/api.js";
-import { colors, radii, spacing, typography, shadows } from "../theme/tokens";
-import CyaneaLogo from "../../assets/cyanea_Logo.png";
+import { getCurrentUser, getTrips } from "../services/api";
+import {
+  colors,
+  radii,
+  spacing,
+  textStyles,
+} from "../theme/tokens";
 
 const fallbackImages = [
-  "https://images.unsplash.com/photo-1570077188670-e3a8d69ac5ff?auto=format&fit=crop&w=1200&q=80",
-  "https://images.unsplash.com/photo-1508261305436-e282fd32d20a?auto=format&fit=crop&w=1200&q=80",
-  "https://images.unsplash.com/photo-1499856871958-5b9627545d1a?auto=format&fit=crop&w=1200&q=80",
-  "https://images.unsplash.com/photo-1537996194471-e657df975ab4?auto=format&fit=crop&w=1200&q=80"
+  "https://images.unsplash.com/photo-1507525428034-b723cf961d3e?auto=format&fit=crop&w=1400&q=80",
+  "https://images.unsplash.com/photo-1539650116574-75c0c6d73f4e?auto=format&fit=crop&w=1400&q=80",
+  "https://images.unsplash.com/photo-1483683804023-6ccdb62f86ef?auto=format&fit=crop&w=1400&q=80",
+  "https://images.unsplash.com/photo-1516483638261-f4dbaf036963?auto=format&fit=crop&w=1400&q=80",
 ];
 
-const itineraryItems = [
-  { time: "09:00", title: "Llegada y check-in", note: "Aterrizaje, hotel y primer reagrupamiento" },
-  { time: "11:00", title: "Paseo inicial", note: "Recorrido liviano para ubicar al grupo" },
-  { time: "13:30", title: "Almuerzo", note: "Punto de encuentro para definir el resto del dia" }
+const previewParticipants = [
+  { id: 1, nombreCompleto: "Lucía Giampieri" },
+  { id: 2, nombreCompleto: "Candela Páez" },
+  { id: 3, nombreCompleto: "Ticiana Gatica" },
+  { id: 4, nombreCompleto: "Luciano Correa" },
+  { id: 5, nombreCompleto: "María Paz" },
 ];
 
 function formatDateRange(trip) {
@@ -34,291 +47,241 @@ function formatDateRange(trip) {
 
   const start = new Date(startDateStr);
   const end = new Date(endDateStr);
-  
   if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
     return "Fechas por definir";
   }
 
-  const formatter = new Intl.DateTimeFormat("es-AR", {
-    day: "2-digit",
+  const monthFormatter = new Intl.DateTimeFormat("es-AR", {
+    day: "numeric",
     month: "short",
-    year: "numeric",
-    timeZone: "UTC" 
+    timeZone: "UTC",
   });
 
-  return `${formatter.format(start)} - ${formatter.format(end)}`;
+  return `${monthFormatter.format(start)} - ${monthFormatter.format(end)} ${end.getUTCFullYear()}`;
 }
 
 export default function HomeScreen({ navigation }) {
   const [trips, setTrips] = useState([]);
-  const [apiStatus, setApiStatus] = useState("cargando");
-  const { isDesktop } = useResponsive();
+  const [currentUser, setCurrentUser] = useState(null);
+  const { isTablet, isDesktop } = useResponsive();
 
   useEffect(() => {
-    async function loadTrips() {
+    async function loadData() {
       try {
-        const data = await getTrips();
-        setTrips(data);
-        setApiStatus("conectada");
+        const [tripData, me] = await Promise.all([
+          getTrips(),
+          getCurrentUser().catch(() => null),
+        ]);
+        setTrips(tripData);
+        setCurrentUser(me);
       } catch {
-        setApiStatus("sin-conexion");
+        setTrips([]);
       }
     }
 
-    loadTrips();
+    loadData();
   }, []);
 
   const decoratedTrips = useMemo(
     () =>
       trips.map((trip, index) => ({
         ...trip,
-        image: fallbackImages[index % fallbackImages.length],
-        dateLabel: formatDateRange(trip)
+        title: trip.title || trip.Titulo || "Viaje sin nombre",
+        destination: trip.destination || trip.Destino || "Destino a confirmar",
+        status: (trip.status || trip.Estado || "activo").toLowerCase(),
+        image: trip.image || fallbackImages[index % fallbackImages.length],
+        dateLabel: formatDateRange(trip),
+        budgetLabel: trip.budgetLabel || `€${(trip.budget || 4800).toLocaleString("es-AR")}`,
+        budgetProgress: trip.budgetProgress || [62, 18, 44, 73][index % 4],
+        participantsPreview:
+          trip.participantsPreview ||
+          previewParticipants.slice(0, 4 + (index % 2)).map((participant) => ({
+            ...participant,
+            key: `${trip.IdViaje ?? trip.id}-${participant.id}`,
+          })),
+        avatarOverflowLabel: index % 2 === 0 ? "+4" : undefined,
       })),
     [trips]
   );
 
-  const nextTrip = useMemo(() => {
-    if (decoratedTrips.length === 0) return null;
+  const metrics = useMemo(() => {
+    const countries = new Set(
+      decoratedTrips
+        .map((trip) => trip.destination.split(",").slice(-1)[0]?.trim())
+        .filter(Boolean)
+    );
 
-    return [...decoratedTrips]
-      .filter((trip) => {
-        const date = new Date(trip.startDate || trip.FechaInicio);
-        return !Number.isNaN(date.getTime());
-      })
-      .sort(
-        (a, b) =>
-          new Date(a.startDate || a.FechaInicio) -
-          new Date(b.startDate || b.FechaInicio)
-      )[0];
+    return {
+      viajes: decoratedTrips.length,
+      companeros: 14,
+      paises: countries.size || 1,
+    };
   }, [decoratedTrips]);
 
   return (
-    <ScreenContainer>
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContainer}>
-        
-        {/* Cabecera Hero */}
-        <LinearGradient colors={[colors.primaryStrong, colors.primary]} style={styles.header}>
-          <View style={styles.brandRow}>
-            <View style={styles.brandBlock}>
-              <View style={styles.brandIcon}>
-                <Image 
-                  source={CyaneaLogo} 
-                  style={styles.logoImage} 
-                  resizeMode="contain"
-                />
-              </View>
-              <View>
-                <Text style={styles.brandName}>CYANEA</Text>
-                <Text style={styles.brandSubtitle}>Muchas manos, un único destino</Text>
-              </View>
-            </View>
-          </View>
-
-          <View style={styles.heroText}>
-            <Text style={styles.heroTitle}>Mis Viajes</Text>
-            <Text style={styles.heroSubtitle}>Explorá tus próximas aventuras y organizá tu viaje en grupo.</Text>
-          </View>
-
-          <View style={styles.heroStats}>
-            <View style={styles.statCard}>
-              <Text style={styles.statValue}>{decoratedTrips.length}</Text>
-              <Text style={styles.statLabel}>
-                {decoratedTrips.length === 1 ? "Viaje" : "Viajes"}
-              </Text>
+    <ScreenContainer fullWidth padded={false}>
+      <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+        <View style={styles.header}>
+          <View style={styles.topRow}>
+            <View>
+              <Text style={styles.greeting}>Hola, {currentUser?.nombre ?? "Luciano"} 👋</Text>
+              <Text style={styles.heading}>Mis Viajes</Text>
             </View>
 
-            <View style={styles.statCard}>
-              <Text style={styles.statValue} numberOfLines={1}>
-                {nextTrip ? (nextTrip.title || nextTrip.Titulo) : "--"}
-              </Text>
-              <Text style={styles.statLabel}>Próximo viaje</Text>
-            </View>
-          </View>
-
-          <View style={styles.buttonWrap}>
-            <PrimaryButton label="Nuevo Viaje" onPress={() => navigation.navigate("NuevoViaje")} />
-          </View>
-        </LinearGradient>
-
-        <View style={styles.contentFeed}>
-
-          <View style={[styles.mainLayout, isDesktop && styles.mainLayoutDesktop]}>
-            
-            <View style={[styles.primaryColumn, isDesktop && styles.primaryColumnDesktop]}>
-              {decoratedTrips.length === 0 ? (
-                <View style={styles.emptyCard}>
-                  <Text style={styles.emptyTitle}>Todavía no hay viajes cargados.</Text>
-                  <Text style={styles.emptyCopy}>Creá el primero para empezar a armar el grupo.</Text>
-                </View>
-              ) : (
-                <View style={styles.tripList}>
-                  {decoratedTrips.map((trip) => (
-                    <TripCard
-                      key={trip.id || trip.IdViaje}
-                      trip={trip}
-                      onPress={() => navigation.navigate("TripDetail", { trip })}
-                    />
-                  ))}
-                </View>
-              )}
-            </View>
-
-            <View style={[styles.sideColumn, isDesktop && styles.sideColumnDesktop]}>
-              <View style={styles.panelCard}>
-                <Text style={styles.panelEyebrow}>Resumen</Text>
-                <Text style={styles.panelTitle}>Itinerario sugerido</Text>
-                <Text style={styles.panelCopy}>
-                  Base visual para la agenda del viaje y las acciones del grupo.
-                </Text>
-
-                <View style={styles.dayPill}>
-                  <Text style={styles.dayPillTitle}>Día 1</Text>
-                  <Text style={styles.dayPillSubtitle}>12 Jun</Text>
-                </View>
-
-                <View style={styles.agendaList}>
-                  {itineraryItems.map((item, index) => (
-                    <View key={`${item.time}-${item.title}`} style={styles.agendaItem}>
-                      <Text style={styles.agendaTime}>{item.time}</Text>
-                      <View style={styles.agendaTrack}>
-                        <View style={[styles.agendaDot, index === 0 && styles.agendaDotActive]} />
-                        {index < itineraryItems.length - 1 ? <View style={styles.agendaLine} /> : null}
-                      </View>
-                      <View style={[styles.agendaCard, index === 0 && styles.agendaCardActive]}>
-                        <Text style={styles.agendaTitle}>{item.title}</Text>
-                        <Text style={styles.agendaNote}>{item.note}</Text>
-                      </View>
-                    </View>
-                  ))}
-                </View>
+            <View style={styles.headerActions}>
+              <IconCircleButton icon="bell" onPress={() => navigation.navigate("Invitaciones")} />
+              <View style={styles.avatarRing}>
+                {currentUser?.fotoUrl ? (
+                  <Avatar imageUrl={currentUser.fotoUrl} name={currentUser.nombreCompleto} size={42} />
+                ) : (
+                  <Image
+                    source={{ uri: "https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=200&q=80" }}
+                    style={styles.profileImage}
+                  />
+                )}
               </View>
             </View>
-
           </View>
         </View>
 
+        <View style={styles.body}>
+          <View style={styles.metricsRow}>
+            <MetricCard label="Viajes" value={metrics.viajes} />
+            <MetricCard label="Compañeros" value={metrics.companeros} />
+            <MetricCard label="Países" value={metrics.paises} />
+          </View>
+
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>Próximos viajes</Text>
+            <Pressable>
+              <Text style={styles.sectionAction}>Ver todos</Text>
+            </Pressable>
+          </View>
+
+          {decoratedTrips.length === 0 ? (
+            <View style={styles.emptyCard}>
+              <Text style={styles.emptyTitle}>Todavía no hay viajes cargados.</Text>
+              <Text style={styles.emptyCopy}>Creá el primero y empezá a sumar compañeros.</Text>
+            </View>
+          ) : (
+            <View style={[styles.tripGrid, isTablet && styles.tripGridTablet, isDesktop && styles.tripGridDesktop]}>
+              {decoratedTrips.map((trip) => (
+                <View
+                  key={trip.id || trip.IdViaje}
+                  style={[
+                    styles.tripCell,
+                    isTablet && styles.tripCellTablet,
+                    isDesktop && styles.tripCellDesktop,
+                  ]}
+                >
+                  <TripCard
+                    trip={trip}
+                    onPress={() => navigation.navigate("TripDetail", { trip })}
+                  />
+                </View>
+              ))}
+            </View>
+          )}
+        </View>
       </ScrollView>
+
+      <Pressable onPress={() => navigation.navigate("NuevoViaje")} style={({ pressed }) => [styles.fab, pressed && styles.fabPressed]}>
+        <Text style={styles.fabText}>+</Text>
+      </Pressable>
     </ScreenContainer>
   );
 }
 
 const styles = StyleSheet.create({
-  scrollContainer: {
-    paddingBottom: 32,
+  scrollContent: {
+    paddingBottom: 148,
   },
   header: {
-    borderRadius: radii.lg,
-    padding: spacing.lg,
-    marginHorizontal: 16, 
-    marginTop: 12,
-    ...shadows.card
+    backgroundColor: colors.primarySoft,
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.xl,
+    paddingBottom: spacing.xl,
   },
-  brandRow: {
+  topRow: {
     flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between"
+    alignItems: "flex-start",
+    justifyContent: "space-between",
   },
-  brandBlock: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing.md
-  },
-  brandIcon: {
-    width: 42,
-    height: 42,
-    borderRadius: radii.pill,
-    backgroundColor: "#ffffff",
-    alignItems: "center",
-    justifyContent: "center",
-    overflow: 'hidden'
-  },
-  logoImage: {
-    width: 28, 
-    height: 28,
-  },
-  brandName: {
-    color: colors.surface,
-    fontSize: typography.subheading,
-    fontWeight: "900",
-    letterSpacing: 1
-  },
-  brandSubtitle: {
-    color: "#dbe6fb",
-    fontSize: typography.micro
-  },
-  heroText: {
-    marginTop: spacing.lg,
-    gap: spacing.sm
-  },
-  heroTitle: {
-    color: colors.surface,
-    fontWeight: "900",
-    fontSize: typography.hero
-  },
-  heroSubtitle: {
-    color: "#dfe7f7",
-    fontSize: typography.body,
-    maxWidth: 560
-  },
-  heroStats: {
-    flexDirection: "row",
-    flexWrap: "nowrap", 
-    gap: spacing.md,
-    marginTop: spacing.lg,
-  },
-  statCard: {
-    flex: 1, 
-    backgroundColor: "rgba(255,255,255,0.12)",
-    borderRadius: radii.md,
-    paddingVertical: spacing.md,
-    paddingHorizontal: spacing.md,
-  },
-  statValue: {
-    color: colors.surface,
+  greeting: {
+    ...textStyles.meta,
+    color: "#c4d0ee",
     fontSize: 16,
-    fontWeight: "900",
   },
-  statLabel: {
-    color: "#dfe7f7",
-    fontSize: typography.micro,
-    marginTop: 4,
+  heading: {
+    ...textStyles.screenTitle,
+    color: colors.textInverse,
+    marginTop: spacing.xxs,
   },
-  buttonWrap: {
-    marginTop: spacing.lg,
-    maxWidth: 200
+  headerActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
   },
-  contentFeed: {
-    paddingHorizontal: 16, 
-    marginTop: 24,
+  avatarRing: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    borderWidth: 2,
+    borderColor: colors.accent,
+    padding: 2,
+    backgroundColor: colors.surface,
+  },
+  profileImage: {
+    width: "100%",
+    height: "100%",
+    borderRadius: 20,
+  },
+  body: {
+    flex: 1,
+    backgroundColor: colors.background,
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.lg,
+  },
+  metricsRow: {
+    flexDirection: "row",
+    gap: spacing.sm,
+  },
+  sectionHeader: {
+    marginTop: spacing.xl,
+    marginBottom: spacing.md,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
   },
   sectionTitle: {
-    fontSize: 20,
-    fontWeight: "800",
-    color: "#1a202c",
-    marginBottom: 16,
+    ...textStyles.sectionLabel,
+    color: "#8b6c37",
+    fontSize: 13,
   },
-  mainLayout: {
-    gap: spacing.lg
+  sectionAction: {
+    ...textStyles.bodyStrong,
+    color: colors.primary,
+    fontSize: 14,
   },
-  mainLayoutDesktop: {
+  tripGrid: {
+    gap: spacing.lg,
+  },
+  tripGridTablet: {
     flexDirection: "row",
-    alignItems: "flex-start"
+    flexWrap: "wrap",
+    justifyContent: "space-between",
   },
-  primaryColumn: {
-    gap: spacing.lg
+  tripGridDesktop: {
+    gap: spacing.lg,
   },
-  primaryColumnDesktop: {
-    flex: 1.2
+  tripCell: {
+    width: "100%",
   },
-  sideColumn: {
-    gap: spacing.lg
+  tripCellTablet: {
+    width: "48.6%",
   },
-  sideColumnDesktop: {
-    flex: 0.8
-  },
-  tripList: {
-    gap: spacing.md 
+  tripCellDesktop: {
+    width: "48.8%",
   },
   emptyCard: {
     borderRadius: radii.lg,
@@ -326,110 +289,40 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.border,
     padding: spacing.xl,
-    ...shadows.card
   },
   emptyTitle: {
-    color: colors.textPrimary,
-    fontWeight: "800",
-    fontSize: typography.subheading
+    ...textStyles.tripTitle,
+    color: colors.primary,
+    fontSize: 22,
   },
   emptyCopy: {
+    ...textStyles.body,
     color: colors.textSecondary,
-    marginTop: spacing.sm
+    marginTop: spacing.sm,
   },
-  panelCard: {
-    borderRadius: radii.lg,
-    backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderColor: colors.border,
-    padding: spacing.lg,
-    ...shadows.card
-  },
-  panelEyebrow: {
-    color: colors.primary,
-    fontWeight: "800",
-    textTransform: "uppercase",
-    letterSpacing: 1.1,
-    fontSize: typography.micro
-  },
-  panelTitle: {
-    color: colors.textPrimary,
-    fontWeight: "900",
-    fontSize: typography.heading,
-    marginTop: spacing.sm
-  },
-  panelCopy: {
-    color: colors.textSecondary,
-    marginTop: spacing.sm
-  },
-  dayPill: {
-    alignSelf: "flex-start",
-    marginTop: spacing.lg,
+  fab: {
+    position: "absolute",
+    right: spacing.xl,
+    bottom: 104,
+    width: 64,
+    height: 64,
+    borderRadius: 32,
     backgroundColor: colors.accent,
-    borderRadius: radii.md,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm
+    alignItems: "center",
+    justifyContent: "center",
+    shadowColor: colors.shadow,
+    shadowOpacity: 0.18,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 8,
   },
-  dayPillTitle: {
+  fabPressed: {
+    transform: [{ scale: 0.97 }],
+  },
+  fabText: {
     color: colors.primary,
-    fontWeight: "900"
+    fontSize: 34,
+    lineHeight: 34,
+    fontWeight: "400",
   },
-  dayPillSubtitle: {
-    color: colors.primaryStrong,
-    marginTop: 2
-  },
-  agendaList: {
-    marginTop: spacing.lg,
-    gap: spacing.md
-  },
-  agendaItem: {
-    flexDirection: "row",
-    alignItems: "stretch"
-  },
-  agendaTime: {
-    width: 56,
-    color: colors.primary,
-    fontWeight: "800",
-    paddingTop: 8
-  },
-  agendaTrack: {
-    width: 28,
-    alignItems: "center"
-  },
-  agendaDot: {
-    width: 14,
-    height: 14,
-    borderRadius: radii.pill,
-    backgroundColor: colors.surface,
-    borderWidth: 2,
-    borderColor: colors.border
-  },
-  agendaDotActive: {
-    backgroundColor: colors.accent,
-    borderColor: colors.accentStrong
-  },
-  agendaLine: {
-    flex: 1,
-    width: 2,
-    backgroundColor: colors.border,
-    marginTop: 4
-  },
-  agendaCard: {
-    flex: 1,
-    borderRadius: radii.md,
-    backgroundColor: colors.surfaceMuted,
-    padding: spacing.md
-  },
-  agendaCardActive: {
-    backgroundColor: "#fff7d1"
-  },
-  agendaTitle: {
-    color: colors.textPrimary,
-    fontWeight: "800"
-  },
-  agendaNote: {
-    color: colors.textSecondary,
-    marginTop: 4,
-    fontSize: typography.small
-  }
 });

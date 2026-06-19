@@ -1,24 +1,24 @@
 import { StyleSheet, Text, View } from "react-native";
 
-import { colors, radii, spacing, typography } from "../../theme/tokens";
+import { colors, radii, spacing, textStyles } from "../../theme/tokens";
 
 const toneMap = {
-  // Estados de API
-  conectada: { backgroundColor: "#e5f5ed", color: colors.success },
-  cargando: { backgroundColor: "#eef2fb", color: colors.textSecondary },
-  "sin-conexion": { backgroundColor: "#fff1f1", color: colors.danger },
-  note: { backgroundColor: "#fff8da", color: colors.warning },
-  // Estados de viaje (US-16)
-  activo: { backgroundColor: "#e5f5ed", color: colors.success },
-  finalizado: { backgroundColor: "#eef2fb", color: colors.textSecondary },
+  conectada: { backgroundColor: colors.successSurface, color: colors.success },
+  cargando: { backgroundColor: colors.surfaceAlt, color: colors.textSecondary },
+  "sin-conexion": { backgroundColor: colors.dangerSurface, color: colors.danger },
+  activo: { backgroundColor: "#d7fad8", color: colors.success },
+  finalizado: { backgroundColor: colors.surfaceAlt, color: colors.textSecondary },
+  planificando: { backgroundColor: colors.warningSurface, color: colors.warning },
+  pendiente: { backgroundColor: colors.warningSurface, color: colors.warning },
+  note: { backgroundColor: colors.accentMuted, color: colors.primary },
 };
 
-export default function StatusPill({ tone = "note", children }) {
+export default function StatusPill({ tone = "note", children, style, textStyle }) {
   const palette = toneMap[tone] ?? toneMap.note;
 
   return (
-    <View style={[styles.pill, { backgroundColor: palette.backgroundColor }]}>
-      <Text style={[styles.label, { color: palette.color }]}>{children}</Text>
+    <View style={[styles.pill, { backgroundColor: palette.backgroundColor }, style]}>
+      <Text style={[styles.label, { color: palette.color }, textStyle]}>{children}</Text>
     </View>
   );
 }
@@ -26,12 +26,12 @@ export default function StatusPill({ tone = "note", children }) {
 const styles = StyleSheet.create({
   pill: {
     borderRadius: radii.pill,
-    paddingHorizontal: spacing.md,
-    paddingVertical: 8,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 7,
     alignSelf: "flex-start",
   },
   label: {
-    fontSize: typography.micro,
-    fontWeight: "800",
+    ...textStyles.meta,
+    fontWeight: "700",
   },
 });

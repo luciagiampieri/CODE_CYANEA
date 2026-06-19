@@ -1,24 +1,33 @@
-import { Platform, SafeAreaView, ScrollView, StyleSheet, View } from "react-native";
+import { SafeAreaView, StyleSheet, View } from "react-native";
 
 import useResponsive from "../../hooks/useResponsive";
 import { colors, layout, spacing } from "../../theme/tokens";
 
-export default function ScreenContainer({ children, padded = true }) {
+export default function ScreenContainer({
+  children,
+  padded = true,
+  fullWidth = false,
+  contentStyle,
+  style,
+}) {
   const { contentWidth } = useResponsive();
 
   return (
-    <SafeAreaView style={styles.safeArea}>
-      <ScrollView
-        contentContainerStyle={[
-          styles.scrollContent,
-          padded && { paddingHorizontal: spacing.md, paddingVertical: spacing.lg }
-        ]}
-        showsVerticalScrollIndicator={false}
-      >
-        <View style={[styles.content, { width: contentWidth, maxWidth: layout.maxContentWidth }]}>
+    <SafeAreaView style={[styles.safeArea, style]}>
+      <View style={styles.outer}>
+        <View
+          style={[
+            styles.content,
+            padded && styles.padded,
+            fullWidth
+              ? styles.fullWidthContent
+              : { width: contentWidth, maxWidth: layout.maxContentWidth },
+            contentStyle,
+          ]}
+        >
           {children}
         </View>
-      </ScrollView>
+      </View>
     </SafeAreaView>
   );
 }
@@ -26,13 +35,23 @@ export default function ScreenContainer({ children, padded = true }) {
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: colors.background
+    backgroundColor: colors.backgroundCanvas,
   },
-  scrollContent: {
+  outer: {
+    flex: 1,
+    backgroundColor: colors.background,
     alignItems: "center",
-    paddingBottom: Platform.OS === "web" ? spacing.xxl : 110
   },
   content: {
-    width: "100%"
-  }
+    flex: 1,
+    width: "100%",
+  },
+  fullWidthContent: {
+    width: "100%",
+    maxWidth: "100%",
+  },
+  padded: {
+    paddingHorizontal: spacing.md,
+    paddingTop: spacing.sm,
+  },
 });

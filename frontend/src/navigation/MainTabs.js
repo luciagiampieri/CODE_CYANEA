@@ -3,50 +3,43 @@ import { FontAwesome6 } from "@expo/vector-icons";
 
 import HomeScreen from "../screens/HomeScreen";
 import PlaceholderScreen from "../screens/PlaceholderScreen";
-import InvitationsScreen from "../screens/InvitationsScreen";
-import { colors } from "../theme/tokens";
+import { colors, radii, spacing, textStyles } from "../theme/tokens";
 
 const Tab = createBottomTabNavigator();
 
 const tabs = [
   {
-    name: "Viajes",
+    name: "Inicio",
     component: HomeScreen,
-    icon: "route"
+    icon: "house",
+  },
+  {
+    name: "Historial",
+    component: PlaceholderScreen,
+    icon: "clock-rotate-left",
+    params: {
+      title: "Historial",
+      message: "Viajes pasados, acciones recientes y movimientos del grupo.",
+    },
   },
   {
     name: "Explorar",
     component: PlaceholderScreen,
-    icon: "magnifying-glass",
+    icon: "location-dot",
     params: {
       title: "Explorar",
-      message: "Espacio reservado para destinos, ideas y descubrimientos."
-    }
-  },
-  {
-    name: "Itinerarios",
-    component: PlaceholderScreen,
-    icon: "list-check",
-    params: {
-      title: "Itinerarios",
-      message: "La agenda detallada del viaje se integrara en esta seccion."
-    }
-  },
-  {
-      name: "Invitaciones", 
-      component: InvitationsScreen,
-      icon: "envelope-open-text", 
-      params: {}
+      message: "Espacio reservado para ideas, destinos y descubrimientos.",
     },
+  },
   {
     name: "Perfil",
     component: PlaceholderScreen,
     icon: "user",
     params: {
       title: "Perfil",
-      message: "Perfil y preferencias del usuario en una proxima iteracion."
-    }
-  }
+      message: "Perfil y preferencias del usuario en una próxima iteración.",
+    },
+  },
 ];
 
 export default function MainTabs() {
@@ -57,20 +50,39 @@ export default function MainTabs() {
         tabBarActiveTintColor: colors.primary,
         tabBarInactiveTintColor: colors.textMuted,
         tabBarStyle: {
-          height: 72,
-          paddingTop: 8,
-          paddingBottom: 10,
+          position: "absolute",
+          left: spacing.md,
+          right: spacing.md,
+          bottom: spacing.md,
+          height: 74,
+          paddingTop: 10,
+          paddingBottom: 12,
           backgroundColor: colors.surface,
-          borderTopColor: colors.border
+          borderTopWidth: 0,
+          borderRadius: radii.lg,
+          shadowColor: colors.shadow,
+          shadowOpacity: 0.12,
+          shadowRadius: 16,
+          shadowOffset: { width: 0, height: 6 },
+          elevation: 10,
+        },
+        sceneStyle: {
+          backgroundColor: colors.background,
         },
         tabBarLabelStyle: {
-          fontSize: 12,
-          fontWeight: "700"
+          ...textStyles.nav,
+          marginTop: 2,
         },
-        tabBarIcon: ({ color, size }) => {
+        tabBarIcon: ({ color, size, focused }) => {
           const currentTab = tabs.find((tab) => tab.name === route.name);
-          return <FontAwesome6 color={color} name={currentTab.icon} size={size} />;
-        }
+          return (
+            <FontAwesome6
+              color={color}
+              name={currentTab.icon}
+              size={focused ? size + 1 : size}
+            />
+          );
+        },
       })}
     >
       {tabs.map((tab) => (
@@ -81,7 +93,7 @@ export default function MainTabs() {
           name={tab.name}
           options={{
             title: "Cyanea",
-            tabBarLabel: tab.name
+            tabBarLabel: tab.name,
           }}
         />
       ))}

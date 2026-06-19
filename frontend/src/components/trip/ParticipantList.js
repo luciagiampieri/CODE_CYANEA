@@ -2,42 +2,32 @@ import { FontAwesome6 } from "@expo/vector-icons";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import Avatar from "../ui/Avatar";
-import { colors, radii, spacing, typography } from "../../theme/tokens";
+import StatusPill from "../ui/StatusPill";
+import { colors, radii, spacing, textStyles } from "../../theme/tokens";
 
 export default function ParticipantList({ participants, onRemove }) {
   return (
     <View style={styles.container}>
-      <Text style={styles.label}>Participantes agregados</Text>
+      <View style={styles.headerRow}>
+        <Text style={styles.label}>Lista del grupo</Text>
+        <Text style={styles.counter}>{participants.length}</Text>
+      </View>
 
       {participants.length === 0 ? (
         <View style={styles.emptyState}>
-          <Text style={styles.emptyText}>Todavia no agregaste participantes al viaje.</Text>
+          <Text style={styles.emptyText}>Todavía no agregaste participantes al viaje.</Text>
         </View>
       ) : (
         participants.map((participant) => (
           <View key={participant.key} style={styles.card}>
-            <Avatar imageUrl={participant.fotoUrl} name={participant.nombreCompleto} />
+            <Avatar imageUrl={participant.fotoUrl} name={participant.nombreCompleto} size={44} />
             <View style={styles.body}>
               <Text style={styles.name}>{participant.nombreCompleto}</Text>
-              <Text style={styles.email}>{participant.email}</Text>
+              <Text numberOfLines={1} style={styles.email}>{participant.email}</Text>
             </View>
-            <View
-              style={[
-                styles.badge,
-                participant.kind === "external" ? styles.badgePending : styles.badgeRegistered
-              ]}
-            >
-              <Text
-                style={[
-                  styles.badgeText,
-                  participant.kind === "external"
-                    ? styles.badgeTextPending
-                    : styles.badgeTextRegistered
-                ]}
-              >
-                {participant.kind === "external" ? "Invitacion pendiente" : "Registrado"}
-              </Text>
-            </View>
+            <StatusPill tone={participant.kind === "external" ? "pendiente" : "activo"}>
+              {participant.kind === "external" ? "Invitación pendiente" : "Registrado"}
+            </StatusPill>
             <Pressable onPress={() => onRemove(participant)} style={styles.removeAction}>
               <FontAwesome6 color={colors.textMuted} name="xmark" size={14} />
             </Pressable>
@@ -50,20 +40,30 @@ export default function ParticipantList({ participants, onRemove }) {
 
 const styles = StyleSheet.create({
   container: {
-    gap: spacing.sm
+    gap: spacing.sm,
+  },
+  headerRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
   },
   label: {
-    color: colors.textPrimary,
-    fontWeight: "800",
-    fontSize: typography.small
+    ...textStyles.label,
+    color: colors.primary,
+  },
+  counter: {
+    ...textStyles.kpiValue,
+    color: colors.primary,
+    fontSize: 18,
   },
   emptyState: {
     borderRadius: radii.md,
     backgroundColor: colors.surfaceMuted,
-    padding: spacing.md
+    padding: spacing.md,
   },
   emptyText: {
-    color: colors.textSecondary
+    ...textStyles.meta,
+    color: colors.textSecondary,
   },
   card: {
     flexDirection: "row",
@@ -73,42 +73,27 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
     borderRadius: radii.md,
     backgroundColor: colors.surface,
-    padding: spacing.md
+    padding: spacing.md,
   },
   body: {
-    flex: 1
+    flex: 1,
   },
   name: {
+    ...textStyles.bodyStrong,
     color: colors.textPrimary,
-    fontWeight: "800"
   },
   email: {
+    ...textStyles.meta,
     color: colors.textSecondary,
-    marginTop: 2,
-    fontSize: typography.micro
-  },
-  badge: {
-    borderRadius: radii.pill,
-    paddingHorizontal: spacing.sm,
-    paddingVertical: 7
-  },
-  badgePending: {
-    backgroundColor: "#fff8da"
-  },
-  badgeRegistered: {
-    backgroundColor: "#e5f5ed"
-  },
-  badgeText: {
-    fontSize: typography.micro,
-    fontWeight: "800"
-  },
-  badgeTextPending: {
-    color: colors.warning
-  },
-  badgeTextRegistered: {
-    color: colors.success
+    marginTop: spacing.xxs,
   },
   removeAction: {
-    padding: 6
-  }
+    marginLeft: spacing.xs,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.surfaceAlt,
+  },
 });
