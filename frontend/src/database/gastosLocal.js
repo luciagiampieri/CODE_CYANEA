@@ -17,12 +17,13 @@ export function guardarGastoOffline(gasto) {
 
   try {
     const dividir = gasto.DividirEntreTodos ? 1 : 0;
+    const pagador = gasto.EsCompartido ? gasto.IdPagador : null;
 
     db.runSync(
       `
       INSERT INTO gastos_pendientes 
-      (id_viaje, nombre, monto, id_categoria, id_pagador, fecha_gasto, dividir_entre_todos, ids_participantes, creado_en)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      (id_viaje, nombre, monto, id_categoria, id_pagador, fecha_gasto,es_compartido, dividir_entre_todos, tipo_division, ids_participantes,detalle_montos, creado_en)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `,
       [
         gasto.IdViaje,
@@ -31,8 +32,11 @@ export function guardarGastoOffline(gasto) {
         gasto.IdCategoria,
         gasto.IdPagador,
         gasto.FechaGasto,
-        dividir,
+        gasto.EsCompartido ? 1 : 0,
+        gasto.DividirEntreTodos ? 1 : 0,
+        gasto.TipoDivision || null,
         JSON.stringify(gasto.IdParticipantes || []),
+        JSON.stringify(gasto.DetalleMontosPersonalizados || []),
         new Date().toISOString()
       ]
     );
@@ -65,16 +69,13 @@ export function obtenerGastosPendientes() {
 // Sincronizar cuando vuelve internet
 export async function sincronizarGastosOffline() {
 
-
   if (sincronizando) {
     return;
   }
-
   sincronizando = true;
 
   try {
     if (Platform.OS === "web" || !db) return;
-
     const pendientes = obtenerGastosPendientes();
 
     for (const gasto of pendientes) {
@@ -86,8 +87,11 @@ export async function sincronizarGastosOffline() {
           IdCategoria: gasto.id_categoria,
           IdPagador: gasto.id_pagador,
           FechaGasto: gasto.fecha_gasto,
+          EsCompartido: gasto.es_compartido === 1,
           DividirEntreTodos: gasto.dividir_entre_todos === 1,
-          IdParticipantes: JSON.parse(gasto.ids_participantes || "[]")
+          TipoDivision: gasto.tipo_division || null,
+          IdParticipantes: JSON.parse(gasto.ids_participantes || "[]"),
+          DetalleMontosPersonalizados: JSON.parse(gasto.detalle_montos || "[]")
         };
 
         await createExpense(payload);

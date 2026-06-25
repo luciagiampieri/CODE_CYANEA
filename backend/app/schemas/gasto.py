@@ -1,6 +1,9 @@
 from pydantic import BaseModel, Field
 from decimal import Decimal
 from datetime import date
+from typing import Optional
+
+from app.models.gasto import TipoDivisionEnum
 
 class CategoriasGastosRead(BaseModel):
     IdCategoria: int
@@ -16,10 +19,16 @@ class ParticipantesGastosRead(BaseModel):
     Nombre: str
     Apellido: str
     NombreUsuario: str
+    MontoAsignado: Optional[Decimal] = None
     
     model_config = {
         "from_attributes": True
     }
+
+
+class ParticipanteDivisionCreate(BaseModel):
+    IdParticipanteViaje: int
+    MontoAsignado: Decimal | None = None
 
 
 class GastoCreate(BaseModel):
@@ -27,10 +36,13 @@ class GastoCreate(BaseModel):
     Nombre: str
     Monto: Decimal
     IdCategoria: int
-    IdPagador: int
-    DividirEntreTodos: bool
+    IdPagador: Optional[int] = None
     FechaGasto: date
-    IdParticipantes: list[int] = Field(default_factory=list)
+    EsCompartido: bool = True
+    DividirEntreTodos: bool = True
+    TipoDivision: Optional[TipoDivisionEnum] = None
+    IdParticipantes: Optional[list[int]] = []
+    DetalleMontosPersonalizados: Optional[list[ParticipanteDivisionCreate]] = []
 
 
 class GastoRead(BaseModel):

@@ -1,4 +1,5 @@
 from datetime import date
+from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
@@ -16,17 +17,15 @@ from app.schemas.gasto import (
     ParticipantesGastosRead,
     GastoRead
 )
+from app.models.gasto import TipoDivisionEnum
 
 router = APIRouter()
 
 @router.post("/")
-def create_gasto(data: GastoCreate, db: Session = Depends(get_db)):
+def create_gasto(data: GastoCreate, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)):
 
-    # Convertimos a string por seguridad, por si llega como objeto desde la web
     fecha_str = str(data.FechaGasto)
-    # Si viene con hora (formato ISO completo), tomamos solo la parte de la fecha antes de la "T"
     fecha_limpia = fecha_str.split("T")[0]
-    # Ahora sí, parseamos
     fecha_gasto_dt = date.fromisoformat(fecha_limpia)
 
     if fecha_gasto_dt > date.today():
@@ -35,77 +34,140 @@ def create_gasto(data: GastoCreate, db: Session = Depends(get_db)):
             detail="La fecha del gasto no puede ser posterior a la fecha actual."
         )
 
-    # 1. Crear el gasto principal
-    gasto = Gasto(
+    monto_por_participante = {}
+    participantes_ids = []
+    tipo_division_final = None
 
+
+    if not data.EsCompartido:
+
+        participante = (
+        db.query(ParticipanteViaje)
+        .filter(
+            ParticipanteViaje.IdViaje == data.IdViaje,
+            ParticipanteViaje.IdUsuario == current_user.IdUsuario,
+        )
+        .first()
+        )
+
+        if not participante:
+            raise HTTPException(
+                status_code=400,
+                detail="No se encontró al participante del viaje para el usuario actual."
+            )
+        id_pagador = participante.IdParticipanteViaje
+        tipo_division_final = None
+        participantes_ids = [id_pagador]
+        monto_por_participante [id_pagador] = data.Monto
+
+    elif data.TipoDivision == TipoDivisionEnum.igualitaria:
+        
+        tipo_division_final = TipoDivisionEnum.igualitaria
+        
+        if data.DividirEntreTodos:
+            estado_aceptado = (
+                db.query(EstadoParticipacion)
+                .filter(
+                    EstadoParticipacion.Nombre == "aceptado",
+                    EstadoParticipacion.Activo.is_(True)
+                )
+                .first()
+            )
+
+            if not estado_aceptado:
+                raise HTTPException(status_code=500, detail="Estado aceptado no configurado")
+
+            participantes = (
+                db.query(ParticipanteViaje)
+                .filter(
+                    ParticipanteViaje.IdViaje == data.IdViaje,
+                    ParticipanteViaje.IdEstadoParticipacion == estado_aceptado.IdEstadoParticipacion
+                )
+                .all()
+            )
+            participantes_ids = [p.IdParticipanteViaje for p in participantes]
+        else:
+            participantes_ids = data.IdParticipantes
+            
+            if len(participantes_ids) < 2:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Para dividir entre ciertos participantes, debés seleccionar al menos 2."
+                )
+        
+        
+        if len(participantes_ids) == 0:
+            raise HTTPException(
+                status_code=400,
+                detail="El gasto debe tener al menos un participante"
+            )
+
+        monto_individual = data.Monto / len(participantes_ids)
+        monto_por_participante = {id_part: monto_individual for id_part in participantes_ids}
+    
+
+    elif data.TipoDivision == TipoDivisionEnum.personalizada:
+
+        tipo_division_final = TipoDivisionEnum.personalizada
+        detalles = data.DetalleMontosPersonalizados
+
+        if not detalles:
+            raise HTTPException(
+                status_code=400,
+                detail="Debe proporcionar detalles de montos personalizados para cada participante."
+            ) 
+        
+        total_asignado = 0
+        participantes_ids = []
+        monto_por_participante = {}
+
+        for item in detalles:
+            monto_asignado = Decimal(str(item.MontoAsignado)) 
+    
+            if monto_asignado <= 0:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"El monto asignado debe ser mayor a cero."
+                )
+
+            participantes_ids.append(item.IdParticipanteViaje)
+            monto_por_participante[item.IdParticipanteViaje] = monto_asignado
+            total_asignado += monto_asignado
+        
+        if abs(total_asignado - data.Monto) > 0.01:
+            raise HTTPException(
+                status_code=400,
+                detail=f"La suma de los montos asignados ({total_asignado}) no coincide con el monto total del gasto ({data.Monto})."
+            )
+        
+    print(f"DEBUG: Guardando gasto: {data.Nombre}, Total: {data.Monto}")
+    print(f"DEBUG: Participantes a guardar: {participantes_ids}")
+    print(f"DEBUG: Montos por participante: {monto_por_participante}")
+        
+    gasto = Gasto(
+        
         IdViaje=data.IdViaje,
         Nombre=data.Nombre,
         Monto=data.Monto,
         IdCategoria=data.IdCategoria,
-        IdPagador=data.IdPagador,
+        IdPagador=id_pagador if not data.EsCompartido else data.IdPagador,
         FechaGasto=data.FechaGasto,
         DividirEntreTodos=data.DividirEntreTodos,
+        TipoDivision=tipo_division_final,
     )
 
     db.add(gasto)
-    db.flush()  # para obtener IdGasto sin commit
-
-    # 2. Definir participantes del gasto
-    participantes = []
-
-    if data.DividirEntreTodos:
-        estado_aceptado = (
-            db.query(EstadoParticipacion)
-            .filter(
-                EstadoParticipacion.Nombre == "aceptado",
-                EstadoParticipacion.Activo.is_(True)
-            )
-            .first()
-        )
-
-        if not estado_aceptado:
-            raise HTTPException(status_code=500, detail="Estado aceptado no configurado")
-
-        # traer todos los participantes del viaje
-        participantes = (
-            db.query(ParticipanteViaje)
-            .filter(
-                ParticipanteViaje.IdViaje == data.IdViaje,
-                ParticipanteViaje.IdEstadoParticipacion == estado_aceptado.IdEstadoParticipacion
-            )
-            .all()
-        )
-        participantes_ids = [p.IdParticipanteViaje for p in participantes]
-    else:
-        participantes_ids = data.IdParticipantes if data.IdParticipantes else []
-
-        if data.IdPagador not in participantes_ids:
-            raise HTTPException(
-                status_code=400, 
-                detail="El participante responsable del gasto debe estar incluido por defecto."
-            )
+    db.flush() 
         
-        if len(participantes_ids) < 2:
-            raise HTTPException(
-                status_code=400, 
-                detail="Para dividir entre ciertos participantes, debés seleccionar al menos a un amigo además del pagador."
-            )
-
-    # 3. Crear relaciones en tabla intermedia
     for id_part in participantes_ids:
         db.add(
             ParticipantesGastos(
                 IdGasto=gasto.IdGasto,
                 IdParticipanteViaje=id_part,
+                MontoAsignado=monto_por_participante.get(id_part)
             )
         )
     
-    if not participantes_ids:
-        raise HTTPException(
-            status_code=400,
-            detail="El gasto debe tener al menos un participante" )
-
-    # 4. Guardar todo
     db.commit()
     db.refresh(gasto)
 
@@ -113,54 +175,6 @@ def create_gasto(data: GastoCreate, db: Session = Depends(get_db)):
         "message": "Gasto creado correctamente",
         "IdGasto": gasto.IdGasto,
     }
-
-
-@router.get("/trips/{id_viaje}", response_model=list[GastoRead])
-def get_trip_gastos(
-    id_viaje: int,
-    db: Session = Depends(get_db)
-):
-
-    gastos = db.query(Gasto).filter(
-        Gasto.IdViaje == id_viaje
-    ).all()
-
-    resultado = []
-
-    for gasto in gastos:
-
-        participantes = (
-            db.query(ParticipantesGastos)
-            .filter(
-                ParticipantesGastos.IdGasto == gasto.IdGasto
-            )
-            .all()
-        )
-
-        resultado.append(
-            GastoRead(
-                IdGasto=gasto.IdGasto,
-                IdViaje=gasto.IdViaje,
-                Nombre=gasto.Nombre,
-                Monto=gasto.Monto,
-
-                NombreCategoria=gasto.Categoria.Nombre,
-
-                NombrePagador=gasto.Pagador.Usuario.Nombre,
-                ApellidoPagador=gasto.Pagador.Usuario.Apellido,
-                NombreUsuarioPagador=gasto.Pagador.Usuario.NombreUsuario,
-
-                DividirEntreTodos=gasto.DividirEntreTodos,
-                FechaGasto=gasto.FechaGasto,
-
-                Participantes=[
-                    f"{p.ParticipanteViaje.Usuario.Nombre} {p.ParticipanteViaje.Usuario.Apellido} ({p.ParticipanteViaje.Usuario.NombreUsuario})"
-                    for p in participantes
-                ]
-            )
-        )
-
-    return resultado
 
 
 @router.get("/categories", response_model=list[CategoriasGastosRead])
