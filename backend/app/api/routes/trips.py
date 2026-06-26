@@ -17,6 +17,7 @@ from app.models.participante_viaje import ParticipanteViaje
 from app.models.rol_participante import RolParticipante
 from app.models.usuario import Usuario
 from app.models.viaje import Viaje
+from app.models.dia_cronograma import DiaCronograma
 from app.schemas.trip import TripCreate, TripRead, InvitationResponse, TripInvitationRead
 from app.services.mail import get_mail_service
 from app.services.notifications.invitation_email_sender import (
@@ -165,7 +166,7 @@ def create_trip(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
 ) -> TripRead:
-    # El administrador siempre es el usuario autenticado
+
     administrador = current_user
     admin_user_id = current_user.IdUsuario
 
@@ -261,6 +262,20 @@ def create_trip(
     )
     db.add(viaje)
     db.flush()
+
+    fecha_actual = viaje.FechaInicio
+    indice_dia = 1
+    
+    while fecha_actual <= viaje.FechaFin:
+        db.add(
+            DiaCronograma(
+                IdViaje=viaje.IdViaje,
+                Fecha=fecha_actual,
+                IndiceDia=indice_dia
+            )
+        )
+        fecha_actual += timedelta(days=1)
+        indice_dia += 1
 
     ahora = datetime.now()
     db.add(

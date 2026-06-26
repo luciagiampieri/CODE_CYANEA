@@ -15,25 +15,23 @@ services:
     build:
       context: ./backend
     container_name: cyanea-backend
+    env_file:
+      - ./backend/.env
     environment:
       APP_ENV: development
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-cyanea}:${POSTGRES_PASSWORD:-cyanea}@db:5432/${POSTGRES_DB:-cyanea}
-      CORS_ORIGINS: http://localhost:${FRONTEND_PORT:-5173}
+      CORS_ORIGINS: http://localhost:8081,http://127.0.0.1:8081,http://localhost:5173
     depends_on:
       - db
     ports:
       - "${BACKEND_PORT:-8000}:8000"
 
-  frontend:
-    build:
-      context: ./frontend
-    container_name: cyanea-frontend
-    environment:
-      VITE_API_BASE_URL: http://localhost:${BACKEND_PORT:-8000}/api/v1
-    depends_on:
-      - backend
+  mailpit:
+    image: axllent/mailpit
+    container_name: cyanea-mailpit
     ports:
-      - "${FRONTEND_PORT:-5173}:5173"
+      - "1025:1025" 
+      - "8025:8025" 
 
 volumes:
   postgres_data:

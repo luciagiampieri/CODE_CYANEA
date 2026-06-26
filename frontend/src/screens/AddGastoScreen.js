@@ -36,7 +36,7 @@ import {
     obtenerCategoriasCache, 
     guardarParticipantesEnCache, 
     obtenerParticipantesCache
- } from "../database/gastosLocal";
+} from "../database/gastosLocal";
 
 import NetInfo from "@react-native-community/netinfo";
 
@@ -57,12 +57,10 @@ export default function AddGastoScreen({ route, navigation }) {
     const [idCategoria, setIdCategoria] = useState(null);
     const [idPagador, setIdPagador] = useState(null);
 
-    // Estados para controlar la visibilidad de los menús desplegables modales
     const [modalCategoriaVisible, setModalCategoriaVisible] = useState(false);
     const [modalPagadorVisible, setModalPagadorVisible] = useState(false);
     const [modalParticipantesVisible, setModalParticipantesVisible] = useState(false); 
 
-    // CONTROL DE DIVISIÓN DE GASTOS
     const [dividirEntreTodos, setDividirEntreTodos] = useState(true);
     const [idsParticipantesSeleccionados, setIdsParticipantesSeleccionados] = useState([]);
 
@@ -75,11 +73,9 @@ export default function AddGastoScreen({ route, navigation }) {
         return dateObj.toISOString().split("T")[0];
     }
 
-    // Helpers para obtener el nombre del item seleccionado en los dropdowns
     const categoriaSeleccionada = categorias.find(c => c.IdCategoria === idCategoria);
     const pagadorSeleccionado = participantes.find(p => p.IdParticipanteViaje === idPagador);
 
-    // Función para tildar / destildar un participante de la lista específica
     function toggleSeleccionParticipante(id) {
         if (id === idPagador) {
             Alert.alert("Acción no permitida", "El responsable del gasto debe estar incluido sí o sí.");
@@ -128,7 +124,6 @@ export default function AddGastoScreen({ route, navigation }) {
         cargarDatos();
     }, [IdViaje]);
 
-    // Cada vez que cambia el switch "Dividir entre todos" a falso, nos aseguramos de meter al pagador actual por defecto
     useEffect(() => {
         if (!dividirEntreTodos && idPagador) {
             setIdsParticipantesSeleccionados(prev => {
@@ -162,9 +157,8 @@ export default function AddGastoScreen({ route, navigation }) {
             nuevosErrores.pagador = "Seleccioná quién pagó";
         }
 
-        // Validación estricta de fecha para evitar manipulación manual
         const hoy = new Date();
-        hoy.setHours(23, 59, 59, 999); // Margen para el día de hoy completo
+        hoy.setHours(23, 59, 59, 999);
         if (fecha > hoy) {
             nuevosErrores.fecha = "La fecha del gasto no puede ser posterior a hoy";
         }
@@ -248,7 +242,6 @@ export default function AddGastoScreen({ route, navigation }) {
                 <Text style={styles.title}>Nuevo gasto</Text>
             </View>
 
-            {/* NOMBRE */}
             <Text style={styles.label}>Concepto</Text>
             <View style={styles.inputBox}>
                 <FontAwesome6 name="pen" size={14} color={colors.textMuted} />
@@ -261,7 +254,6 @@ export default function AddGastoScreen({ route, navigation }) {
             </View>
             {errores.nombre && <Text style={styles.error}>{errores.nombre}</Text>}
 
-            {/* MONTO */}
             <Text style={styles.label}>Monto</Text>
             <View style={styles.inputBox}>
                 <Text style={styles.currencyCodePrefix}>{monedaBase.toUpperCase()}</Text>
@@ -275,14 +267,13 @@ export default function AddGastoScreen({ route, navigation }) {
             </View>
             {errores.monto && <Text style={styles.error}>{errores.monto}</Text>}
 
-            {/* FECHA */}
             <Text style={styles.label}>Fecha</Text>
             {Platform.OS === "web" ? (
                 <View style={styles.dateBox}>
                     <input
                         type="date"
                         value={fechaFormato()}
-                        max={fechaFormato(new Date())} // 🎯 Evita elegir fechas futuras en Navegadores Web
+                        max={fechaFormato(new Date())} 
                         onChange={(e) => {
                             const p = e.target.value.split("-");
                             const nuevaFecha = new Date(p[0], p[1] - 1, p[2]);
@@ -310,14 +301,13 @@ export default function AddGastoScreen({ route, navigation }) {
                         <DateTimePicker
                             value={fecha}
                             mode="date"
-                            maximumDate={new Date()} // Restringe visualmente en iOS/Android
+                            maximumDate={new Date()} 
                             onChange={(e, date) => {
                                 setMostrarFecha(false);
                                 if (date) { 
                                     const limiteHoy = new Date();
                                     limiteHoy.setHours(23, 59, 59, 999);
                                     
-                                    // 🎯 Control de seguridad si el sistema operativo dejó saltar el bloqueo
                                     if (date > limiteHoy) {
                                         Alert.alert("Fecha inválida", "No podés registrar un gasto en una fecha futura.");
                                         setFecha(new Date());
@@ -332,7 +322,6 @@ export default function AddGastoScreen({ route, navigation }) {
             )}
             {errores.fecha && <Text style={styles.error}>{errores.fecha}</Text>}
 
-            {/* MENÚ DESPLEGABLE: CATEGORIAS */}
             <Text style={styles.label}>Categoría</Text>
             <TouchableOpacity style={styles.dropdownButton} onPress={() => setModalCategoriaVisible(true)}>
                 <View style={styles.dropdownLeftContent}>
@@ -345,7 +334,6 @@ export default function AddGastoScreen({ route, navigation }) {
             </TouchableOpacity>
             {errores.categoria && <Text style={styles.error}>{errores.categoria}</Text>}
 
-            {/* MENÚ DESPLEGABLE: PAGADOR */}
             <Text style={styles.label}>¿Quién pagó?</Text>
             <TouchableOpacity style={styles.dropdownButton} onPress={() => setModalPagadorVisible(true)}>
                 <View style={styles.dropdownLeftContent}>
@@ -361,7 +349,6 @@ export default function AddGastoScreen({ route, navigation }) {
             </TouchableOpacity>
             {errores.pagador && <Text style={styles.error}>{errores.pagador}</Text>}
 
-            {/* DIVISION GLOBAL ENTRE TODOS */}
             <View style={styles.switchBox}>
                 <View>
                     <Text style={styles.switchTitle}>Dividir entre todos</Text>
@@ -370,7 +357,6 @@ export default function AddGastoScreen({ route, navigation }) {
                 <Switch value={dividirEntreTodos} onValueChange={setDividirEntreTodos} />
             </View>
 
-            {/* CHECKLIST DESPLEGABLE INTELIGENTE */}
             {!dividirEntreTodos && (
                 <View style={{ marginTop: 15 }}>
                     <Text style={styles.label}>¿Entre quiénes se divide?</Text>
@@ -393,12 +379,10 @@ export default function AddGastoScreen({ route, navigation }) {
                 </View>
             )}
 
-            {/* BOTON REGISTRAR */}
             <TouchableOpacity style={styles.button} onPress={handleGuardar} disabled={saving}>
                 {saving ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonText}>Registrar gasto</Text>}
             </TouchableOpacity>
 
-            {/* MODAL DESPLEGABLE DE CATEGORÍAS */}
             <Modal visible={modalCategoriaVisible} transparent={true} animationType="fade">
                 <View style={styles.modalOverlay}>
                     <View style={styles.modalContainer}>
@@ -430,7 +414,6 @@ export default function AddGastoScreen({ route, navigation }) {
                 </View>
             </Modal>
 
-            {/* MODAL DESPLEGABLE DE PAGADORES */}
             <Modal visible={modalPagadorVisible} transparent={true} animationType="fade">
                 <View style={styles.modalOverlay}>
                     <View style={styles.modalContainer}>
@@ -475,7 +458,6 @@ export default function AddGastoScreen({ route, navigation }) {
                 </View>
             </Modal>
 
-            {/* MODAL DESPLEGABLE: CHECKLIST MULTIPLE DE PARTICIPANTES */}
             <Modal visible={modalParticipantesVisible} transparent={true} animationType="fade">
                 <View style={styles.modalOverlay}>
                     <View style={styles.modalContainer}>

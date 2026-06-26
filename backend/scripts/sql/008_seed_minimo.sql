@@ -10,6 +10,7 @@ INSERT INTO public."Usuarios" (
     "Nombre",
     "Apellido",
     "NombreUsuario",
+    "HashedPassword", 
     "FotoUrl",
     "Activo"
 )
@@ -18,16 +19,17 @@ SELECT
     datos."Nombre",
     datos."Apellido",
     datos."NombreUsuario",
+    datos."HashedPassword",
     datos."FotoUrl",
     datos."Activo"
 FROM (
     VALUES
-        ('luciano@cyanea.local', 'Luciano', 'Correa', 'luciano', NULL, TRUE),
-        ('fatima@cyanea.local', 'Fatima', 'Chialva', 'fatima', NULL, TRUE),
-        ('andrea@cyanea.local', 'Ticiana', 'Gatica', 'andrea', NULL, TRUE),
-        ('lucia@cyanea.local', 'Lucia', 'Giampieri', 'lucia', NULL, TRUE),
-        ('candela@cyanea.local', 'Candela', 'Paez', 'candela', NULL, TRUE)
-) AS datos("Email", "Nombre", "Apellido", "NombreUsuario", "FotoUrl", "Activo")
+        ('luciano@cyanea.local', 'Luciano', 'Correa', 'luciano', 'Test@', NULL, TRUE),
+        ('fatima@cyanea.local', 'Fatima', 'Chialva', 'fatima', 'test123', NULL, TRUE),
+        ('andrea@cyanea.local', 'Ticiana', 'Gatica', 'andrea', 'test123', NULL, TRUE),
+        ('lucia@cyanea.local', 'Lucia', 'Giampieri', 'lucia', 'test123', NULL, TRUE),
+        ('candela@cyanea.local', 'Candela', 'Paez', 'candela', 'test123', NULL, TRUE)
+) AS datos("Email", "Nombre", "Apellido", "NombreUsuario", "HashedPassword", "FotoUrl", "Activo")
 WHERE NOT EXISTS (
     SELECT 1
     FROM public."Usuarios" u
@@ -57,11 +59,28 @@ FROM public."Usuarios" u
 JOIN public."EstadosViajes" ev
     ON ev."Nombre" = 'activo'
 WHERE u."Email" = 'luciano@cyanea.local'
-  AND NOT EXISTS (
-      SELECT 1
-      FROM public."Viajes" v
-      WHERE v."Titulo" = 'Escapada a Cordoba'
-  );
+    AND NOT EXISTS (
+        SELECT 1
+        FROM public."Viajes" v
+        WHERE v."Titulo" = 'Escapada a Cordoba'
+    );
+
+INSERT INTO public."DiasCronogramas" ("IdViaje", "Fecha", "IndiceDia")
+SELECT v."IdViaje", d.fecha, d.indice
+FROM public."Viajes" v
+CROSS JOIN (
+    VALUES 
+        (DATE '2026-07-18', 1),
+        (DATE '2026-07-19', 2),
+        (DATE '2026-07-20', 3),
+        (DATE '2026-07-21', 4)
+) AS d(fecha, indice)
+WHERE v."Titulo" = 'Escapada a Cordoba'
+    AND NOT EXISTS (
+        SELECT 1 
+        FROM public."DiasCronogramas" dc 
+        WHERE dc."IdViaje" = v."IdViaje"
+    );
 
 INSERT INTO public."ParticipantesViajes" (
     "IdViaje",
@@ -108,7 +127,7 @@ WHERE NOT EXISTS (
     SELECT 1
     FROM public."ParticipantesViajes" pv
     WHERE pv."IdViaje" = v."IdViaje"
-      AND pv."IdUsuario" = u."IdUsuario"
+        AND pv."IdUsuario" = u."IdUsuario"
 );
 
 INSERT INTO public."InvitacionesViajes" (
@@ -136,9 +155,9 @@ JOIN public."Usuarios" admin
 JOIN public."EstadosInvitaciones" ei
     ON ei."Nombre" = 'pendiente'
 WHERE v."Titulo" = 'Escapada a Cordoba'
-  AND NOT EXISTS (
-      SELECT 1
-      FROM public."InvitacionesViajes" iv
-      WHERE iv."IdViaje" = v."IdViaje"
-        AND iv."EmailInvitado" = 'externo@ejemplo.com'
-  );
+    AND NOT EXISTS (
+        SELECT 1
+        FROM public."InvitacionesViajes" iv
+        WHERE iv."IdViaje" = v."IdViaje"
+            AND iv."EmailInvitado" = 'externo@ejemplo.com'
+    );

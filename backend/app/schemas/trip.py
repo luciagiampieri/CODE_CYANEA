@@ -3,6 +3,16 @@ from datetime import date
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 
+class DiaCronogramaRead(BaseModel):
+    idDiaCronograma: int = Field(..., alias="IdDiaCronograma")
+    fecha: date = Field(..., alias="Fecha")
+    indiceDia: int = Field(..., alias="IndiceDia") 
+
+    class Config:
+        from_attributes = True
+        populate_by_name = True
+
+
 class TripRead(BaseModel):
     id: int
     title: str
@@ -11,7 +21,11 @@ class TripRead(BaseModel):
     currency: str
     startDate: date | None = None
     endDate: date | None = None
+    cronograma: list[DiaCronogramaRead] = Field(default_factory=list, alias="Cronograma")
 
+    class Config:
+        from_attributes = True
+        populate_by_name = True
 
 class TripCreate(BaseModel):
     title: str = Field(..., min_length=1, max_length=150, description="El nombre del viaje no puede quedar vacío")

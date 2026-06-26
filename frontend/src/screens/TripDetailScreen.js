@@ -57,6 +57,7 @@ function normalizeTrip(raw) {
     participantUserIds: raw.participantUserIds ?? [],
     invitedEmails: raw.invitedEmails ?? [],
     participants: raw.participants ?? [],
+    cronograma: raw.cronograma ?? raw.Cronograma ?? raw.dias ?? [], 
     image:
       raw.image ??
       "https://images.unsplash.com/photo-1570077188670-e3a8d69ac5ff?auto=format&fit=crop&w=1400&q=80",
@@ -77,12 +78,27 @@ function formatHeroDate(trip) {
   return `${formatter.format(start)} · ${formatter.format(end)}`;
 }
 
+function formatDayDate(dateString) {
+  if (!dateString) return "";
+  const date = new Date(dateString);
+  if (Number.isNaN(date.getTime())) return "";
+  
+  return new Intl.DateTimeFormat("es-AR", {
+    weekday: "short", // "sáb", "dom"
+    day: "2-digit",   // "18"
+    month: "short",   // "jul"
+    timeZone: "UTC"
+  }).format(date);
+}
+
 export default function TripDetailScreen({ navigation, route }) {
   const initialTrip = normalizeTrip(route.params?.trip);
   const [trip, setTrip] = useState(initialTrip);
   const [activeTab, setActiveTab] = useState("itinerario");
+  const [expandedDayId, setExpandedDayId] = useState(initialTrip?.cronograma[0]?.IdDiaCronograma ?? initialTrip?.cronograma[0]?.id ?? null);
   const [participantSearch, setParticipantSearch] = useState("");
   const [userOptions, setUserOptions] = useState([]);
+  
 
   useEffect(() => {
     const timeoutId = setTimeout(async () => {
@@ -223,37 +239,104 @@ export default function TripDetailScreen({ navigation, route }) {
 
         <View style={styles.body}>
           {activeTab === "itinerario" ? (
-            itineraryDays.map((day, index) => (
-              <View key={day.id} style={[styles.dayCard, index !== 0 && styles.dayCardCompact]}>
-                <View style={styles.dayHeader}>
-                  <View style={[styles.dayIndex, index === 0 && styles.dayIndexActive]}>
-                    <Text style={[styles.dayIndexText, index === 0 && styles.dayIndexTextActive]}>{day.id}</Text>
-                  </View>
-                  <View style={styles.dayTitleWrap}>
-                    <Text style={styles.dayTitle}>{day.title}</Text>
-                    <Text style={styles.daySubtitle}>{day.date}</Text>
-                  </View>
-                  <FontAwesome6 color={colors.textSecondary} name={index === 0 ? "chevron-up" : "chevron-down"} size={14} />
-                </View>
+            (() => {
+              // 💡 LÓGICA DE LA US 17: Si el backend no mandó los días, los calculamos en el momento
+              let diasAMostrar = [];
 
-                {index === 0 ? (
-                  <View style={styles.dayAgenda}>
-                    {day.items.map((item) => (
-                      <View key={`${day.id}-${item.time}-${item.title}`} style={styles.agendaItem}>
-                        <View style={styles.agendaIcon}>
-                          <FontAwesome6 color={colors.primary} name={item.icon} size={14} />
+              if (trip.cronograma && trip.cronograma.length > 0) {
+                diasAMostrar = trip.cronograma;
+              } else if (trip.startDate && trip.endDate) {
+                const inicio = new Date(`${trip.startDate}T12:00:00`);
+                const fin = new Date(`${trip.endDate}T12:00:00`);
+                
+                if (!isNaN(inicio.getTime()) && !isNaN(fin.getTime())) {
+                  const deiferenciaTiempo = fin.getTime() - inicio.getTime();
+                  const totalDias = Math.ceil(deiferenciaTiempo / (1000 * 60 * 60 * 24)) + 1;
+
+                  for (let i = 0; i < totalDias; i++) {
+                    const fechaActual = new Date(inicio);
+                    fechaActual.setDate(inicio.getDate() + i);
+                    
+                    const año = fechaActual.getFullYear();
+                    const mes = String(fechaActual.getMonth() + 1).padStart(2, "0");
+                    const dia = String(fechaActual.getDate()).padStart(2, "0");
+
+                    diasAMostrar.push({
+                      id: `fallback-day-${i + 1}`,
+                      indiceDia: i + 1,
+                      fecha: `${año}-${mes}-${dia}`,
+                      actividades: []
+                    });
+                  }
+                }
+              }
+
+              // Si logramos armar días (ya sea por backend o por cálculo manual) los listamos
+              if (diasAMostrar.length > 0) {
+                return diasAMostrar.map((day, index) => {
+                  const dayId = day.id ?? day.IdDiaCronograma;
+                  const dayIndex = day.indiceDia ?? day.IndiceDia ?? (index + 1);
+                  const dayDateText = formatDayDate(day.fecha ?? day.Fecha);
+                  const actividades = day.items ?? day.actividades ?? [];
+                  const isExpanded = expandedDayId === dayId;
+
+                  return (
+                    <View key={dayId} style={[styles.dayCard, !isExpanded && styles.dayCardCompact]}>
+                      <Pressable  
+                        onPress={() => setExpandedDayId(isExpanded ? null : dayId)}
+                        style={styles.dayHeader}
+                      >
+                        <View style={[styles.dayIndex, isExpanded && styles.dayIndexActive]}>
+                          <Text style={[styles.dayIndexText, isExpanded && styles.dayIndexTextActive]}>
+                            {dayIndex}
+                          </Text>
                         </View>
-                        <View style={styles.agendaContent}>
-                          <Text style={styles.agendaTime}>{item.time}</Text>
-                          <Text style={styles.agendaTitle}>{item.title}</Text>
-                          <Text style={styles.agendaNote}>{item.note}</Text>
+                        <View style={styles.dayTitleWrap} >
+                          <Text style={styles.dayTitle}>{dayDateText}</Text> 
+                          <Text style={styles.daySubtitle}>Día {dayIndex} de viaje</Text>
                         </View>
-                      </View>
-                    ))}
-                  </View>
-                ) : null}
-              </View>
-            ))
+                        <FontAwesome6 
+                          color={colors.textSecondary} 
+                          name={isExpanded ? "chevron-up" : "chevron-down"} 
+                          size={14} 
+                        />
+                      </Pressable>
+
+                      {isExpanded ? (
+                        <View style={styles.dayAgenda}>
+                          {actividades.length > 0 ? (
+                            actividades.map((item, actIndex) => (
+                              <View key={item.id ?? actIndex} style={styles.agendaItem}>
+                                <View style={styles.agendaIcon}>
+                                  <FontAwesome6 color={colors.primary} name={item.icon ?? "location-dot"} size={14} />
+                                </View>
+                                <View style={styles.agendaContent}>
+                                  <Text style={styles.agendaTime}>{item.time ?? item.Hora ?? "---"}</Text>
+                                  <Text style={styles.agendaTitle}>{item.title ?? item.Titulo}</Text>
+                                  {item.note || item.Notas ? (
+                                    <Text style={styles.agendaNote}>{item.note ?? item.Notas}</Text>
+                                  ) : null}
+                                </View>
+                              </View>
+                            ))
+                          ) : (
+                            <Text style={styles.sectionCopy}>No hay actividades agendadas para este día todavía.</Text>
+                          )}
+                        </View>
+                      ) : null}
+                    </View>
+                  );
+                });
+              }
+
+              // Único caso extremo en que no haya fechas de ningún tipo definidas en el viaje
+              return (
+                <View style={styles.sectionCard}>
+                  <Text style={styles.sectionHeading}>Fechas sin definir</Text>
+                  <Text style={styles.sectionCopy}>Establece las fechas de ida y vuelta para estructurar el cronograma.</Text>
+                </View>
+              );
+            })()
           ) : null}
 
           {activeTab === "gastos" ? (
