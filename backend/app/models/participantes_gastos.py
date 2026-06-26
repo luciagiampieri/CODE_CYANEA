@@ -1,4 +1,6 @@
-from sqlalchemy import BigInteger,ForeignKey, UniqueConstraint
+from decimal import Decimal
+
+from sqlalchemy import BigInteger,ForeignKey, UniqueConstraint, Numeric, CheckConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.session import Base
@@ -8,6 +10,8 @@ class ParticipantesGastos(Base):
 
     __table_args__ = (
         UniqueConstraint("IdGasto", "IdParticipanteViaje", name="UX_ParticipantesGastos_IdGasto_IdParticipanteViaje"),
+
+        CheckConstraint('"MontoAsignado" > 0', name="CK_ParticipantesGastos_MontoAsignado"),
     )
 
     IdParticipanteGasto: Mapped[int] = mapped_column(BigInteger, primary_key=True)
@@ -15,12 +19,17 @@ class ParticipantesGastos(Base):
     IdGasto: Mapped[int] = mapped_column(
         BigInteger,
         ForeignKey("Gastos.IdGasto", ondelete="CASCADE", name="FK_ParticipantesGastos_Gastos_IdGasto"),
-        nullable=False,
+        nullable=True,
     )
 
     IdParticipanteViaje: Mapped[int] = mapped_column(
         BigInteger,
         ForeignKey("ParticipantesViajes.IdParticipanteViaje", name="FK_ParticipantesGastos_ParticipantesViajes_IdParticipanteViaje"),
+        nullable=False,
+    )
+
+    MontoAsignado: Mapped[Decimal] = mapped_column(
+        Numeric(12, 2),
         nullable=False,
     )
 

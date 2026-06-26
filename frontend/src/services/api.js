@@ -9,6 +9,11 @@ function resolveApiBaseUrl() {
   if (Platform.OS === "web" && typeof window !== "undefined") {
     return `${window.location.protocol}//${window.location.hostname}:8000/api/v1`;
   }
+
+  if (Platform.OS === "android") {
+    return "http://10.0.2.2:8000/api/v1";
+  }
+  
   return "http://127.0.0.1:8000/api/v1";
 }
 

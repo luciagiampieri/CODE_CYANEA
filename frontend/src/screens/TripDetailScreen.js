@@ -16,8 +16,13 @@ import ParticipantList from "../components/trip/ParticipantList";
 import AvatarStack from "../components/ui/AvatarStack";
 import IconCircleButton from "../components/ui/IconCircleButton";
 import PrimaryButton from "../components/ui/PrimaryButton";
-import { getUsers } from "../services/api";
 import { colors, radii, spacing, surfaces, textStyles } from "../theme/tokens";
+
+import { getUsers, getTripParticipants, getExpenseCategories } from "../services/api";
+import {
+  guardarParticipantesEnCache,
+  guardarCategoriasEnCache,
+} from "../database/gastosLocal";
 
 const itineraryDays = [
   {
@@ -116,6 +121,27 @@ export default function TripDetailScreen({ navigation, route }) {
 
     return () => clearTimeout(timeoutId);
   }, [participantSearch]);
+
+  useEffect(() => {
+    async function precargarDatosOffline() {
+      if (!trip?.id) return;
+      
+      try {
+        const [participantes, categorias] = await Promise.all([
+          getTripParticipants(trip.id),
+          getExpenseCategories(),
+        ]);
+        
+        guardarParticipantesEnCache(trip.id, participantes);
+        guardarCategoriasEnCache(categorias);
+        console.log("Datos offline del viaje precargados correctamente.");
+      
+      } catch (error) {
+        console.log("No se pudieron precargar datos offline del viaje:", error);
+      }
+    }
+    precargarDatosOffline();
+  }, [trip?.id]);
 
   const normalizedSearch = participantSearch.trim().toLowerCase();
 

@@ -1,10 +1,15 @@
 from datetime import date, datetime
 from decimal import Decimal
+import enum 
 
-from sqlalchemy import String, Numeric, Boolean, Date, BigInteger, ForeignKey, DateTime, CheckConstraint, func
+from sqlalchemy import String, Numeric, Boolean, Date, BigInteger, ForeignKey, DateTime, CheckConstraint, func, Enum
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.session import Base
+
+class TipoDivisionEnum(str, enum.Enum):
+    igualitaria = "igualitaria"
+    personalizada = "personalizada"
 
 class Gasto(Base):
     __tablename__ = "Gastos"
@@ -32,6 +37,11 @@ class Gasto(Base):
         ForeignKey("ParticipantesViajes.IdParticipanteViaje", name="FK_Gastos_ParticipantesViajes_IdParticipanteViaje"), 
         nullable=False,
         )
+    
+    TipoDivision: Mapped[TipoDivisionEnum | None] = mapped_column(
+        Enum(TipoDivisionEnum, name="tipo_division_enum"),
+        nullable=True,
+    )
     
     DividirEntreTodos: Mapped[bool] = mapped_column(Boolean, server_default=func.text("true"), nullable=False, default=True)
     
