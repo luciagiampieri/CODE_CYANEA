@@ -12,6 +12,6 @@ class DiaCronograma(Base):
         nullable=False,
     )
     Fecha: Mapped[date] = mapped_column(Date, nullable=False)
-    IndiceDia: Mapped[int] = mapped_column(Integer, nullable=False)  # Ej: Día 1, Día 2, etc.
+    IndiceDia: Mapped[int] = mapped_column(Integer, nullable=False)
 
     Viaje = relationship("Viaje", back_populates="Cronograma")
