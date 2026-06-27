@@ -431,13 +431,23 @@ function DateField({
     <View style={styles.field}>
       <Text style={styles.fieldLabel}>{label}</Text>
       {Platform.OS === "web" ? (
-        <TextInput
-          onChangeText={(text) => onChange(fieldName, text)}
-          placeholder="AAAA-MM-DD"
-          placeholderTextColor={colors.textMuted}
-          style={[styles.input, error && styles.inputError]}
-          value={pickerValue}
-        />
+        <View style={[styles.input, error && styles.inputError, { justifyContent: 'center', paddingVertical: 0 }]}>
+          <input
+            type="date"
+            value={pickerValue || ""}
+            onChange={(e) => onChange(fieldName, e.target.value)}
+            style={{ 
+              border: 'none', 
+              width: '100%', 
+              outline: 'none',
+              backgroundColor: 'transparent',
+              fontFamily: 'inherit',
+              fontSize: '16px',
+              color: 'inherit',
+              cursor: 'pointer'
+            }}
+          />
+        </View>
       ) : (
         <>
           <Pressable onPress={onOpenPicker} style={[styles.dateButton, error && styles.inputError]}>

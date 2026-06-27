@@ -1,6 +1,22 @@
+<<<<<<< HEAD
 from datetime import date, datetime
+=======
+from datetime import date
+from typing import List, Optional
+>>>>>>> origin/main
 
 from pydantic import BaseModel, Field, field_validator, model_validator
+from app.schemas.usuario import UsuarioRead
+
+
+class DiaCronogramaRead(BaseModel):
+    idDiaCronograma: int = Field(..., alias="IdDiaCronograma")
+    fecha: date = Field(..., alias="Fecha")
+    indiceDia: int = Field(..., alias="IndiceDia") 
+
+    class Config:
+        from_attributes = True
+        populate_by_name = True
 
 
 class TripRead(BaseModel):
@@ -11,7 +27,14 @@ class TripRead(BaseModel):
     currency: str
     startDate: date | None = None
     endDate: date | None = None
+    cronograma: list[DiaCronogramaRead] = Field(default_factory=list, alias="Cronograma")
+    participantUserIds: List[int] = []
+    participants: List[UsuarioRead] = [] 
+    invitedEmails: List[str] = []
 
+    class Config:
+        from_attributes = True
+        populate_by_name = True
 
 class TripParticipantRead(BaseModel):
     id: int

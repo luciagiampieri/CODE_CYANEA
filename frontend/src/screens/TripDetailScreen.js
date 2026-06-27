@@ -17,6 +17,7 @@ import ParticipantList from "../components/trip/ParticipantList";
 import AvatarStack from "../components/ui/AvatarStack";
 import IconCircleButton from "../components/ui/IconCircleButton";
 import PrimaryButton from "../components/ui/PrimaryButton";
+<<<<<<< HEAD
 import {
   addTripParticipant,
   getTripDetail,
@@ -24,29 +25,64 @@ import {
   removeTripExternalInvitation,
   removeTripParticipant,
 } from "../services/api";
+=======
+>>>>>>> origin/main
 import { colors, radii, spacing, surfaces, textStyles } from "../theme/tokens";
 
-const itineraryDays = [
+import { getUsers, getTripParticipants, getExpenseCategories } from "../services/api";
+import {
+  guardarParticipantesEnCache,
+  guardarCategoriasEnCache,
+} from "../database/gastosLocal";
+
+
+const mockVotaciones = [
   {
-    id: 1,
-    title: "Llegada a Santorini",
-    date: "12 jul",
-    items: [
-      { time: "11:30", icon: "plane", title: "Vuelo MAD → ATH → JTR", note: "Vueling VY1234" },
-      { time: "15:00", icon: "hospital", title: "Check-in Casa Caldera", note: "Calle Oia 14, Fira" },
-      { time: "20:00", icon: "utensils", title: "Cena en Argo Restaurant", note: "Reserva a nombre de Lucía" },
-    ],
+    IdVotacion: 101,
+    Titulo: "¿Qué almorzamos el segundo día en Buenos Aires?",
+    Tipo: "opcion_unica",
+    FechaCierre: "2026-12-31T23:59:59Z", // Votación activa
+    YaVoto: false,
+    Propuestas: [
+      { IdPropuesta: 1, Texto: "Pizzería Güerrín" },
+      { IdPropuesta: 2, Texto: "Mercado de San Telmo" },
+      { IdPropuesta: 3, Texto: "Bodegón El Preferido" }
+    ]
   },
-  { id: 2, title: "Oia y el volcán", date: "13 jul", items: [] },
-  { id: 3, title: "Día libre · Playas", date: "14 jul", items: [] },
-  { id: 4, title: "Ferry a Mykonos", date: "15 jul", items: [] },
+  {
+    IdVotacion: 102,
+    Titulo: "¿Qué actividades grupales quieren hacer?",
+    Tipo: "opcion_multiple",
+    FechaCierre: "2026-12-31T23:59:59Z", // Votación activa
+    YaVoto: false,
+    Propuestas: [
+      { IdPropuesta: 4, Texto: "Paseo en el Bus Turístico" },
+      { IdPropuesta: 5, Texto: "Visita guiada al Teatro Colón" },
+      { IdPropuesta: 6, Texto: "Noche de San Telmo y Jazz" }
+    ]
+  },
+  {
+    IdVotacion: 103,
+    Titulo: "Elegir transporte al hotel",
+    Tipo: "opcion_unica",
+    FechaCierre: "2026-05-01T12:00:00Z", // Votación cerrada (Fecha pasada)
+    YaVoto: false,
+    Propuestas: [
+      { IdPropuesta: 7, Texto: "Uber corporativo entre todos" },
+      { IdPropuesta: 8, Texto: "Colectivo / Subte" }
+    ]
+  }
 ];
 
 const tabs = [
   { id: "itinerario", label: "Itinerario", icon: "map" },
   { id: "gastos", label: "Gastos", icon: "sack-dollar" },
   { id: "docs", label: "Docs", icon: "folder" },
+<<<<<<< HEAD
   { id: "votar", label: "Votar", icon: "square-poll-horizontal" },
+=======
+  { id: "votar", label: "Votar", icon: "check-to-slot" },
+>>>>>>> origin/main
   { id: "grupo", label: "Grupo", icon: "users" },
 ];
 
@@ -64,8 +100,12 @@ function normalizeTrip(raw) {
     participantUserIds: raw.participantUserIds ?? [],
     invitedEmails: raw.invitedEmails ?? [],
     participants: raw.participants ?? [],
+<<<<<<< HEAD
     externalInvitations: raw.externalInvitations ?? [],
     admin: raw.admin ?? null,
+=======
+    cronograma: raw.cronograma ?? raw.Cronograma ?? raw.dias ?? [], 
+>>>>>>> origin/main
     image:
       raw.image ??
       "https://images.unsplash.com/photo-1570077188670-e3a8d69ac5ff?auto=format&fit=crop&w=1400&q=80",
@@ -86,12 +126,31 @@ function formatHeroDate(trip) {
   return `${formatter.format(start)} · ${formatter.format(end)}`;
 }
 
+function formatDayDate(dateString) {
+  if (!dateString) return "";
+  const date = new Date(dateString);
+  if (Number.isNaN(date.getTime())) return "";
+
+  const formattedDate = new Intl.DateTimeFormat("es-AR", {
+    weekday: "long", 
+    day: "2-digit",   
+    month: "long",
+    timeZone: "UTC"
+  }).format(date);
+
+  return formattedDate.replace(/(\p{L})\p{L}*/gu, (word) => word.charAt(0).toLocaleUpperCase("es-AR") + word.slice(1).toLocaleLowerCase("es-AR"));
+}
+
 export default function TripDetailScreen({ navigation, route }) {
   const initialTrip = normalizeTrip(route.params?.trip);
   const [trip, setTrip] = useState(initialTrip);
   const [activeTab, setActiveTab] = useState("itinerario");
+  const [expandedDayId, setExpandedDayId] = useState(initialTrip?.cronograma[0]?.IdDiaCronograma ?? initialTrip?.cronograma[0]?.id ?? null);
+  const [votacionesActivas, setVotacionesActivas] = useState(mockVotaciones);
+  const [votosSeleccionados, setVotosSeleccionados] = useState({});
   const [participantSearch, setParticipantSearch] = useState("");
   const [userOptions, setUserOptions] = useState([]);
+<<<<<<< HEAD
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
   const [mutatingParticipants, setMutatingParticipants] = useState(false);
@@ -118,6 +177,9 @@ export default function TripDetailScreen({ navigation, route }) {
       setLoading(false);
     }
   }
+=======
+  
+>>>>>>> origin/main
 
   useEffect(() => {
     loadTripDetail();
@@ -141,6 +203,35 @@ export default function TripDetailScreen({ navigation, route }) {
     return () => clearTimeout(timeoutId);
   }, [participantSearch, trip]);
 
+useEffect(() => {
+    async function precargarDatosOffline() {
+      if (!trip?.id) return;
+      
+      try {
+        const [participantes, categorias] = await Promise.all([
+          getTripParticipants(trip.id),
+          getExpenseCategories(),
+        ]);
+        
+        guardarParticipantesEnCache(trip.id, participantes);
+        guardarCategoriasEnCache(categorias);
+        console.log("Datos offline del viaje precargados correctamente.");
+        
+        if (participantes) {
+          setTrip((prev) => ({
+            ...prev,
+            participants: participantes,
+            participantUserIds: participantes.map(p => p.id ?? p.IdUsuario ?? p.Id),
+          }));
+        }
+      
+      } catch (error) {
+        console.log("No se pudieron precargar datos offline del viaje:", error);
+      }
+    }
+    precargarDatosOffline();
+  }, [trip?.id]);
+
   const normalizedSearch = participantSearch.trim().toLowerCase();
 
   const selectableUsers = useMemo(
@@ -155,15 +246,21 @@ export default function TripDetailScreen({ navigation, route }) {
     return !selectableUsers.some((user) => user.email.toLowerCase() === normalizedSearch);
   }, [normalizedSearch, selectableUsers, trip.invitedEmails]);
 
-  const participantItems = useMemo(() => {
-    const registered = (trip.participants || []).map((user) => ({
-      key: `user-${user.id}`,
-      kind: "registered",
-      id: user.id,
-      nombreCompleto: user.nombreCompleto || user.name,
-      email: user.email,
-      fotoUrl: user.fotoUrl ?? "",
-    }));
+const participantItems = useMemo(() => {
+    const registered = (trip.participants || []).map((user) => {
+      const nombreCompleto = user.nombreCompleto || user.name || 
+        (user.Nombre && user.Apellido ? `${user.Nombre} ${user.Apellido}` : null) || 
+        user.Nombre || "Usuario";
+
+      return {
+        key: `user-${user.id ?? user.IdUsuario}`,
+        kind: "registered",
+        id: user.id ?? user.IdUsuario,
+        nombreCompleto: nombreCompleto,
+        email: user.email ?? user.Email,
+        fotoUrl: user.fotoUrl ?? user.FotoUrl ?? "",
+      };
+    });
 
     const invited = (trip.externalInvitations || []).map((invitation) => ({
       key: `invite-${invitation.email}`,
@@ -234,23 +331,14 @@ export default function TripDetailScreen({ navigation, route }) {
             </View>
 
             <View style={styles.heroContent}>
-              <Text style={styles.heroMeta}>{formatHeroDate(trip)} · {Math.max(8, participantItems.length || 8)} personas</Text>
+              <Text style={styles.heroMeta}>{formatHeroDate(trip)} · {participantItems.length} {participantItems.length === 1 ? "persona" : "personas"}</Text>
               <Text style={styles.heroTitle}>{trip.title}</Text>
               <Text style={styles.heroSubtitle}>{trip.destination}</Text>
               <View style={styles.heroFooter}>
                 <AvatarStack
                   max={4}
-                  overflowLabel="+5"
-                  participants={
-                    participantItems.length > 0
-                      ? participantItems
-                      : [
-                          { id: 1, nombreCompleto: "Lucía Giampieri" },
-                          { id: 2, nombreCompleto: "Candela Páez" },
-                          { id: 3, nombreCompleto: "Ticiana Gatica" },
-                          { id: 4, nombreCompleto: "Luciano Correa" },
-                        ]
-                  }
+                  overflowLabel={participantItems.length > 4 ? `+${participantItems.length - 4}` : ""}
+                  participants={participantItems}
                   size={34}
                 />
               </View>
@@ -286,37 +374,101 @@ export default function TripDetailScreen({ navigation, route }) {
             </View>
           ) : null}
           {activeTab === "itinerario" ? (
-            itineraryDays.map((day, index) => (
-              <View key={day.id} style={[styles.dayCard, index !== 0 && styles.dayCardCompact]}>
-                <View style={styles.dayHeader}>
-                  <View style={[styles.dayIndex, index === 0 && styles.dayIndexActive]}>
-                    <Text style={[styles.dayIndexText, index === 0 && styles.dayIndexTextActive]}>{day.id}</Text>
-                  </View>
-                  <View style={styles.dayTitleWrap}>
-                    <Text style={styles.dayTitle}>{day.title}</Text>
-                    <Text style={styles.daySubtitle}>{day.date}</Text>
-                  </View>
-                  <FontAwesome6 color={colors.textSecondary} name={index === 0 ? "chevron-up" : "chevron-down"} size={14} />
-                </View>
+            (() => {
+              let diasAMostrar = [];
 
-                {index === 0 ? (
-                  <View style={styles.dayAgenda}>
-                    {day.items.map((item) => (
-                      <View key={`${day.id}-${item.time}-${item.title}`} style={styles.agendaItem}>
-                        <View style={styles.agendaIcon}>
-                          <FontAwesome6 color={colors.primary} name={item.icon} size={14} />
+              if (trip.cronograma && trip.cronograma.length > 0) {
+                diasAMostrar = trip.cronograma;
+              } else if (trip.startDate && trip.endDate) {
+                const inicio = new Date(`${trip.startDate}T12:00:00`);
+                const fin = new Date(`${trip.endDate}T12:00:00`);
+                
+                if (!isNaN(inicio.getTime()) && !isNaN(fin.getTime())) {
+                  const deiferenciaTiempo = fin.getTime() - inicio.getTime();
+                  const totalDias = Math.ceil(deiferenciaTiempo / (1000 * 60 * 60 * 24)) + 1;
+
+                  for (let i = 0; i < totalDias; i++) {
+                    const fechaActual = new Date(inicio);
+                    fechaActual.setDate(inicio.getDate() + i);
+                    
+                    const año = fechaActual.getFullYear();
+                    const mes = String(fechaActual.getMonth() + 1).padStart(2, "0");
+                    const dia = String(fechaActual.getDate()).padStart(2, "0");
+
+                    diasAMostrar.push({
+                      id: `fallback-day-${i + 1}`,
+                      indiceDia: i + 1,
+                      fecha: `${año}-${mes}-${dia}`,
+                      actividades: []
+                    });
+                  }
+                }
+              }
+
+              if (diasAMostrar.length > 0) {
+                return diasAMostrar.map((day, index) => {
+                  const dayId = day.id ?? day.IdDiaCronograma;
+                  const dayIndex = day.indiceDia ?? day.IndiceDia ?? (index + 1);
+                  const dayDateText = formatDayDate(day.fecha ?? day.Fecha);
+                  const actividades = day.items ?? day.actividades ?? [];
+                  const isExpanded = expandedDayId === dayId;
+
+                  return (
+                    <View key={dayId} style={[styles.dayCard, !isExpanded && styles.dayCardCompact]}>
+                      <Pressable  
+                        onPress={() => setExpandedDayId(isExpanded ? null : dayId)}
+                        style={styles.dayHeader}
+                      >
+                        <View style={[styles.dayIndex, isExpanded && styles.dayIndexActive]}>
+                          <Text style={[styles.dayIndexText, isExpanded && styles.dayIndexTextActive]}>
+                            {dayIndex}
+                          </Text>
                         </View>
-                        <View style={styles.agendaContent}>
-                          <Text style={styles.agendaTime}>{item.time}</Text>
-                          <Text style={styles.agendaTitle}>{item.title}</Text>
-                          <Text style={styles.agendaNote}>{item.note}</Text>
+                        <View style={styles.dayTitleWrap} >
+                          <Text style={styles.dayTitle}>{dayDateText}</Text> 
+                          <Text style={styles.daySubtitle}>Día {dayIndex} del viaje</Text>
                         </View>
-                      </View>
-                    ))}
-                  </View>
-                ) : null}
-              </View>
-            ))
+                        <FontAwesome6 
+                          color={colors.textSecondary} 
+                          name={isExpanded ? "chevron-up" : "chevron-down"} 
+                          size={14} 
+                        />
+                      </Pressable>
+
+                      {isExpanded ? (
+                        <View style={styles.dayAgenda}>
+                          {actividades.length > 0 ? (
+                            actividades.map((item, actIndex) => (
+                              <View key={item.id ?? actIndex} style={styles.agendaItem}>
+                                <View style={styles.agendaIcon}>
+                                  <FontAwesome6 color={colors.primary} name={item.icon ?? "location-dot"} size={14} />
+                                </View>
+                                <View style={styles.agendaContent}>
+                                  <Text style={styles.agendaTime}>{item.time ?? item.Hora ?? "---"}</Text>
+                                  <Text style={styles.agendaTitle}>{item.title ?? item.Titulo}</Text>
+                                  {item.note || item.Notas ? (
+                                    <Text style={styles.agendaNote}>{item.note ?? item.Notas}</Text>
+                                  ) : null}
+                                </View>
+                              </View>
+                            ))
+                          ) : (
+                            <Text style={styles.sectionCopy}>No hay actividades agendadas para este día todavía.</Text>
+                          )}
+                        </View>
+                      ) : null}
+                    </View>
+                  );
+                });
+              }
+
+              return (
+                <View style={styles.sectionCard}>
+                  <Text style={styles.sectionHeading}>Fechas sin definir</Text>
+                  <Text style={styles.sectionCopy}>Establece las fechas de ida y vuelta para estructurar el cronograma.</Text>
+                </View>
+              );
+            })()
           ) : null}
 
           {activeTab === "gastos" ? (
@@ -348,9 +500,96 @@ export default function TripDetailScreen({ navigation, route }) {
           ) : null}
 
           {activeTab === "votar" ? (
-            <View style={styles.sectionCard}>
-              <Text style={styles.sectionHeading}>Votaciones</Text>
-              <Text style={styles.sectionCopy}>Las decisiones del grupo y las encuestas se integrarán en esta sección.</Text>
+            <View style={styles.sectionStack}>
+              {votacionesActivas.map((votacion) => {
+                const esCerrada = new Date(votacion.FechaCierre) < new Date();
+                const opcionesElegidas = votosSeleccionados[votacion.IdVotacion] || [];
+
+                const togglePropuesta = (idPropuesta, tipo) => {
+                  setVotosSeleccionados(prev => {
+                    const actuales = prev[votacion.IdVotacion] || [];
+                    if (tipo === "opcion_unica") {
+                      return { ...prev, [votacion.IdVotacion]: [idPropuesta] };
+                    } else {
+                      return actuales.includes(idPropuesta)
+                        ? { ...prev, [votacion.IdVotacion]: actuales.filter(id => id !== idPropuesta) }
+                        : { ...prev, [votacion.IdVotacion]: [...actuales, idPropuesta] };
+                    }
+                  });
+                };
+
+                // Función interna para simular el envío del voto
+                const registrarVoto = () => {
+                  if (opcionesElegidas.length === 0) {
+                    alert("Por favor, selecciona al menos una opción.");
+                    return;
+                  }
+                  
+                  alert("Voto registrado correctamente. ¡Gracias por participar!");
+                  
+                  setVotacionesActivas(prev => 
+                    prev.map(v => v.IdVotacion === votacion.IdVotacion ? { ...v, YaVoto: true } : v)
+                  );
+                };
+
+                return (
+                  <View key={votacion.IdVotacion} style={styles.sectionCard}>
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                      <Text style={[styles.sectionHeading, { fontSize: 18, flex: 1 }]}>{votacion.Titulo}</Text>
+                      <View style={{ backgroundColor: votacion.Tipo === 'opcion_unica' ? '#e0f2fe' : '#f3e8ff', padding: 6, borderRadius: 6 }}>
+                        <Text style={{ fontSize: 10, fontWeight: '700', color: votacion.Tipo === 'opcion_unica' ? '#0369a1' : '#6b21a8' }}>
+                          {votacion.Tipo === 'opcion_unica' ? 'ÚNICA' : 'MÚLTIPLE'}
+                        </Text>
+                      </View>
+                    </View>
+
+                    <View style={{ marginTop: 15, gap: 10 }}>
+                      {votacion.Propuestas.map((propuesta) => {
+                        const marcada = opcionesElegidas.includes(propuesta.IdPropuesta);
+                        return (
+                          <Pressable
+                            key={propuesta.IdPropuesta}
+                            disabled={votacion.YaVoto || esCerrada}
+                            onPress={() => togglePropuesta(propuesta.IdPropuesta, votacion.Tipo)}
+                            style={{
+                              flexDirection: 'row',
+                              alignItems: 'center',
+                              padding: 12,
+                              borderWidth: 1,
+                              borderColor: marcada ? colors.primary : colors.border,
+                              borderRadius: radii.md,
+                              backgroundColor: marcada ? '#f0f4f8' : colors.surface
+                            }}
+                          >
+                            <View style={{
+                              width: 18, height: 18, borderRadius: votacion.Tipo === 'opcion_unica' ? 9 : 4,
+                              borderWidth: 2, borderColor: marcada ? colors.primary : colors.textMuted,
+                              marginRight: 10, justifyContent: 'center', alignItems: 'center'
+                            }}>
+                              {marcada && <View style={{ width: 10, height: 10, borderRadius: votacion.Tipo === 'opcion_unica' ? 5 : 2, backgroundColor: colors.primary }} />}
+                            </View>
+                            <Text style={{ color: colors.textPrimary }}>{propuesta.Texto}</Text>
+                          </Pressable>
+                        );
+                      })}
+                    </View>
+
+                    <View style={{ marginTop: 15 }}>
+                      {esCerrada ? (
+                        <Text style={{ color: colors.danger, fontWeight: '600', fontSize: 13 }}>⚠️ Esta votación cerró por alcanzar su fecha límite.</Text>
+                      ) : votacion.YaVoto ? (
+                        <Text style={{ color: colors.success, fontWeight: '600', fontSize: 13 }}>✓ Ya registraste tu voto en esta decisión grupal.</Text>
+                      ) : (
+                        <PrimaryButton
+                          label="Confirmar Voto"
+                          onPress={registrarVoto}
+                          style={{ marginTop: 5 }}
+                        />
+                      )}
+                    </View>
+                  </View>
+                );
+              })}
             </View>
           ) : null}
 

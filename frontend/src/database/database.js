@@ -23,10 +23,13 @@ export function inicializarBaseDeDatos() {
         nombre TEXT NOT NULL,
         monto REAL NOT NULL,
         id_categoria INTEGER NOT NULL,
-        id_pagador INTEGER NOT NULL,
+        id_pagador INTEGER,
         fecha_gasto TEXT NOT NULL,
+        es_compartido INTEGER NOT NULL,
         dividir_entre_todos INTEGER NOT NULL,
+        tipo_division TEXT,
         ids_participantes TEXT,
+        detalle_montos TEXT,
         creado_en TEXT
       );
     `);

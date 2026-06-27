@@ -69,6 +69,12 @@ class Viaje(Base):
         cascade="all, delete-orphan",
         foreign_keys="Gasto.IdViaje",
     )
+    Cronograma = relationship(
+        "DiaCronograma",
+        back_populates="Viaje",
+        cascade="all, delete-orphan",
+        order_by="DiaCronograma.Fecha",
+    )
 
     
 

@@ -23,7 +23,7 @@ import {
   textStyles,
 } from "../theme/tokens";
 
-import CyaneaLogo from "../../assets/cyanea_Logo.png";
+import CyaneaLogo from "../../assets/cyanea_logo_manteca.png";
 
 const API_BASE = process.env.EXPO_PUBLIC_API_BASE_URL ?? "http://localhost:8000/api/v1";
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -105,12 +105,10 @@ export default function RegisterScreen({ navigation }) {
         <ScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
           <View style={styles.topPanel}>
             <View style={styles.brandRow}>
-              <View style={styles.logoBadge}>
                 <Image resizeMode="contain" source={CyaneaLogo} style={styles.logoImage} />
-              </View>
-              <Text style={styles.brandName}>CYANEA</Text>
+              <Text style={styles.brandName}>Cyanea</Text>
             </View>
-            <Text style={styles.brandClaim}>MUCHAS MANOS . UN ÚNICO DESTINO</Text>
+            <Text style={styles.brandClaim}>MUCHAS MANOS, UN ÚNICO DESTINO</Text>
           </View>
 
           <View style={styles.body}>
@@ -242,37 +240,39 @@ const styles = StyleSheet.create({
   },
   topPanel: {
     backgroundColor: colors.primarySoft,
-    paddingTop: spacing.xl,
+    paddingTop: 60,
     paddingHorizontal: spacing.xl,
-    paddingBottom: spacing.xl,
+    paddingBottom: 40,
     alignItems: "center",
   },
   brandRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: spacing.sm,
+    gap: 12,
   },
   logoBadge: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: colors.accent,
+    width: 55,
+    height: 55,
+    borderRadius: 27.5,
+    backgroundColor: colors.surface,
     alignItems: "center",
     justifyContent: "center",
   },
   logoImage: {
-    width: 26,
-    height: 26,
+    width: 45,
+    height: 45,
   },
   brandName: {
     ...textStyles.brandTitle,
     color: colors.accent,
-    fontSize: 26,
+    fontSize: 36,
+    fontwight: "bold",
   },
   brandClaim: {
     ...textStyles.sectionLabel,
     color: "#9fb0d8",
     marginTop: spacing.sm,
+    marginBottom: 10,
     fontSize: 12,
   },
   body: {

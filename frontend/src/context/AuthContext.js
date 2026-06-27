@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useState } from "react";
 import { Platform } from "react-native";
+import { getCurrentUser } from "../services/api";
 
 const AUTH_TOKEN_KEY = "auth_token";
 
@@ -40,13 +41,28 @@ export function AuthProvider({ children }) {
     async function loadToken() {
       try {
         const stored = await storage.getItem(AUTH_TOKEN_KEY);
-        if (stored) setToken(stored);
+
+        if (!stored) {
+          setToken(null);
+          return;
+        }
+
+        // Lo ponemos temporalmente para que authHeaders() lo use
+        setToken(stored);
+
+        try {
+          await getCurrentUser(); // valida el token contra backend
+        } catch {
+          await storage.removeItem(AUTH_TOKEN_KEY);
+          setToken(null);
+        }
       } catch {
-        // token inválido o storage no disponible
+        setToken(null);
       } finally {
         setIsLoading(false);
       }
     }
+
     loadToken();
   }, []);
 

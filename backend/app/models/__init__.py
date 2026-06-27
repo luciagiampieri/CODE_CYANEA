@@ -11,6 +11,7 @@ from app.models.viaje import Viaje
 from app.models.gasto import Gasto
 from app.models.participantes_gastos import ParticipantesGastos
 from app.models.categorias_gastos import CategoriasGastos
+from app.models.dia_cronograma import DiaCronograma
 
 __all__ = [
     "EstadoInvitacion",
@@ -24,4 +25,5 @@ __all__ = [
     "Gasto",
     "ParticipantesGastos",
     "CategoriasGastos",
+    "DiaCronograma",
 ]
