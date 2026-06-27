@@ -15,9 +15,9 @@ from app.models.estado_viaje import EstadoViaje
 from app.models.invitacion_viaje import InvitacionViaje
 from app.models.participante_viaje import ParticipanteViaje
 from app.models.rol_participante import RolParticipante
+from app.models.dia_cronograma import DiaCronograma
 from app.models.usuario import Usuario
 from app.models.viaje import Viaje
-<<<<<<< HEAD
 from app.schemas.trip import (
     TripAdminRead,
     TripCreate,
@@ -30,10 +30,6 @@ from app.schemas.trip import (
     TripParticipantUpsert,
     InvitationResponse,
 )
-=======
-from app.models.dia_cronograma import DiaCronograma
-from app.schemas.trip import TripCreate, TripRead, InvitationResponse, TripInvitationRead
->>>>>>> origin/main
 from app.services.mail import get_mail_service
 from app.services.notifications.invitation_email_sender import (
     InvitationEmailPayload,
@@ -50,6 +46,7 @@ def _get_trip_with_relations(db: Session, trip_id: int) -> Viaje | None:
         .options(
             selectinload(Viaje.Administrador),
             selectinload(Viaje.EstadoViaje),
+            selectinload(Viaje.Cronograma),
             selectinload(Viaje.Participantes).selectinload(ParticipanteViaje.Usuario),
             selectinload(Viaje.Participantes).selectinload(ParticipanteViaje.RolParticipante),
             selectinload(Viaje.Participantes).selectinload(ParticipanteViaje.EstadoParticipacion),
@@ -113,6 +110,7 @@ def _build_trip_detail(viaje: Viaje) -> TripDetailRead:
         currency=viaje.Moneda,
         startDate=viaje.FechaInicio,
         endDate=viaje.FechaFin,
+        cronograma=list(viaje.Cronograma or []),
         admin=TripAdminRead(
             id=viaje.Administrador.IdUsuario,
             nombreCompleto=f"{viaje.Administrador.Nombre} {viaje.Administrador.Apellido}",
@@ -272,65 +270,13 @@ def list_trips(
             currency=viaje.Moneda,
             startDate=viaje.FechaInicio,
             endDate=viaje.FechaFin,
-            # 👇 Inicializamos vacíos para el listado general
+            cronograma=[],
             participantUserIds=[],
             participants=[],
-            invitedEmails=[]
+            invitedEmails=[],
         )
         for viaje in viajes
     ]
-
-@router.get("/{trip_id}", response_model=TripRead)
-def get_trip_detail(
-    trip_id: int,
-    db: Session = Depends(get_db),
-    current_user: Usuario = Depends(get_current_user)
-):
-    # Buscar el viaje
-    viaje = db.scalar(select(Viaje).where(Viaje.IdViaje == trip_id))
-    if not viaje:
-        raise HTTPException(status_code=404, detail="Viaje no encontrado")
-        
-    # 1. Obtener participantes con estado 'aceptado' (o todos los activos)
-    # Esto depende de cómo tengas declaradas las relaciones en tu modelo Viaje
-    participantes_rel = db.scalars(
-        select(ParticipanteViaje)
-        .where(ParticipanteViaje.IdViaje == trip_id)
-    ).all()
-
-    participants_list = []
-    participant_ids = []
-    for p in participantes_rel:
-        # Asegúrate de traer solo los que aceptaron (o el creador que ya está aceptado)
-        if p.EstadoParticipacion.Nombre == "aceptado":
-            participant_ids.append(p.IdUsuario)
-            participants_list.append({
-                "id": p.Usuario.IdUsuario,
-                "nombreCompleto": f"{p.Usuario.Nombre} {p.Usuario.Apellido}",
-                "email": p.Usuario.Email,
-                "fotoUrl": getattr(p.Usuario, "FotoUrl", "") # Evita romper si no existe
-            })
-
-    # 2. Obtener las invitaciones pendientes por Email
-    invitaciones_rel = db.scalars(
-        select(InvitacionViaje)
-        .where(InvitacionViaje.IdViaje == trip_id, InvitacionViaje.EstadoInvitacion.Nombre == "pendiente")
-    ).all()
-    invited_emails = [i.EmailInvitado for i in invitaciones_rel]
-
-    return TripRead(
-        id=viaje.IdViaje,
-        title=viaje.Titulo,
-        destination=viaje.Destino,
-        status=viaje.EstadoViaje.Nombre,
-        currency=viaje.Moneda,
-        startDate=viaje.FechaInicio,
-        endDate=viaje.FechaFin,
-        # 👇 Pasamos los datos al frontend
-        participantUserIds=participant_ids,
-        participants=participants_list,
-        invitedEmails=invited_emails
-    )
 
 
 @router.get("/{trip_id}", response_model=TripDetailRead)
@@ -553,7 +499,7 @@ def create_trip(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
 ) -> TripRead:
-
+    # El administrador siempre es el usuario autenticado
     administrador = current_user
     admin_user_id = current_user.IdUsuario
 
@@ -650,19 +596,19 @@ def create_trip(
     db.add(viaje)
     db.flush()
 
-    fecha_actual = viaje.FechaInicio
-    indice_dia = 1
-    
-    while fecha_actual <= viaje.FechaFin:
-        db.add(
-            DiaCronograma(
-                IdViaje=viaje.IdViaje,
-                Fecha=fecha_actual,
-                IndiceDia=indice_dia
+    if viaje.FechaInicio and viaje.FechaFin:
+        fecha_actual = viaje.FechaInicio
+        indice_dia = 1
+        while fecha_actual <= viaje.FechaFin:
+            db.add(
+                DiaCronograma(
+                    IdViaje=viaje.IdViaje,
+                    Fecha=fecha_actual,
+                    IndiceDia=indice_dia,
+                )
             )
-        )
-        fecha_actual += timedelta(days=1)
-        indice_dia += 1
+            fecha_actual += timedelta(days=1)
+            indice_dia += 1
 
     ahora = datetime.now()
     db.add(
@@ -730,9 +676,10 @@ def create_trip(
 
     admin_data = {
         "id": administrador.IdUsuario,
+        "nombreUsuario": administrador.NombreUsuario,
         "nombreCompleto": f"{administrador.Nombre} {administrador.Apellido}",
         "email": administrador.Email,
-        "fotoUrl": getattr(administrador, "FotoUrl", "")
+        "fotoUrl": getattr(administrador, "FotoUrl", None),
     }
 
     return TripRead(
@@ -743,12 +690,8 @@ def create_trip(
         currency=viaje.Moneda,
         startDate=viaje.FechaInicio,
         endDate=viaje.FechaFin,
-<<<<<<< HEAD
-    )
-=======
-        # 👇 Pasamos los datos iniciales para que el front no se rompa al crear
+        cronograma=[],
         participantUserIds=[admin_user_id] + participantes_ids,
-        participants=[admin_data],  # Los demás todavía están como 'invitados', no 'aceptados'
-        invitedEmails=list(emails_invitados)
+        participants=[admin_data],
+        invitedEmails=list(emails_invitados),
     )
->>>>>>> origin/main

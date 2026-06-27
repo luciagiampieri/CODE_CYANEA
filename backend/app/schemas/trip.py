@@ -1,18 +1,14 @@
-<<<<<<< HEAD
 from datetime import date, datetime
-=======
-from datetime import date
-from typing import List, Optional
->>>>>>> origin/main
 
 from pydantic import BaseModel, Field, field_validator, model_validator
+
 from app.schemas.usuario import UsuarioRead
 
 
 class DiaCronogramaRead(BaseModel):
     idDiaCronograma: int = Field(..., alias="IdDiaCronograma")
     fecha: date = Field(..., alias="Fecha")
-    indiceDia: int = Field(..., alias="IndiceDia") 
+    indiceDia: int = Field(..., alias="IndiceDia")
 
     class Config:
         from_attributes = True
@@ -28,13 +24,14 @@ class TripRead(BaseModel):
     startDate: date | None = None
     endDate: date | None = None
     cronograma: list[DiaCronogramaRead] = Field(default_factory=list, alias="Cronograma")
-    participantUserIds: List[int] = []
-    participants: List[UsuarioRead] = [] 
-    invitedEmails: List[str] = []
+    participantUserIds: list[int] = Field(default_factory=list)
+    participants: list[UsuarioRead] = Field(default_factory=list)
+    invitedEmails: list[str] = Field(default_factory=list)
 
     class Config:
         from_attributes = True
         populate_by_name = True
+
 
 class TripParticipantRead(BaseModel):
     id: int
@@ -104,7 +101,7 @@ class TripCreate(BaseModel):
     startDate: date | None = None
     endDate: date | None = None
     currency: str = Field(default="ARS", min_length=3, max_length=3, description="Tipo de moneda base obligatoria")
-    adminUserId: int | None = None  # ignorado; se usa el usuario autenticado
+    adminUserId: int | None = None
     participantUserIds: list[int] = Field(default_factory=list)
     invitedEmails: list[str] = Field(default_factory=list)
 
@@ -128,6 +125,7 @@ class TripCreate(BaseModel):
             raise ValueError("La fecha de fin no puede ser anterior a la fecha de inicio")
         return self
 
+
 class InvitationResponse(BaseModel):
     decision: str = Field(..., description="La decisión del usuario: 'aceptar' o 'rechazar'")
 
@@ -135,10 +133,8 @@ class InvitationResponse(BaseModel):
     @classmethod
     def validate_decision(cls, value: str) -> str:
         cleaned_value = value.strip().lower()
-        
         if cleaned_value not in ["aceptar", "rechazar"]:
             raise ValueError("La decisión enviada no es válida. Debe ser 'aceptar' o 'rechazar'.")
-            
         return cleaned_value
 
 

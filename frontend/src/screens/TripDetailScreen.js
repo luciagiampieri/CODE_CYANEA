@@ -17,7 +17,6 @@ import ParticipantList from "../components/trip/ParticipantList";
 import AvatarStack from "../components/ui/AvatarStack";
 import IconCircleButton from "../components/ui/IconCircleButton";
 import PrimaryButton from "../components/ui/PrimaryButton";
-<<<<<<< HEAD
 import {
   addTripParticipant,
   getTripDetail,
@@ -25,11 +24,9 @@ import {
   removeTripExternalInvitation,
   removeTripParticipant,
 } from "../services/api";
-=======
->>>>>>> origin/main
 import { colors, radii, spacing, surfaces, textStyles } from "../theme/tokens";
 
-import { getUsers, getTripParticipants, getExpenseCategories } from "../services/api";
+import { getTripParticipants, getExpenseCategories } from "../services/api";
 import {
   guardarParticipantesEnCache,
   guardarCategoriasEnCache,
@@ -78,11 +75,7 @@ const tabs = [
   { id: "itinerario", label: "Itinerario", icon: "map" },
   { id: "gastos", label: "Gastos", icon: "sack-dollar" },
   { id: "docs", label: "Docs", icon: "folder" },
-<<<<<<< HEAD
-  { id: "votar", label: "Votar", icon: "square-poll-horizontal" },
-=======
   { id: "votar", label: "Votar", icon: "check-to-slot" },
->>>>>>> origin/main
   { id: "grupo", label: "Grupo", icon: "users" },
 ];
 
@@ -100,12 +93,9 @@ function normalizeTrip(raw) {
     participantUserIds: raw.participantUserIds ?? [],
     invitedEmails: raw.invitedEmails ?? [],
     participants: raw.participants ?? [],
-<<<<<<< HEAD
     externalInvitations: raw.externalInvitations ?? [],
     admin: raw.admin ?? null,
-=======
-    cronograma: raw.cronograma ?? raw.Cronograma ?? raw.dias ?? [], 
->>>>>>> origin/main
+    cronograma: raw.cronograma ?? raw.Cronograma ?? raw.dias ?? [],
     image:
       raw.image ??
       "https://images.unsplash.com/photo-1570077188670-e3a8d69ac5ff?auto=format&fit=crop&w=1400&q=80",
@@ -150,7 +140,6 @@ export default function TripDetailScreen({ navigation, route }) {
   const [votosSeleccionados, setVotosSeleccionados] = useState({});
   const [participantSearch, setParticipantSearch] = useState("");
   const [userOptions, setUserOptions] = useState([]);
-<<<<<<< HEAD
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
   const [mutatingParticipants, setMutatingParticipants] = useState(false);
@@ -177,9 +166,6 @@ export default function TripDetailScreen({ navigation, route }) {
       setLoading(false);
     }
   }
-=======
-  
->>>>>>> origin/main
 
   useEffect(() => {
     loadTripDetail();
@@ -220,8 +206,10 @@ useEffect(() => {
         if (participantes) {
           setTrip((prev) => ({
             ...prev,
-            participants: participantes,
-            participantUserIds: participantes.map(p => p.id ?? p.IdUsuario ?? p.Id),
+            participants: prev?.participants?.length ? prev.participants : participantes,
+            participantUserIds: prev?.participantUserIds?.length
+              ? prev.participantUserIds
+              : participantes.map((p) => p.id ?? p.IdUsuario ?? p.Id),
           }));
         }
       
@@ -234,19 +222,21 @@ useEffect(() => {
 
   const normalizedSearch = participantSearch.trim().toLowerCase();
 
-  const selectableUsers = useMemo(
-    () => userOptions.filter((user) => !trip.participantUserIds.includes(user.id)),
-    [trip.participantUserIds, userOptions]
-  );
+  const selectableUsers = useMemo(() => {
+    if (!trip) return [];
+    return userOptions.filter((user) => !trip.participantUserIds.includes(user.id));
+  }, [trip, userOptions]);
 
   const canInviteExternal = useMemo(() => {
+    if (!trip) return false;
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(normalizedSearch)) return false;
     if (trip.invitedEmails.includes(normalizedSearch)) return false;
     return !selectableUsers.some((user) => user.email.toLowerCase() === normalizedSearch);
-  }, [normalizedSearch, selectableUsers, trip.invitedEmails]);
+  }, [normalizedSearch, selectableUsers, trip]);
 
-const participantItems = useMemo(() => {
+  const participantItems = useMemo(() => {
+    if (!trip) return [];
     const registered = (trip.participants || []).map((user) => {
       const nombreCompleto = user.nombreCompleto || user.name || 
         (user.Nombre && user.Apellido ? `${user.Nombre} ${user.Apellido}` : null) || 
@@ -284,6 +274,7 @@ const participantItems = useMemo(() => {
   }
 
   async function persistAddParticipant(payload) {
+    if (!trip?.id) return;
     try {
       setMutatingParticipants(true);
       setParticipantMessage("");
@@ -299,6 +290,7 @@ const participantItems = useMemo(() => {
   }
 
   async function handleRemoveParticipant(participant) {
+    if (!trip?.id) return;
     try {
       setMutatingParticipants(true);
       setParticipantMessage("");
@@ -313,6 +305,21 @@ const participantItems = useMemo(() => {
     } finally {
       setMutatingParticipants(false);
     }
+  }
+
+  if (!trip && !loading) {
+    return (
+      <ScreenContainer fullWidth padded={false}>
+        <View style={styles.body}>
+          <View style={styles.sectionCard}>
+            <Text style={styles.sectionHeading}>No se pudo cargar el viaje</Text>
+            <Text style={styles.sectionCopy}>
+              {loadError || "No se encontró información para mostrar."}
+            </Text>
+          </View>
+        </View>
+      </ScreenContainer>
+    );
   }
 
   return (
@@ -346,11 +353,7 @@ const participantItems = useMemo(() => {
           </LinearGradient>
         </ImageBackground>
 
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.tabBar}
-        >
+        <View style={styles.tabBar}>
           {tabs.map((tab) => {
             const active = tab.id === activeTab;
             return (
@@ -364,7 +367,7 @@ const participantItems = useMemo(() => {
               </Pressable>
             );
           })}
-        </ScrollView>
+        </View>
 
         <View style={styles.body}>
           {loadError ? (
@@ -668,30 +671,32 @@ const styles = StyleSheet.create({
   },
   tabBar: {
     flexDirection: "row",
-    gap: spacing.sm,
+    flexWrap: "nowrap",
+    justifyContent: "space-between",
+    gap: spacing.xs,
     backgroundColor: colors.surface,
     borderBottomWidth: 1,
     borderColor: colors.border,
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.md,
-    alignItems: "center",
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
   },
   tabButton: {
+    flex: 1,
     alignItems: "center",
     justifyContent: "center",
-    gap: 5,
-    paddingHorizontal: 9,
+    gap: 4,
+    minWidth: 0,
+    paddingHorizontal: 4,
     paddingVertical: 8,
-    borderRadius: radii.sm,
-    minWidth: 68,
+    borderRadius: radii.md,
   },
   tabButtonActive: {
     backgroundColor: colors.primary,
   },
   tabText: {
     ...textStyles.nav,
+    fontSize: 10,
     color: colors.textSecondary,
-    fontSize: 11,
   },
   tabTextActive: {
     color: colors.accent,
