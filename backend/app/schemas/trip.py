@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, datetime
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -11,6 +11,67 @@ class TripRead(BaseModel):
     currency: str
     startDate: date | None = None
     endDate: date | None = None
+
+
+class TripParticipantRead(BaseModel):
+    id: int
+    nombreCompleto: str
+    nombreUsuario: str
+    email: str
+    fotoUrl: str | None = None
+    role: str
+    status: str
+
+
+class TripExternalInvitationRead(BaseModel):
+    email: str
+    status: str
+    invitedAt: datetime | None = None
+    registeredUserId: int | None = None
+
+
+class TripAdminRead(BaseModel):
+    id: int
+    nombreCompleto: str
+    nombreUsuario: str
+    email: str
+    fotoUrl: str | None = None
+
+
+class TripDetailRead(TripRead):
+    description: str | None = None
+    admin: TripAdminRead
+    participants: list[TripParticipantRead] = Field(default_factory=list)
+    participantUserIds: list[int] = Field(default_factory=list)
+    externalInvitations: list[TripExternalInvitationRead] = Field(default_factory=list)
+    invitedEmails: list[str] = Field(default_factory=list)
+
+
+class TripParticipantUpsert(BaseModel):
+    userId: int | None = None
+    email: str | None = None
+
+    @model_validator(mode="after")
+    def validate_target(self):
+        if self.userId is None and not self.email:
+            raise ValueError("Debes enviar userId o email")
+        return self
+
+    @field_validator("email")
+    @classmethod
+    def normalize_email(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        cleaned = value.strip().lower()
+        if not cleaned:
+            return None
+        if "@" not in cleaned or "." not in cleaned.split("@")[-1]:
+            raise ValueError("El email no tiene un formato valido")
+        return cleaned
+
+
+class TripMutationResponse(BaseModel):
+    message: str
 
 
 class TripCreate(BaseModel):

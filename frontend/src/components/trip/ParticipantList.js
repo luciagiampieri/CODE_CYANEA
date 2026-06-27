@@ -2,7 +2,6 @@ import { FontAwesome6 } from "@expo/vector-icons";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import Avatar from "../ui/Avatar";
-import StatusPill from "../ui/StatusPill";
 import { colors, radii, spacing, textStyles } from "../../theme/tokens";
 
 export default function ParticipantList({ participants, onRemove }) {
@@ -24,10 +23,22 @@ export default function ParticipantList({ participants, onRemove }) {
             <View style={styles.body}>
               <Text style={styles.name}>{participant.nombreCompleto}</Text>
               <Text numberOfLines={1} style={styles.email}>{participant.email}</Text>
+              <View style={styles.statusRow}>
+                <FontAwesome6
+                  color={participant.kind === "external" ? colors.warning : colors.success}
+                  name={participant.kind === "external" ? "clock" : "circle-check"}
+                  size={12}
+                />
+                <Text
+                  style={[
+                    styles.statusText,
+                    participant.kind === "external" ? styles.statusTextPending : styles.statusTextRegistered,
+                  ]}
+                >
+                  {participant.kind === "external" ? "Invitación pendiente" : "Registrado"}
+                </Text>
+              </View>
             </View>
-            <StatusPill tone={participant.kind === "external" ? "pendiente" : "activo"}>
-              {participant.kind === "external" ? "Invitación pendiente" : "Registrado"}
-            </StatusPill>
             <Pressable onPress={() => onRemove(participant)} style={styles.removeAction}>
               <FontAwesome6 color={colors.textMuted} name="xmark" size={14} />
             </Pressable>
@@ -86,6 +97,22 @@ const styles = StyleSheet.create({
     ...textStyles.meta,
     color: colors.textSecondary,
     marginTop: spacing.xxs,
+  },
+  statusRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.xs,
+    marginTop: spacing.xs,
+  },
+  statusText: {
+    ...textStyles.meta,
+    fontSize: 12,
+  },
+  statusTextPending: {
+    color: colors.warning,
+  },
+  statusTextRegistered: {
+    color: colors.success,
   },
   removeAction: {
     marginLeft: spacing.xs,

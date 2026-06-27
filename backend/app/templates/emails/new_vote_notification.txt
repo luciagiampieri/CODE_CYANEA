@@ -1,0 +1,14 @@
+Hola{% if recipient_name %} {{ recipient_name }}{% endif %},
+
+Se abrió una nueva votación en {{ trip_title }}{% if trip_destination %} con destino {{ trip_destination }}{% endif %}.
+
+Votación: {{ vote_title }}
+{% if created_by_name %}Creada por: {{ created_by_name }}
+{% endif %}{% if vote_description %}Detalle: {{ vote_description }}
+{% endif %}{% if closes_at %}Cierre estimado: {{ closes_at }}
+{% endif %}
+Revisa la votación y participa desde:
+{{ trip_url }}
+
+— Equipo Cyanea
+© 2026 Cyanea

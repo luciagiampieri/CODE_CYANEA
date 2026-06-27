@@ -2,6 +2,7 @@ import { FontAwesome6 } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { useEffect, useMemo, useState } from "react";
 import {
+  ActivityIndicator,
   ImageBackground,
   Pressable,
   ScrollView,
@@ -16,7 +17,13 @@ import ParticipantList from "../components/trip/ParticipantList";
 import AvatarStack from "../components/ui/AvatarStack";
 import IconCircleButton from "../components/ui/IconCircleButton";
 import PrimaryButton from "../components/ui/PrimaryButton";
-import { getUsers } from "../services/api";
+import {
+  addTripParticipant,
+  getTripDetail,
+  getUsers,
+  removeTripExternalInvitation,
+  removeTripParticipant,
+} from "../services/api";
 import { colors, radii, spacing, surfaces, textStyles } from "../theme/tokens";
 
 const itineraryDays = [
@@ -39,7 +46,7 @@ const tabs = [
   { id: "itinerario", label: "Itinerario", icon: "map" },
   { id: "gastos", label: "Gastos", icon: "sack-dollar" },
   { id: "docs", label: "Docs", icon: "folder" },
-  { id: "votar", label: "Votar", icon: "box-ballot" },
+  { id: "votar", label: "Votar", icon: "square-poll-horizontal" },
   { id: "grupo", label: "Grupo", icon: "users" },
 ];
 
@@ -57,6 +64,8 @@ function normalizeTrip(raw) {
     participantUserIds: raw.participantUserIds ?? [],
     invitedEmails: raw.invitedEmails ?? [],
     participants: raw.participants ?? [],
+    externalInvitations: raw.externalInvitations ?? [],
+    admin: raw.admin ?? null,
     image:
       raw.image ??
       "https://images.unsplash.com/photo-1570077188670-e3a8d69ac5ff?auto=format&fit=crop&w=1400&q=80",
@@ -83,8 +92,39 @@ export default function TripDetailScreen({ navigation, route }) {
   const [activeTab, setActiveTab] = useState("itinerario");
   const [participantSearch, setParticipantSearch] = useState("");
   const [userOptions, setUserOptions] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
+  const [mutatingParticipants, setMutatingParticipants] = useState(false);
+  const [participantMessage, setParticipantMessage] = useState("");
+
+  async function loadTripDetail() {
+    if (!initialTrip?.id) {
+      setLoading(false);
+      setLoadError("No se pudo resolver el viaje.");
+      return;
+    }
+
+    try {
+      setLoading(true);
+      setLoadError("");
+      const detail = await getTripDetail(initialTrip.id);
+      setTrip((current) => ({
+        ...normalizeTrip(detail),
+        image: current?.image ?? initialTrip.image,
+      }));
+    } catch (error) {
+      setLoadError(error.message || "No se pudo cargar el detalle del viaje.");
+    } finally {
+      setLoading(false);
+    }
+  }
 
   useEffect(() => {
+    loadTripDetail();
+  }, [initialTrip?.id]);
+
+  useEffect(() => {
+    if (!trip) return;
     const timeoutId = setTimeout(async () => {
       if (!participantSearch.trim()) {
         setUserOptions([]);
@@ -99,7 +139,7 @@ export default function TripDetailScreen({ navigation, route }) {
     }, 250);
 
     return () => clearTimeout(timeoutId);
-  }, [participantSearch]);
+  }, [participantSearch, trip]);
 
   const normalizedSearch = participantSearch.trim().toLowerCase();
 
@@ -125,53 +165,66 @@ export default function TripDetailScreen({ navigation, route }) {
       fotoUrl: user.fotoUrl ?? "",
     }));
 
-    const invited = (trip.invitedEmails || []).map((email) => ({
-      key: `invite-${email}`,
+    const invited = (trip.externalInvitations || []).map((invitation) => ({
+      key: `invite-${invitation.email}`,
       kind: "external",
-      nombreCompleto: email.split("@")[0],
-      email,
+      nombreCompleto: invitation.email.split("@")[0],
+      email: invitation.email,
       fotoUrl: "",
+      status: invitation.status,
     }));
 
     return [...registered, ...invited];
-  }, [trip.invitedEmails, trip.participants]);
+  }, [trip.externalInvitations, trip.participants]);
 
   function handleAddParticipant(user) {
-    setTrip((prev) => ({
-      ...prev,
-      participantUserIds: [...prev.participantUserIds, user.id],
-      participants: [...prev.participants, user],
-    }));
-    setParticipantSearch("");
+    persistAddParticipant({ userId: user.id });
   }
 
   function handleAddExternalInvite() {
     if (!canInviteExternal) return;
-    setTrip((prev) => ({
-      ...prev,
-      invitedEmails: [...prev.invitedEmails, normalizedSearch],
-    }));
-    setParticipantSearch("");
+    persistAddParticipant({ email: normalizedSearch });
   }
 
-  function handleRemoveParticipant(participant) {
-    if (participant.kind === "external") {
-      setTrip((prev) => ({
-        ...prev,
-        invitedEmails: prev.invitedEmails.filter((email) => email !== participant.email),
-      }));
-      return;
+  async function persistAddParticipant(payload) {
+    try {
+      setMutatingParticipants(true);
+      setParticipantMessage("");
+      await addTripParticipant(trip.id, payload);
+      setParticipantSearch("");
+      setUserOptions([]);
+      await loadTripDetail();
+    } catch (error) {
+      setParticipantMessage(error.message || "No se pudo agregar el participante.");
+    } finally {
+      setMutatingParticipants(false);
     }
+  }
 
-    setTrip((prev) => ({
-      ...prev,
-      participantUserIds: prev.participantUserIds.filter((id) => id !== participant.id),
-      participants: prev.participants.filter((item) => item.id !== participant.id),
-    }));
+  async function handleRemoveParticipant(participant) {
+    try {
+      setMutatingParticipants(true);
+      setParticipantMessage("");
+      if (participant.kind === "external") {
+        await removeTripExternalInvitation(trip.id, participant.email);
+      } else {
+        await removeTripParticipant(trip.id, participant.id);
+      }
+      await loadTripDetail();
+    } catch (error) {
+      setParticipantMessage(error.message || "No se pudo quitar el participante.");
+    } finally {
+      setMutatingParticipants(false);
+    }
   }
 
   return (
     <ScreenContainer fullWidth padded={false}>
+      {loading ? (
+        <View style={styles.loadingWrap}>
+          <ActivityIndicator color={colors.primary} size="large" />
+        </View>
+      ) : null}
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
         <ImageBackground imageStyle={styles.heroImage} source={{ uri: trip.image }} style={styles.hero}>
           <LinearGradient colors={["rgba(4,16,36,0.15)", "rgba(9,19,45,0.82)"]} style={styles.heroGradient}>
@@ -205,7 +258,11 @@ export default function TripDetailScreen({ navigation, route }) {
           </LinearGradient>
         </ImageBackground>
 
-        <View style={styles.tabBar}>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.tabBar}
+        >
           {tabs.map((tab) => {
             const active = tab.id === activeTab;
             return (
@@ -214,14 +271,20 @@ export default function TripDetailScreen({ navigation, route }) {
                 onPress={() => setActiveTab(tab.id)}
                 style={[styles.tabButton, active && styles.tabButtonActive]}
               >
-                <FontAwesome6 color={active ? colors.accent : colors.primary} name={tab.icon} size={14} />
+                <FontAwesome6 color={active ? colors.accent : colors.primary} name={tab.icon} size={12} />
                 <Text style={[styles.tabText, active && styles.tabTextActive]}>{tab.label}</Text>
               </Pressable>
             );
           })}
-        </View>
+        </ScrollView>
 
         <View style={styles.body}>
+          {loadError ? (
+            <View style={styles.sectionCard}>
+              <Text style={styles.sectionHeading}>No se pudo cargar el viaje</Text>
+              <Text style={styles.sectionCopy}>{loadError}</Text>
+            </View>
+          ) : null}
           {activeTab === "itinerario" ? (
             itineraryDays.map((day, index) => (
               <View key={day.id} style={[styles.dayCard, index !== 0 && styles.dayCardCompact]}>
@@ -296,7 +359,7 @@ export default function TripDetailScreen({ navigation, route }) {
               <View style={styles.sectionCard}>
                 <ParticipantSearch
                   canInviteExternal={canInviteExternal}
-                  message=""
+                  message={participantMessage}
                   onInviteExternal={handleAddExternalInvite}
                   onSearchChange={setParticipantSearch}
                   onSelectUser={handleAddParticipant}
@@ -311,6 +374,11 @@ export default function TripDetailScreen({ navigation, route }) {
           ) : null}
         </View>
       </ScrollView>
+      {mutatingParticipants ? (
+        <View style={styles.loadingWrap}>
+          <ActivityIndicator color={colors.primary} size="large" />
+        </View>
+      ) : null}
     </ScreenContainer>
   );
 }
@@ -361,22 +429,22 @@ const styles = StyleSheet.create({
   },
   tabBar: {
     flexDirection: "row",
-    flexWrap: "wrap",
     gap: spacing.sm,
     backgroundColor: colors.surface,
     borderBottomWidth: 1,
     borderColor: colors.border,
     paddingHorizontal: spacing.lg,
     paddingVertical: spacing.md,
+    alignItems: "center",
   },
   tabButton: {
     alignItems: "center",
     justifyContent: "center",
-    gap: spacing.xs,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-    borderRadius: radii.md,
-    minWidth: 86,
+    gap: 5,
+    paddingHorizontal: 9,
+    paddingVertical: 8,
+    borderRadius: radii.sm,
+    minWidth: 68,
   },
   tabButtonActive: {
     backgroundColor: colors.primary,
@@ -384,6 +452,7 @@ const styles = StyleSheet.create({
   tabText: {
     ...textStyles.nav,
     color: colors.textSecondary,
+    fontSize: 11,
   },
   tabTextActive: {
     color: colors.accent,
@@ -392,6 +461,17 @@ const styles = StyleSheet.create({
     backgroundColor: colors.background,
     padding: spacing.lg,
     gap: spacing.md,
+  },
+  loadingWrap: {
+    position: "absolute",
+    top: 0,
+    right: 0,
+    left: 0,
+    bottom: 0,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(247,242,232,0.35)",
+    zIndex: 10,
   },
   dayCard: {
     ...surfaces.card,

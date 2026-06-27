@@ -1,0 +1,13 @@
+Hola{% if recipient_name %} {{ recipient_name }}{% endif %},
+
+Hubo cambios importantes en {{ trip_title }}{% if trip_destination %} con destino {{ trip_destination }}{% endif %}.
+
+Cambio: {{ change_title }}
+{% if updated_by_name %}Actualizado por: {{ updated_by_name }}
+{% endif %}{% if change_summary %}Detalle: {{ change_summary }}
+{% endif %}
+Revisa la información actualizada desde:
+{{ trip_url }}
+
+— Equipo Cyanea
+© 2026 Cyanea

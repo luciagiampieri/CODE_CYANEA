@@ -69,6 +69,45 @@ export async function getTrips() {
   return parseResponse(response, "No se pudieron obtener los viajes");
 }
 
+export async function getTripDetail(tripId) {
+  const response = await fetch(`${API_BASE_URL}/trips/${tripId}`, {
+    headers: await authHeaders(),
+  });
+  return parseResponse(response, "No se pudo obtener el detalle del viaje");
+}
+
+export async function addTripParticipant(tripId, payload) {
+  const response = await fetch(`${API_BASE_URL}/trips/${tripId}/participants`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(await authHeaders()),
+    },
+    body: JSON.stringify(payload),
+  });
+  return parseResponse(response, "No se pudo agregar el participante");
+}
+
+export async function removeTripParticipant(tripId, userId) {
+  const response = await fetch(`${API_BASE_URL}/trips/${tripId}/participants/${userId}`, {
+    method: "DELETE",
+    headers: await authHeaders(),
+  });
+  return parseResponse(response, "No se pudo quitar el participante");
+}
+
+export async function removeTripExternalInvitation(tripId, email) {
+  const response = await fetch(`${API_BASE_URL}/trips/${tripId}/external-invitations`, {
+    method: "DELETE",
+    headers: {
+      "Content-Type": "application/json",
+      ...(await authHeaders()),
+    },
+    body: JSON.stringify({ email }),
+  });
+  return parseResponse(response, "No se pudo quitar la invitación externa");
+}
+
 export async function getUsers(search = "", limit = 8) {
   const params = new URLSearchParams();
   if (search.trim()) params.set("q", search.trim());
