@@ -145,6 +145,18 @@ export default function TripDetailScreen({ navigation, route }) {
   const [mutatingParticipants, setMutatingParticipants] = useState(false);
   const [participantMessage, setParticipantMessage] = useState("");
 
+  // US "Crear votación": al volver desde la pantalla de creación con una
+  // votación nueva, la mostramos arriba de la lista (no toca el resto).
+  useEffect(() => {
+    const nueva = route.params?.nuevaVotacion;
+    if (!nueva) return;
+    setVotacionesActivas((prev) => [
+      nueva,
+      ...prev.filter((v) => v.IdVotacion !== nueva.IdVotacion),
+    ]);
+    navigation.setParams({ nuevaVotacion: undefined });
+  }, [route.params?.nuevaVotacion]);
+
   async function loadTripDetail() {
     if (!initialTrip?.id) {
       setLoading(false);
@@ -262,7 +274,7 @@ useEffect(() => {
     }));
 
     return [...registered, ...invited];
-  }, [trip.externalInvitations, trip.participants]);
+  }, [trip?.externalInvitations, trip?.participants]);
 
   function handleAddParticipant(user) {
     persistAddParticipant({ userId: user.id });
@@ -504,6 +516,27 @@ useEffect(() => {
 
           {activeTab === "votar" ? (
             <View style={styles.sectionStack}>
+              <Pressable
+                style={({ pressed }) => ({
+                  flexDirection: "row",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  gap: 8,
+                  backgroundColor: colors.primary,
+                  height: 48,
+                  borderRadius: 12,
+                  marginBottom: 16,
+                  opacity: pressed ? 0.85 : 1,
+                })}
+                onPress={() => navigation.navigate("CrearVotacion", {
+                    IdViaje: trip.id,
+                    onVotacionCreada: (nuevaVotacion) =>
+                        setVotacionesActivas((prev) => [nuevaVotacion, ...prev]),
+                })}
+              >
+                <FontAwesome6 name="plus" size={14} color="#fff" />
+                <Text style={{ color: "#fff", fontWeight: "800" }}>Crear votación</Text>
+              </Pressable>
               {votacionesActivas.map((votacion) => {
                 const esCerrada = new Date(votacion.FechaCierre) < new Date();
                 const opcionesElegidas = votosSeleccionados[votacion.IdVotacion] || [];

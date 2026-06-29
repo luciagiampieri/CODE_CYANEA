@@ -12,6 +12,7 @@ import RegistrationSuccessScreen from "../screens/RegistrationSuccessScreen";
 import TripDetailScreen from "../screens/TripDetailScreen";
 import AddGastoScreen from "../screens/AddGastoScreen";
 import InvitationsScreen from "../screens/InvitationsScreen";
+import CrearVotacionScreen from "../screens/CrearVotacionScreen";
 
 const Stack = createNativeStackNavigator();
 
@@ -89,6 +90,15 @@ export default function AppNavigator() {
           <Stack.Screen
             name="AddGasto"
             component={AddGastoScreen}
+            options={{
+              headerShown: false,
+              gestureEnabled: true,
+              animation: "slide_from_right",
+            }}
+          />
+          <Stack.Screen
+            name="CrearVotacion"
+            component={CrearVotacionScreen}
             options={{
               headerShown: false,
               gestureEnabled: true,

@@ -202,3 +202,44 @@ export async function createExpense(payload) {
     "No se pudo crear el gasto"
   );
 }
+
+// ===== Votaciones (US Crear votación) =====
+
+export async function createVotacion(payload) {
+  const response = await fetch(`${API_BASE_URL}/votaciones`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(await authHeaders()),
+    },
+    body: JSON.stringify(payload),
+  });
+  return parseResponse(response, "No se pudo crear la votación");
+}
+
+export async function getVotaciones(idViaje) {
+  const response = await fetch(`${API_BASE_URL}/votaciones?idViaje=${idViaje}`, {
+    headers: await authHeaders(),
+  });
+  return parseResponse(response, "No se pudieron obtener las votaciones");
+}
+
+export async function getResultadosVotacion(idVotacion) {
+  const response = await fetch(`${API_BASE_URL}/votaciones/${idVotacion}/resultados`, {
+    headers: await authHeaders(),
+  });
+  return parseResponse(response, "No se pudieron obtener los resultados");
+}
+
+// (Opcional) Para cuando tu compañera conecte "emitir voto" al backend:
+export async function emitirVoto(idVotacion, idPropuestas) {
+  const response = await fetch(`${API_BASE_URL}/votaciones/${idVotacion}/votar`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(await authHeaders()),
+    },
+    body: JSON.stringify({ idPropuestas }),
+  });
+  return parseResponse(response, "No se pudo registrar el voto");
+}
