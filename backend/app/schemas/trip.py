@@ -14,34 +14,59 @@ class DiaCronogramaRead(BaseModel):
         from_attributes = True
         populate_by_name = True
 
+class DestinationCreate(BaseModel):
+    name: str
+    country: str
+    lat: float | None = None
+    lng: float | None = None
+
+
+class DestinationRead(BaseModel):
+    id: int
+    name: str
+    country: str
+    lat: float | None = None
+    lng: float | None = None
+
+    class Config:
+        from_attributes = True
+
 
 class TripRead(BaseModel):
     id: int
     title: str
-    destination: str
+    destinations: list[DestinationRead] = Field(default_factory=list, alias="Destinations")
     status: str
     currency: str
     startDate: date | None = None
     endDate: date | None = None
     cronograma: list[DiaCronogramaRead] = Field(default_factory=list, alias="Cronograma")
-    participantUserIds: List[int] = []
-    participants: List[UsuarioRead] = [] 
-    invitedEmails: List[str] = []
+    participantUserIds: List[int] = Field(default_factory=list, alias="ParticipantUserIds")
+    participants: List[UsuarioRead] = Field(default_factory=list, alias="Participants")
+    invitedEmails: List[str] = Field(default_factory=list, alias="InvitedEmails")
 
     class Config:
         from_attributes = True
         populate_by_name = True
 
+
 class TripCreate(BaseModel):
     title: str = Field(..., min_length=1, max_length=150, description="El nombre del viaje no puede quedar vacío")
-    destination: str = Field(..., min_length=2, max_length=150, description="Al menos un destino requerido (país o ciudad)")
+    destinations: list[DestinationCreate]
     description: str | None = None
     startDate: date | None = None
     endDate: date | None = None
-    currency: str = Field(default="ARS", min_length=3, max_length=3, description="Tipo de moneda base obligatoria")
+    currency: str = Field(..., min_length=3, max_length=3, description="Tipo de moneda base obligatoria")
     adminUserId: int | None = None  # ignorado; se usa el usuario autenticado
-    participantUserIds: list[int] = Field(default_factory=list)
+    participantUserIds: list[int] = Field(default_factory=list, alias="ParticipantUserIds")
     invitedEmails: list[str] = Field(default_factory=list)
+
+    @field_validator("destinations")
+    @classmethod
+    def validate_destinations(cls, value):
+        if not value:
+            raise ValueError("Al menos un destino es requerido")
+        return value
 
     @field_validator("invitedEmails")
     @classmethod
@@ -80,7 +105,7 @@ class InvitationResponse(BaseModel):
 class TripInvitationRead(BaseModel):
     tripId: int = Field(..., description="ID del viaje invitado")
     title: str = Field(..., description="Título del viaje")
-    destination: str = Field(..., description="Destino del viaje")
+    destination: list[DestinationRead] = Field(default_factory=list, description="Lista de destinos del viaje")
     status: str = Field(..., description="Estado actual de la participación (ej: 'invitado')")
     role: str = Field(..., description="Rol asignado en el viaje")
 

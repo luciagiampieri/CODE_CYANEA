@@ -12,7 +12,7 @@ from app.models.gasto import Gasto
 from app.models.participantes_gastos import ParticipantesGastos
 from app.models.categorias_gastos import CategoriasGastos
 from app.models.dia_cronograma import DiaCronograma
-
+from app.models.moneda import Moneda
 __all__ = [
     "EstadoInvitacion",
     "EstadoParticipacion",
@@ -26,4 +26,5 @@ __all__ = [
     "ParticipantesGastos",
     "CategoriasGastos",
     "DiaCronograma",
+    "Moneda"
 ]

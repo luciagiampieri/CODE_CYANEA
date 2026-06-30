@@ -2,11 +2,13 @@ from datetime import datetime, timedelta, date
 import logging
 from secrets import token_urlsafe
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Query
+import httpx
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 from pydantic import ValidationError
 
+from app.core.config import settings
 from app.api.deps import get_current_user
 from app.db.session import get_db
 from app.models.estado_invitacion import EstadoInvitacion
@@ -18,7 +20,9 @@ from app.models.rol_participante import RolParticipante
 from app.models.usuario import Usuario
 from app.models.viaje import Viaje
 from app.models.dia_cronograma import DiaCronograma
-from app.schemas.trip import TripCreate, TripRead, InvitationResponse, TripInvitationRead
+from app.models.destino_viaje import DestinoViaje
+from app.models.destino import Destino
+from app.schemas.trip import TripCreate, TripRead, InvitationResponse, TripInvitationRead, DestinationRead
 from app.services.mail import get_mail_service
 from app.services.notifications.invitation_email_sender import (
     InvitationEmailPayload,
@@ -27,6 +31,7 @@ from app.services.notifications.invitation_email_sender import (
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+GEOCODE_URL = "https://api.mapbox.com/search/geocode/v6/forward"
 
 @router.get("/invitations/pending", response_model=None)
 def get_pending_invitations(
@@ -48,13 +53,21 @@ def get_pending_invitations(
         TripInvitationRead(
             tripId=p.Viaje.IdViaje,
             title=p.Viaje.Titulo,
-            destination=p.Viaje.Destino,
+            destination=[
+                DestinationRead(
+                    id=rel.Destino.IdDestino,
+                    name=rel.Destino.Nombre,
+                    country=rel.Destino.Pais,
+                    lat=rel.Destino.Lat,
+                    lng=rel.Destino.Lng
+                )
+                for rel in p.Viaje.Destinos
+            ],
             status=p.EstadoParticipacion.Nombre,
             role=p.RolParticipante.Nombre
         )
         for p in participaciones
     ]
-
 
 @router.post("/invitations/{trip_id}/respond", status_code=status.HTTP_200_OK)
 def respond_to_invitation(
@@ -119,6 +132,36 @@ def respond_to_invitation(
         "message": f"Invitación {nuevo_estado_nombre} correctamente."
     }
 
+@router.get("/search")
+async def search_destinos(q: str = Query(..., min_length=2)):
+    params = {
+        "q": q,
+        "access_token": settings.mapbox_access_token,
+        "language": "es",
+        "limit": 5,
+        "types": "country,region,place"
+    }
+
+    async with httpx.AsyncClient() as client:
+        response = await client.get(GEOCODE_URL, params=params)
+        response.raise_for_status()
+        data = response.json() 
+        print(f"Respuesta de Mapbox: {data}")  # Para depuración, puedes eliminarlo más tarde
+
+    resultados = []
+
+    for feature in data.get("features", []):
+        props = feature.get("properties", {})
+        coords = feature.get("geometry", {}).get("coordinates", [])
+
+        resultados.append({
+            "name": props.get("name"),
+            "country": props.get("context", {}).get("country", {}).get("name"),
+            "lat": coords[1] if len(coords) == 2 else None,
+            "lng": coords[0] if len(coords) == 2 else None,
+        })
+
+    return resultados
 
 
 @router.get("", response_model=list[TripRead])
@@ -128,6 +171,9 @@ def list_trips(
 ) -> list[TripRead]:
     viajes = db.scalars(
         select(Viaje)
+        .options(
+            selectinload(Viaje.Destinos).selectinload(DestinoViaje.Destino)
+        )
         .join(ParticipanteViaje, ParticipanteViaje.IdViaje == Viaje.IdViaje)
         .join(EstadoViaje, EstadoViaje.IdEstadoViaje == Viaje.IdEstadoViaje)
         .join(EstadoParticipacion, EstadoParticipacion.IdEstadoParticipacion == ParticipanteViaje.IdEstadoParticipacion)
@@ -150,7 +196,16 @@ def list_trips(
         TripRead(
             id=viaje.IdViaje,
             title=viaje.Titulo,
-            destination=viaje.Destino,
+            destinations=[
+                DestinationRead(
+                    id=rel.Destino.IdDestino,
+                    name=rel.Destino.Nombre,
+                    country=rel.Destino.Pais,
+                    lat=rel.Destino.Lat,
+                    lng=rel.Destino.Lng
+                )
+                for rel in viaje.Destinos
+            ],
             status=resolver_estado(viaje),
             currency=viaje.Moneda,
             startDate=viaje.FechaInicio,
@@ -189,6 +244,7 @@ def get_trip_detail(
             participant_ids.append(p.IdUsuario)
             participants_list.append({
                 "id": p.Usuario.IdUsuario,
+                "nombreUsuario": p.Usuario.NombreUsuario,
                 "nombreCompleto": f"{p.Usuario.Nombre} {p.Usuario.Apellido}",
                 "email": p.Usuario.Email,
                 "fotoUrl": getattr(p.Usuario, "FotoUrl", "") # Evita romper si no existe
@@ -204,7 +260,16 @@ def get_trip_detail(
     return TripRead(
         id=viaje.IdViaje,
         title=viaje.Titulo,
-        destination=viaje.Destino,
+        destinations=[
+            DestinationRead(
+                id=rel.Destino.IdDestino,
+                name=rel.Destino.Nombre,
+                country=rel.Destino.Pais,
+                lat=rel.Destino.Lat,
+                lng=rel.Destino.Lng
+            )
+            for rel in viaje.Destinos
+        ],
         status=viaje.EstadoViaje.Nombre,
         currency=viaje.Moneda,
         startDate=viaje.FechaInicio,
@@ -308,7 +373,6 @@ def create_trip(
 
     viaje = Viaje(
         Titulo=payload.title,
-        Destino=payload.destination,
         Descripcion=payload.description,
         FechaInicio=payload.startDate,
         FechaFin=payload.endDate,
@@ -317,6 +381,32 @@ def create_trip(
         IdAdministrador=admin_user_id,
     )
     db.add(viaje)
+    db.flush()
+
+    for destino_data in payload.destinations:
+        destino = db.scalar(
+            select(Destino).where(
+                Destino.Nombre == destino_data.name,
+                Destino.Pais == destino_data.country,
+            )
+        )
+
+        if destino is None:
+            destino = Destino(
+                Nombre=destino_data.name,
+                Pais=destino_data.country,
+                Lat=destino_data.lat,
+                Lng=destino_data.lng
+            )
+            db.add(destino)
+            db.flush()
+        
+        db.add(
+            DestinoViaje(
+                IdViaje=viaje.IdViaje,
+                IdDestino=destino.IdDestino
+            )
+        )
     db.flush()
 
     fecha_actual = viaje.FechaInicio
@@ -373,11 +463,14 @@ def create_trip(
                 InvitadoPor=admin_user_id,
             )
         )
+
         invitaciones_email.append(
             InvitationEmailPayload(
                 to_email=email_invitado,
                 trip_title=viaje.Titulo,
-                trip_destination=viaje.Destino,
+                trip_destination="-".join(
+                    f"{rel.Destino.Nombre}, {rel.Destino.Pais}" for rel in viaje.Destinos
+                ),
                 inviter_name=f"{administrador.Nombre} {administrador.Apellido}",
                 invitation_token=token_invitacion,
                 expiration_at=vencimiento,
@@ -399,6 +492,7 @@ def create_trip(
 
     admin_data = {
         "id": administrador.IdUsuario,
+        "nombreUsuario": administrador.NombreUsuario,
         "nombreCompleto": f"{administrador.Nombre} {administrador.Apellido}",
         "email": administrador.Email,
         "fotoUrl": getattr(administrador, "FotoUrl", "")
@@ -407,7 +501,16 @@ def create_trip(
     return TripRead(
         id=viaje.IdViaje,
         title=viaje.Titulo,
-        destination=viaje.Destino,
+        destinations=[
+            DestinationRead(
+                id=rel.Destino.IdDestino,
+                name=rel.Destino.Nombre,
+                country=rel.Destino.Pais,
+                lat=rel.Destino.Lat,
+                lng=rel.Destino.Lng
+            )
+            for rel in viaje.Destinos
+        ],
         status=viaje.EstadoViaje.Nombre,
         currency=viaje.Moneda,
         startDate=viaje.FechaInicio,
@@ -417,3 +520,4 @@ def create_trip(
         participants=[admin_data],  # Los demás todavía están como 'invitados', no 'aceptados'
         invitedEmails=list(emails_invitados)
     )
+

@@ -17,7 +17,6 @@ class Viaje(Base):
 
     IdViaje: Mapped[int] = mapped_column(primary_key=True)
     Titulo: Mapped[str] = mapped_column(String(150), nullable=False)
-    Destino: Mapped[str] = mapped_column(String(150), nullable=False)
     Descripcion: Mapped[str | None] = mapped_column(nullable=True)
     FechaInicio: Mapped[date] = mapped_column(Date, nullable=False)
     FechaFin: Mapped[date] = mapped_column(Date, nullable=False)
@@ -25,7 +24,10 @@ class Viaje(Base):
         ForeignKey("EstadosViajes.IdEstadoViaje", name="FK_Viajes_EstViajes_IdEstadoViaje"),
         nullable=False,
     )
-    Moneda: Mapped[str] = mapped_column(String(3), nullable=False, default="ARS")
+    Moneda: Mapped[str] = mapped_column(
+        ForeignKey("Monedas.Codigo", name="FK_Viajes_Monedas_Codigo"),
+        nullable=False,
+    )
     IdAdministrador: Mapped[int] = mapped_column(
         ForeignKey("Usuarios.IdUsuario", name="FK_Viajes_Usuarios_IdAdministrador"),
         nullable=False,
@@ -75,6 +77,14 @@ class Viaje(Base):
         cascade="all, delete-orphan",
         order_by="DiaCronograma.Fecha",
     )
-
+    MonedaRelacion = relationship(
+        "Moneda",
+        back_populates="Viajes",
+    )
+    Destinos = relationship(
+        "DestinoViaje",
+        back_populates="Viaje",
+        cascade="all, delete-orphan", 
+    )
     
 

@@ -72,6 +72,7 @@ export default function HomeScreen({ navigation }) {
           getTrips(),
           getCurrentUser().catch(() => null),
         ]);
+        
         setTrips(tripData);
         setCurrentUser(me);
       } catch {
@@ -87,7 +88,13 @@ export default function HomeScreen({ navigation }) {
       trips.map((trip, index) => ({
         ...trip,
         title: trip.title || trip.Titulo || "Viaje sin nombre",
-        destination: trip.destination || trip.Destino || "Destino a confirmar",
+        destination: 
+        (trip.destinations || trip.Destinations)?.length > 0
+          ? (trip.destinations || trip.Destinations)
+              .map((d) => `${d.name}, ${d.country}`)
+              .join(" · ")
+            : trip.destination || trip.Destino || "Destino a confirmar",
+
         status: (trip.status || trip.Estado || "activo").toLowerCase(),
         image: trip.image || fallbackImages[index % fallbackImages.length],
         dateLabel: formatDateRange(trip),

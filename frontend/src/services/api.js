@@ -163,3 +163,42 @@ export async function createExpense(payload) {
     "No se pudo crear el gasto"
   );
 }
+
+export async function getCurrencies() {
+  const response = await fetch(`${API_BASE_URL}/monedas`, {
+    headers: await authHeaders(),
+  });
+
+  return parseResponse(
+    response,
+    "No se pudieron obtener las monedas"
+  );
+}
+
+export async function searchCurrencies(search = "") {
+  const params = new URLSearchParams();
+
+  if (search.trim()) {
+    params.set("q", search.trim());
+  }
+
+  const response = await fetch(
+    `${API_BASE_URL}/monedas/search?${params.toString()}`,
+    {
+      headers: await authHeaders(),
+    }
+  );
+
+  return parseResponse(response, "No se pudieron obtener las monedas");
+}
+
+export async function searchDestinations(query) {
+  const response = await fetch(
+    `${API_BASE_URL}/trips/search?q=${encodeURIComponent(query)}`,
+    {
+      headers: await authHeaders(),
+    }
+  );
+
+  return parseResponse(response, "No se pudieron buscar destinos");
+}

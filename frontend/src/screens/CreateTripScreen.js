@@ -15,16 +15,17 @@ import DateTimePicker from "@react-native-community/datetimepicker";
 import ScreenContainer from "../components/layout/ScreenContainer";
 import ParticipantList from "../components/trip/ParticipantList";
 import ParticipantSearch from "../components/trip/ParticipantSearch";
+import CurrencySelector from "../components/trip/CurrencySelector";
 import IconCircleButton from "../components/ui/IconCircleButton";
 import MetricCard from "../components/ui/MetricCard";
 import PrimaryButton from "../components/ui/PrimaryButton";
 import useResponsive from "../hooks/useResponsive";
-import { createTrip, getCurrentUser, getUsers } from "../services/api.js";
+import { createTrip, getCurrentUser, getUsers, getCurrencies, searchDestinations} from "../services/api.js";
 import { colors, radii, spacing, surfaces, textStyles } from "../theme/tokens";
 
 const initialForm = {
   title: "",
-  destination: "",
+  destinations: [],
   description: "",
   startDate: "",
   endDate: "",
@@ -32,8 +33,6 @@ const initialForm = {
   participantUserIds: [],
   invitedEmails: [],
 };
-
-const currencies = ["ARS", "USD", "EUR", "BRL"];
 
 function isValidEmail(email) {
   const normalized = email.trim().toLowerCase();
@@ -57,8 +56,10 @@ export default function CreateTripScreen({ navigation }) {
   const [showStartPicker, setShowStartPicker] = useState(false);
   const [showEndPicker, setShowEndPicker] = useState(false);
   const { isTablet, isDesktop } = useResponsive();
-
   const normalizedSearch = participantSearch.trim().toLowerCase();
+  const [currencies, setCurrencies] = useState([]);
+  const [destinationSearch, setDestinationSearch] = useState("");
+  const [destinationOptions, setDestinationOptions] = useState([]);
 
   useEffect(() => {
     async function loadCurrentUser() {
@@ -89,6 +90,39 @@ export default function CreateTripScreen({ navigation }) {
 
     return () => clearTimeout(timeoutId);
   }, [participantSearch]);
+
+  useEffect(() => {
+    async function loadCurrencies() {
+      try {
+        const data = await getCurrencies();
+        setCurrencies(data);
+      } catch (error) {
+        console.log("Error cargando monedas:", error);
+        setCurrencies([]);
+      }
+    }
+
+    loadCurrencies();
+  }, []);
+
+  useEffect(() => {
+    const timeout = setTimeout(async () => {
+      if (!destinationSearch.trim()) {
+        setDestinationOptions([]);
+        return;
+      }
+
+      try {
+        const results = await searchDestinations(destinationSearch);
+        console.log("Resultados de búsqueda de destinos:", results);
+        setDestinationOptions(results);
+      } catch {
+        setDestinationOptions([]);
+      }
+    }, 300);
+
+    return () => clearTimeout(timeout);
+  }, [destinationSearch]);
 
   const selectableUsers = useMemo(
     () =>
@@ -203,9 +237,10 @@ export default function CreateTripScreen({ navigation }) {
   function validateForm() {
     const localErrors = {};
     if (!form.title.trim()) localErrors.title = "El título del viaje no puede quedar vacío.";
-    if (!form.destination.trim()) localErrors.destination = "Al menos un destino es requerido.";
+    if (form.destinations.length === 0) localErrors.destinations = "Al menos un destino es requerido.";
     if (!form.startDate.trim()) localErrors.startDate = "La fecha de inicio es obligatoria.";
     if (!form.endDate.trim()) localErrors.endDate = "La fecha de finalización es obligatoria.";
+    if (!form.currency.trim()) localErrors.currency = "La moneda es obligatoria.";
 
     if (form.startDate && form.endDate) {
       const start = new Date(`${form.startDate}T12:00:00`);
@@ -215,6 +250,22 @@ export default function CreateTripScreen({ navigation }) {
 
     setErrors(localErrors);
     return Object.keys(localErrors).length === 0;
+  }
+
+  function addDestination(dest) {
+    const alreadyAdded = form.destinations.some(
+      (d) => d.name === dest.name && d.country === dest.country 
+    );
+
+    if (alreadyAdded) return;
+
+    setForm((current) => ({
+      ...current,
+      destinations: [...current.destinations, dest],
+    }));
+
+    setDestinationSearch("");
+    setDestinationOptions([]);
   }
 
   async function handleSubmit() {
@@ -228,7 +279,13 @@ export default function CreateTripScreen({ navigation }) {
     setSubmitMessage("");
     try {
       await createTrip({
-        ...form,
+        title: form.title,
+        destinations: form.destinations,
+        description: form.description,
+        startDate: form.startDate,
+        endDate: form.endDate,
+        currency: form.currency,
+        invitedEmails: form.invitedEmails,
         participantUserIds: form.participantUserIds.map(Number),
       });
       setSubmitStatus("success");
@@ -242,8 +299,12 @@ export default function CreateTripScreen({ navigation }) {
 
   return (
     <ScreenContainer fullWidth padded={false}>
-      <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={styles.flex}>
-        <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+      <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "height" : undefined} style={styles.flex}
+      keyboardVerticalOffset={0}>
+        <ScrollView contentContainerStyle={styles.scrollContent}
+         showsVerticalScrollIndicator={false}
+         keyboardShouldPersistTaps="always"
+         keyboardDismissMode="none">
           <View style={styles.hero}>
             <View style={styles.heroTopRow}>
               <IconCircleButton icon="arrow-left" onPress={() => navigation.goBack()} />
@@ -258,7 +319,7 @@ export default function CreateTripScreen({ navigation }) {
           <View style={styles.body}>
             <View style={styles.metricsRow}>
               <MetricCard label="Personas" value={Math.max(1, participantItems.length + 1)} />
-              <MetricCard label="Destinos" value={form.destination ? 1 : 0} />
+              <MetricCard label="Destinos" value={form.destinations.length} />
               <MetricCard label="Fechas" value={form.startDate && form.endDate ? 2 : 0} />
             </View>
 
@@ -281,16 +342,8 @@ export default function CreateTripScreen({ navigation }) {
                       value={form.title}
                       name="title"
                     />
-                    <Field
-                      error={errors.destination}
-                      label="Destino"
-                      onChange={handleInputChange}
-                      placeholder="Córdoba"
-                      value={form.destination}
-                      name="destination"
-                    />
                   </View>
-
+                  
                   <Field
                     error={errors.description}
                     label="Descripción"
@@ -300,6 +353,100 @@ export default function CreateTripScreen({ navigation }) {
                     placeholder="Notas del viaje, idea general o resumen para el grupo."
                     value={form.description}
                   />
+
+                  <View style={[styles.field, styles.destinationSection]}>
+                    <Text style={styles.fieldLabel}>Agregar destino</Text>
+
+                    <TextInput
+                      value={destinationSearch}
+                      onChangeText={setDestinationSearch}
+                      placeholder="Ej: Córdoba, Bariloche, Chile..."
+                      style={styles.input}
+                    />
+
+                    {destinationOptions.length > 0 && (
+                      <View style={styles.destinationResults}>
+                        <ScrollView
+                          nestedScrollEnabled
+                          keyboardShouldPersistTaps="handled"
+                        >
+                          {destinationOptions.map((item, index) => (
+                            <Pressable
+                              key={`${item.name}-${item.country}-${index}`}
+                              onPress={() => addDestination(item)}
+                              style={styles.destinationItem}
+                            >
+                              <View style={{ flexDirection: "row", alignItems: "center" }}>
+                                <FontAwesome6
+                                  name="location-dot"
+                                  size={15}
+                                  color={colors.primary}
+                                />
+
+                                <View style={{ marginLeft: 10 }}>
+                                  <Text style={styles.destinationName}>
+                                    {item.name}
+                                  </Text>
+
+                                  <Text style={styles.destinationCountry}>
+                                    {item.country}
+                                  </Text>
+                                </View>
+                              </View>
+                            </Pressable>
+                          ))}
+                        </ScrollView>
+                      </View>
+                    )}
+                  </View>
+
+                  <View style={styles.selectedDestinationsContainer}>
+                    <Text style={styles.fieldLabel}>Destinos seleccionados ({form.destinations.length})</Text>
+
+                    <ScrollView
+                      style={styles.selectedDestinationsScroll}
+                      nestedScrollEnabled
+                      showsVerticalScrollIndicator={true}
+                    >
+                      {form.destinations.map((d, index) => (
+                        <View 
+                          key={`${d.name}-${d.country}-${index}`} 
+                          style={styles.destinationCurrencyRow}
+                        >
+
+                          <View style={{ flex: 1 }}>
+                            <Text style={styles.destinationChipText}>
+                              {d.name}
+                            </Text>
+
+                            <Text style={styles.destinationCountry}>
+                              {d.country}
+                            </Text>
+                          </View>
+
+                          <Pressable
+                            onPress={() => {
+                              setForm((current) => ({
+                                ...current,
+                                destinations: current.destinations.filter(
+                                  (item) =>
+                                    !(item.name === d.name && item.country === d.country)
+                                ),
+                              }));
+                            }}
+                            hitSlop={15}
+                          >
+                            <FontAwesome6 
+                              name="xmark" 
+                              size={14} 
+                              color={colors.danger || "#FF3B30"} 
+                            />
+                          </Pressable>
+
+                        </View>
+                      ))}
+                    </ScrollView>
+                  </View>
 
                   <View style={[styles.row, isTablet && styles.rowTablet]}>
                     <DateField
@@ -321,28 +468,16 @@ export default function CreateTripScreen({ navigation }) {
                       pickerValue={form.endDate}
                       fieldName="endDate"
                       setPickerVisible={setShowEndPicker}
+                      minDate={form.startDate ? new Date(`${form.startDate}T12:00:00`) : new Date()}
                     />
                   </View>
 
-                  <View style={styles.currencySection}>
-                    <Text style={styles.fieldLabel}>Moneda</Text>
-                    <View style={styles.currencyRow}>
-                      {currencies.map((currency) => {
-                        const selected = form.currency === currency;
-                        return (
-                          <Pressable
-                            key={currency}
-                            onPress={() => handleInputChange("currency", currency)}
-                            style={[styles.currencyChip, selected && styles.currencyChipSelected]}
-                          >
-                            <Text style={[styles.currencyChipText, selected && styles.currencyChipTextSelected]}>
-                              {currency}
-                            </Text>
-                          </Pressable>
-                        );
-                      })}
-                    </View>
-                  </View>
+                  <CurrencySelector
+                    currencies={currencies}
+                    selectedCurrency={form.currency}
+                    onSelectCurrency={(code) => handleInputChange("currency", code)}
+                    error={errors.currency}
+                  />
 
                   <View style={styles.ownerCard}>
                     <Text style={styles.ownerLabel}>Administrador</Text>
@@ -426,14 +561,18 @@ function DateField({
   pickerValue,
   onOpenPicker,
   error,
+  minDate,
 }) {
   return (
     <View style={styles.field}>
-      <Text style={styles.fieldLabel}>{label}</Text>
+      <Text style={[styles.fieldLabel]}>
+        {label}
+      </Text>
       {Platform.OS === "web" ? (
         <View style={[styles.input, error && styles.inputError, { justifyContent: 'center', paddingVertical: 0 }]}>
           <input
             type="date"
+            min={minDate ? minDate.toISOString().split("T")[0] : undefined}
             value={pickerValue || ""}
             onChange={(e) => onChange(fieldName, e.target.value)}
             style={{ 
@@ -450,16 +589,21 @@ function DateField({
         </View>
       ) : (
         <>
-          <Pressable onPress={onOpenPicker} style={[styles.dateButton, error && styles.inputError]}>
+          <Pressable 
+          onPress={onOpenPicker} 
+          style={[styles.dateButton, error && styles.inputError]}
+          >
             <Text style={[styles.dateButtonText, !pickerValue && styles.datePlaceholder]}>
               {pickerValue || "Seleccionar fecha"}
             </Text>
-            <FontAwesome6 color={colors.textMuted} name="calendar" size={14} />
+            <FontAwesome6 color={colors.textPrimary} name="calendar" size={14} />
           </Pressable>
-          {pickerVisible ? (
+          
+          {pickerVisible && (
             <DateTimePicker
               mode="date"
-              value={pickerValue ? new Date(`${pickerValue}T12:00:00`) : new Date()}
+              minimumDate={minDate}
+              value={pickerValue ? new Date(`${pickerValue}T12:00:00`) : (minDate || new Date())}
               onChange={(event, selectedDate) => {
                 setPickerVisible(false);
                 if (selectedDate) {
@@ -470,7 +614,7 @@ function DateField({
                 }
               }}
             />
-          ) : null}
+          )}
         </>
       )}
       {error ? <Text style={styles.fieldError}>{error}</Text> : null}
@@ -689,4 +833,59 @@ const styles = StyleSheet.create({
   actionSecondary: {
     flex: 1,
   },
+  destinationResults: {
+  maxHeight: 220,
+  marginTop: 8,
+  borderWidth: 1,
+  borderColor: colors.border,
+  borderRadius: radii.md,
+  backgroundColor: colors.surface,
+},
+destinationItem: {
+  paddingHorizontal: 14,
+  paddingVertical: 12,
+  borderBottomWidth: 1,
+  borderBottomColor: "#ECECEC",
+},
+destinationName: {
+  ...textStyles.bodyStrong,
+  color: colors.textPrimary,
+},
+destinationCountry: {
+  ...textStyles.meta,
+  color: colors.textSecondary,
+  marginTop: 2,
+},
+selectedDestinationsScroll:{
+  maxHeight: 170,
+  marginTop: spacing.sm,
+},
+destinationCurrencyRow:{
+  flexDirection:"row",
+  alignItems:"center",
+  borderWidth:1,
+  borderColor:colors.border,
+  borderRadius:radii.md,
+  backgroundColor:colors.surface,
+  paddingHorizontal:spacing.md,
+  paddingVertical:spacing.sm,
+  marginBottom:spacing.sm,
+},
+destinationChipText: {
+  ...textStyles.bodyStrong,
+  fontSize: 14,
+  color: colors.primary,
+},
+toggleButton: {
+  marginTop: 4,
+  paddingVertical: 4,
+},
+showMoreText: {
+  ...textStyles.bodyStrong,
+  color: colors.primary,
+  fontSize: 13,
+},
+destinationSection: {
+  marginTop: spacing.lg,
+},
 });

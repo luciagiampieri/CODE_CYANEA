@@ -33,6 +33,9 @@ class Settings(BaseSettings):
     mail_reply_to: str | None = None
     mail_frontend_base_url: str = "http://127.0.0.1:8081"
 
+    #Mapbox
+    mapbox_access_token: str = ""
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
