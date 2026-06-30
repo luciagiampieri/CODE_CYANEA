@@ -10,18 +10,16 @@ Este desarrollo se realiza en el marco del **Proyecto Final de Carrera** para la
 
 ## Stack
 
-- `backend/`: FastAPI + SQLAlchemy + Alembic
-- `frontend/`: Expo + React Native + Web
-- `frontend-ant/`: resguardo del frontend anterior en React + Vite
-- `docker-compose.yml`: PostgreSQL + backend
+- `backend/`: FastAPI + SQLAlchemy + Alembic.
+- `frontend/`: Expo + React Native + Web.
+- `frontend-ant/`: resguardo del frontend anterior en React + Vite.
+- `docker-compose.yml`: PostgreSQL + backend.
 
 ## Estado estructural actual
 
-- Existe un unico frontend activo: `frontend/`
-- Ese frontend usa Expo y apunta a mobile + web con un solo codigo base
-- `frontend-ant/` queda solo como resguardo de referencia y no debe seguir evolucionando
-- No se usan `frontend-mobile/` ni `frontend-web/`
-- No se usa backend Node/Express; el backend vigente es solo `backend/` con FastAPI
+- Existe un único frontend activo: `frontend/`
+- Ese frontend usa Expo y apunta a mobile + web con un solo código base.
+- No se usa backend Node/Express; el backend vigente es solo `backend/` con FastAPI.
 
 ## Estructura
 
@@ -33,10 +31,18 @@ CODE_CYANEA/
 ├── logs/
 ├── docker-compose.yml
 └── AGENTS.md
-`- README.md
+└── README.md
 ```
 
-## Arranque rapido
+## Arranque rápido
+
+### Base de datos (Docker)
+
+```powershell
+docker compose up -d
+```
+
+Esto levanta PostgreSQL según `docker-compose.yml`. Verificá que las variables de conexión en `backend/.env` coincidan con las definidas ahí.
 
 ### Backend
 
@@ -46,8 +52,10 @@ python -m venv .venv
 .venv\Scripts\activate
 pip install -e .[dev]
 copy .env.example .env
+alembic upgrade head
 .venv\Scripts\python.exe -m uvicorn app.main:app --host 127.0.0.1 --port 8000
 ```
+> El paso `alembic upgrade head` aplica las migraciones y crea las tablas necesarias en la base de datos. Es obligatorio la primera vez que se levanta el proyecto, y cada vez que haya migraciones nuevas.
 
 ### Frontend Expo
 
@@ -68,9 +76,9 @@ EXPO_PUBLIC_API_BASE_URL=http://127.0.0.1:8000/api/v1
 
 - Expo 56 requiere Node `>= 20.19.4`
 - `npm run web` levanta Expo Web en `http://localhost:8081`
-- El frontend usa `EXPO_NO_METRO_WORKSPACE_ROOT=1` desde `package.json`, no hace falta configurarlo manualmente
+- El frontend usa `EXPO_NO_METRO_WORKSPACE_ROOT=1` desde `package.json`, no hace falta configurarlo manualmente.
 
-## Documentacion operativa
+## Documentación operativa
 
 Antes de trabajar en el proyecto, leer:
 
@@ -78,8 +86,8 @@ Antes de trabajar en el proyecto, leer:
 
 Ese archivo contiene:
 
-- Convenciones de naming
-- Reglas de base de datos
-- Estructura del proyecto
-- Criterios de frontend
-- Pautas de trabajo para colaboradores y Codex
+- Convenciones de naming.
+- Reglas de base de datos.
+- Estructura del proyecto.
+- Criterios de frontend.
+- Pautas de trabajo para colaboradores y Codex.
