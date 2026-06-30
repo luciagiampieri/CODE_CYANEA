@@ -6,7 +6,6 @@ from fastapi import APIRouter, Depends, HTTPException, status, Query
 import httpx
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
-from pydantic import ValidationError
 
 from app.core.config import settings
 from app.api.deps import get_current_user
@@ -21,10 +20,8 @@ from app.models.dia_cronograma import DiaCronograma
 from app.models.actividad_itinerario import ActividadItinerario
 from app.models.usuario import Usuario
 from app.models.viaje import Viaje
-from app.models.dia_cronograma import DiaCronograma
 from app.models.destino_viaje import DestinoViaje
 from app.models.destino import Destino
-from app.schemas.trip import TripCreate, TripRead, InvitationResponse, TripInvitationRead, DestinationRead
 from app.schemas.trip import (
     ActividadCreate,
     ActividadRead,
@@ -38,6 +35,7 @@ from app.schemas.trip import (
     TripRead,
     TripParticipantUpsert,
     InvitationResponse,
+    DestinationRead,
 )
 from app.services.mail import get_mail_service
 from app.services.notifications.invitation_email_sender import (
@@ -61,6 +59,7 @@ def _get_trip_with_relations(db: Session, trip_id: int) -> Viaje | None:
             selectinload(Viaje.Participantes).selectinload(ParticipanteViaje.RolParticipante),
             selectinload(Viaje.Participantes).selectinload(ParticipanteViaje.EstadoParticipacion),
             selectinload(Viaje.Invitaciones).selectinload(InvitacionViaje.EstadoInvitacion),
+            selectinload(Viaje.Destinos).selectinload(DestinoViaje.Destino),
         )
         .where(Viaje.IdViaje == trip_id)
     )
@@ -114,7 +113,14 @@ def _build_trip_detail(viaje: Viaje) -> TripDetailRead:
     return TripDetailRead(
         id=viaje.IdViaje,
         title=viaje.Titulo,
-        destination=viaje.Destino,
+        destinations= [DestinationRead(
+            id=rel.Destino.IdDestino,
+            name=rel.Destino.Nombre,
+            country=rel.Destino.Pais,
+            lat=rel.Destino.Lat,
+            lng=rel.Destino.Lng
+        ) for rel in viaje.Destinos
+        ],
         description=viaje.Descripcion,
         status=viaje.EstadoViaje.Nombre,
         currency=viaje.Moneda,
@@ -173,7 +179,7 @@ def get_pending_invitations(
         TripInvitationRead(
             tripId=p.Viaje.IdViaje,
             title=p.Viaje.Titulo,
-            destination=[
+            destinations=[
                 DestinationRead(
                     id=rel.Destino.IdDestino,
                     name=rel.Destino.Nombre,
@@ -255,7 +261,7 @@ def respond_to_invitation(
 @router.get("/search")
 async def search_destinos(q: str = Query(..., min_length=2)):
     params = {
-        "q": q,
+        "text": q,
         "access_token": settings.mapbox_access_token,
         "language": "es",
         "limit": 5,
@@ -266,7 +272,6 @@ async def search_destinos(q: str = Query(..., min_length=2)):
         response = await client.get(GEOCODE_URL, params=params)
         response.raise_for_status()
         data = response.json() 
-        print(f"Respuesta de Mapbox: {data}")  # Para depuración, puedes eliminarlo más tarde
 
     resultados = []
 
@@ -521,7 +526,7 @@ def add_trip_participant(
             InvitationEmailPayload(
                 to_email=email,
                 trip_title=viaje.Titulo,
-                trip_destination=viaje.Destino,
+                trip_destination= ", ".join(f"{d.Destino.Nombre}, {d.Destino.Pais}" for d in viaje.Destinos),
                 inviter_name=f"{current_user.Nombre} {current_user.Apellido}",
                 invitation_token=token_invitacion,
                 expiration_at=vencimiento,

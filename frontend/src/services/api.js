@@ -238,9 +238,8 @@ export async function searchDestinations(query) {
       headers: await authHeaders(),
     }
   );
-}
-
   return parseResponse(response, "No se pudieron buscar destinos");
+}
 
 export async function createVotacion(payload) {
   const response = await fetch(`${API_BASE_URL}/votaciones`, {

@@ -61,7 +61,7 @@ class DestinationRead(BaseModel):
 class TripRead(BaseModel):
     id: int
     title: str
-    destinations: list[DestinationRead] = Field(default_factory=list, alias="Destinations")
+    destinations: list[DestinationRead] = Field(default_factory=list)
     status: str
     currency: str
     startDate: date | None = None
