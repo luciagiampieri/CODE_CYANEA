@@ -74,6 +74,45 @@ export async function getTrips() {
   return parseResponse(response, "No se pudieron obtener los viajes");
 }
 
+export async function getTripDetail(tripId) {
+  const response = await fetch(`${API_BASE_URL}/trips/${tripId}`, {
+    headers: await authHeaders(),
+  });
+  return parseResponse(response, "No se pudo obtener el detalle del viaje");
+}
+
+export async function addTripParticipant(tripId, payload) {
+  const response = await fetch(`${API_BASE_URL}/trips/${tripId}/participants`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(await authHeaders()),
+    },
+    body: JSON.stringify(payload),
+  });
+  return parseResponse(response, "No se pudo agregar el participante");
+}
+
+export async function removeTripParticipant(tripId, userId) {
+  const response = await fetch(`${API_BASE_URL}/trips/${tripId}/participants/${userId}`, {
+    method: "DELETE",
+    headers: await authHeaders(),
+  });
+  return parseResponse(response, "No se pudo quitar el participante");
+}
+
+export async function removeTripExternalInvitation(tripId, email) {
+  const response = await fetch(`${API_BASE_URL}/trips/${tripId}/external-invitations`, {
+    method: "DELETE",
+    headers: {
+      "Content-Type": "application/json",
+      ...(await authHeaders()),
+    },
+    body: JSON.stringify({ email }),
+  });
+  return parseResponse(response, "No se pudo quitar la invitación externa");
+}
+
 export async function getUsers(search = "", limit = 8) {
   const params = new URLSearchParams();
   if (search.trim()) params.set("q", search.trim());
@@ -199,6 +238,60 @@ export async function searchDestinations(query) {
       headers: await authHeaders(),
     }
   );
+}
 
   return parseResponse(response, "No se pudieron buscar destinos");
+
+export async function createVotacion(payload) {
+  const response = await fetch(`${API_BASE_URL}/votaciones`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(await authHeaders()),
+    },
+    body: JSON.stringify(payload),
+  });
+  return parseResponse(response, "No se pudo crear la votación");
+}
+
+export async function getVotaciones(idViaje) {
+  const response = await fetch(`${API_BASE_URL}/votaciones?idViaje=${idViaje}`, {
+    headers: await authHeaders(),
+  });
+  return parseResponse(response, "No se pudieron obtener las votaciones");
+}
+
+export async function getResultadosVotacion(idVotacion) {
+  const response = await fetch(`${API_BASE_URL}/votaciones/${idVotacion}/resultados`, {
+    headers: await authHeaders(),
+  });
+  return parseResponse(response, "No se pudieron obtener los resultados");
+}
+
+// (Opcional) Para cuando tu compañera conecte "emitir voto" al backend:
+export async function emitirVoto(idVotacion, idPropuestas) {
+  const response = await fetch(`${API_BASE_URL}/votaciones/${idVotacion}/votar`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(await authHeaders()),
+    },
+    body: JSON.stringify({ idPropuestas }),
+  });
+  return parseResponse(response, "No se pudo registrar el voto");
+}
+
+export async function createActivity(tripId, dayId, payload) {
+  const response = await fetch(
+    `${API_BASE_URL}/trips/${tripId}/days/${dayId}/activities`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(await authHeaders()),
+      },
+      body: JSON.stringify(payload),
+    }
+  );
+  return parseResponse(response, "No se pudo crear la actividad");
 }

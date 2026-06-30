@@ -171,7 +171,7 @@ export default function RegisterScreen({ navigation }) {
                   onValueChange={(value) => setField("aceptaTerminos", value)}
                 />
                 <Text style={styles.termsText}>
-                  Acepto los <Text style={styles.termsStrong}>Términos y Condiciones</Text>
+                  Acepto los <Text style={styles.termsStrong}>Términos y Condiciones.</Text>
                 </Text>
               </View>
               {errors.aceptaTerminos ? <Text style={styles.fieldError}>{errors.aceptaTerminos}</Text> : null}
@@ -266,7 +266,7 @@ const styles = StyleSheet.create({
     ...textStyles.brandTitle,
     color: colors.accent,
     fontSize: 36,
-    fontwight: "bold",
+    fontWeight: "bold",
   },
   brandClaim: {
     ...textStyles.sectionLabel,

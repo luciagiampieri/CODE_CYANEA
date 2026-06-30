@@ -15,3 +15,9 @@ class DiaCronograma(Base):
     IndiceDia: Mapped[int] = mapped_column(Integer, nullable=False)
 
     Viaje = relationship("Viaje", back_populates="Cronograma")
+    Actividades = relationship(
+        "ActividadItinerario",
+        back_populates="DiaCronograma",
+        cascade="all, delete-orphan",
+        order_by="ActividadItinerario.HoraInicio",
+    )

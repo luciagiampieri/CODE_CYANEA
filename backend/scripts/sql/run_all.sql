@@ -8,3 +8,4 @@
 \i 006b_invitaciones_viajes.sql
 \i 007_datos_maestros.sql
 \i 008_seed_minimo.sql
+\i 009_actividades_itinerario.sql

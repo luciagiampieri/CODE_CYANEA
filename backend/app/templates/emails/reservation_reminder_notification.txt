@@ -1,0 +1,13 @@
+Hola{% if recipient_name %} {{ recipient_name }}{% endif %},
+
+Te recordamos una reserva próxima en {{ trip_title }}{% if trip_destination %} con destino {{ trip_destination }}{% endif %}.
+
+Reserva: {{ reservation_title }}
+{% if reservation_summary %}Detalle: {{ reservation_summary }}
+{% endif %}{% if due_date %}Fecha próxima: {{ due_date }}
+{% endif %}
+Revisa la información desde:
+{{ trip_url }}
+
+— Equipo Cyanea
+© 2026 Cyanea

@@ -10,6 +10,14 @@ class UsuarioRead(BaseModel):
     fotoUrl: str | None = None
 
 
+class UsuarioCurrentRead(UsuarioRead):
+    consienteNotificacionesEmail: bool
+    recibeEmailsNuevaVotacion: bool
+    recibeEmailsCambiosViaje: bool
+    recibeEmailsRecordatoriosDeuda: bool
+    recibeEmailsRecordatoriosReserva: bool
+
+
 class UsuarioRegister(BaseModel):
     nombre: str
     apellido: str

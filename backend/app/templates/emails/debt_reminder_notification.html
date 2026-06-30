@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Recordatorio de deuda pendiente</title>
+</head>
+<body style="margin:0;padding:0;background-color:#f0f4f8;font-family:'Segoe UI',Arial,sans-serif;">
+    <table width="100%" cellpadding="0" cellspacing="0" style="background:#f0f4f8;padding:32px 0;">
+        <tr>
+            <td align="center">
+                <table width="560" cellpadding="0" cellspacing="0"
+                    style="background:#ffffff;border-radius:12px;box-shadow:0 4px 16px rgba(0,0,0,0.08);overflow:hidden;">
+
+                    <tr>
+                        <td style="background:#1e3e7b;padding:28px 40px;text-align:center;">
+                            <h1 style="margin:0;color:#ffec80;font-size:28px;letter-spacing:1px;">CYANEA</h1>
+                            <p style="margin:6px 0 0;color:#ffffff;font-size:13px;">Muchas manos, un único destino</p>
+                        </td>
+                    </tr>
+
+                    <tr>
+                        <td style="padding:36px 40px;">
+                            <h2 style="margin:0 0 12px;color:#1e3e7b;font-size:22px;">Hola{% if recipient_name %}, {{ recipient_name }}{% endif %}</h2>
+                            <p style="margin:0 0 18px;color:#444;line-height:1.6;">
+                                Tienes una deuda pendiente en <strong>{{ trip_title }}</strong>{% if trip_destination %}, con destino <strong>{{ trip_destination }}</strong>{% endif %}.
+                            </p>
+
+                            <div style="margin:0 0 24px;padding:18px 20px;background:#fff9df;border:1px solid rgba(255,236,128,0.9);border-radius:12px;">
+                                <p style="margin:0 0 8px;color:#1e3e7b;font-size:12px;font-weight:700;letter-spacing:0.6px;text-transform:uppercase;">
+                                    Deuda pendiente
+                                </p>
+                                <p style="margin:0;color:#1e3e7b;font-size:26px;font-weight:700;">
+                                    {{ amount }}
+                                </p>
+                                {% if debt_summary %}
+                                <p style="margin:10px 0 0;color:#5f6f8c;font-size:14px;line-height:1.6;">
+                                    {{ debt_summary }}
+                                </p>
+                                {% endif %}
+                                {% if due_date %}
+                                <p style="margin:12px 0 0;color:#5f6f8c;font-size:13px;line-height:1.5;">
+                                    Fecha de referencia: <strong>{{ due_date }}</strong>
+                                </p>
+                                {% endif %}
+                            </div>
+
+                            <p style="margin:0 0 20px;color:#444;line-height:1.6;">
+                                Entra al viaje para revisar el detalle de gastos y ponerte al día con el grupo.
+                            </p>
+
+                            <div style="text-align:center;margin:32px 0;">
+                                <a href="{{ trip_url }}"
+                                style="background:#1e3e7b;color:#ffec80;text-decoration:none;
+                                        padding:14px 36px;border-radius:8px;font-size:16px;
+                                        font-weight:700;display:inline-block;">
+                                    Ver detalle de gastos
+                                </a>
+                            </div>
+
+                            <p style="margin:0;color:#999;font-size:12px;line-height:1.6;">
+                                Si el botón no funciona, copia este enlace en tu navegador:<br>
+                                <a href="{{ trip_url }}" style="color:#1e3e7b;word-break:break-all;">
+                                    {{ trip_url }}
+                                </a>
+                            </p>
+                        </td>
+                    </tr>
+
+                    <tr>
+                        <td style="background:#f7f9fc;padding:20px 40px;text-align:center;
+                                border-top:1px solid #e8edf4;">
+                            <p style="margin:0;color:#999;font-size:12px;">
+                                Este es un mensaje automático de Cyanea.<br>
+                                © 2026 Cyanea — UTN FRC
+                            </p>
+                        </td>
+                    </tr>
+
+                </table>
+            </td>
+        </tr>
+    </table>
+</body>
+</html>

@@ -278,6 +278,20 @@ Orden actual:
 - acceso a base en `backend/app/db/`
 - servicios reutilizables en `backend/app/services/`
 - el modulo de mail es compartido y debe servir para invitaciones, notificaciones futuras, recuperacion de password y casos similares
+- las notificaciones funcionales por correo deben pasar por un servicio central `NotificationService` en `backend/app/services/notifications/`
+- aunque la pantalla de perfil todavia no exista, las preferencias y el consentimiento de email se modelan desde `Usuarios` y deben viajar en `/users/me`
+
+### Convenciones de notificaciones
+
+- el consentimiento general de notificaciones por email se persiste en `Usuarios.ConsienteNotificacionesEmail`
+- las preferencias iniciales por tipo tambien se persisten en `Usuarios`
+- flags actuales:
+  - `RecibeEmailsNuevaVotacion`
+  - `RecibeEmailsCambiosViaje`
+  - `RecibeEmailsRecordatoriosDeuda`
+  - `RecibeEmailsRecordatoriosReserva`
+- el backend no debe enviar notificaciones funcionales si el usuario no esta activo, no confirmo email, no otorgo consentimiento o desactivo el tipo correspondiente
+- los links incluidos en correos de notificacion deben resolverse desde `MAIL_FRONTEND_BASE_URL`
 
 ## Convenciones de frontend
 

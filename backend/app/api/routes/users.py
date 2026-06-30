@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 from app.api.deps import get_current_user
 from app.db.session import get_db
 from app.models.usuario import Usuario
-from app.schemas.usuario import UsuarioRead
+from app.schemas.usuario import UsuarioCurrentRead, UsuarioRead
 
 router = APIRouter()
 
@@ -27,14 +27,19 @@ router = APIRouter()
         .order_by(Usuario.NombreUsuario)
     )"""
 
-@router.get("/me", response_model=UsuarioRead)
-def get_me(current_user: Usuario = Depends(get_current_user)) -> UsuarioRead:
-    return UsuarioRead(
+@router.get("/me", response_model=UsuarioCurrentRead)
+def get_me(current_user: Usuario = Depends(get_current_user)) -> UsuarioCurrentRead:
+    return UsuarioCurrentRead(
         id=current_user.IdUsuario,
         nombreUsuario=current_user.NombreUsuario,
         nombreCompleto=f"{current_user.Nombre} {current_user.Apellido}",
         email=current_user.Email,
         fotoUrl=current_user.FotoUrl,
+        consienteNotificacionesEmail=current_user.ConsienteNotificacionesEmail,
+        recibeEmailsNuevaVotacion=current_user.RecibeEmailsNuevaVotacion,
+        recibeEmailsCambiosViaje=current_user.RecibeEmailsCambiosViaje,
+        recibeEmailsRecordatoriosDeuda=current_user.RecibeEmailsRecordatoriosDeuda,
+        recibeEmailsRecordatoriosReserva=current_user.RecibeEmailsRecordatoriosReserva,
     )
 
 

@@ -10,6 +10,11 @@ from app.models.viaje import Viaje
 from app.models.gasto import Gasto
 from app.models.participantes_gastos import ParticipantesGastos
 from app.models.categorias_gastos import CategoriasGastos
+from app.models.votacion import Votacion
+from app.models.propuesta import Propuesta
+from app.models.voto import Voto
+from app.models.dia_cronograma import DiaCronograma
+from app.models.actividad_itinerario import ActividadItinerario
 
 __all__ = [
     "Base",
@@ -24,4 +29,9 @@ __all__ = [
     "Gasto",
     "ParticipantesGastos",
     "CategoriasGastos",
+    "Votacion",
+    "Propuesta",
+    "Voto",
+    "DiaCronograma",
+    "ActividadItinerario",
 ]

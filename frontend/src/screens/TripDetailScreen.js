@@ -2,6 +2,7 @@ import { FontAwesome6 } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { useEffect, useMemo, useState } from "react";
 import {
+  ActivityIndicator,
   ImageBackground,
   Pressable,
   ScrollView,
@@ -16,13 +17,23 @@ import ParticipantList from "../components/trip/ParticipantList";
 import AvatarStack from "../components/ui/AvatarStack";
 import IconCircleButton from "../components/ui/IconCircleButton";
 import PrimaryButton from "../components/ui/PrimaryButton";
+import {
+  addTripParticipant,
+  getTripDetail,
+  getUsers,
+  removeTripExternalInvitation,
+  removeTripParticipant,
+} from "../services/api";
 import { colors, radii, spacing, surfaces, textStyles } from "../theme/tokens";
 
-import { getUsers, getTripParticipants, getExpenseCategories } from "../services/api";
+import { getTripParticipants, getExpenseCategories } from "../services/api";
 import {
   guardarParticipantesEnCache,
   guardarCategoriasEnCache,
 } from "../database/gastosLocal";
+
+import AddActivityScreen from "./AddActivityScreen";
+import { createActivity } from "../services/api";
 
 
 const mockVotaciones = [
@@ -85,7 +96,9 @@ function normalizeTrip(raw) {
     participantUserIds: raw.participantUserIds ?? [],
     invitedEmails: raw.invitedEmails ?? [],
     participants: raw.participants ?? [],
-    cronograma: raw.cronograma ?? raw.Cronograma ?? raw.dias ?? [], 
+    externalInvitations: raw.externalInvitations ?? [],
+    admin: raw.admin ?? null,
+    cronograma: raw.cronograma ?? raw.Cronograma ?? raw.dias ?? [],
     image:
       raw.image ??
       "https://images.unsplash.com/photo-1570077188670-e3a8d69ac5ff?auto=format&fit=crop&w=1400&q=80",
@@ -130,9 +143,52 @@ export default function TripDetailScreen({ navigation, route }) {
   const [votosSeleccionados, setVotosSeleccionados] = useState({});
   const [participantSearch, setParticipantSearch] = useState("");
   const [userOptions, setUserOptions] = useState([]);
-  
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
+  const [mutatingParticipants, setMutatingParticipants] = useState(false);
+  const [participantMessage, setParticipantMessage] = useState("");
+  const [activityModalDay, setActivityModalDay] = useState(null);
+
+  // US "Crear votación": al volver desde la pantalla de creación con una
+  // votación nueva, la mostramos arriba de la lista (no toca el resto).
+  useEffect(() => {
+    const nueva = route.params?.nuevaVotacion;
+    if (!nueva) return;
+    setVotacionesActivas((prev) => [
+      nueva,
+      ...prev.filter((v) => v.IdVotacion !== nueva.IdVotacion),
+    ]);
+    navigation.setParams({ nuevaVotacion: undefined });
+  }, [route.params?.nuevaVotacion]);
+
+  async function loadTripDetail() {
+    if (!initialTrip?.id) {
+      setLoading(false);
+      setLoadError("No se pudo resolver el viaje.");
+      return;
+    }
+
+    try {
+      setLoading(true);
+      setLoadError("");
+      const detail = await getTripDetail(initialTrip.id);
+      setTrip((current) => ({
+        ...normalizeTrip(detail),
+        image: current?.image ?? initialTrip.image,
+      }));
+    } catch (error) {
+      setLoadError(error.message || "No se pudo cargar el detalle del viaje.");
+    } finally {
+      setLoading(false);
+    }
+  }
 
   useEffect(() => {
+    loadTripDetail();
+  }, [initialTrip?.id]);
+
+  useEffect(() => {
+    if (!trip) return;
     const timeoutId = setTimeout(async () => {
       if (!participantSearch.trim()) {
         setUserOptions([]);
@@ -147,7 +203,7 @@ export default function TripDetailScreen({ navigation, route }) {
     }, 250);
 
     return () => clearTimeout(timeoutId);
-  }, [participantSearch]);
+  }, [participantSearch, trip]);
 
 useEffect(() => {
     async function precargarDatosOffline() {
@@ -166,8 +222,10 @@ useEffect(() => {
         if (participantes) {
           setTrip((prev) => ({
             ...prev,
-            participants: participantes,
-            participantUserIds: participantes.map(p => p.id ?? p.IdUsuario ?? p.Id),
+            participants: prev?.participants?.length ? prev.participants : participantes,
+            participantUserIds: prev?.participantUserIds?.length
+              ? prev.participantUserIds
+              : participantes.map((p) => p.id ?? p.IdUsuario ?? p.Id),
           }));
         }
       
@@ -180,19 +238,21 @@ useEffect(() => {
 
   const normalizedSearch = participantSearch.trim().toLowerCase();
 
-  const selectableUsers = useMemo(
-    () => userOptions.filter((user) => !trip.participantUserIds.includes(user.id)),
-    [trip.participantUserIds, userOptions]
-  );
+  const selectableUsers = useMemo(() => {
+    if (!trip) return [];
+    return userOptions.filter((user) => !trip.participantUserIds.includes(user.id));
+  }, [trip, userOptions]);
 
   const canInviteExternal = useMemo(() => {
+    if (!trip) return false;
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(normalizedSearch)) return false;
     if (trip.invitedEmails.includes(normalizedSearch)) return false;
     return !selectableUsers.some((user) => user.email.toLowerCase() === normalizedSearch);
-  }, [normalizedSearch, selectableUsers, trip.invitedEmails]);
+  }, [normalizedSearch, selectableUsers, trip]);
 
-const participantItems = useMemo(() => {
+  const participantItems = useMemo(() => {
+    if (!trip) return [];
     const registered = (trip.participants || []).map((user) => {
       const nombreCompleto = user.nombreCompleto || user.name || 
         (user.Nombre && user.Apellido ? `${user.Nombre} ${user.Apellido}` : null) || 
@@ -208,53 +268,89 @@ const participantItems = useMemo(() => {
       };
     });
 
-    const invited = (trip.invitedEmails || []).map((email) => ({
-      key: `invite-${email}`,
+    const invited = (trip.externalInvitations || []).map((invitation) => ({
+      key: `invite-${invitation.email}`,
       kind: "external",
-      nombreCompleto: email.split("@")[0],
-      email,
+      nombreCompleto: invitation.email.split("@")[0],
+      email: invitation.email,
       fotoUrl: "",
+      status: invitation.status,
     }));
 
     return [...registered, ...invited];
-  }, [trip.invitedEmails, trip.participants]);
+  }, [trip?.externalInvitations, trip?.participants]);
 
   function handleAddParticipant(user) {
-    setTrip((prev) => ({
-      ...prev,
-      participantUserIds: [...prev.participantUserIds, user.id],
-      participants: [...prev.participants, user],
-    }));
-    setParticipantSearch("");
+    persistAddParticipant({ userId: user.id });
   }
 
   function handleAddExternalInvite() {
     if (!canInviteExternal) return;
-    setTrip((prev) => ({
-      ...prev,
-      invitedEmails: [...prev.invitedEmails, normalizedSearch],
-    }));
-    setParticipantSearch("");
+    persistAddParticipant({ email: normalizedSearch });
   }
 
-  function handleRemoveParticipant(participant) {
-    if (participant.kind === "external") {
-      setTrip((prev) => ({
-        ...prev,
-        invitedEmails: prev.invitedEmails.filter((email) => email !== participant.email),
-      }));
-      return;
+  async function persistAddParticipant(payload) {
+    if (!trip?.id) return;
+    try {
+      setMutatingParticipants(true);
+      setParticipantMessage("");
+      await addTripParticipant(trip.id, payload);
+      setParticipantSearch("");
+      setUserOptions([]);
+      await loadTripDetail();
+    } catch (error) {
+      setParticipantMessage(error.message || "No se pudo agregar el participante.");
+    } finally {
+      setMutatingParticipants(false);
     }
+  }
 
-    setTrip((prev) => ({
-      ...prev,
-      participantUserIds: prev.participantUserIds.filter((id) => id !== participant.id),
-      participants: prev.participants.filter((item) => item.id !== participant.id),
-    }));
+  async function handleRemoveParticipant(participant) {
+    if (!trip?.id) return;
+    try {
+      setMutatingParticipants(true);
+      setParticipantMessage("");
+      if (participant.kind === "external") {
+        await removeTripExternalInvitation(trip.id, participant.email);
+      } else {
+        await removeTripParticipant(trip.id, participant.id);
+      }
+      await loadTripDetail();
+    } catch (error) {
+      setParticipantMessage(error.message || "No se pudo quitar el participante.");
+    } finally {
+      setMutatingParticipants(false);
+    }
+  }
+
+  async function handleCreateActivity(payload) {
+    if (!trip?.id || !activityModalDay) return;
+    await createActivity(trip.id, activityModalDay.id, payload);
+    await loadTripDetail();
+  }
+
+  if (!trip && !loading) {
+    return (
+      <ScreenContainer fullWidth padded={false}>
+        <View style={styles.body}>
+          <View style={styles.sectionCard}>
+            <Text style={styles.sectionHeading}>No se pudo cargar el viaje</Text>
+            <Text style={styles.sectionCopy}>
+              {loadError || "No se encontró información para mostrar."}
+            </Text>
+          </View>
+        </View>
+      </ScreenContainer>
+    );
   }
 
   return (
     <ScreenContainer fullWidth padded={false}>
+      {loading ? (
+        <View style={styles.loadingWrap}>
+          <ActivityIndicator color={colors.primary} size="large" />
+        </View>
+      ) : null}
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
         <ImageBackground imageStyle={styles.heroImage} source={{ uri: trip.image }} style={styles.hero}>
           <LinearGradient colors={["rgba(4,16,36,0.15)", "rgba(9,19,45,0.82)"]} style={styles.heroGradient}>
@@ -264,7 +360,7 @@ const participantItems = useMemo(() => {
             </View>
 
             <View style={styles.heroContent}>
-              <Text style={styles.heroMeta}>{formatHeroDate(trip)} · {participantItems.length} {participantItems.length === 1 ? "persona" : "personas"}</Text>
+              <Text style={styles.heroMeta}>{`${formatHeroDate(trip)} · ${participantItems.length} ${participantItems.length === 1 ? "persona" : "personas"}`}</Text>
               <Text style={styles.heroTitle}>{trip.title}</Text>
               <Text style={styles.heroSubtitle}>{trip.destination}</Text>
               <View style={styles.heroFooter}>
@@ -288,7 +384,7 @@ const participantItems = useMemo(() => {
                 onPress={() => setActiveTab(tab.id)}
                 style={[styles.tabButton, active && styles.tabButtonActive]}
               >
-                <FontAwesome6 color={active ? colors.accent : colors.primary} name={tab.icon} size={14} />
+                <FontAwesome6 color={active ? colors.accent : colors.primary} name={tab.icon} size={12} />
                 <Text style={[styles.tabText, active && styles.tabTextActive]}>{tab.label}</Text>
               </Pressable>
             );
@@ -296,6 +392,12 @@ const participantItems = useMemo(() => {
         </View>
 
         <View style={styles.body}>
+          {loadError ? (
+            <View style={styles.sectionCard}>
+              <Text style={styles.sectionHeading}>No se pudo cargar el viaje</Text>
+              <Text style={styles.sectionCopy}>{loadError}</Text>
+            </View>
+          ) : null}
           {activeTab === "itinerario" ? (
             (() => {
               let diasAMostrar = [];
@@ -307,8 +409,8 @@ const participantItems = useMemo(() => {
                 const fin = new Date(`${trip.endDate}T12:00:00`);
                 
                 if (!isNaN(inicio.getTime()) && !isNaN(fin.getTime())) {
-                  const deiferenciaTiempo = fin.getTime() - inicio.getTime();
-                  const totalDias = Math.ceil(deiferenciaTiempo / (1000 * 60 * 60 * 24)) + 1;
+                  const diferenciaTiempo = fin.getTime() - inicio.getTime();
+                  const totalDias = Math.ceil(diferenciaTiempo / (1000 * 60 * 60 * 24)) + 1;
 
                   for (let i = 0; i < totalDias; i++) {
                     const fechaActual = new Date(inicio);
@@ -333,7 +435,13 @@ const participantItems = useMemo(() => {
                   const dayId = day.id ?? day.IdDiaCronograma;
                   const dayIndex = day.indiceDia ?? day.IndiceDia ?? (index + 1);
                   const dayDateText = formatDayDate(day.fecha ?? day.Fecha);
-                  const actividades = day.items ?? day.actividades ?? [];
+                  const actividadesBackend = (day.actividades ?? day.Actividades ?? []).map((act) => ({
+                    id: act.idActividad ?? act.IdActividad,
+                    time: `${(act.horaInicio ?? act.HoraInicio)?.slice(0, 5)} - ${(act.horaFin ?? act.HoraFin)?.slice(0, 5)}`,
+                    title: act.nombre ?? act.Nombre,
+                    note: act.descripcion ?? act.Descripcion,
+                  }));
+                  const actividades = day.items ?? actividadesBackend;
                   const isExpanded = expandedDayId === dayId;
 
                   return (
@@ -367,9 +475,11 @@ const participantItems = useMemo(() => {
                                   <FontAwesome6 color={colors.primary} name={item.icon ?? "location-dot"} size={14} />
                                 </View>
                                 <View style={styles.agendaContent}>
-                                  <Text style={styles.agendaTime}>{item.time ?? item.Hora ?? "---"}</Text>
-                                  <Text style={styles.agendaTitle}>{item.title ?? item.Titulo}</Text>
-                                  {item.note || item.Notas ? (
+                                  <View style={styles.agendaHeaderRow}>
+                                    <Text style={styles.agendaTime}>{item.time ?? item.Hora ?? "---"}</Text>
+                                    <Text style={styles.agendaTitle}>{item.title ?? item.Titulo}</Text>
+                                  </View>
+                                  {!!item.note || item.Notas ? (
                                     <Text style={styles.agendaNote}>{item.note ?? item.Notas}</Text>
                                   ) : null}
                                 </View>
@@ -378,6 +488,19 @@ const participantItems = useMemo(() => {
                           ) : (
                             <Text style={styles.sectionCopy}>No hay actividades agendadas para este día todavía.</Text>
                           )}
+
+                          <Pressable
+                            onPress={() =>
+                              setActivityModalDay({
+                                id: dayId,
+                                label: `${dayDateText} · Día ${dayIndex}`,
+                              })
+                            }
+                            style={styles.addActivityButton}
+                          >
+                            <FontAwesome6 color={colors.primary} name="plus" size={12} />
+                            <Text style={styles.addActivityText}>Agregar actividad</Text>
+                          </Pressable>
                         </View>
                       ) : null}
                     </View>
@@ -388,7 +511,7 @@ const participantItems = useMemo(() => {
               return (
                 <View style={styles.sectionCard}>
                   <Text style={styles.sectionHeading}>Fechas sin definir</Text>
-                  <Text style={styles.sectionCopy}>Establece las fechas de ida y vuelta para estructurar el cronograma.</Text>
+                  <Text style={styles.sectionCopy}>Establecé las fechas de ida y vuelta para estructurar el cronograma.</Text>
                 </View>
               );
             })()
@@ -424,6 +547,27 @@ const participantItems = useMemo(() => {
 
           {activeTab === "votar" ? (
             <View style={styles.sectionStack}>
+              <Pressable
+                style={({ pressed }) => ({
+                  flexDirection: "row",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  gap: 8,
+                  backgroundColor: colors.primary,
+                  height: 48,
+                  borderRadius: 12,
+                  marginBottom: 16,
+                  opacity: pressed ? 0.85 : 1,
+                })}
+                onPress={() => navigation.navigate("CrearVotacion", {
+                    IdViaje: trip.id,
+                    onVotacionCreada: (nuevaVotacion) =>
+                        setVotacionesActivas((prev) => [nuevaVotacion, ...prev]),
+                })}
+              >
+                <FontAwesome6 name="plus" size={14} color="#fff" />
+                <Text style={{ color: "#fff", fontWeight: "800" }}>Crear votación</Text>
+              </Pressable>
               {votacionesActivas.map((votacion) => {
                 const esCerrada = new Date(votacion.FechaCierre) < new Date();
                 const opcionesElegidas = votosSeleccionados[votacion.IdVotacion] || [];
@@ -444,7 +588,7 @@ const participantItems = useMemo(() => {
                 // Función interna para simular el envío del voto
                 const registrarVoto = () => {
                   if (opcionesElegidas.length === 0) {
-                    alert("Por favor, selecciona al menos una opción.");
+                    alert("Por favor, seleccioná al menos una opción.");
                     return;
                   }
                   
@@ -504,7 +648,7 @@ const participantItems = useMemo(() => {
                         <Text style={{ color: colors.success, fontWeight: '600', fontSize: 13 }}>✓ Ya registraste tu voto en esta decisión grupal.</Text>
                       ) : (
                         <PrimaryButton
-                          label="Confirmar Voto"
+                          label="Confirmar voto"
                           onPress={registrarVoto}
                           style={{ marginTop: 5 }}
                         />
@@ -521,7 +665,7 @@ const participantItems = useMemo(() => {
               <View style={styles.sectionCard}>
                 <ParticipantSearch
                   canInviteExternal={canInviteExternal}
-                  message=""
+                  message={participantMessage}
                   onInviteExternal={handleAddExternalInvite}
                   onSearchChange={setParticipantSearch}
                   onSelectUser={handleAddParticipant}
@@ -536,6 +680,17 @@ const participantItems = useMemo(() => {
           ) : null}
         </View>
       </ScrollView>
+      {mutatingParticipants ? (
+        <View style={styles.loadingWrap}>
+          <ActivityIndicator color={colors.primary} size="large" />
+        </View>
+      ) : null}
+      <AddActivityScreen
+        dayLabel={activityModalDay?.label}
+        onClose={() => setActivityModalDay(null)}
+        onSubmit={handleCreateActivity}
+        visible={!!activityModalDay}
+      />
     </ScreenContainer>
   );
 }
@@ -586,28 +741,31 @@ const styles = StyleSheet.create({
   },
   tabBar: {
     flexDirection: "row",
-    flexWrap: "wrap",
-    gap: spacing.sm,
+    flexWrap: "nowrap",
+    justifyContent: "space-between",
+    gap: spacing.xs,
     backgroundColor: colors.surface,
     borderBottomWidth: 1,
     borderColor: colors.border,
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.md,
-  },
-  tabButton: {
-    alignItems: "center",
-    justifyContent: "center",
-    gap: spacing.xs,
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.sm,
+  },
+  tabButton: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 4,
+    minWidth: 0,
+    paddingHorizontal: 4,
+    paddingVertical: 8,
     borderRadius: radii.md,
-    minWidth: 86,
   },
   tabButtonActive: {
     backgroundColor: colors.primary,
   },
   tabText: {
     ...textStyles.nav,
+    fontSize: 10,
     color: colors.textSecondary,
   },
   tabTextActive: {
@@ -617,6 +775,17 @@ const styles = StyleSheet.create({
     backgroundColor: colors.background,
     padding: spacing.lg,
     gap: spacing.md,
+  },
+  loadingWrap: {
+    position: "absolute",
+    top: 0,
+    right: 0,
+    left: 0,
+    bottom: 0,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(247,242,232,0.35)",
+    zIndex: 10,
   },
   dayCard: {
     ...surfaces.card,
@@ -685,20 +854,36 @@ const styles = StyleSheet.create({
   agendaContent: {
     flex: 1,
   },
+  agendaHeaderRow: {
+  flexDirection: "row",
+  alignItems: "center",
+  gap: spacing.xs,
+},
   agendaTime: {
     ...textStyles.meta,
     color: colors.textSecondary,
   },
   agendaTitle: {
-    ...textStyles.bodyStrong,
-    color: colors.primary,
-    fontSize: 17,
-    marginTop: spacing.xxs,
-  },
+  ...textStyles.bodyStrong,
+  color: colors.primary,
+  fontSize: 17,
+},
   agendaNote: {
     ...textStyles.body,
     color: colors.textSecondary,
     marginTop: spacing.xxs,
+  },
+  addActivityButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.xs,
+    alignSelf: "flex-start",
+    marginTop: spacing.xs,
+  },
+  addActivityText: {
+    ...textStyles.bodyStrong,
+    color: colors.primary,
+    fontSize: 13,
   },
   sectionStack: {
     gap: spacing.md,

@@ -1,14 +1,40 @@
-from datetime import date
-from typing import List, Optional
+from datetime import date, datetime, time as time_type
 
 from pydantic import BaseModel, Field, field_validator, model_validator
+
 from app.schemas.usuario import UsuarioRead
+
+
+class ActividadRead(BaseModel):
+    idActividad: int = Field(..., alias="IdActividad")
+    nombre: str = Field(..., alias="Nombre")
+    descripcion: str | None = Field(None, alias="Descripcion")
+    horaInicio: time_type = Field(..., alias="HoraInicio")
+    horaFin: time_type = Field(..., alias="HoraFin")
+
+    class Config:
+        from_attributes = True
+        populate_by_name = True
+
+
+class ActividadCreate(BaseModel):
+    nombre: str = Field(..., min_length=1, max_length=150)
+    descripcion: str | None = None
+    horaInicio: time_type
+    horaFin: time_type
+
+    @model_validator(mode="after")
+    def validate_horarios(self):
+        if self.horaFin <= self.horaInicio:
+            raise ValueError("La hora de fin debe ser posterior a la hora de inicio")
+        return self
 
 
 class DiaCronogramaRead(BaseModel):
     idDiaCronograma: int = Field(..., alias="IdDiaCronograma")
     fecha: date = Field(..., alias="Fecha")
-    indiceDia: int = Field(..., alias="IndiceDia") 
+    indiceDia: int = Field(..., alias="IndiceDia")
+    actividades: list[ActividadRead] = Field(default_factory=list, alias="Actividades")
 
     class Config:
         from_attributes = True
@@ -41,13 +67,74 @@ class TripRead(BaseModel):
     startDate: date | None = None
     endDate: date | None = None
     cronograma: list[DiaCronogramaRead] = Field(default_factory=list, alias="Cronograma")
-    participantUserIds: List[int] = Field(default_factory=list, alias="ParticipantUserIds")
-    participants: List[UsuarioRead] = Field(default_factory=list, alias="Participants")
-    invitedEmails: List[str] = Field(default_factory=list, alias="InvitedEmails")
+    participantUserIds: list[int] = Field(default_factory=list)
+    participants: list[UsuarioRead] = Field(default_factory=list)
+    invitedEmails: list[str] = Field(default_factory=list)
 
     class Config:
         from_attributes = True
         populate_by_name = True
+
+
+class TripParticipantRead(BaseModel):
+    id: int
+    nombreCompleto: str
+    nombreUsuario: str
+    email: str
+    fotoUrl: str | None = None
+    role: str
+    status: str
+
+
+class TripExternalInvitationRead(BaseModel):
+    email: str
+    status: str
+    invitedAt: datetime | None = None
+    registeredUserId: int | None = None
+
+
+class TripAdminRead(BaseModel):
+    id: int
+    nombreCompleto: str
+    nombreUsuario: str
+    email: str
+    fotoUrl: str | None = None
+
+
+class TripDetailRead(TripRead):
+    description: str | None = None
+    admin: TripAdminRead
+    participants: list[TripParticipantRead] = Field(default_factory=list)
+    participantUserIds: list[int] = Field(default_factory=list)
+    externalInvitations: list[TripExternalInvitationRead] = Field(default_factory=list)
+    invitedEmails: list[str] = Field(default_factory=list)
+
+
+class TripParticipantUpsert(BaseModel):
+    userId: int | None = None
+    email: str | None = None
+
+    @model_validator(mode="after")
+    def validate_target(self):
+        if self.userId is None and not self.email:
+            raise ValueError("Debes enviar userId o email")
+        return self
+
+    @field_validator("email")
+    @classmethod
+    def normalize_email(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        cleaned = value.strip().lower()
+        if not cleaned:
+            return None
+        if "@" not in cleaned or "." not in cleaned.split("@")[-1]:
+            raise ValueError("El email no tiene un formato valido")
+        return cleaned
+
+
+class TripMutationResponse(BaseModel):
+    message: str
 
 
 class TripCreate(BaseModel):
@@ -56,9 +143,9 @@ class TripCreate(BaseModel):
     description: str | None = None
     startDate: date | None = None
     endDate: date | None = None
-    currency: str = Field(..., min_length=3, max_length=3, description="Tipo de moneda base obligatoria")
-    adminUserId: int | None = None  # ignorado; se usa el usuario autenticado
-    participantUserIds: list[int] = Field(default_factory=list, alias="ParticipantUserIds")
+    currency: str = Field(default="ARS", min_length=3, max_length=3, description="Tipo de moneda base obligatoria")
+    adminUserId: int | None = None
+    participantUserIds: list[int] = Field(default_factory=list)
     invitedEmails: list[str] = Field(default_factory=list)
 
     @field_validator("destinations")
@@ -88,6 +175,7 @@ class TripCreate(BaseModel):
             raise ValueError("La fecha de fin no puede ser anterior a la fecha de inicio")
         return self
 
+
 class InvitationResponse(BaseModel):
     decision: str = Field(..., description="La decisión del usuario: 'aceptar' o 'rechazar'")
 
@@ -95,10 +183,8 @@ class InvitationResponse(BaseModel):
     @classmethod
     def validate_decision(cls, value: str) -> str:
         cleaned_value = value.strip().lower()
-        
         if cleaned_value not in ["aceptar", "rechazar"]:
             raise ValueError("La decisión enviada no es válida. Debe ser 'aceptar' o 'rechazar'.")
-            
         return cleaned_value
 
 
