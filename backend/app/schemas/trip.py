@@ -1,14 +1,40 @@
-from datetime import date, datetime
+from datetime import date, datetime, time as time_type
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from app.schemas.usuario import UsuarioRead
 
 
+class ActividadRead(BaseModel):
+    idActividad: int = Field(..., alias="IdActividad")
+    nombre: str = Field(..., alias="Nombre")
+    descripcion: str | None = Field(None, alias="Descripcion")
+    horaInicio: time_type = Field(..., alias="HoraInicio")
+    horaFin: time_type = Field(..., alias="HoraFin")
+
+    class Config:
+        from_attributes = True
+        populate_by_name = True
+
+
+class ActividadCreate(BaseModel):
+    nombre: str = Field(..., min_length=1, max_length=150)
+    descripcion: str | None = None
+    horaInicio: time_type
+    horaFin: time_type
+
+    @model_validator(mode="after")
+    def validate_horarios(self):
+        if self.horaFin <= self.horaInicio:
+            raise ValueError("La hora de fin debe ser posterior a la hora de inicio")
+        return self
+
+
 class DiaCronogramaRead(BaseModel):
     idDiaCronograma: int = Field(..., alias="IdDiaCronograma")
     fecha: date = Field(..., alias="Fecha")
     indiceDia: int = Field(..., alias="IndiceDia")
+    actividades: list[ActividadRead] = Field(default_factory=list, alias="Actividades")
 
     class Config:
         from_attributes = True

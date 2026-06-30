@@ -32,6 +32,9 @@ import {
   guardarCategoriasEnCache,
 } from "../database/gastosLocal";
 
+import AddActivityScreen from "./AddActivityScreen";
+import { createActivity } from "../services/api";
+
 
 const mockVotaciones = [
   {
@@ -144,6 +147,7 @@ export default function TripDetailScreen({ navigation, route }) {
   const [loadError, setLoadError] = useState("");
   const [mutatingParticipants, setMutatingParticipants] = useState(false);
   const [participantMessage, setParticipantMessage] = useState("");
+  const [activityModalDay, setActivityModalDay] = useState(null);
 
   // US "Crear votación": al volver desde la pantalla de creación con una
   // votación nueva, la mostramos arriba de la lista (no toca el resto).
@@ -319,6 +323,12 @@ useEffect(() => {
     }
   }
 
+  async function handleCreateActivity(payload) {
+    if (!trip?.id || !activityModalDay) return;
+    await createActivity(trip.id, activityModalDay.id, payload);
+    await loadTripDetail();
+  }
+
   if (!trip && !loading) {
     return (
       <ScreenContainer fullWidth padded={false}>
@@ -350,7 +360,7 @@ useEffect(() => {
             </View>
 
             <View style={styles.heroContent}>
-              <Text style={styles.heroMeta}>{formatHeroDate(trip)} · {participantItems.length} {participantItems.length === 1 ? "persona" : "personas"}</Text>
+              <Text style={styles.heroMeta}>{`${formatHeroDate(trip)} · ${participantItems.length} ${participantItems.length === 1 ? "persona" : "personas"}`}</Text>
               <Text style={styles.heroTitle}>{trip.title}</Text>
               <Text style={styles.heroSubtitle}>{trip.destination}</Text>
               <View style={styles.heroFooter}>
@@ -425,7 +435,13 @@ useEffect(() => {
                   const dayId = day.id ?? day.IdDiaCronograma;
                   const dayIndex = day.indiceDia ?? day.IndiceDia ?? (index + 1);
                   const dayDateText = formatDayDate(day.fecha ?? day.Fecha);
-                  const actividades = day.items ?? day.actividades ?? [];
+                  const actividadesBackend = (day.actividades ?? day.Actividades ?? []).map((act) => ({
+                    id: act.idActividad ?? act.IdActividad,
+                    time: `${(act.horaInicio ?? act.HoraInicio)?.slice(0, 5)} - ${(act.horaFin ?? act.HoraFin)?.slice(0, 5)}`,
+                    title: act.nombre ?? act.Nombre,
+                    note: act.descripcion ?? act.Descripcion,
+                  }));
+                  const actividades = day.items ?? actividadesBackend;
                   const isExpanded = expandedDayId === dayId;
 
                   return (
@@ -461,7 +477,7 @@ useEffect(() => {
                                 <View style={styles.agendaContent}>
                                   <Text style={styles.agendaTime}>{item.time ?? item.Hora ?? "---"}</Text>
                                   <Text style={styles.agendaTitle}>{item.title ?? item.Titulo}</Text>
-                                  {item.note || item.Notas ? (
+                                  {!!item.note || item.Notas ? (
                                     <Text style={styles.agendaNote}>{item.note ?? item.Notas}</Text>
                                   ) : null}
                                 </View>
@@ -470,6 +486,19 @@ useEffect(() => {
                           ) : (
                             <Text style={styles.sectionCopy}>No hay actividades agendadas para este día todavía.</Text>
                           )}
+
+                          <Pressable
+                            onPress={() =>
+                              setActivityModalDay({
+                                id: dayId,
+                                label: `${dayDateText} · Día ${dayIndex}`,
+                              })
+                            }
+                            style={styles.addActivityButton}
+                          >
+                            <FontAwesome6 color={colors.primary} name="plus" size={12} />
+                            <Text style={styles.addActivityText}>Agregar actividad</Text>
+                          </Pressable>
                         </View>
                       ) : null}
                     </View>
@@ -654,6 +683,12 @@ useEffect(() => {
           <ActivityIndicator color={colors.primary} size="large" />
         </View>
       ) : null}
+      <AddActivityScreen
+        dayLabel={activityModalDay?.label}
+        onClose={() => setActivityModalDay(null)}
+        onSubmit={handleCreateActivity}
+        visible={!!activityModalDay}
+      />
     </ScreenContainer>
   );
 }
@@ -831,6 +866,18 @@ const styles = StyleSheet.create({
     ...textStyles.body,
     color: colors.textSecondary,
     marginTop: spacing.xxs,
+  },
+  addActivityButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.xs,
+    alignSelf: "flex-start",
+    marginTop: spacing.xs,
+  },
+  addActivityText: {
+    ...textStyles.bodyStrong,
+    color: colors.primary,
+    fontSize: 13,
   },
   sectionStack: {
     gap: spacing.md,

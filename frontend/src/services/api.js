@@ -203,7 +203,6 @@ export async function createExpense(payload) {
   );
 }
 
-// ===== Votaciones (US Crear votación) =====
 
 export async function createVotacion(payload) {
   const response = await fetch(`${API_BASE_URL}/votaciones`, {
@@ -242,4 +241,20 @@ export async function emitirVoto(idVotacion, idPropuestas) {
     body: JSON.stringify({ idPropuestas }),
   });
   return parseResponse(response, "No se pudo registrar el voto");
+}
+
+
+export async function createActivity(tripId, dayId, payload) {
+  const response = await fetch(
+    `${API_BASE_URL}/trips/${tripId}/days/${dayId}/activities`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(await authHeaders()),
+      },
+      body: JSON.stringify(payload),
+    }
+  );
+  return parseResponse(response, "No se pudo crear la actividad");
 }

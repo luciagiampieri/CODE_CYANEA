@@ -16,9 +16,12 @@ from app.models.invitacion_viaje import InvitacionViaje
 from app.models.participante_viaje import ParticipanteViaje
 from app.models.rol_participante import RolParticipante
 from app.models.dia_cronograma import DiaCronograma
+from app.models.actividad_itinerario import ActividadItinerario
 from app.models.usuario import Usuario
 from app.models.viaje import Viaje
 from app.schemas.trip import (
+    ActividadCreate,
+    ActividadRead,
     TripAdminRead,
     TripCreate,
     TripDetailRead,
@@ -46,7 +49,7 @@ def _get_trip_with_relations(db: Session, trip_id: int) -> Viaje | None:
         .options(
             selectinload(Viaje.Administrador),
             selectinload(Viaje.EstadoViaje),
-            selectinload(Viaje.Cronograma),
+            selectinload(Viaje.Cronograma).selectinload(DiaCronograma.Actividades),
             selectinload(Viaje.Participantes).selectinload(ParticipanteViaje.Usuario),
             selectinload(Viaje.Participantes).selectinload(ParticipanteViaje.RolParticipante),
             selectinload(Viaje.Participantes).selectinload(ParticipanteViaje.EstadoParticipacion),
@@ -287,6 +290,43 @@ def get_trip_detail(
 ) -> TripDetailRead:
     viaje = _require_trip_access(_get_trip_with_relations(db, trip_id), current_user)
     return _build_trip_detail(viaje)
+
+
+@router.post(
+    "/{trip_id}/days/{day_id}/activities",
+    response_model=ActividadRead,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_activity(
+    trip_id: int,
+    day_id: int,
+    payload: ActividadCreate,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> ActividadRead:
+    viaje = _require_trip_access(_get_trip_with_relations(db, trip_id), current_user)
+
+    dia = db.scalar(
+        select(DiaCronograma).where(
+            DiaCronograma.IdDiaCronograma == day_id,
+            DiaCronograma.IdViaje == viaje.IdViaje,
+        )
+    )
+    if dia is None:
+        raise HTTPException(status_code=404, detail="El día del cronograma no existe en este viaje")
+
+    actividad = ActividadItinerario(
+        IdDiaCronograma=dia.IdDiaCronograma,
+        Nombre=payload.nombre.strip(),
+        Descripcion=payload.descripcion.strip() if payload.descripcion else None,
+        HoraInicio=payload.horaInicio,
+        HoraFin=payload.horaFin,
+    )
+    db.add(actividad)
+    db.commit()
+    db.refresh(actividad)
+
+    return ActividadRead.model_validate(actividad)
 
 
 @router.post("/{trip_id}/participants", response_model=TripMutationResponse, status_code=status.HTTP_201_CREATED)
