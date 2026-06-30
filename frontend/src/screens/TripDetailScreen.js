@@ -409,8 +409,8 @@ useEffect(() => {
                 const fin = new Date(`${trip.endDate}T12:00:00`);
                 
                 if (!isNaN(inicio.getTime()) && !isNaN(fin.getTime())) {
-                  const deiferenciaTiempo = fin.getTime() - inicio.getTime();
-                  const totalDias = Math.ceil(deiferenciaTiempo / (1000 * 60 * 60 * 24)) + 1;
+                  const diferenciaTiempo = fin.getTime() - inicio.getTime();
+                  const totalDias = Math.ceil(diferenciaTiempo / (1000 * 60 * 60 * 24)) + 1;
 
                   for (let i = 0; i < totalDias; i++) {
                     const fechaActual = new Date(inicio);
@@ -475,8 +475,10 @@ useEffect(() => {
                                   <FontAwesome6 color={colors.primary} name={item.icon ?? "location-dot"} size={14} />
                                 </View>
                                 <View style={styles.agendaContent}>
-                                  <Text style={styles.agendaTime}>{item.time ?? item.Hora ?? "---"}</Text>
-                                  <Text style={styles.agendaTitle}>{item.title ?? item.Titulo}</Text>
+                                  <View style={styles.agendaHeaderRow}>
+                                    <Text style={styles.agendaTime}>{item.time ?? item.Hora ?? "---"}</Text>
+                                    <Text style={styles.agendaTitle}>{item.title ?? item.Titulo}</Text>
+                                  </View>
                                   {!!item.note || item.Notas ? (
                                     <Text style={styles.agendaNote}>{item.note ?? item.Notas}</Text>
                                   ) : null}
@@ -509,7 +511,7 @@ useEffect(() => {
               return (
                 <View style={styles.sectionCard}>
                   <Text style={styles.sectionHeading}>Fechas sin definir</Text>
-                  <Text style={styles.sectionCopy}>Establece las fechas de ida y vuelta para estructurar el cronograma.</Text>
+                  <Text style={styles.sectionCopy}>Establecé las fechas de ida y vuelta para estructurar el cronograma.</Text>
                 </View>
               );
             })()
@@ -586,7 +588,7 @@ useEffect(() => {
                 // Función interna para simular el envío del voto
                 const registrarVoto = () => {
                   if (opcionesElegidas.length === 0) {
-                    alert("Por favor, selecciona al menos una opción.");
+                    alert("Por favor, seleccioná al menos una opción.");
                     return;
                   }
                   
@@ -646,7 +648,7 @@ useEffect(() => {
                         <Text style={{ color: colors.success, fontWeight: '600', fontSize: 13 }}>✓ Ya registraste tu voto en esta decisión grupal.</Text>
                       ) : (
                         <PrimaryButton
-                          label="Confirmar Voto"
+                          label="Confirmar voto"
                           onPress={registrarVoto}
                           style={{ marginTop: 5 }}
                         />
@@ -852,16 +854,20 @@ const styles = StyleSheet.create({
   agendaContent: {
     flex: 1,
   },
+  agendaHeaderRow: {
+  flexDirection: "row",
+  alignItems: "center",
+  gap: spacing.xs,
+},
   agendaTime: {
     ...textStyles.meta,
     color: colors.textSecondary,
   },
   agendaTitle: {
-    ...textStyles.bodyStrong,
-    color: colors.primary,
-    fontSize: 17,
-    marginTop: spacing.xxs,
-  },
+  ...textStyles.bodyStrong,
+  color: colors.primary,
+  fontSize: 17,
+},
   agendaNote: {
     ...textStyles.body,
     color: colors.textSecondary,

@@ -88,7 +88,7 @@ export default function AddActivityScreen({ visible, onClose, onSubmit, dayLabel
 
                         <View style={styles.row}>
                             <View style={styles.timeField}>
-                                <Text style={styles.label}>Hora inicio</Text>
+                                <Text style={styles.label}>Hora de inicio</Text>
                                 <TextInput
                                     onChangeText={setHoraInicio}
                                     placeholder="10:00"
@@ -99,7 +99,7 @@ export default function AddActivityScreen({ visible, onClose, onSubmit, dayLabel
                                 />
                             </View>
                             <View style={styles.timeField}>
-                                <Text style={styles.label}>Hora fin</Text>
+                                <Text style={styles.label}>Hora de fin</Text>
                                 <TextInput
                                     onChangeText={setHoraFin}
                                     placeholder="12:00"
@@ -115,7 +115,7 @@ export default function AddActivityScreen({ visible, onClose, onSubmit, dayLabel
                         <TextInput
                             multiline
                             onChangeText={setDescripcion}
-                            placeholder="Detalle del traslado, excursión o evento"
+                            placeholder="Detalle del traslado, excursión o evento."
                             placeholderTextColor={colors.textMuted}
                             style={[styles.input, styles.inputMultiline]}
                             value={descripcion}
@@ -170,6 +170,7 @@ const styles = StyleSheet.create({
     },
     label: {
         ...textStyles.label,
+        textTransform: "none",
         color: colors.primary,
         marginTop: spacing.md,
         marginBottom: spacing.xs,
