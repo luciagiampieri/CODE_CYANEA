@@ -1,6 +1,7 @@
 from datetime import datetime, timedelta, date
 import logging
 from secrets import token_urlsafe
+from urllib import response
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 import httpx
@@ -261,7 +262,7 @@ def respond_to_invitation(
 @router.get("/search")
 async def search_destinos(q: str = Query(..., min_length=2)):
     params = {
-        "text": q,
+        "q": q,
         "access_token": settings.mapbox_access_token,
         "language": "es",
         "limit": 5,
@@ -273,11 +274,22 @@ async def search_destinos(q: str = Query(..., min_length=2)):
         response.raise_for_status()
         data = response.json() 
 
+    vistos = set()
     resultados = []
 
     for feature in data.get("features", []):
         props = feature.get("properties", {})
         coords = feature.get("geometry", {}).get("coordinates", [])
+
+        name = props.get("name")
+        country = props.get("context", {}).get("country", {}).get("name")
+
+        clave_unica = (name, country)
+
+        if clave_unica in vistos:
+            continue
+
+        vistos.add(clave_unica)
 
         resultados.append({
             "name": props.get("name"),
