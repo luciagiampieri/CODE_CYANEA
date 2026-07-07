@@ -86,11 +86,22 @@ export default function RegisterScreen({ navigation }) {
           aceptaTerminos: form.aceptaTerminos,
         }),
       });
+      
       const data = await res.json();
+      
       if (!res.ok) {
+        if (res.status === 422 && data.detail && Array.isArray(data.detail)) {
+          const emailError = data.detail.find(err => err.loc && err.loc.includes("email"));
+          if (emailError) {
+            setErrors({ general: "El formato del correo no es válido o usa un dominio no permitido." });
+            return;
+          }
+        }
+        
         setErrors({ general: data.detail ?? "Error al registrarse." });
         return;
       }
+      
       navigation.replace("RegistrationSuccess", { email: form.email });
     } catch {
       setErrors({ general: "No se pudo conectar con el servidor." });
@@ -179,7 +190,9 @@ export default function RegisterScreen({ navigation }) {
               {errors.general ? (
                 <View style={styles.errorBox}>
                   <FontAwesome6 color={colors.danger} name="circle-exclamation" size={14} />
-                  <Text style={styles.errorText}>{errors.general}</Text>
+                  <Text style={styles.errorText}>
+                    {typeof errors.general === 'object' ? JSON.stringify(errors.general) : String(errors.general)}
+                  </Text>
                 </View>
               ) : null}
 
@@ -220,7 +233,7 @@ function Field({ label, error, rightIcon, onPressRightIcon, ...props }) {
           </Pressable>
         ) : null}
       </View>
-      {error ? <Text style={styles.fieldError}>{error}</Text> : null}
+      {error ? <Text style={styles.fieldError}>{String(error)}</Text> : null}
     </View>
   );
 }
@@ -389,7 +402,7 @@ const styles = StyleSheet.create({
     fontWeight: "700",
   },
   buttonPressed: {
-    transform: [{ scale: 0.985 }],
+    opacity: 0.85,
   },
   buttonDisabled: {
     opacity: 0.7,

@@ -20,6 +20,8 @@ dependencies = [
   "python-multipart>=0.0.9",
   "sqlalchemy>=2.0.32",
   "uvicorn[standard]>=0.30.6",
+  "httpx",
+  "pycountry"
 ]
 
 [project.optional-dependencies]
