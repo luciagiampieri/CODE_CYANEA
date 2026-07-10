@@ -176,6 +176,32 @@ class TripCreate(BaseModel):
         return self
 
 
+class TripUpdate(BaseModel):
+    title: str = Field(..., min_length=1, max_length=150, description="El nombre del viaje no puede quedar vacío")
+    description: str | None = None
+    startDate: date
+    endDate: date
+    destinations: list[DestinationCreate]
+
+    @field_validator("destinations")
+    @classmethod
+    def validate_destinations(cls, value):
+        if not value:
+            raise ValueError("El viaje debe mantener al menos un destino asignado")
+        return value
+
+    @model_validator(mode="after")
+    def validate_dates(self):
+        if self.endDate < self.startDate:
+            raise ValueError("La fecha de finalización debe ser posterior o igual a la fecha de inicio")
+        return self
+
+
+class TripUpdateResponse(BaseModel):
+    message: str
+    trip: TripDetailRead
+
+
 class InvitationResponse(BaseModel):
     decision: str = Field(..., description="La decisión del usuario: 'aceptar' o 'rechazar'")
 

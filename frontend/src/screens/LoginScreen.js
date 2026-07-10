@@ -63,7 +63,12 @@ export default function LoginScreen({ navigation }) {
       const { access_token } = await loginUser(email.trim().toLowerCase(), password);
       await login(access_token);
     } catch (err) {
-      setError(err.message || "Error al iniciar sesión.");
+      const message = err?.message || "";
+      const isNetworkError =
+        message.toLowerCase().includes("failed to fetch") ||
+        message.toLowerCase().includes("network request failed");
+
+      setError(isNetworkError ? "No se pudo conectar con el servidor. Intentá de nuevo." : message || "Error al iniciar sesión.");
     } finally {
       setLoading(false);
     }

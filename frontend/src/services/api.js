@@ -90,6 +90,18 @@ export async function getTripDetail(tripId) {
   return parseResponse(response, "No se pudo obtener el detalle del viaje");
 }
 
+export async function updateTrip(tripId, payload) {
+  const response = await fetch(`${API_BASE_URL}/trips/${tripId}`, {
+    method: "PUT",
+    headers: {
+      ...(await authHeaders()),
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+  return parseResponse(response, "No se pudieron guardar los cambios del viaje");
+}
+
 export async function addTripParticipant(tripId, payload) {
   const response = await fetch(`${API_BASE_URL}/trips/${tripId}/participants`, {
     method: "POST",

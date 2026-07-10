@@ -313,7 +313,7 @@ export default function CreateTripScreen({ navigation }) {
 
             <Text style={styles.heroEyebrow}>Planificación colaborativa</Text>
             <Text style={styles.heroTitle}>Nuevo Viaje</Text>
-            <Text style={styles.heroCopy}>Define destino, fechas y participantes en un solo flujo.</Text>
+            <Text style={styles.heroCopy}>Organizá tu próxima aventura en equipo.</Text>
           </View>
 
           <View style={styles.body}>
@@ -361,6 +361,7 @@ export default function CreateTripScreen({ navigation }) {
                       value={destinationSearch}
                       onChangeText={setDestinationSearch}
                       placeholder="Ej: Córdoba, Bariloche, Chile..."
+                      placeholderTextColor={colors.textMuted}
                       style={styles.input}
                     />
 

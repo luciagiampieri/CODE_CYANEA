@@ -10,9 +10,10 @@ INSERT INTO public."Usuarios" (
     "Nombre",
     "Apellido",
     "NombreUsuario",
-    "HashedPassword", 
+    "HashedPassword",
     "FotoUrl",
-    "Activo"
+    "Activo",
+    "EmailConfirmado"
 )
 SELECT
     datos."Email",
@@ -21,15 +22,16 @@ SELECT
     datos."NombreUsuario",
     datos."HashedPassword",
     datos."FotoUrl",
-    datos."Activo"
+    datos."Activo",
+    datos."EmailConfirmado"
 FROM (
     VALUES
-        ('luciano@cyanea.local', 'Luciano', 'Correa', 'luciano', 'Test@', NULL, TRUE),
-        ('fatima@cyanea.local', 'Fatima', 'Chialva', 'fatima', 'test123', NULL, TRUE),
-        ('andrea@cyanea.local', 'Ticiana', 'Gatica', 'andrea', 'test123', NULL, TRUE),
-        ('lucia@cyanea.local', 'Lucia', 'Giampieri', 'lucia', 'test123', NULL, TRUE),
-        ('candela@cyanea.local', 'Candela', 'Paez', 'candela', 'test123', NULL, TRUE)
-) AS datos("Email", "Nombre", "Apellido", "NombreUsuario", "HashedPassword", "FotoUrl", "Activo")
+        ('luciano@cyanea.local', 'Luciano', 'Correa', 'luciano', '$2b$12$CiCgb6dztiAFNBRxr9zGpeY1gyw3giI8.AicUkAbtMkPisYr7WtlG', NULL, TRUE, TRUE),
+        ('fatima@cyanea.local', 'Fatima', 'Chialva', 'fatima', '$2b$12$6TvgLlpeykCxhSX30wLOpuNch/MjNahz2U4OTbzggWTwfPcyfcCce', NULL, TRUE, TRUE),
+        ('andrea@cyanea.local', 'Ticiana', 'Gatica', 'andrea', '$2b$12$6TvgLlpeykCxhSX30wLOpuNch/MjNahz2U4OTbzggWTwfPcyfcCce', NULL, TRUE, TRUE),
+        ('lucia@cyanea.local', 'Lucia', 'Giampieri', 'lucia', '$2b$12$6TvgLlpeykCxhSX30wLOpuNch/MjNahz2U4OTbzggWTwfPcyfcCce', NULL, TRUE, TRUE),
+        ('candela@cyanea.local', 'Candela', 'Paez', 'candela', '$2b$12$6TvgLlpeykCxhSX30wLOpuNch/MjNahz2U4OTbzggWTwfPcyfcCce', NULL, TRUE, TRUE)
+) AS datos("Email", "Nombre", "Apellido", "NombreUsuario", "HashedPassword", "FotoUrl", "Activo", "EmailConfirmado")
 WHERE NOT EXISTS (
     SELECT 1
     FROM public."Usuarios" u
@@ -38,7 +40,6 @@ WHERE NOT EXISTS (
 
 INSERT INTO public."Viajes" (
     "Titulo",
-    "Destino",
     "Descripcion",
     "FechaInicio",
     "FechaFin",
@@ -48,7 +49,6 @@ INSERT INTO public."Viajes" (
 )
 SELECT
     'Escapada a Cordoba',
-    'Cordoba',
     'Viaje semilla para pruebas del MVP de participantes.',
     DATE '2026-07-18',
     DATE '2026-07-21',
@@ -63,6 +63,26 @@ WHERE u."Email" = 'luciano@cyanea.local'
         SELECT 1
         FROM public."Viajes" v
         WHERE v."Titulo" = 'Escapada a Cordoba'
+    );
+
+INSERT INTO public."Destinos" ("Nombre", "Pais", "Lat", "Lng")
+SELECT 'Cordoba', 'Argentina', -31.4201, -64.1888
+WHERE NOT EXISTS (
+    SELECT 1
+    FROM public."Destinos" d
+    WHERE d."Nombre" = 'Cordoba' AND d."Pais" = 'Argentina'
+);
+
+INSERT INTO public."DestinosViajes" ("IdViaje", "IdDestino")
+SELECT v."IdViaje", d."IdDestino"
+FROM public."Viajes" v
+JOIN public."Destinos" d
+    ON d."Nombre" = 'Cordoba' AND d."Pais" = 'Argentina'
+WHERE v."Titulo" = 'Escapada a Cordoba'
+    AND NOT EXISTS (
+        SELECT 1
+        FROM public."DestinosViajes" dv
+        WHERE dv."IdViaje" = v."IdViaje" AND dv."IdDestino" = d."IdDestino"
     );
 
 INSERT INTO public."DiasCronogramas" ("IdViaje", "Fecha", "IndiceDia")

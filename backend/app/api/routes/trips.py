@@ -1,3 +1,4 @@
+from calendar import monthrange
 from datetime import datetime, timedelta, date
 import logging
 from secrets import token_urlsafe
@@ -35,6 +36,8 @@ from app.schemas.trip import (
     TripParticipantRead,
     TripRead,
     TripParticipantUpsert,
+    TripUpdate,
+    TripUpdateResponse,
     InvitationResponse,
     DestinationRead,
 )
@@ -80,6 +83,15 @@ def _require_trip_access(viaje: Viaje | None, current_user: Usuario) -> Viaje:
             detail="No tienes permisos para ver este viaje",
         )
     return viaje
+
+
+def _add_one_month(fecha: date) -> date:
+    """Suma un mes calendario a una fecha, ajustando meses de distinta longitud
+    (ej. 31 de enero + 1 mes -> 28 o 29 de febrero)."""
+    year = fecha.year + (1 if fecha.month == 12 else 0)
+    month = 1 if fecha.month == 12 else fecha.month + 1
+    day = min(fecha.day, monthrange(year, month)[1])
+    return date(year, month, day)
 
 
 def _require_trip_admin(viaje: Viaje, current_user: Usuario) -> None:
@@ -166,7 +178,6 @@ def get_pending_invitations(
     current_user: Usuario = Depends(get_current_user)
 ):
     
-    # Retorna todas las invitaciones a viajes que el usuario autenticado tiene en estado 'invitado'.
     participaciones = db.scalars(
         select(ParticipanteViaje)
         .join(ParticipanteViaje.EstadoParticipacion)
@@ -203,7 +214,6 @@ def respond_to_invitation(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user)
 ):
-    #Permite aceptar o rechazar una invitación a un viaje.
     decision = payload.decision 
 
     participacion = db.scalar(
@@ -374,6 +384,129 @@ def get_trip_detail(
 ) -> TripDetailRead:
     viaje = _require_trip_access(_get_trip_with_relations(db, trip_id), current_user)
     return _build_trip_detail(viaje)
+
+
+@router.put("/{trip_id}", response_model=TripUpdateResponse)
+def update_trip(
+    trip_id: int,
+    payload: TripUpdate,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> TripUpdateResponse:
+    viaje = _require_trip_access(_get_trip_with_relations(db, trip_id), current_user)
+    _require_trip_admin(viaje, current_user)
+
+    limite_edicion = _add_one_month(viaje.FechaFin)
+    if date.today() > limite_edicion:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="El plazo para editar la información general de este viaje ha vencido",
+        )
+
+
+    viaje_ya_comenzo = viaje.FechaInicio <= date.today()
+
+    if viaje_ya_comenzo:
+        if payload.startDate != viaje.FechaInicio:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="No se puede modificar la fecha de inicio de un viaje que ya comenzó",
+            )
+    else:
+        if payload.startDate < date.today():
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="La fecha de inicio debe ser igual o posterior a la fecha actual",
+            )
+
+
+    dias_afectados = [
+        dia for dia in viaje.Cronograma
+        if dia.Fecha < payload.startDate or dia.Fecha > payload.endDate
+    ]
+    dias_con_actividades = [dia for dia in dias_afectados if dia.Actividades]
+    if dias_con_actividades:
+        fechas_conflicto = ", ".join(dia.Fecha.isoformat() for dia in dias_con_actividades)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                "No se puede modificar el rango de fechas: hay actividades cargadas "
+                f"en días que quedarían fuera del nuevo rango ({fechas_conflicto}). "
+                "Eliminá esas actividades antes de achicar las fechas del viaje."
+            ),
+        )
+
+    viaje.Titulo = payload.title.strip()
+    viaje.Descripcion = payload.description.strip() if payload.description else None
+    viaje.FechaInicio = payload.startDate
+    viaje.FechaFin = payload.endDate
+
+    destinos_actuales_por_clave = {
+        (rel.Destino.Nombre, rel.Destino.Pais): rel for rel in viaje.Destinos
+    }
+    claves_nuevas = {(d.name, d.country) for d in payload.destinations}
+
+    for clave, rel in list(destinos_actuales_por_clave.items()):
+        if clave not in claves_nuevas:
+            db.delete(rel)
+
+    for destino_data in payload.destinations:
+        clave = (destino_data.name, destino_data.country)
+        if clave in destinos_actuales_por_clave:
+            continue
+
+        destino = db.scalar(
+            select(Destino).where(
+                Destino.Nombre == destino_data.name,
+                Destino.Pais == destino_data.country,
+            )
+        )
+        if destino is None:
+            destino = Destino(
+                Nombre=destino_data.name,
+                Pais=destino_data.country,
+                Lat=destino_data.lat,
+                Lng=destino_data.lng,
+            )
+            db.add(destino)
+            db.flush()
+
+        db.add(DestinoViaje(IdViaje=viaje.IdViaje, IdDestino=destino.IdDestino))
+
+    db.flush()
+
+    for dia in dias_afectados:
+        db.delete(dia)
+    db.flush()
+
+    fechas_existentes = {
+        dia.Fecha
+        for dia in viaje.Cronograma
+        if payload.startDate <= dia.Fecha <= payload.endDate
+    }
+    fecha_actual = payload.startDate
+    while fecha_actual <= payload.endDate:
+        if fecha_actual not in fechas_existentes:
+            db.add(DiaCronograma(IdViaje=viaje.IdViaje, Fecha=fecha_actual, IndiceDia=1))
+        fecha_actual += timedelta(days=1)
+    db.flush()
+
+    dias_ordenados = db.scalars(
+        select(DiaCronograma)
+        .where(DiaCronograma.IdViaje == viaje.IdViaje)
+        .order_by(DiaCronograma.Fecha)
+    ).all()
+    for indice, dia in enumerate(dias_ordenados, start=1):
+        dia.IndiceDia = indice
+
+    db.commit()
+
+    viaje_actualizado = _get_trip_with_relations(db, trip_id)
+    return TripUpdateResponse(
+        message="Los cambios se guardaron correctamente.",
+        trip=_build_trip_detail(viaje_actualizado),
+    )
+
 
 @router.post(
     "/{trip_id}/days/{day_id}/activities",
@@ -858,4 +991,3 @@ def create_trip(
         participants=[admin_data],
         invitedEmails=list(emails_invitados),
     )
-

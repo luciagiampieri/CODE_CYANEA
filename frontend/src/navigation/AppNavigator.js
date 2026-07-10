@@ -4,6 +4,7 @@ import { ActivityIndicator, View } from "react-native";
 import { useAuth } from "../context/AuthContext";
 import MainTabs from "./MainTabs";
 import CreateTripScreen from "../screens/CreateTripScreen";
+import EditTripScreen from "../screens/EditTripScreen";
 import LoginScreen from "../screens/LoginScreen";
 import { colors } from "../theme/tokens";
 import RegisterScreen from "../screens/RegisterScreen";
@@ -77,6 +78,15 @@ export default function AppNavigator() {
             name="NuevoViaje"
             component={CreateTripScreen}
             options={{ headerShown: false }}
+          />
+          <Stack.Screen
+            name="EditarViaje"
+            component={EditTripScreen}
+            options={{
+              headerShown: false,
+              gestureEnabled: true,
+              animation: "slide_from_right",
+            }}
           />
           <Stack.Screen
             name="TripDetail"

@@ -23,7 +23,7 @@ export default function AvatarStack({ participants = [], max = 4, size = 30, ove
         </View>
       ))}
 
-      {(overflow > 0 || overflowLabel) && (
+      {Boolean(overflow > 0 || overflowLabel) && (
         <View
           style={[
             styles.overflow,
@@ -35,7 +35,7 @@ export default function AvatarStack({ participants = [], max = 4, size = 30, ove
             },
           ]}
         >
-          <Text style={styles.overflowText}>{overflowLabel ?? `+${overflow}`}</Text>
+          <Text style={styles.overflowText}>{overflowLabel || `+${overflow}`}</Text>
         </View>
       )}
     </View>

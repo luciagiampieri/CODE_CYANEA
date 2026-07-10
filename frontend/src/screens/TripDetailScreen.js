@@ -19,6 +19,7 @@ import IconCircleButton from "../components/ui/IconCircleButton";
 import PrimaryButton from "../components/ui/PrimaryButton";
 import {
   addTripParticipant,
+  getCurrentUser,
   getTripDetail,
   getUsers,
   removeTripExternalInvitation,
@@ -84,10 +85,15 @@ const tabs = [
 
 function normalizeTrip(raw) {
   if (!raw) return null;
+  const destinationNames =
+    Array.isArray(raw.destinations) && raw.destinations.length > 0
+      ? raw.destinations.map((d) => d.name ?? d.Nombre).filter(Boolean).join(", ")
+      : raw.destination ?? raw.Destino ?? "Destino";
+
   return {
     id: raw.id ?? raw.IdViaje ?? null,
     title: raw.title ?? raw.Titulo ?? "Viaje sin nombre",
-    destination: raw.destination ?? raw.Destino ?? "Destino",
+    destination: destinationNames,
     description: raw.description ?? raw.Descripcion ?? "",
     status: (raw.status ?? raw.Estado ?? "activo").toLowerCase(),
     currency: raw.currency ?? raw.Moneda ?? "EUR",
@@ -148,6 +154,19 @@ export default function TripDetailScreen({ navigation, route }) {
   const [mutatingParticipants, setMutatingParticipants] = useState(false);
   const [participantMessage, setParticipantMessage] = useState("");
   const [activityModalDay, setActivityModalDay] = useState(null);
+  const [currentUser, setCurrentUser] = useState(null);
+
+  useEffect(() => {
+    async function loadCurrentUser() {
+      try {
+        const me = await getCurrentUser();
+        setCurrentUser(me);
+      } catch {
+        setCurrentUser(null);
+      }
+    }
+    loadCurrentUser();
+  }, []);
 
   // US "Crear votación": al volver desde la pantalla de creación con una
   // votación nueva, la mostramos arriba de la lista (no toca el resto).
@@ -186,6 +205,13 @@ export default function TripDetailScreen({ navigation, route }) {
   useEffect(() => {
     loadTripDetail();
   }, [initialTrip?.id]);
+
+  useEffect(() => {
+    const unsubscribe = navigation.addListener("focus", () => {
+      loadTripDetail();
+    });
+    return unsubscribe;
+  }, [navigation, initialTrip?.id]);
 
   useEffect(() => {
     if (!trip) return;
@@ -237,6 +263,11 @@ useEffect(() => {
   }, [trip?.id]);
 
   const normalizedSearch = participantSearch.trim().toLowerCase();
+
+  const isAdmin = useMemo(() => {
+    if (!currentUser || !trip?.admin) return false;
+    return currentUser.id === trip.admin.id;
+  }, [currentUser, trip?.admin]);
 
   const selectableUsers = useMemo(() => {
     if (!trip) return [];
@@ -356,7 +387,15 @@ useEffect(() => {
           <LinearGradient colors={["rgba(4,16,36,0.15)", "rgba(9,19,45,0.82)"]} style={styles.heroGradient}>
             <View style={styles.heroActions}>
               <IconCircleButton icon="arrow-left" onPress={() => navigation.goBack()} />
-              <IconCircleButton icon="ellipsis-vertical" onPress={() => {}} />
+              <View style={styles.heroActionsRight}>
+                {isAdmin ? (
+                  <IconCircleButton
+                    icon="pen-to-square"
+                    onPress={() => navigation.navigate("EditarViaje", { tripId: trip.id })}
+                  />
+                ) : null}
+                <IconCircleButton icon="ellipsis-vertical" onPress={() => {}} />
+              </View>
             </View>
 
             <View style={styles.heroContent}>
@@ -717,6 +756,11 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
+  },
+  heroActionsRight: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
   },
   heroContent: {
     marginTop: spacing.xxxl,
