@@ -16,13 +16,15 @@ from app.core.security import (
 )
 from app.db.session import get_db
 from app.models.usuario import Usuario
-from app.schemas.auth import LoginRequest, TokenResponse
+from app.schemas.auth import GoogleLoginRequest, LoginRequest, TokenResponse
 from app.schemas.usuario import UsuarioRegister, UsuarioRegisterResponse
+from app.services.auth.google_auth_service import GoogleAuthService
 from app.services.mail import get_mail_service
 from app.services.mail.service import MailService
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+google_auth_service = GoogleAuthService()
 
 
 # POST /auth/register 
@@ -167,5 +169,24 @@ def login(payload: LoginRequest, db: Session = Depends(get_db)) -> TokenResponse
     )
 
     logger.info("Login exitoso", extra={"user_id": usuario.IdUsuario})
+    return TokenResponse(access_token=token)
+
+
+@router.post("/google", response_model=TokenResponse)
+def login_with_google(
+    payload: GoogleLoginRequest,
+    db: Session = Depends(get_db),
+) -> TokenResponse:
+    identity = google_auth_service.verify_id_token(payload.idToken)
+    usuario = google_auth_service.resolve_or_create_user(db, identity)
+
+    if not usuario.Activo:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="La cuenta no se encuentra habilitada",
+        )
+
+    token = create_access_token({"sub": usuario.Email, "user_id": usuario.IdUsuario})
+    logger.info("Login con Google exitoso", extra={"user_id": usuario.IdUsuario})
     return TokenResponse(access_token=token)
 

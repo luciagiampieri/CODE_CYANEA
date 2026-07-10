@@ -1,5 +1,7 @@
 import { FontAwesome6 } from "@expo/vector-icons";
-import { useState } from "react";
+import * as Google from "expo-auth-session/providers/google";
+import * as WebBrowser from "expo-web-browser";
+import { useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Image,
@@ -14,7 +16,7 @@ import {
 } from "react-native";
 
 import { useAuth } from "../context/AuthContext";
-import { loginUser } from "../services/api";
+import { loginUser, loginWithGoogle } from "../services/api";
 import AuthSwitch from "../components/ui/AuthSwitch";
 import {
   colors,
@@ -26,13 +28,28 @@ import {
 
 import CyaneaLogo from "../../assets/cyanea_logo_manteca.png";
 
+WebBrowser.maybeCompleteAuthSession();
+
 export default function LoginScreen({ navigation }) {
   const { login } = useAuth();
+  const handledGoogleResponse = useRef(null);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [googleLoading, setGoogleLoading] = useState(false);
+  const [request, response, promptAsync] = Google.useIdTokenAuthRequest({
+    webClientId: process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID,
+    androidClientId: process.env.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID,
+    iosClientId: process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID,
+  });
+
+  const googleAuthAvailable = Boolean(
+    process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID ||
+      process.env.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID ||
+      process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID
+  );
 
   async function handleLogin() {
     setError(null);
@@ -51,6 +68,88 @@ export default function LoginScreen({ navigation }) {
       setLoading(false);
     }
   }
+
+  async function handleGooglePress() {
+    setError(null);
+    if (!googleAuthAvailable) {
+      setError("Falta configurar el acceso con Google para este entorno.");
+      return;
+    }
+
+    if (!request) {
+      setError("Google todavia no esta listo para iniciar sesion.");
+      return;
+    }
+
+    setGoogleLoading(true);
+    try {
+      handledGoogleResponse.current = null;
+      await promptAsync();
+    } catch (err) {
+      setError("No se pudo iniciar el flujo de Google.");
+      setGoogleLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    if (!response?.type) return;
+
+    console.log("Google auth response", {
+      type: response.type,
+      params: response.params,
+      authentication: response.authentication,
+      error: response.error,
+      url: response.url,
+    });
+
+    const responseKey = JSON.stringify({
+      type: response.type,
+      params: response.params,
+    });
+
+    if (handledGoogleResponse.current === responseKey) {
+      return;
+    }
+    handledGoogleResponse.current = responseKey;
+
+    if (response.type === "success") {
+      const googleToken =
+        response.params?.id_token ??
+        response.authentication?.idToken ??
+        response.params?.access_token ??
+        response.authentication?.accessToken;
+      console.log("Google token selected", {
+        hasParamsIdToken: Boolean(response.params?.id_token),
+        hasAuthenticationIdToken: Boolean(response.authentication?.idToken),
+        hasParamsAccessToken: Boolean(response.params?.access_token),
+        hasAuthenticationAccessToken: Boolean(response.authentication?.accessToken),
+        tokenPreview:
+          typeof googleToken === "string" ? `${googleToken.slice(0, 20)}...` : null,
+      });
+      if (!googleToken) {
+        setError("Google no devolvio un token valido.");
+        setGoogleLoading(false);
+        return;
+      }
+
+      (async () => {
+        try {
+          const { access_token } = await loginWithGoogle(googleToken);
+          await login(access_token);
+        } catch (err) {
+          setError(err.message || "No se pudo iniciar sesión con Google.");
+        } finally {
+          setGoogleLoading(false);
+        }
+      })();
+      return;
+    }
+
+    setGoogleLoading(false);
+    if (response.type !== "dismiss") {
+      setError("Se canceló o falló el inicio de sesión con Google.");
+    }
+  }, [googleLoading, login, response]);
 
   return (
     <View style={styles.screen}>
@@ -118,7 +217,7 @@ export default function LoginScreen({ navigation }) {
               </View>
 
               <View style={styles.socialRow}>
-                <SocialButton icon="G" label="Google" />
+                <SocialButton disabled={googleLoading} icon="G" label="Google" loading={googleLoading} onPress={handleGooglePress} />
                 <SocialButton apple label="Apple" />
               </View>
 
@@ -162,10 +261,12 @@ function Field({
   );
 }
 
-function SocialButton({ label, icon, apple = false }) {
+function SocialButton({ label, icon, apple = false, loading = false, onPress, disabled = false }) {
   return (
-    <Pressable style={({ pressed }) => [styles.socialButton, pressed && styles.buttonPressed]}>
-      {apple ? (
+    <Pressable disabled={disabled} onPress={onPress} style={({ pressed }) => [styles.socialButton, pressed && styles.buttonPressed, disabled && styles.buttonDisabled]}>
+      {loading ? (
+        <ActivityIndicator color={colors.primary} size="small" style={styles.socialIcon} />
+      ) : apple ? (
         <FontAwesome6 color={colors.textPrimary} name="apple" size={17} style={styles.socialIcon} />
       ) : (
         <Text style={styles.googleGlyph}>{icon}</Text>
