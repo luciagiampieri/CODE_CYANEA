@@ -281,8 +281,18 @@ async def search_destinos(q: str = Query(..., min_length=2)):
         props = feature.get("properties", {})
         coords = feature.get("geometry", {}).get("coordinates", [])
 
-        name = props.get("name")
-        country = props.get("context", {}).get("country", {}).get("name")
+        name = props.get("name") or props.get("full_address")
+        
+        context = props.get("context", {})
+        country = None
+        if isinstance(context, dict):
+            country = context.get("country", {}).get("name")
+        
+        if not country:
+            country = props.get("place_formatted", "").split(",")[-1].strip()
+
+        name = name or "Lugar desconocido"
+        country = country or "País desconocido"
 
         clave_unica = (name, country)
 
@@ -292,8 +302,8 @@ async def search_destinos(q: str = Query(..., min_length=2)):
         vistos.add(clave_unica)
 
         resultados.append({
-            "name": props.get("name"),
-            "country": props.get("context", {}).get("country", {}).get("name"),
+            "name": name,
+            "country": country,
             "lat": coords[1] if len(coords) == 2 else None,
             "lng": coords[0] if len(coords) == 2 else None,
         })
