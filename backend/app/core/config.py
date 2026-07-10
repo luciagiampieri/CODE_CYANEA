@@ -20,6 +20,12 @@ class Settings(BaseSettings):
     jwt_algorithm: str = "HS256"
     access_token_expire_minutes: int = 60 * 24  # 24 horas
 
+    # Google Auth
+    google_auth_enabled: bool = False
+    google_web_client_id: str | None = None
+    google_android_client_id: str | None = None
+    google_ios_client_id: str | None = None
+
     # Mail
     mail_enabled: bool = False
     mail_provider: str = "smtp"
@@ -49,6 +55,18 @@ class Settings(BaseSettings):
     @property
     def mail_templates_dir(self) -> Path:
         return Path(__file__).resolve().parents[1] / "templates" / "emails"
+
+    @property
+    def google_client_ids(self) -> list[str]:
+        return [
+            client_id
+            for client_id in [
+                self.google_web_client_id,
+                self.google_android_client_id,
+                self.google_ios_client_id,
+            ]
+            if client_id
+        ]
 
 
 @lru_cache

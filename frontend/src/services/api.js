@@ -67,6 +67,15 @@ export async function loginUser(email, password) {
   return parseResponse(response, "No se pudo iniciar sesión");
 }
 
+export async function loginWithGoogle(idToken) {
+  const response = await fetch(`${API_BASE_URL}/auth/google`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ idToken }),
+  });
+  return parseResponse(response, "No se pudo iniciar sesión con Google");
+}
+
 export async function getTrips() {
   const response = await fetch(`${API_BASE_URL}/trips`, {
     headers: await authHeaders(),

@@ -10,7 +10,16 @@ import sqlalchemy as sa
 
 
 def upgrade() -> None:
-    
+    op.execute(
+        sa.text(
+            """
+            UPDATE "Destinos"
+            SET "Pais" = 'No definido'
+            WHERE "Pais" IS NULL OR TRIM("Pais") = ''
+            """
+        )
+    )
+
     op.drop_column('Viajes', 'Destino')
 
     op.alter_column('Destinos', 'Pais',
