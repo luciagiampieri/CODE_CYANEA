@@ -76,6 +76,15 @@ export async function loginWithGoogle(idToken) {
   return parseResponse(response, "No se pudo iniciar sesión con Google");
 }
 
+export async function loginWithFacebook(accessToken) {
+  const response = await fetch(`${API_BASE_URL}/auth/facebook`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ accessToken }),
+  });
+  return parseResponse(response, "No se pudo iniciar sesión con Facebook");
+}
+
 export async function getTrips() {
   const response = await fetch(`${API_BASE_URL}/trips`, {
     headers: await authHeaders(),

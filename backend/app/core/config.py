@@ -26,6 +26,11 @@ class Settings(BaseSettings):
     google_android_client_id: str | None = None
     google_ios_client_id: str | None = None
 
+    # Facebook Auth
+    facebook_auth_enabled: bool = False
+    facebook_app_id: str | None = None
+    facebook_app_secret: str | None = None
+
     # Mail
     mail_enabled: bool = False
     mail_provider: str = "smtp"

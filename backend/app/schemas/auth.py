@@ -10,6 +10,10 @@ class GoogleLoginRequest(BaseModel):
     idToken: str
 
 
+class FacebookLoginRequest(BaseModel):
+    accessToken: str
+
+
 class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"

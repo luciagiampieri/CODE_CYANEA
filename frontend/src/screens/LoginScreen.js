@@ -1,4 +1,5 @@
 import { FontAwesome6 } from "@expo/vector-icons";
+import * as AuthSession from "expo-auth-session";
 import * as Google from "expo-auth-session/providers/google";
 import * as WebBrowser from "expo-web-browser";
 import { useEffect, useRef, useState } from "react";
@@ -16,7 +17,7 @@ import {
 } from "react-native";
 
 import { useAuth } from "../context/AuthContext";
-import { loginUser, loginWithGoogle } from "../services/api";
+import { loginUser, loginWithFacebook, loginWithGoogle } from "../services/api";
 import AuthSwitch from "../components/ui/AuthSwitch";
 import {
   colors,
@@ -30,26 +31,44 @@ import CyaneaLogo from "../../assets/cyanea_logo_manteca.png";
 
 WebBrowser.maybeCompleteAuthSession();
 
+const facebookDiscovery = {
+  authorizationEndpoint: "https://www.facebook.com/v19.0/dialog/oauth",
+};
+
 export default function LoginScreen({ navigation }) {
   const { login } = useAuth();
   const handledGoogleResponse = useRef(null);
+  const handledFacebookResponse = useRef(null);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
+  const [facebookLoading, setFacebookLoading] = useState(false);
   const [request, response, promptAsync] = Google.useIdTokenAuthRequest({
     webClientId: process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID,
     androidClientId: process.env.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID,
     iosClientId: process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID,
   });
+  const [fbRequest, fbResponse, promptFbAsync] = AuthSession.useAuthRequest(
+    {
+      clientId: process.env.EXPO_PUBLIC_FACEBOOK_APP_ID,
+      responseType: AuthSession.ResponseType.Token,
+      scopes: ["public_profile", "email"],
+      redirectUri: AuthSession.makeRedirectUri(),
+      usePKCE: false,
+    },
+    facebookDiscovery
+  );
 
   const googleAuthAvailable = Boolean(
     process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID ||
       process.env.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID ||
       process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID
   );
+
+  const facebookAuthAvailable = Boolean(process.env.EXPO_PUBLIC_FACEBOOK_APP_ID);
 
   async function handleLogin() {
     setError(null);
@@ -82,7 +101,7 @@ export default function LoginScreen({ navigation }) {
     }
 
     if (!request) {
-      setError("Google todavia no esta listo para iniciar sesion.");
+      setError("Google todavía no esta listo para iniciar sesión.");
       return;
     }
 
@@ -93,6 +112,28 @@ export default function LoginScreen({ navigation }) {
     } catch (err) {
       setError("No se pudo iniciar el flujo de Google.");
       setGoogleLoading(false);
+    }
+  }
+
+  async function handleFacebookPress() {
+    setError(null);
+    if (!facebookAuthAvailable) {
+      setError("Falta configurar el acceso con Facebook para este entorno.");
+      return;
+    }
+
+    if (!fbRequest) {
+      setError("Facebook todavía no esta listo para iniciar sesión.");
+      return;
+    }
+
+    setFacebookLoading(true);
+    try {
+      handledFacebookResponse.current = null;
+      await promptFbAsync();
+    } catch (err) {
+      setError("No se pudo iniciar el flujo de Facebook.");
+      setFacebookLoading(false);
     }
   }
 
@@ -132,7 +173,7 @@ export default function LoginScreen({ navigation }) {
           typeof googleToken === "string" ? `${googleToken.slice(0, 20)}...` : null,
       });
       if (!googleToken) {
-        setError("Google no devolvio un token valido.");
+        setError("Google no devolvio un token válido.");
         setGoogleLoading(false);
         return;
       }
@@ -155,6 +196,48 @@ export default function LoginScreen({ navigation }) {
       setError("Se canceló o falló el inicio de sesión con Google.");
     }
   }, [googleLoading, login, response]);
+
+  useEffect(() => {
+    if (!fbResponse?.type) return;
+
+    const responseKey = JSON.stringify({
+      type: fbResponse.type,
+      params: fbResponse.params,
+    });
+
+    if (handledFacebookResponse.current === responseKey) {
+      return;
+    }
+    handledFacebookResponse.current = responseKey;
+
+    if (fbResponse.type === "success") {
+      const facebookToken =
+        fbResponse.params?.access_token ?? fbResponse.authentication?.accessToken;
+
+      if (!facebookToken) {
+        setError("Facebook no devolvio un token válido.");
+        setFacebookLoading(false);
+        return;
+      }
+
+      (async () => {
+        try {
+          const { access_token } = await loginWithFacebook(facebookToken);
+          await login(access_token);
+        } catch (err) {
+          setError(err.message || "No se pudo iniciar sesión con Facebook.");
+        } finally {
+          setFacebookLoading(false);
+        }
+      })();
+      return;
+    }
+
+    setFacebookLoading(false);
+    if (fbResponse.type !== "dismiss") {
+      setError("Se canceló o falló el inicio de sesión con Facebook.");
+    }
+  }, [facebookLoading, login, fbResponse]);
 
   return (
     <View style={styles.screen}>
@@ -223,12 +306,19 @@ export default function LoginScreen({ navigation }) {
 
               <View style={styles.socialRow}>
                 <SocialButton disabled={googleLoading} icon="G" label="Google" loading={googleLoading} onPress={handleGooglePress} />
-                <SocialButton apple label="Apple" />
+                <SocialButton
+                  disabled={facebookLoading}
+                  iconName="facebook"
+                  iconColor="#1877F2"
+                  label="Facebook"
+                  loading={facebookLoading}
+                  onPress={handleFacebookPress}
+                />
               </View>
 
               <Pressable onPress={() => navigation.navigate("Register")} style={styles.registerLink}>
                 <Text style={styles.registerCopy}>
-                  ¿No tienes cuenta? <Text style={styles.registerStrong}>Regístrate</Text>
+                  ¿No tenés cuenta? <Text style={styles.registerStrong}>Regístrate</Text>
                 </Text>
               </Pressable>
             </View>
@@ -266,11 +356,22 @@ function Field({
   );
 }
 
-function SocialButton({ label, icon, apple = false, loading = false, onPress, disabled = false }) {
+function SocialButton({
+  label,
+  icon,
+  iconName,
+  iconColor,
+  apple = false,
+  loading = false,
+  onPress,
+  disabled = false,
+}) {
   return (
     <Pressable disabled={disabled} onPress={onPress} style={({ pressed }) => [styles.socialButton, pressed && styles.buttonPressed, disabled && styles.buttonDisabled]}>
       {loading ? (
         <ActivityIndicator color={colors.primary} size="small" style={styles.socialIcon} />
+      ) : iconName ? (
+        <FontAwesome6 color={iconColor || colors.textPrimary} name={iconName} size={17} style={styles.socialIcon} />
       ) : apple ? (
         <FontAwesome6 color={colors.textPrimary} name="apple" size={17} style={styles.socialIcon} />
       ) : (
@@ -322,7 +423,7 @@ const styles = StyleSheet.create({
     ...textStyles.brandTitle,
     color: colors.accent,
     fontSize: 36,
-    fontwight: "bold",
+    fontWeight: "bold",
   },
   brandClaim: {
     ...textStyles.sectionLabel,

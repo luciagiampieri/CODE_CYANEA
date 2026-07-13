@@ -16,15 +16,17 @@ from app.core.security import (
 )
 from app.db.session import get_db
 from app.models.usuario import Usuario
-from app.schemas.auth import GoogleLoginRequest, LoginRequest, TokenResponse
+from app.schemas.auth import GoogleLoginRequest, LoginRequest, TokenResponse, FacebookLoginRequest
 from app.schemas.usuario import UsuarioRegister, UsuarioRegisterResponse
 from app.services.auth.google_auth_service import GoogleAuthService
+from app.services.auth.facebook_auth_service import FacebookAuthService
 from app.services.mail import get_mail_service
 from app.services.mail.service import MailService
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
 google_auth_service = GoogleAuthService()
+facebook_auth_service = FacebookAuthService()
 
 
 # POST /auth/register 
@@ -190,3 +192,21 @@ def login_with_google(
     logger.info("Login con Google exitoso", extra={"user_id": usuario.IdUsuario})
     return TokenResponse(access_token=token)
 
+
+@router.post("/facebook", response_model=TokenResponse)
+def login_with_facebook(
+    payload: FacebookLoginRequest,
+    db: Session = Depends(get_db),
+) -> TokenResponse:
+    identity = facebook_auth_service.verify_access_token(payload.accessToken)
+    usuario = facebook_auth_service.resolve_existing_user(db, identity)
+
+    if not usuario.Activo:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="La cuenta no se encuentra habilitada",
+        )
+
+    token = create_access_token({"sub": usuario.Email, "user_id": usuario.IdUsuario})
+    logger.info("Login con Facebook exitoso", extra={"user_id": usuario.IdUsuario})
+    return TokenResponse(access_token=token)
