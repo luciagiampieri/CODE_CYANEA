@@ -479,6 +479,7 @@ useEffect(() => {
                     time: `${(act.horaInicio ?? act.HoraInicio)?.slice(0, 5)} - ${(act.horaFin ?? act.HoraFin)?.slice(0, 5)}`,
                     title: act.nombre ?? act.Nombre,
                     note: act.descripcion ?? act.Descripcion,
+                    icon: act.icono ?? act.Icono ?? "location-dot",
                   }));
                   const actividades = day.items ?? actividadesBackend;
                   const isExpanded = expandedDayId === dayId;
@@ -682,7 +683,7 @@ useEffect(() => {
 
                     <View style={{ marginTop: 15 }}>
                       {esCerrada ? (
-                        <Text style={{ color: colors.danger, fontWeight: '600', fontSize: 13 }}>⚠️ Esta votación cerró por alcanzar su fecha límite.</Text>
+                        <Text style={{ color: colors.danger, fontWeight: '600', fontSize: 13 }}>⚠️ Esta votación ha finalizado por fecha límite.</Text>
                       ) : votacion.YaVoto ? (
                         <Text style={{ color: colors.success, fontWeight: '600', fontSize: 13 }}>✓ Ya registraste tu voto en esta decisión grupal.</Text>
                       ) : (

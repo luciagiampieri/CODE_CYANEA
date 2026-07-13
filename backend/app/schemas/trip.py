@@ -11,6 +11,7 @@ class ActividadRead(BaseModel):
     descripcion: str | None = Field(None, alias="Descripcion")
     horaInicio: time_type = Field(..., alias="HoraInicio")
     horaFin: time_type = Field(..., alias="HoraFin")
+    icono: str = Field("location-dot", alias="Icono")
 
     class Config:
         from_attributes = True
@@ -22,6 +23,7 @@ class ActividadCreate(BaseModel):
     descripcion: str | None = None
     horaInicio: time_type
     horaFin: time_type
+    icono: str = Field(default="location-dot", max_length=50)
 
     @model_validator(mode="after")
     def validate_horarios(self):

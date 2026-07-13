@@ -530,7 +530,7 @@ def create_activity(
 
     )
     if dia is None:
-        raise HTTPException(status_code=404, detail="El día del cronograma no existe en este viaje")
+        raise HTTPException(status_code=404, detail="El día del cronograma no existe en este viaje.")
 
     actividad = ActividadItinerario(
         IdDiaCronograma=dia.IdDiaCronograma,
@@ -538,6 +538,7 @@ def create_activity(
         Descripcion=payload.descripcion.strip() if payload.descripcion else None,
         HoraInicio=payload.horaInicio,
         HoraFin=payload.horaFin,
+        Icono=payload.icono,
     )
     db.add(actividad)
     db.commit()

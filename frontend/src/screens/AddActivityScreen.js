@@ -1,9 +1,39 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { FontAwesome6 } from "@expo/vector-icons";
 
 import PrimaryButton from "../components/ui/PrimaryButton";
 import { colors, radii, spacing, textStyles } from "../theme/tokens";
+
+const ICON_OPTIONS = [
+    { name: "plane", label: "Vuelo" },
+    { name: "building", label: "Hotel" },
+    { name: "utensils", label: "Comida" },
+    { name: "camera", label: "Turismo" },
+    { name: "ticket", label: "Evento" },
+    { name: "car", label: "Traslado" },
+    { name: "person-hiking", label: "Excursión" },
+    { name: "location-dot", label: "Otro" },
+];
+
+const ICON_KEYWORDS = {
+    plane: ["vuelo", "avion", "avión", "aeropuerto", "embarque", "flight", "aterrizaje", "despegue", "boarding", "boarding pass", "aerolinea", "aerolínea", "airline", "gate", "escala", "conexion"],
+    building: ["hotel", "alojamiento", "hostel", "check-in", "check in", "check-out", "check out","hospedaje", "apartamento", "cabaña", "resort", "bnb", "dormir", "habitación", "recepción", "reserva", "booking", "hostería", "hospedería", "hostal", "airbnb"],
+    utensils: ["cena", "almuerzo", "desayuno", "comida", "restaurante", "brunch", "cafe", "café", "bar", "parrilla", "pizza", "gastronomia", "degustación", "fast food", "burger", "comedor", "cafetería", "cafeteria", "snack", "merienda", "tapas", "pub", "cerveza", "vino", "cocktail", "coctel", "drinks", "bebidas", "drink", "beverage", "cena romántica", "romantic dinner"],
+    camera: ["visita", "museo", "tour", "turismo", "paseo", "recorrido", "monumento", "catedral", "iglesia", "plaza", "galeria","shopping", "compras", "tienda", "exposición", "mirador", "foto", "histórico", "ruinas", "arquitectura", "cultural", "artístico", "artístico", "arte", "fotografía", "photography", "sightseeing", "landmark", "attraction", "city tour", "walking tour","parque", "jardín", "zoológico", "acuario", "planetario", "observatorio", "cultural center", "cultural centre", "cultural site", "guiada","guiado", "guía", "guide", "guided tour", "tour guide", "excursión guiada", "visita guiada"],
+    ticket: ["show", "teatro", "concierto", "evento", "espectaculo", "espectáculo", "partido", "cancha", "cine", "festival", "obra", "entrada", "recital", "ópera", "musical", "danza", "ballet", "performance", "ticket", "tickets", "entradas", "boletos", "boleto", "admisión", "admission", "pass", "passes", "conferencia", "charla", "workshop", "seminario", "exposición", "exhibition", "expo", "feria", "convention", "convención", "convocatoria"],
+    car: ["traslado", "taxi", "bus", "colectivo", "transporte", "uber", "remis", "transfer", "shuttle", "metro", "tren", "subte", "alquiler", "renta", "conducción", "puerto", "ferry", "estación", "terminal", "autobús", "camioneta", "van", "vehículo", "carro", "coche", "auto", "ride", "transportation", "commute", "ave"],
+    "person-hiking": ["excursion", "excursión", "senderismo", "trekking", "hiking", "caminata", "montaña", "playa","trek", "aventura", "naturaleza", "escalada", "ski", "buceo", "surf","nadar", "ski", "rafting", "kayak", "bosque","snorkel","yoga"],
+};
+
+function detectIcon(nombre) {
+    if (!nombre.trim()) return "location-dot";
+    const lower = nombre.toLowerCase();
+    for (const [icon, keywords] of Object.entries(ICON_KEYWORDS)) {
+        if (keywords.some((kw) => lower.includes(kw))) return icon;
+    }
+    return "location-dot";
+}
 
 function isValidTime(value) {
     return /^([01]\d|2[0-3]):([0-5]\d)$/.test(value);
@@ -14,15 +44,31 @@ export default function AddActivityScreen({ visible, onClose, onSubmit, dayLabel
     const [descripcion, setDescripcion] = useState("");
     const [horaInicio, setHoraInicio] = useState("");
     const [horaFin, setHoraFin] = useState("");
+    const [icono, setIcono] = useState("location-dot");
+    const [iconoModificadoManual, setIconoModificadoManual] = useState(false);
     const [error, setError] = useState("");
     const [submitting, setSubmitting] = useState(false);
     const [successMessage, setSuccessMessage] = useState("");
+
+  // Auto-detectar ícono mientras escribe, solo si el usuario no eligió uno manualmente
+    useEffect(() => {
+        if (!iconoModificadoManual) {
+            setIcono(detectIcon(nombre));
+        }
+    }, [nombre]);
+
+    function handleSelectIcon(iconName) {
+        setIcono(iconName);
+        setIconoModificadoManual(true);
+    }
 
     function resetAndClose() {
         setNombre("");
         setDescripcion("");
         setHoraInicio("");
         setHoraFin("");
+        setIcono("location-dot");
+        setIconoModificadoManual(false);
         setError("");
         setSuccessMessage("");
         onClose();
@@ -51,6 +97,7 @@ export default function AddActivityScreen({ visible, onClose, onSubmit, dayLabel
                 descripcion: descripcion.trim() || null,
                 horaInicio: `${horaInicio}:00`,
                 horaFin: `${horaFin}:00`,
+                icono,
             });
             setSuccessMessage("¡Actividad creada correctamente!");
             setTimeout(() => {
@@ -122,6 +169,32 @@ export default function AddActivityScreen({ visible, onClose, onSubmit, dayLabel
                             editable={!successMessage}
                         />
 
+                        <Text style={styles.label}>Ícono</Text>
+                        <Text style={styles.iconHint}>
+                            Detectado automáticamente. Seleccioná otro para cambiarlo.
+                        </Text>
+                        <View style={styles.iconGrid}>
+                            {ICON_OPTIONS.map((option) => {
+                                const selected = icono === option.name;
+                                return (
+                                    <Pressable
+                                        key={option.name}
+                                        onPress={() => !successMessage && handleSelectIcon(option.name)}
+                                        style={[styles.iconOption, selected && styles.iconOptionSelected]}
+                                    >
+                                        <FontAwesome6
+                                            color={selected ? colors.textInverse : colors.primary}
+                                            name={option.name}
+                                            size={18}
+                                        />
+                                        <Text style={[styles.iconLabel, selected && styles.iconLabelSelected]}>
+                                            {option.label}
+                                        </Text>
+                                    </Pressable>
+                                );
+                            })}
+                        </View>
+
                         {error ? <Text style={styles.error}>{error}</Text> : null}
                         {successMessage ? <Text style={styles.success}>{successMessage}</Text> : null}
 
@@ -174,6 +247,40 @@ const styles = StyleSheet.create({
         color: colors.primary,
         marginTop: spacing.md,
         marginBottom: spacing.xs,
+    },
+    iconHint: {
+        ...textStyles.meta,
+        color: colors.textSecondary,
+        marginBottom: spacing.sm,
+    },
+    iconGrid: {
+        flexDirection: "row",
+        flexWrap: "wrap",
+        gap: spacing.sm,
+    },
+    iconOption: {
+        alignItems: "center",
+        justifyContent: "center",
+        gap: spacing.xxs,
+        borderWidth: 1,
+        borderColor: colors.border,
+        borderRadius: radii.md,
+        backgroundColor: colors.surface,
+        paddingVertical: spacing.sm,
+        paddingHorizontal: spacing.md,
+        minWidth: 72,
+    },
+    iconOptionSelected: {
+        backgroundColor: colors.primary,
+        borderColor: colors.primary,
+    },
+    iconLabel: {
+        ...textStyles.meta,
+        fontSize: 11,
+        color: colors.primary,
+    },
+    iconLabelSelected: {
+        color: colors.textInverse,
     },
     input: {
         minHeight: 48,

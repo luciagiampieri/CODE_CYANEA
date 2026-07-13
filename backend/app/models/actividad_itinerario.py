@@ -25,6 +25,7 @@ class ActividadItinerario(Base):
     Descripcion: Mapped[str | None] = mapped_column(Text(), nullable=True)
     HoraInicio: Mapped[time] = mapped_column(Time(), nullable=False)
     HoraFin: Mapped[time] = mapped_column(Time(), nullable=False)
+    Icono: Mapped[str] = mapped_column(String(50), nullable=False, default="location-dot")
     FechaCreacion: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),
