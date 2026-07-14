@@ -1,4 +1,5 @@
 import logging
+import secrets
 from dataclasses import dataclass
 
 import httpx
@@ -8,6 +9,8 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.models.usuario import Usuario
+from app.core.security import hash_password
+
 
 logger = logging.getLogger(__name__)
 
@@ -111,13 +114,14 @@ class FacebookAuthService:
             picture=picture,
         )
 
+    """
     def resolve_existing_user(self, db: Session, identity: FacebookIdentity) -> Usuario:
-        """
+        
         Criterio de aceptación de la US: la cuenta de Facebook debe estar
         asociada a una cuenta existente en el sistema.
         Este método NO crea usuarios nuevos: si no encuentra una cuenta ya
         vinculada por FacebookId, la autenticación falla.
-        """
+        
         usuario = db.scalar(select(Usuario).where(Usuario.FacebookId == identity.id))
         if usuario:
             return self._sync_facebook_user(db, usuario, identity)
@@ -132,6 +136,7 @@ class FacebookAuthService:
             status_code=status.HTTP_404_NOT_FOUND,
             detail="La cuenta de Facebook no está asociada a ninguna cuenta existente en el sistema.",
         )
+    """
 
     def _sync_facebook_user(self, db: Session, usuario: Usuario, identity: FacebookIdentity) -> Usuario:
         changed = False
@@ -142,3 +147,125 @@ class FacebookAuthService:
             db.commit()
             db.refresh(usuario)
         return usuario
+    
+
+    def find_existing_user(self, db: Session, identity: FacebookIdentity) -> Usuario | None:
+
+        usuario = db.scalar(
+            select(Usuario).where(
+                Usuario.FacebookId == identity.id
+            )
+        )
+
+        if usuario:
+            return usuario
+
+
+        if identity.email:
+            usuario = db.scalar(
+                select(Usuario).where(
+                    Usuario.Email == identity.email
+                )
+            )
+
+        return usuario
+    
+
+    def _resolve_names(self, identity: FacebookIdentity) -> tuple[str, str]:
+
+        if identity.first_name and identity.last_name:
+            return (
+                identity.first_name,
+                identity.last_name
+            )
+
+        if identity.name:
+            parts = [
+                p for p in identity.name.split()
+                if p.strip()
+            ]
+
+            if len(parts) == 1:
+                return parts[0], ""
+
+            return (
+                parts[0],
+                " ".join(parts[1:])
+            )
+
+        local_part = identity.email.split("@",1)[0]
+
+        return local_part, ""
+    
+
+    def _build_unique_username(self, db: Session, identity: FacebookIdentity) -> str:
+
+        base = (
+            identity.email.split("@",1)[0]
+            .strip()
+            .lower()
+            .replace(".", "")
+            .replace(" ","")
+        )[:40] or "usuario"
+
+        candidate = base
+        suffix = 1
+
+        while db.scalar(
+            select(Usuario)
+            .where(
+                Usuario.NombreUsuario == candidate
+            )
+        ):
+            candidate = f"{base}{suffix}"
+            suffix += 1
+
+        return candidate
+
+    
+    def create_user_from_facebook(self, db: Session, identity: FacebookIdentity) -> Usuario:
+
+        if not identity.email:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="No se pudo obtener el correo electrónico del perfil de Facebook.",
+            )
+        
+        usuario = db.scalar(
+            select(Usuario).where(
+                Usuario.Email == identity.email
+            )
+        )
+
+        if usuario:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="El correo electrónico ya está registrado."
+            )
+
+        nombre, apellido = self._resolve_names(identity)
+
+        usuario = Usuario(
+            Nombre=nombre,
+            Apellido=apellido,
+            NombreUsuario=self._build_unique_username(
+                db,
+                identity
+            ),
+            Email=identity.email,
+            HashedPassword=hash_password(
+                secrets.token_urlsafe(24)
+            ),
+            FacebookId=identity.id,
+            ProveedorAutenticacion="facebook",
+            FotoUrl=identity.picture,
+            Activo=True,
+            EmailConfirmado=True,
+        )
+
+        db.add(usuario)
+        db.commit()
+        db.refresh(usuario)
+
+        return usuario
+        

@@ -1,0 +1,8 @@
+¡Bienvenido a Cyanea, {{ nombre }}!
+
+Tu cuenta fue creada correctamente.
+
+Ya podés comenzar a organizar tus viajes,
+compartir experiencias y planificar aventuras.
+
+¡Gracias por unirte a Cyanea!

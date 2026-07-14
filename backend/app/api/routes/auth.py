@@ -16,7 +16,7 @@ from app.core.security import (
 )
 from app.db.session import get_db
 from app.models.usuario import Usuario
-from app.schemas.auth import GoogleLoginRequest, LoginRequest, TokenResponse, FacebookLoginRequest
+from app.schemas.auth import GoogleLoginRequest, LoginRequest, TokenResponse, FacebookLoginRequest, FacebookRegisterRequest, FacebookAuthResponse
 from app.schemas.usuario import UsuarioRegister, UsuarioRegisterResponse
 from app.services.auth.google_auth_service import GoogleAuthService
 from app.services.auth.facebook_auth_service import FacebookAuthService
@@ -193,20 +193,108 @@ def login_with_google(
     return TokenResponse(access_token=token)
 
 
-@router.post("/facebook", response_model=TokenResponse)
-def login_with_facebook(
-    payload: FacebookLoginRequest,
-    db: Session = Depends(get_db),
-) -> TokenResponse:
-    identity = facebook_auth_service.verify_access_token(payload.accessToken)
-    usuario = facebook_auth_service.resolve_existing_user(db, identity)
+@router.post("/facebook", response_model=FacebookAuthResponse)
+def login_with_facebook(payload: FacebookLoginRequest, db: Session = Depends(get_db),) -> FacebookAuthResponse:
 
-    if not usuario.Activo:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="La cuenta no se encuentra habilitada",
+    identity = facebook_auth_service.verify_access_token(
+        payload.accessToken
+    )
+
+    usuario = facebook_auth_service.find_existing_user(
+        db,
+        identity
+    )
+
+    # Usuario existente → login normal
+    if usuario:
+
+        if not usuario.Activo:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="La cuenta no se encuentra habilitada",
+            )
+
+        token = create_access_token(
+            {
+                "sub": usuario.Email,
+                "user_id": usuario.IdUsuario
+            }
         )
 
-    token = create_access_token({"sub": usuario.Email, "user_id": usuario.IdUsuario})
-    logger.info("Login con Facebook exitoso", extra={"user_id": usuario.IdUsuario})
-    return TokenResponse(access_token=token)
+        logger.info(
+            "Login con Facebook exitoso",
+            extra={"user_id": usuario.IdUsuario}
+        )
+
+        return FacebookAuthResponse(
+            requiereRegistro=False,
+            access_token=token,
+        )
+
+    # Usuario nuevo → debe completar registro
+    logger.info(
+        "Usuario nuevo detectado con Facebook",
+        extra={"facebook_id": identity.id}
+    )
+
+    return FacebookAuthResponse(
+        requiereRegistro=True,
+        nombre=identity.first_name,
+        apellido=identity.last_name,
+        email=identity.email,
+        fotoUrl=identity.picture
+    )
+
+
+@router.post("/register/facebook", response_model=TokenResponse)
+def register_with_facebook(
+    payload: FacebookRegisterRequest,
+    db: Session = Depends(get_db),
+    mail_service: MailService = Depends(get_mail_service),
+) -> TokenResponse:
+
+    # Validar aceptación de términos
+    if not payload.aceptaTerminos:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Debés aceptar los términos y condiciones para registrarte.",
+        )
+
+    # Validar identidad de Facebook
+    identity = facebook_auth_service.verify_access_token(
+        payload.accessToken
+    )
+
+    # Crear usuario
+    usuario = facebook_auth_service.create_user_from_facebook(
+        db,
+        identity
+    )
+
+    # Enviar correo de bienvenida
+    mail_service.send_template(
+        to=[usuario.Email],
+        subject="Bienvenido a Cyanea",
+        template_name="welcome.html",
+        text_template_name="welcome.txt",
+        context={
+            "nombre": usuario.Nombre
+        },
+    )
+
+    # Crear sesión
+    token = create_access_token(
+        {
+            "sub": usuario.Email,
+            "user_id": usuario.IdUsuario
+        }
+    )
+
+    logger.info(
+        "Registro con Facebook exitoso",
+        extra={"user_id": usuario.IdUsuario}
+    )
+
+    return TokenResponse(
+        access_token=token
+    )

@@ -14,6 +14,7 @@ import TripDetailScreen from "../screens/TripDetailScreen";
 import AddGastoScreen from "../screens/AddGastoScreen";
 import InvitationsScreen from "../screens/InvitationsScreen";
 import CrearVotacionScreen from "../screens/CrearVotacionScreen";
+import FacebookRegisterScreen from "../screens/FacebookRegisterScreen";
 
 const Stack = createNativeStackNavigator();
 
@@ -54,6 +55,11 @@ export default function AppNavigator() {
           <Stack.Screen
             name="Register"
             component={RegisterScreen}
+            options={{ headerShown: false }}
+          />
+          <Stack.Screen
+            name="FacebookRegister"
+            component={FacebookRegisterScreen}
             options={{ headerShown: false }}
           />
           <Stack.Screen

@@ -222,8 +222,21 @@ export default function LoginScreen({ navigation }) {
 
       (async () => {
         try {
-          const { access_token } = await loginWithFacebook(facebookToken);
-          await login(access_token);
+          
+          const result = await loginWithFacebook(facebookToken);
+
+          if (!result.requiereRegistro) {
+            await login(result.access_token);
+            return;
+          }
+
+          navigation.navigate("FacebookRegister", {
+            accessToken: facebookToken,
+            nombre: result.nombre,
+            apellido: result.apellido,
+            email: result.email,
+            fotoUrl: result.fotoUrl,
+          });
         } catch (err) {
           setError(err.message || "No se pudo iniciar sesión con Facebook.");
         } finally {

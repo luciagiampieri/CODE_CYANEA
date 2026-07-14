@@ -85,6 +85,24 @@ export async function loginWithFacebook(accessToken) {
   return parseResponse(response, "No se pudo iniciar sesión con Facebook");
 }
 
+export async function registerWithFacebook(accessToken, aceptaTerminos) {
+  const response = await fetch(`${API_BASE_URL}/auth/register/facebook`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      accessToken,
+      aceptaTerminos,
+    }),
+  });
+
+  return parseResponse(
+    response,
+    "No se pudo completar el registro con Facebook"
+  );
+}
+
 export async function getTrips() {
   const response = await fetch(`${API_BASE_URL}/trips`, {
     headers: await authHeaders(),
