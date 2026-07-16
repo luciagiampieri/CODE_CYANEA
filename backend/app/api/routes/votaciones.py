@@ -94,7 +94,7 @@ def _build_votacion_read(
 
 # --- Crear votacion (US 'Crear votacion') ------------------------------------
 
-@router.post("/votaciones", response_model=VotacionRead, status_code=status.HTTP_201_CREATED)
+@router.post("", response_model=VotacionRead, status_code=status.HTTP_201_CREATED)
 def crear_votacion(
     payload: VotacionCreate,
     db: Session = Depends(get_db),
@@ -133,7 +133,7 @@ def crear_votacion(
     return _build_votacion_read(db, votacion, current_user.IdUsuario)
 
 
-@router.get("/votaciones", response_model=List[VotacionRead])
+@router.get("", response_model=List[VotacionRead]) # o "/"
 def listar_votaciones(
     idViaje: int = Query(..., description="Viaje del que se listan las votaciones"),
     db: Session = Depends(get_db),
@@ -222,39 +222,51 @@ def resultados_votacion(
     )
 
 
-# =============================================================================
-# Emitir voto - implementacion de la companiera (US 'Emitir voto').
-# Se mantiene tal cual; quedara funcional al existir las tablas de esta US.
-# =============================================================================
-
 class VotoRequest(BaseModel):
     idPropuestas: List[int]
 
 
-@router.post("/votaciones/{id_votacion}/votar")
-def emitir_voto(id_votacion: int, request: VotoRequest, current_user_id: int = 1, db = Depends(get_db)):
-    votacion = db.execute('SELECT * FROM public."Votaciones" WHERE "IdVotacion" = %s', (id_votacion,)).fetchone()
+@router.post("/{id_votacion}/votar")
+def emitir_voto(
+    id_votacion: int, 
+    request: VotoRequest, 
+    current_user: Usuario = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    votacion = db.get(Votacion, id_votacion)
     if not votacion:
         raise HTTPException(status_code=404, detail="La votación no existe.")
 
-    if datetime.now(timezone.utc) > votacion["FechaCierre"].replace(tzinfo=timezone.utc):
+    if _ahora_utc() > _aware(votacion.FechaCierre):
         raise HTTPException(status_code=400, detail="La votación ya ha cerrado.")
 
-    ya_voto = db.execute('SELECT 1 FROM public."Votos" WHERE "IdUsuario" = %s AND "IdVotacion" = %s', (current_user_id, id_votacion)).fetchone()
-    if ya_voto:
-        raise HTTPException(status_code=400, detail="Ya has emitir un voto en esta votación.")
+    ya_voto = db.scalar(
+        select(func.count())
+        .select_from(Voto)
+        .where(
+            Voto.IdVotacion == id_votacion,
+            Voto.IdUsuario == current_user.IdUsuario,
+        )
+    ) or 0
+    
+    if ya_voto > 0:
+        raise HTTPException(status_code=400, detail="Ya has emitido un voto en esta votación.")
 
-    if votacion["Tipo"] == "opcion_unica" and len(request.idPropuestas) > 1:
+    tipo_votacion = _tipo_str(votacion)
+    if tipo_votacion == "opcion_unica" and len(request.idPropuestas) > 1:
         raise HTTPException(status_code=400, detail="Solo puedes seleccionar una propuesta en esta votación.")
 
     if len(request.idPropuestas) == 0:
         raise HTTPException(status_code=400, detail="Debes seleccionar al menos una propuesta.")
 
     for id_propuesta in request.idPropuestas:
-        db.execute(
-            'INSERT INTO public."Votos" ("IdUsuario", "IdVotacion", "IdPropuesta") VALUES (%s, %s, %s)',
-            (current_user_id, id_votacion, id_propuesta)
+        nuevo_voto = Voto(
+            IdUsuario=current_user.IdUsuario,
+            IdVotacion=id_votacion,
+            IdPropuesta=id_propuesta
         )
+        db.add(nuevo_voto)
+        
     db.commit()
 
     return {"detail": "Voto registrado correctamente. ¡Gracias por participar!"}

@@ -7,6 +7,7 @@ import {
   Text,
   View,
 } from "react-native";
+import { FontAwesome6 } from "@expo/vector-icons";
 
 import ScreenContainer from "../components/layout/ScreenContainer";
 import TripCard from "../components/home/TripCard";
@@ -193,7 +194,7 @@ export default function HomeScreen({ navigation }) {
       </ScrollView>
 
       <Pressable onPress={() => navigation.navigate("NuevoViaje")} style={({ pressed }) => [styles.fab, pressed && styles.fabPressed]}>
-        <Text style={styles.fabText}>+</Text>
+        <FontAwesome6 name="plus" size={28} color={colors.primary} />
       </Pressable>
     </ScreenContainer>
   );
@@ -325,11 +326,5 @@ const styles = StyleSheet.create({
   },
   fabPressed: {
     transform: [{ scale: 0.97 }],
-  },
-  fabText: {
-    color: colors.primary,
-    fontSize: 34,
-    lineHeight: 34,
-    fontWeight: "400",
   },
 });

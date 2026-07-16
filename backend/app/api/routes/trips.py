@@ -73,6 +73,12 @@ def _require_trip_access(viaje: Viaje | None, current_user: Usuario) -> Viaje:
     if viaje is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Viaje no encontrado")
 
+    if viaje.EstadoViaje.Nombre == "cancelado":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="El acceso a este viaje ha sido restringido porque fue eliminado.",
+        )
+
     puede_ver = (
         viaje.IdAdministrador == current_user.IdUsuario
         or any(part.IdUsuario == current_user.IdUsuario for part in viaje.Participantes)
@@ -506,6 +512,40 @@ def update_trip(
         message="Los cambios se guardaron correctamente.",
         trip=_build_trip_detail(viaje_actualizado),
     )
+
+
+@router.delete("/{trip_id}", response_model=TripMutationResponse)
+def delete_trip(
+    trip_id: int,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> TripMutationResponse:
+    viaje = _get_trip_with_relations(db, trip_id)
+    if viaje is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, 
+            detail="Viaje no encontrado"
+        )
+
+    _require_trip_admin(viaje, current_user)
+
+    nuevo_estado = db.scalar(
+        select(EstadoViaje).where(
+            EstadoViaje.Nombre == "cancelado", 
+            EstadoViaje.Activo.is_(True)
+        )
+    )
+    
+    if not nuevo_estado:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Falta el estado maestro 'cancelado' en la base de datos."
+        )
+
+    viaje.IdEstadoViaje = nuevo_estado.IdEstadoViaje
+    db.commit()
+
+    return TripMutationResponse(message="El viaje ha sido eliminado correctamente.")
 
 
 @router.post(

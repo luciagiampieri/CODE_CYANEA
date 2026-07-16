@@ -3,12 +3,14 @@ import { LinearGradient } from "expo-linear-gradient";
 import { useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
   ImageBackground,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
   View,
+  Modal,
 } from "react-native";
 
 import ScreenContainer from "../components/layout/ScreenContainer";
@@ -24,6 +26,7 @@ import {
   getUsers,
   removeTripExternalInvitation,
   removeTripParticipant,
+  deleteTrip,
 } from "../services/api";
 import { colors, radii, spacing, surfaces, textStyles } from "../theme/tokens";
 
@@ -42,7 +45,7 @@ const mockVotaciones = [
     IdVotacion: 101,
     Titulo: "¿Qué almorzamos el segundo día en Buenos Aires?",
     Tipo: "opcion_unica",
-    FechaCierre: "2026-12-31T23:59:59Z", // Votación activa
+    FechaCierre: "2026-12-31T23:59:59Z", 
     YaVoto: false,
     Propuestas: [
       { IdPropuesta: 1, Texto: "Pizzería Güerrín" },
@@ -54,7 +57,7 @@ const mockVotaciones = [
     IdVotacion: 102,
     Titulo: "¿Qué actividades grupales quieren hacer?",
     Tipo: "opcion_multiple",
-    FechaCierre: "2026-12-31T23:59:59Z", // Votación activa
+    FechaCierre: "2026-12-31T23:59:59Z", 
     YaVoto: false,
     Propuestas: [
       { IdPropuesta: 4, Texto: "Paseo en el Bus Turístico" },
@@ -66,7 +69,7 @@ const mockVotaciones = [
     IdVotacion: 103,
     Titulo: "Elegir transporte al hotel",
     Tipo: "opcion_unica",
-    FechaCierre: "2026-05-01T12:00:00Z", // Votación cerrada (Fecha pasada)
+    FechaCierre: "2026-05-01T12:00:00Z", 
     YaVoto: false,
     Propuestas: [
       { IdPropuesta: 7, Texto: "Uber corporativo entre todos" },
@@ -155,6 +158,7 @@ export default function TripDetailScreen({ navigation, route }) {
   const [participantMessage, setParticipantMessage] = useState("");
   const [activityModalDay, setActivityModalDay] = useState(null);
   const [currentUser, setCurrentUser] = useState(null);
+    const [showDeleteModal, setShowDeleteModal] = useState(false); 
 
   useEffect(() => {
     async function loadCurrentUser() {
@@ -168,8 +172,6 @@ export default function TripDetailScreen({ navigation, route }) {
     loadCurrentUser();
   }, []);
 
-  // US "Crear votación": al volver desde la pantalla de creación con una
-  // votación nueva, la mostramos arriba de la lista (no toca el resto).
   useEffect(() => {
     const nueva = route.params?.nuevaVotacion;
     if (!nueva) return;
@@ -231,7 +233,7 @@ export default function TripDetailScreen({ navigation, route }) {
     return () => clearTimeout(timeoutId);
   }, [participantSearch, trip]);
 
-useEffect(() => {
+  useEffect(() => {
     async function precargarDatosOffline() {
       if (!trip?.id) return;
       
@@ -264,9 +266,10 @@ useEffect(() => {
 
   const normalizedSearch = participantSearch.trim().toLowerCase();
 
+
   const isAdmin = useMemo(() => {
     if (!currentUser || !trip?.admin) return false;
-    return currentUser.id === trip.admin.id;
+    return String(currentUser.id) === String(trip.admin.id);
   }, [currentUser, trip?.admin]);
 
   const selectableUsers = useMemo(() => {
@@ -360,6 +363,35 @@ useEffect(() => {
     await loadTripDetail();
   }
 
+  async function handleConfirmDelete() {
+    if (!trip?.id) return;
+    try {
+      setShowDeleteModal(false);
+      setLoading(true);
+      
+      await deleteTrip(trip.id);
+
+      setLoading(false);
+      navigation.reset({
+        index: 0,
+        routes: [{ name: "Tabs" }], 
+      });
+
+      setTimeout(() => {
+        Alert.alert(
+          "Viaje dado de baja", 
+          "El viaje ha sido eliminado correctamente."
+        );
+      }, 300);
+
+    } catch (error) {
+      setLoading(false);
+      setTimeout(() => {
+        Alert.alert("Error", error.message || "Ocurrió un problema al intentar eliminar el viaje.");
+      }, 300);
+    }
+  }
+
   if (!trip && !loading) {
     return (
       <ScreenContainer fullWidth padded={false}>
@@ -383,18 +415,36 @@ useEffect(() => {
         </View>
       ) : null}
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-        <ImageBackground imageStyle={styles.heroImage} source={{ uri: trip.image }} style={styles.hero}>
-          <LinearGradient colors={["rgba(4,16,36,0.15)", "rgba(9,19,45,0.82)"]} style={styles.heroGradient}>
-            <View style={styles.heroActions}>
+        <ImageBackground 
+          imageStyle={styles.heroImage} 
+          source={{ uri: trip.image }} 
+          style={styles.hero}
+        >
+          <LinearGradient 
+            colors={["rgba(4,16,36,0.15)", "rgba(9,19,45,0.82)"]} 
+            style={styles.heroGradient}
+            pointerEvents="box-none" 
+          >
+            <View style={styles.heroActions} pointerEvents="box-none">
               <IconCircleButton icon="arrow-left" onPress={() => navigation.goBack()} />
-              <View style={styles.heroActionsRight}>
+              <View style={styles.heroActionsRight} pointerEvents="box-none">
                 {isAdmin ? (
                   <IconCircleButton
                     icon="pen-to-square"
                     onPress={() => navigation.navigate("EditarViaje", { tripId: trip.id })}
                   />
                 ) : null}
-                <IconCircleButton icon="ellipsis-vertical" onPress={() => {}} />
+                
+                <IconCircleButton 
+                  icon="ellipsis-vertical" 
+                  onPress={() => {
+                    if (isAdmin) {
+                      setShowDeleteModal(true); 
+                    } else {
+                      Alert.alert("Acceso denegado", "Solo el administrador de este viaje puede gestionarlo."); 
+                    }
+                  }} 
+                />
               </View>
             </View>
 
@@ -625,7 +675,6 @@ useEffect(() => {
                   });
                 };
 
-                // Función interna para simular el envío del voto
                 const registrarVoto = () => {
                   if (opcionesElegidas.length === 0) {
                     alert("Por favor, seleccioná al menos una opción.");
@@ -731,6 +780,40 @@ useEffect(() => {
         onSubmit={handleCreateActivity}
         visible={!!activityModalDay}
       />
+
+      <Modal
+        animationType="fade"
+        transparent={true}
+        visible={showDeleteModal}
+        onRequestClose={() => setShowDeleteModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalIconContainer}>
+              <FontAwesome6 name="trash-can" size={22} color={colors.danger || "#ef4444"} />
+            </View>
+            <Text style={styles.modalTitle}>¿Dar de baja viaje?</Text>
+            <Text style={styles.modalMessage}>
+              Esta acción marcará el viaje "{trip?.title}" como cancelado. Ninguno de los participantes podrá volver a acceder a la información.
+            </Text>
+            <View style={{ height: 10 }} /> 
+            <View style={styles.modalActions}>
+              <Pressable 
+                style={[styles.modalButton, styles.modalButtonCancel]} 
+                onPress={() => setShowDeleteModal(false)} 
+              >
+                <Text style={styles.modalButtonTextCancel}>Conservar</Text>
+              </Pressable>
+              <Pressable 
+                style={[styles.modalButton, styles.modalButtonConfirm]} 
+                onPress={handleConfirmDelete} 
+              >
+                <Text style={styles.modalButtonTextConfirm}>Eliminar</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </ScreenContainer>
   );
 }
@@ -900,19 +983,19 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   agendaHeaderRow: {
-  flexDirection: "row",
-  alignItems: "center",
-  gap: spacing.xs,
-},
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.xs,
+  },
   agendaTime: {
     ...textStyles.meta,
     color: colors.textSecondary,
   },
   agendaTitle: {
-  ...textStyles.bodyStrong,
-  color: colors.primary,
-  fontSize: 17,
-},
+    ...textStyles.bodyStrong,
+    color: colors.primary,
+    fontSize: 17,
+  },
   agendaNote: {
     ...textStyles.body,
     color: colors.textSecondary,
@@ -949,5 +1032,77 @@ const styles = StyleSheet.create({
   },
   fullButton: {
     marginTop: spacing.lg,
+  },
+  // --- ESTILOS DEL MODAL DE ELIMINACIÓN ---
+  modalOverlay: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: "rgba(9, 19, 45, 0.7)", 
+    padding: spacing.xl,
+  },
+  modalContent: {
+    backgroundColor: colors.surface,
+    borderRadius: radii.xl,
+    padding: spacing.xl,
+    alignItems: "center",
+    width: "100%",
+    maxWidth: 340,
+    elevation: 5,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+  },
+  modalIconContainer: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: "#ffeecf", 
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: spacing.md,
+  },
+  modalTitle: {
+    ...textStyles.tripTitle,
+    color: colors.primary,
+    fontSize: 20,
+    marginBottom: spacing.xs,
+  },
+  modalMessage: {
+    ...textStyles.body,
+    color: colors.textSecondary,
+    textAlign: "center",
+    marginBottom: spacing.lg,
+  },
+  modalActions: {
+    flexDirection: "row",
+    gap: spacing.md,
+    width: "100%",
+  },
+  modalButton: {
+    flex: 1,
+    height: 44,
+    borderRadius: radii.md,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  modalButtonCancel: {
+    backgroundColor: colors.surfaceAlt,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  modalButtonConfirm: {
+    backgroundColor: colors.danger || "#ef4444",
+  },
+  modalButtonTextCancel: {
+    ...textStyles.bodyStrong,
+    color: colors.textSecondary,
+    fontSize: 14,
+  },
+  modalButtonTextConfirm: {
+    ...textStyles.bodyStrong,
+    color: colors.textInverse,
+    fontSize: 14,
   },
 });

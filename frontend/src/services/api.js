@@ -290,7 +290,7 @@ export async function searchDestinations(query) {
 }
 
 export async function createVotacion(payload) {
-  const response = await fetch(`${API_BASE_URL}/votaciones`, {
+  const response = await fetch(`${API_BASE_URL}/votaciones/`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -341,4 +341,22 @@ export async function createActivity(tripId, dayId, payload) {
     }
   );
   return parseResponse(response, "No se pudo crear la actividad");
+}
+
+
+export async function deleteTrip(tripId) {
+  const response = await fetch(`${API_BASE_URL}/trips/${tripId}`, {
+    method: "DELETE",
+    headers: {
+      "Content-Type": "application/json",
+      ...(await authHeaders()),
+    },
+  });
+
+if (response.ok) {
+    return true; 
+  }
+
+  const errorData = await response.json().catch(() => ({}));
+  throw new Error(errorData.detail || "No se pudo dar de baja el viaje.");
 }
