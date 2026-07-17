@@ -149,6 +149,7 @@ export default function CrearVotacionScreen({ route, navigation }) {
                 <TextInput
                     style={styles.input}
                     placeholder="Ej: ¿Qué hacemos el segundo día?"
+                    placeholderTextColor="rgba(0, 0, 0, 0.35)"
                     value={titulo}
                     onChangeText={setTitulo}
                     maxLength={150}
@@ -262,6 +263,7 @@ export default function CrearVotacionScreen({ route, navigation }) {
                         <TextInput
                             style={styles.input}
                             placeholder={`Propuesta ${index + 1}`}
+                            placeholderTextColor="rgba(0, 0, 0, 0.35)"
                             value={propuesta}
                             onChangeText={(val) => actualizarPropuesta(index, val)}
                             maxLength={255}
@@ -368,6 +370,8 @@ const styles = StyleSheet.create({
         flexDirection: "row",
         alignItems: "center",
         justifyContent: "space-between",
+        marginTop: 8,
+        marginBottom: 8,
     },
     addChip: {
         flexDirection: "row",
@@ -377,7 +381,6 @@ const styles = StyleSheet.create({
         paddingVertical: 6,
         paddingHorizontal: 12,
         borderRadius: 999,
-        marginTop: 10,
     },
     addChipText: { color: "#fff", fontWeight: "700", fontSize: 12 },
     propuestaRow: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 8 },

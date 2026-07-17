@@ -5,6 +5,7 @@ import {
   ActivityIndicator,
   Alert,
   ImageBackground,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -21,8 +22,10 @@ import IconCircleButton from "../components/ui/IconCircleButton";
 import PrimaryButton from "../components/ui/PrimaryButton";
 import {
   addTripParticipant,
+  emitirVoto,
   getCurrentUser,
   getTripDetail,
+  getVotaciones,
   getUsers,
   removeTripExternalInvitation,
   removeTripParticipant,
@@ -39,44 +42,6 @@ import {
 import AddActivityScreen from "./AddActivityScreen";
 import { createActivity } from "../services/api";
 
-
-const mockVotaciones = [
-  {
-    IdVotacion: 101,
-    Titulo: "¿Qué almorzamos el segundo día en Buenos Aires?",
-    Tipo: "opcion_unica",
-    FechaCierre: "2026-12-31T23:59:59Z", 
-    YaVoto: false,
-    Propuestas: [
-      { IdPropuesta: 1, Texto: "Pizzería Güerrín" },
-      { IdPropuesta: 2, Texto: "Mercado de San Telmo" },
-      { IdPropuesta: 3, Texto: "Bodegón El Preferido" }
-    ]
-  },
-  {
-    IdVotacion: 102,
-    Titulo: "¿Qué actividades grupales quieren hacer?",
-    Tipo: "opcion_multiple",
-    FechaCierre: "2026-12-31T23:59:59Z", 
-    YaVoto: false,
-    Propuestas: [
-      { IdPropuesta: 4, Texto: "Paseo en el Bus Turístico" },
-      { IdPropuesta: 5, Texto: "Visita guiada al Teatro Colón" },
-      { IdPropuesta: 6, Texto: "Noche de San Telmo y Jazz" }
-    ]
-  },
-  {
-    IdVotacion: 103,
-    Titulo: "Elegir transporte al hotel",
-    Tipo: "opcion_unica",
-    FechaCierre: "2026-05-01T12:00:00Z", 
-    YaVoto: false,
-    Propuestas: [
-      { IdPropuesta: 7, Texto: "Uber corporativo entre todos" },
-      { IdPropuesta: 8, Texto: "Colectivo / Subte" }
-    ]
-  }
-];
 
 const tabs = [
   { id: "itinerario", label: "Itinerario", icon: "map" },
@@ -143,12 +108,23 @@ function formatDayDate(dateString) {
   return formattedDate.replace(/(\p{L})\p{L}*/gu, (word) => word.charAt(0).toLocaleUpperCase("es-AR") + word.slice(1).toLocaleLowerCase("es-AR"));
 }
 
+function avisar(titulo, mensaje) {
+  if (Platform.OS === "web") {
+    window.alert(mensaje);
+  } else {
+    Alert.alert(titulo, mensaje);
+  }
+}
+
 export default function TripDetailScreen({ navigation, route }) {
   const initialTrip = normalizeTrip(route.params?.trip);
   const [trip, setTrip] = useState(initialTrip);
   const [activeTab, setActiveTab] = useState("itinerario");
   const [expandedDayId, setExpandedDayId] = useState(initialTrip?.cronograma[0]?.IdDiaCronograma ?? initialTrip?.cronograma[0]?.id ?? null);
-  const [votacionesActivas, setVotacionesActivas] = useState(mockVotaciones);
+  const [votacionesActivas, setVotacionesActivas] = useState([]);
+  const [loadingVotaciones, setLoadingVotaciones] = useState(false);
+  const [votacionesError, setVotacionesError] = useState("");
+  const [votandoId, setVotandoId] = useState(null);
   const [votosSeleccionados, setVotosSeleccionados] = useState({});
   const [participantSearch, setParticipantSearch] = useState("");
   const [userOptions, setUserOptions] = useState([]);
@@ -207,6 +183,24 @@ export default function TripDetailScreen({ navigation, route }) {
   useEffect(() => {
     loadTripDetail();
   }, [initialTrip?.id]);
+
+  async function loadVotaciones() {
+    if (!trip?.id) return;
+    try {
+      setLoadingVotaciones(true);
+      setVotacionesError("");
+      const data = await getVotaciones(trip.id);
+      setVotacionesActivas(data);
+    } catch (error) {
+      setVotacionesError(error.message || "No se pudieron cargar las votaciones.");
+    } finally {
+      setLoadingVotaciones(false);
+    }
+  }
+
+  useEffect(() => {
+    loadVotaciones();
+  }, [trip?.id]);
 
   useEffect(() => {
     const unsubscribe = navigation.addListener("focus", () => {
@@ -658,9 +652,27 @@ export default function TripDetailScreen({ navigation, route }) {
                 <FontAwesome6 name="plus" size={14} color="#fff" />
                 <Text style={{ color: "#fff", fontWeight: "800" }}>Crear votación</Text>
               </Pressable>
+
+              {loadingVotaciones ? (
+                <ActivityIndicator color={colors.primary} />
+              ) : votacionesError ? (
+                <View style={styles.sectionCard}>
+                  <Text style={styles.sectionCopy}>{votacionesError}</Text>
+                </View>
+              ) : votacionesActivas.length === 0 ? (
+                <View style={styles.sectionCard}>
+                  <Text style={styles.sectionCopy}>
+                    Todavía no hay votaciones para este viaje. ¡Creá la primera!
+                  </Text>
+                </View>
+              ) : null}
+
               {votacionesActivas.map((votacion) => {
-                const esCerrada = new Date(votacion.FechaCierre) < new Date();
+                const esCerrada = votacion.Estado
+                  ? votacion.Estado === "cerrada"
+                  : new Date(votacion.FechaCierre) < new Date();
                 const opcionesElegidas = votosSeleccionados[votacion.IdVotacion] || [];
+                const enviandoEsteVoto = votandoId === votacion.IdVotacion;
 
                 const togglePropuesta = (idPropuesta, tipo) => {
                   setVotosSeleccionados(prev => {
@@ -675,17 +687,27 @@ export default function TripDetailScreen({ navigation, route }) {
                   });
                 };
 
-                const registrarVoto = () => {
+                const registrarVoto = async () => {
                   if (opcionesElegidas.length === 0) {
-                    alert("Por favor, seleccioná al menos una opción.");
+                    avisar("Atención", "Por favor, seleccioná al menos una opción.");
                     return;
                   }
-                  
-                  alert("Voto registrado correctamente. ¡Gracias por participar!");
-                  
-                  setVotacionesActivas(prev => 
-                    prev.map(v => v.IdVotacion === votacion.IdVotacion ? { ...v, YaVoto: true } : v)
-                  );
+
+                  try {
+                    setVotandoId(votacion.IdVotacion);
+                    const resultado = await emitirVoto(votacion.IdVotacion, opcionesElegidas);
+                    avisar(
+                      "¡Listo!",
+                      resultado?.detail || "Voto registrado correctamente. ¡Gracias por participar!"
+                    );
+                    setVotacionesActivas(prev =>
+                      prev.map(v => v.IdVotacion === votacion.IdVotacion ? { ...v, YaVoto: true } : v)
+                    );
+                  } catch (error) {
+                    avisar("No se pudo votar", error.message || "Ocurrió un error al registrar tu voto.");
+                  } finally {
+                    setVotandoId(null);
+                  }
                 };
 
                 return (
@@ -737,8 +759,9 @@ export default function TripDetailScreen({ navigation, route }) {
                         <Text style={{ color: colors.success, fontWeight: '600', fontSize: 13 }}>✓ Ya registraste tu voto en esta decisión grupal.</Text>
                       ) : (
                         <PrimaryButton
-                          label="Confirmar voto"
+                          label={enviandoEsteVoto ? "Enviando..." : "Confirmar voto"}
                           onPress={registrarVoto}
+                          disabled={enviandoEsteVoto}
                           style={{ marginTop: 5 }}
                         />
                       )}
