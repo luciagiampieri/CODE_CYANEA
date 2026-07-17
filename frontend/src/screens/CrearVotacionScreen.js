@@ -17,7 +17,6 @@ import { FontAwesome6 } from "@expo/vector-icons";
 import { createVotacion } from "../services/api";
 import { colors, shadows } from "../theme/tokens";
 
-// Fecha de cierre por defecto: dentro de 24 hs (asi arranca valida/futura).
 function fechaDefault() {
     const d = new Date();
     d.setDate(d.getDate() + 1);
@@ -25,7 +24,6 @@ function fechaDefault() {
     return d;
 }
 
-// Formatea Date -> "YYYY-MM-DDTHH:mm" para <input type="datetime-local"> (hora local).
 function toDatetimeLocal(date) {
     const pad = (n) => String(n).padStart(2, "0");
     return (
@@ -44,7 +42,6 @@ export default function CrearVotacionScreen({ route, navigation }) {
     const [errores, setErrores] = useState({});
     const [saving, setSaving] = useState(false);
 
-    // Control de pickers nativos (flujo fecha -> hora).
     const [mostrarFecha, setMostrarFecha] = useState(false);
     const [mostrarHora, setMostrarHora] = useState(false);
 
@@ -57,7 +54,6 @@ export default function CrearVotacionScreen({ route, navigation }) {
     }
 
     function quitarPropuesta(index) {
-        // No permitimos bajar de 2 campos (AC2).
         setPropuestas((prev) => (prev.length <= 2 ? prev : prev.filter((_, i) => i !== index)));
     }
 
@@ -74,12 +70,10 @@ export default function CrearVotacionScreen({ route, navigation }) {
     function validar() {
         const nuevos = {};
 
-        // AC1: nombre descriptivo
         if (!titulo.trim()) {
             nuevos.titulo = "El nombre de la votación es obligatorio";
         }
 
-        // AC2: al menos dos propuestas validas (no vacias, sin duplicados)
         const limpias = propuestas.map((p) => p.trim()).filter((p) => p.length > 0);
         const distintas = new Set(limpias.map((p) => p.toLowerCase()));
         if (limpias.length < 2) {
@@ -88,7 +82,6 @@ export default function CrearVotacionScreen({ route, navigation }) {
             nuevos.propuestas = "Hay propuestas repetidas";
         }
 
-        // AC6: fecha y hora de cierre futura
         if (fechaCierre <= new Date()) {
             nuevos.fechaCierre = "La fecha y hora de cierre debe ser futura";
         }
@@ -108,21 +101,16 @@ export default function CrearVotacionScreen({ route, navigation }) {
                 idViaje: IdViaje,
                 nombre: titulo.trim(),
                 tipo,
-                // ISO completo con offset; el backend valida que sea futura (AC6).
                 fechaCierre: fechaCierre.toISOString(),
                 propuestas: propuestasLimpias,
             });
 
-            // AC9: mensaje de confirmacion. En web, Alert con botones no dispara
-            // onPress, asi que confirmamos y navegamos de forma incondicional.
             if (Platform.OS === "web") {
                 window.alert("La votación se creó correctamente.");
             } else {
                 Alert.alert("Votación creada", "La votación se creó correctamente.");
             }
 
-            // Volvemos al detalle del viaje pasando la votacion nueva para que
-            // aparezca arriba de la lista (merge mantiene el resto de params).
             route.params?.onVotacionCreada?.(nuevaVotacion);
             navigation.goBack();
             return nuevaVotacion;
@@ -142,13 +130,12 @@ export default function CrearVotacionScreen({ route, navigation }) {
                 <Text style={styles.title}>Nueva votación</Text>
             </View>
 
-            {/* 1. NOMBRE DESCRIPTIVO (AC1) */}
             <Text style={styles.label}>Nombre descriptivo</Text>
             <View style={styles.inputBox}>
                 <FontAwesome6 name="pen" size={14} color={colors.textMuted} />
                 <TextInput
                     style={styles.input}
-                    placeholder="Ej: ¿Qué hacemos el segundo día?"
+                    placeholder="¿Qué hacemos el segundo día?"
                     placeholderTextColor="rgba(0, 0, 0, 0.35)"
                     value={titulo}
                     onChangeText={setTitulo}
@@ -157,7 +144,6 @@ export default function CrearVotacionScreen({ route, navigation }) {
             </View>
             {errores.titulo && <Text style={styles.error}>{errores.titulo}</Text>}
 
-            {/* 2. TIPO DE VOTACION (AC3/AC4/AC5) */}
             <Text style={styles.label}>Tipo de votación</Text>
             <View style={styles.selectorContainer}>
                 <TouchableOpacity
@@ -188,7 +174,6 @@ export default function CrearVotacionScreen({ route, navigation }) {
                 </TouchableOpacity>
             </View>
 
-            {/* 3. FECHA Y HORA DE CIERRE (AC1/AC6) */}
             <Text style={styles.label}>Cierre (fecha y hora)</Text>
             {Platform.OS === "web" ? (
                 <View style={styles.dateBox}>

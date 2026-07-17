@@ -38,6 +38,16 @@ import {
     obtenerParticipantesCache
 } from "../database/gastosLocal";
 
+const ICONOS_CATEGORIAS = {
+    "Comida y Bebida": "utensils",
+    "Transporte": "car",
+    "Alojamiento": "hotel",
+    "Entretenimiento": "ticket-simple",
+    "Compras": "bag-shopping",
+    "Servicios": "file-invoice-dollar",
+    "Otros": "ellipsis"
+};
+
 export default function AddGastoScreen({ route, navigation }) {
 
     const { IdViaje, Moneda } = route.params;
@@ -59,7 +69,6 @@ export default function AddGastoScreen({ route, navigation }) {
     const [modalPagadorVisible, setModalPagadorVisible] = useState(false);
     const [modalParticipantesVisible, setModalParticipantesVisible] = useState(false); 
 
-    // NUEVO CONTROL DE FLUJO: Tipo de gasto y Tipo de división
     const [esCompartido, setEsCompartido] = useState(false);
     const [esDivisionIgualitaria, setEsDivisionIgualitaria] = useState(true);
     const [idsParticipantesSeleccionados, setIdsParticipantesSeleccionados] = useState([]);
@@ -77,14 +86,12 @@ export default function AddGastoScreen({ route, navigation }) {
     const categoriaSeleccionada = categorias.find(c => c.IdCategoria === idCategoria);
     const pagadorSeleccionado = participantes.find(p => p.IdParticipanteViaje === idPagador);
 
-    // Función para manejar la selección múltiple incluyendo la opción "Todos"
     function toggleSeleccionParticipante(id) {
         if (id === "TODOS") {
             const todosIds = participantes.map(p => p.IdParticipanteViaje);
             const estanTodosSeleccionados = todosIds.every(idp => idsParticipantesSeleccionados.includes(idp));
             
             if (estanTodosSeleccionados) {
-                // Si ya estaban todos, dejamos solo al pagador (obligatorio)
                 setIdsParticipantesSeleccionados(idPagador ? [idPagador] : []);
             } else {
                 setIdsParticipantesSeleccionados(todosIds);
@@ -99,7 +106,6 @@ export default function AddGastoScreen({ route, navigation }) {
 
         if (idsParticipantesSeleccionados.includes(id)) {
             setIdsParticipantesSeleccionados(idsParticipantesSeleccionados.filter(item => item !== id));
-            // Limpiamos el monto personalizado de este usuario si se deselecciona
             const nuevosMontos = { ...montosPersonalizados };
             delete nuevosMontos[id];
             setMontosPersonalizados(nuevosMontos);
@@ -149,7 +155,6 @@ export default function AddGastoScreen({ route, navigation }) {
         cargarDatos();
     }, [IdViaje, navigation]);
 
-    // Nos aseguramos de meter al pagador actual por defecto si pasa a ser compartido
     useEffect(() => {
         if (esCompartido && idPagador) {
             setIdsParticipantesSeleccionados(prev => {
@@ -205,7 +210,6 @@ export default function AddGastoScreen({ route, navigation }) {
                 nuevosErrores.participantes = "El pagador debe formar parte de la división del gasto";
             }
 
-            // Validación de montos si la división es personalizada
             if (esCompartido && !esDivisionIgualitaria) {
                 let sumaMontos = 0;
                 let hayMontosVacios = false;
@@ -307,26 +311,26 @@ export default function AddGastoScreen({ route, navigation }) {
                 <Text style={styles.title}>Nuevo gasto</Text>
             </View>
 
-            {/* 1. NOMBRE */}
             <Text style={styles.label}>Concepto</Text>
             <View style={styles.inputBox}>
                 <FontAwesome6 name="pen" size={14} color={colors.textMuted} />
                 <TextInput
                     style={styles.input}
-                    placeholder="Ej: Cena"
+                    placeholder="Cena"
+                    placeholderTextColor="#9ca3af"
                     value={nombre}
                     onChangeText={setNombre}
                 />
             </View>
             {errores.nombre && <Text style={styles.error}>{errores.nombre}</Text>}
 
-            {/* 2. MONTO */}
             <Text style={styles.label}>Monto</Text>
             <View style={styles.inputBox}>
                 <Text style={styles.currencyCodePrefix}>{monedaBase.toUpperCase()}</Text>
                 <TextInput
                     style={styles.input}
                     placeholder="0"
+                    placeholderTextColor="#9ca3af"
                     keyboardType="numeric"
                     value={monto}
                     onChangeText={setMonto}
@@ -334,7 +338,6 @@ export default function AddGastoScreen({ route, navigation }) {
             </View>
             {errores.monto && <Text style={styles.error}>{errores.monto}</Text>}
 
-            {/* 3. FECHA */}
             <Text style={styles.label}>Fecha</Text>
             {Platform.OS === "web" ? (
                 <View style={styles.dateBox}>
@@ -390,11 +393,16 @@ export default function AddGastoScreen({ route, navigation }) {
             )}
             {errores.fecha && <Text style={styles.error}>{errores.fecha}</Text>}
 
-            {/* 4. MENÚ DESPLEGABLE: CATEGORIAS */}
             <Text style={styles.label}>Categoría</Text>
             <TouchableOpacity style={styles.dropdownButton} onPress={() => setModalCategoriaVisible(true)}>
                 <View style={styles.dropdownLeftContent}>
-                    <FontAwesome6 name="tags" size={14} color={colors.textMuted} style={{ marginRight: 10 }} />
+                    {/* Ícono dinámico según la categoría elegida, o 'tags' por defecto si no hay ninguna */}
+                    <FontAwesome6 
+                        name={categoriaSeleccionada ? (ICONOS_CATEGORIAS[categoriaSeleccionada.Nombre] || "tags") : "tags"} 
+                        size={14} 
+                        color={categoriaSeleccionada ? colors.primary : colors.textMuted} 
+                        style={{ marginRight: 10, width: 20, textAlign: 'center' }} 
+                    />
                     <Text style={idCategoria ? styles.dropdownText : styles.dropdownPlaceholder}>
                         {categoriaSeleccionada ? categoriaSeleccionada.Nombre : "Seleccioná una categoría"}
                     </Text>
@@ -403,7 +411,6 @@ export default function AddGastoScreen({ route, navigation }) {
             </TouchableOpacity>
             {errores.categoria && <Text style={styles.error}>{errores.categoria}</Text>}
 
-            {/* 5. SELECCIONAR TIPO DE GASTO (PERSONAL O COMPARTIDO) */}
             <Text style={styles.label}>Tipo de Gasto</Text>
             <View style={styles.selectorContainer}>
                 <TouchableOpacity 
@@ -511,6 +518,7 @@ export default function AddGastoScreen({ route, navigation }) {
                                         <TextInput
                                             style={styles.personalizadoInput}
                                             placeholder="0"
+                                            placeholderTextColor="#9ca3af"
                                             keyboardType="numeric"
                                             value={montosPersonalizados[p.IdParticipanteViaje] || ""}
                                             onChangeText={(val) => handleMontoPersonalizadoChange(p.IdParticipanteViaje, val)}
@@ -540,20 +548,33 @@ export default function AddGastoScreen({ route, navigation }) {
                         <FlatList
                             data={categorias}
                             keyExtractor={(item) => item.IdCategoria.toString()}
-                            renderItem={({ item }) => (
-                                <TouchableOpacity
-                                    style={[styles.modalItem, idCategoria === item.IdCategoria && styles.modalItemActive]}
-                                    onPress={() => {
-                                        setIdCategoria(item.IdCategoria);
-                                        setModalCategoriaVisible(false);
-                                    }}
-                                Dino>
-                                    <Text style={[styles.modalItemText, idCategoria === item.IdCategoria && styles.modalItemTextActive]}>
-                                        {item.Nombre}
-                                    </Text>
-                                    {idCategoria === item.IdCategoria && <FontAwesome6 name="check" size={14} color={colors.primary} />}
-                                </TouchableOpacity>
-                            )}
+                            renderItem={({ item }) => {
+                                const iconoName = ICONOS_CATEGORIAS[item.Nombre] || "tags";
+                                const esActivo = idCategoria === item.IdCategoria;
+
+                                return (
+                                    <TouchableOpacity
+                                        style={[styles.modalItem, esActivo && styles.modalItemActive]}
+                                        onPress={() => {
+                                            setIdCategoria(item.IdCategoria);
+                                            setModalCategoriaVisible(false);
+                                        }}
+                                    >
+                                        <View style={{ flexDirection: "row", alignItems: "center", flex: 1 }}>
+                                            <FontAwesome6 
+                                                name={iconoName} 
+                                                size={16} 
+                                                color={esActivo ? colors.primary : "#4b5563"} 
+                                                style={{ marginRight: 12, width: 24, textAlign: 'center' }}
+                                            />
+                                            <Text style={[styles.modalItemText, esActivo && styles.modalItemTextActive]}>
+                                                {item.Nombre}
+                                            </Text>
+                                        </View>
+                                        {esActivo && <FontAwesome6 name="check" size={14} color={colors.primary} />}
+                                    </TouchableOpacity>
+                                );
+                            }}
                         />
                     </View>
                 </View>
@@ -603,7 +624,6 @@ export default function AddGastoScreen({ route, navigation }) {
                 </View>
             </Modal>
 
-            {/* MODAL DESPLEGABLE: CHECKLIST MULTIPLE DE PARTICIPANTES (CON OPCIÓN TODOS AL INICIO) */}
             <Modal visible={modalParticipantesVisible} transparent={true} animationType="fade">
                 <View style={styles.modalOverlay}>
                     <View style={styles.modalContainer}>
@@ -617,7 +637,6 @@ export default function AddGastoScreen({ route, navigation }) {
                             </TouchableOpacity>
                         </View>
                         
-                        {/* Se usa FlatList unificando la opción especial "Todos" al principio */}
                         <FlatList
                             data={[{ IdParticipanteViaje: "TODOS", Nombre: "Todos", Apellido: "", NombreUsuario: "marcar_desmarcar" }, ...participantes]}
                             keyExtractor={(item) => item.IdParticipanteViaje.toString()}
@@ -773,7 +792,7 @@ const styles = StyleSheet.create({
         flex: 1
     },
     dropdownPlaceholder: {
-        color: "#aaa",
+        color: "#b3b3b3",
         fontSize: 14
     },
     dropdownText: {

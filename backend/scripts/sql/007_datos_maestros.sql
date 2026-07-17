@@ -56,3 +56,21 @@ WHERE NOT EXISTS (
     FROM public."EstadosInvitaciones" ei
     WHERE ei."Nombre" = datos."Nombre"
 );
+
+INSERT INTO public."CategoriasGastos" ("Nombre", "Activo")
+SELECT datos."Nombre", datos."Activo"
+FROM (
+    VALUES
+        ('Comida y Bebida', TRUE), 
+        ('Transporte', TRUE),   
+        ('Alojamiento', TRUE),  
+        ('Entretenimiento', TRUE),   
+        ('Compras', TRUE),  
+        ('Servicios', TRUE),  
+        ('Otros', TRUE)         
+) AS datos("Nombre", "Activo")
+WHERE NOT EXISTS (
+    SELECT 1
+    FROM public."CategoriasGastos" cg
+    WHERE cg."Nombre" = datos."Nombre"
+);

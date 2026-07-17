@@ -50,7 +50,6 @@ export default function AddActivityScreen({ visible, onClose, onSubmit, dayLabel
     const [submitting, setSubmitting] = useState(false);
     const [successMessage, setSuccessMessage] = useState("");
 
-  // Auto-detectar ícono mientras escribe, solo si el usuario no eligió uno manualmente
     useEffect(() => {
         if (!iconoModificadoManual) {
             setIcono(detectIcon(nombre));

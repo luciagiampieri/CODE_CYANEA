@@ -134,7 +134,8 @@ export default function TripDetailScreen({ navigation, route }) {
   const [participantMessage, setParticipantMessage] = useState("");
   const [activityModalDay, setActivityModalDay] = useState(null);
   const [currentUser, setCurrentUser] = useState(null);
-    const [showDeleteModal, setShowDeleteModal] = useState(false); 
+  const [showDeleteModal, setShowDeleteModal] = useState(false); 
+  const [showOptionsMenu, setShowOptionsMenu] = useState(false);
 
   useEffect(() => {
     async function loadCurrentUser() {
@@ -433,7 +434,7 @@ export default function TripDetailScreen({ navigation, route }) {
                   icon="ellipsis-vertical" 
                   onPress={() => {
                     if (isAdmin) {
-                      setShowDeleteModal(true); 
+                      setShowOptionsMenu(true); 
                     } else {
                       Alert.alert("Acceso denegado", "Solo el administrador de este viaje puede gestionarlo."); 
                     }
@@ -807,6 +808,31 @@ export default function TripDetailScreen({ navigation, route }) {
       <Modal
         animationType="fade"
         transparent={true}
+        visible={showOptionsMenu}
+        onRequestClose={() => setShowOptionsMenu(false)}
+      >
+        <Pressable style={styles.menuOverlay} onPress={() => setShowOptionsMenu(false)}>
+          <View style={styles.menuContainer}>
+            <Pressable
+              style={({ pressed }) => [
+                styles.menuItem,
+                pressed && styles.menuItemPressed,
+              ]}
+              onPress={() => {
+                setShowOptionsMenu(false);
+                setShowDeleteModal(true);
+              }}
+            >
+              <FontAwesome6 name="trash-can" size={14} color={colors.danger || "#ef4444"} />
+              <Text style={styles.menuItemText}>Eliminar viaje</Text>
+            </Pressable>
+          </View>
+        </Pressable>
+      </Modal>
+
+      <Modal
+        animationType="fade"
+        transparent={true}
         visible={showDeleteModal}
         onRequestClose={() => setShowDeleteModal(false)}
       >
@@ -1056,7 +1082,38 @@ const styles = StyleSheet.create({
   fullButton: {
     marginTop: spacing.lg,
   },
-  // --- ESTILOS DEL MODAL DE ELIMINACIÓN ---
+  menuOverlay: {
+    flex: 1,
+    alignItems: "flex-end",
+    paddingTop: Platform.OS === "ios" ? 68 : 52,
+    paddingRight: spacing.lg,
+  },
+  menuContainer: {
+    backgroundColor: colors.surface,
+    borderRadius: radii.md,
+    minWidth: 180,
+    paddingVertical: spacing.xs,
+    elevation: 6,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.2,
+    shadowRadius: 6,
+  },
+  menuItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+  },
+  menuItemPressed: {
+    backgroundColor: colors.surfaceAlt,
+  },
+  menuItemText: {
+    ...textStyles.bodyStrong,
+    color: colors.danger || "#ef4444",
+    fontSize: 14,
+  },
   modalOverlay: {
     flex: 1,
     justifyContent: "center",
