@@ -33,6 +33,7 @@ backend/.mypy_cache/
 backend/.ruff_cache/
 backend/*.egg-info/
 backend/node_modules/
+backend/coverage_report.txt
 
 # Local env
 .env

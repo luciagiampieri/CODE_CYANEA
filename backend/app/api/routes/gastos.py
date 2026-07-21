@@ -18,6 +18,7 @@ from app.schemas.gasto import (
     GastoRead
 )
 from app.models.gasto import TipoDivisionEnum
+from app.models.viaje import Viaje
 
 router = APIRouter()
 
@@ -199,8 +200,24 @@ def get_categories(
 def get_trip_participants(
     trip_id: int,
     db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
 ):
-    # 1. traer estado "aceptado"
+    
+    viaje = db.get(Viaje, trip_id)
+    if viaje is None:
+        raise HTTPException(status_code=404, detail="Viaje no encontrado")
+
+    es_admin = viaje.IdAdministrador == current_user.IdUsuario
+    es_participante = db.scalar(
+        select(ParticipanteViaje).where(
+            ParticipanteViaje.IdViaje == trip_id,
+            ParticipanteViaje.IdUsuario == current_user.IdUsuario,
+        )
+    ) is not None
+
+    if not (es_admin or es_participante):
+        raise HTTPException(status_code=403, detail="No formas parte de este viaje")
+
     estado_aceptado = db.scalar(
         select(EstadoParticipacion).where(
             EstadoParticipacion.Nombre == "aceptado",
@@ -211,7 +228,6 @@ def get_trip_participants(
     if not estado_aceptado:
         raise HTTPException(status_code=500, detail="Estado aceptado no configurado")
 
-    # 2. query participantes del viaje
     participantes = db.scalars(
         select(ParticipanteViaje)
         .join(Usuario, Usuario.IdUsuario == ParticipanteViaje.IdUsuario)
@@ -221,7 +237,6 @@ def get_trip_participants(
         )
     ).all()
 
-    # 3. map a schema
     return [
         ParticipantesGastosRead(
             IdParticipanteViaje=p.IdParticipanteViaje,

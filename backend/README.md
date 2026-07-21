@@ -4,10 +4,10 @@ API de Cyanea implementada con FastAPI.
 
 ## Objetivo
 
-- exponer la API del MVP
-- persistir viajes, usuarios, participantes e invitaciones
-- mantener el dominio en espanol en tablas, modelos y columnas
-- centralizar servicios compartidos como el envio de mails
+- Exponer la API del MVP
+- Persistir viajes, usuarios, participantes e invitaciones
+- Mantener el dominio en espanol en tablas, modelos y columnas
+- Centralizar servicios compartidos como el envio de mails
 
 ## Requisitos
 
@@ -33,17 +33,18 @@ La API incluye un modulo compartido de envio de mails.
 Variables relevantes en `.env`:
 
 ```env
-MAIL_ENABLED=false
+MAIL_ENABLED=true
 MAIL_PROVIDER=smtp
-MAIL_HOST=localhost
-MAIL_PORT=1025
-MAIL_USERNAME=
-MAIL_PASSWORD=
+MAIL_HOST=smtp.gmail.com
+MAIL_PORT=587
+MAIL_USERNAME=cyanea.app@gmail.com
+MAIL_PASSWORD=fuxsrhgctufexgsx
 MAIL_USE_TLS=true
-MAIL_FROM_EMAIL=no-reply@cyanea.local
+MAIL_FROM_EMAIL=cyanea.app@gmail.com
 MAIL_FROM_NAME=Cyanea
-MAIL_REPLY_TO=
+MAIL_REPLY_TO=cyanea.app@gmail.com
 MAIL_FRONTEND_BASE_URL=http://127.0.0.1:8081
+
 ```
 
 Notas:
@@ -72,7 +73,7 @@ app/
 
 ## Reglas estructurales
 
-- no reintroducir backend paralelo en Node/Express
-- respetar tablas en espanol y en plural
-- respetar columnas del dominio en espanol y camelCase
-- si cambia una convencion de backend o base de datos, actualizar `../AGENTS.md`
+- No reintroducir backend paralelo en Node/Express
+- Respetar tablas en espanol y en plural
+- Respetar columnas del dominio en espanol y camelCase
+- Si cambia una convencion de backend o base de datos, actualizar `../AGENTS.md`

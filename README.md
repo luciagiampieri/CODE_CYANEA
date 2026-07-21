@@ -9,85 +9,82 @@ Este desarrollo se realiza en el marco del **Proyecto Final de Carrera** para la
 ---
 
 ## Stack
-
-- `backend/`: FastAPI + SQLAlchemy + Alembic.
-- `frontend/`: Expo + React Native + Web.
-- `frontend-ant/`: resguardo del frontend anterior en React + Vite.
-- `docker-compose.yml`: PostgreSQL + backend.
-
-## Estado estructural actual
-
-- Existe un único frontend activo: `frontend/`
-- Ese frontend usa Expo y apunta a mobile + web con un solo código base.
-- No se usa backend Node/Express; el backend vigente es solo `backend/` con FastAPI.
-
+ 
+- `frontend/`: React + Vite + PWA
+- `backend/`: FastAPI + SQLAlchemy + Alembic
+- `docker-compose.yml`: PostgreSQL + backend + frontend
 ## Estructura
-
-```text
+ 
+```
 CODE_CYANEA/
-├── backend/
-├── frontend/
-├── frontend-ant/
-├── logs/
-├── docker-compose.yml
-└── AGENTS.md
-└── README.md
+├─ backend/
+│  ├─ app/
+│  ├─ tests/              # tests de integración (pytest)
+│  └─ pyproject.toml
+├─ frontend/
+├─ .github/
+│  └─ workflows/          # CI: corre los tests en cada push/PR
+├─ docker-compose.yml
+├─ AGENTS.md
+└─ README.md
 ```
-
+ 
 ## Arranque rápido
-
-### Base de datos (Docker)
-
-```powershell
-docker compose up -d
-```
-
-Esto levanta PostgreSQL según `docker-compose.yml`. Verificá que las variables de conexión en `backend/.env` coincidan con las definidas ahí.
-
+ 
 ### Backend
-
-```powershell
+ 
+```
 cd backend
 python -m venv .venv
 .venv\Scripts\activate
 pip install -e .[dev]
 copy .env.example .env
-alembic upgrade head
 .venv\Scripts\python.exe -m uvicorn app.main:app --host 127.0.0.1 --port 8000
 ```
-> El paso `alembic upgrade head` aplica las migraciones y crea las tablas necesarias en la base de datos. Es obligatorio la primera vez que se levanta el proyecto, y cada vez que haya migraciones nuevas.
-
-### Frontend Expo
-
-```powershell
+ 
+### Frontend
+ 
+```
 cd frontend
-copy .env.example .env
 npm install
-npm run web
+copy .env.example .env
+npm run dev -- --host 127.0.0.1 --port 5173
 ```
-
-Variable esperada:
-
-```env
-EXPO_PUBLIC_API_BASE_URL=http://127.0.0.1:8000/api/v1
+ 
+## Servicios esperados
+ 
+- Frontend: `http://127.0.0.1:5173`
+- Backend: `http://127.0.0.1:8000`
+- Docs API: `http://127.0.0.1:8000/docs`
+## Tests
+ 
+El backend tiene tests de integración con `pytest` (base de datos SQLite en
+memoria, sin necesidad de Postgres levantado). Ver [`backend/TESTING.md`](backend/TESTING.md)
+para la estrategia completa.
+ 
 ```
-
-## Nota de entorno
-
-- Expo 56 requiere Node `>= 20.19.4`
-- `npm run web` levanta Expo Web en `http://localhost:8081`
-- El frontend usa `EXPO_NO_METRO_WORKSPACE_ROOT=1` desde `package.json`, no hace falta configurarlo manualmente.
-
+cd backend
+.venv\Scripts\python.exe -m pytest -v
+```
+ 
+Con reporte de cobertura:
+```
+.venv\Scripts\python.exe -m pytest --cov=app --cov-report=term-missing
+```
+ 
+Los tests corren automáticamente en cada push/PR vía GitHub Actions
+(`.github/workflows/backend-tests.yml`).
+ 
 ## Documentación operativa
-
+ 
 Antes de trabajar en el proyecto, leer:
-
+ 
 - `AGENTS.md`
-
-Ese archivo contiene:
-
-- Convenciones de naming.
-- Reglas de base de datos.
-- Estructura del proyecto.
-- Criterios de frontend.
-- Pautas de trabajo para colaboradores y Codex.
+- `backend/TESTING.md` (estrategia de testing del backend)
+`AGENTS.md` contiene:
+ 
+- convenciones de naming
+- reglas de base de datos
+- estructura del proyecto
+- criterios de frontend responsive
+- pautas de trabajo para colaboradores y Codex
