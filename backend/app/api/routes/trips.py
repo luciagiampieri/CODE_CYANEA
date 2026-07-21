@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.core.config import settings
 from app.api.deps import get_current_user
+from app.api.routes.itinerary import manager
 from app.db.session import get_db
 from app.models.estado_invitacion import EstadoInvitacion
 from app.models.estado_participacion import EstadoParticipacion
@@ -46,49 +47,12 @@ from app.services.notifications.invitation_email_sender import (
     InvitationEmailPayload,
     InvitationEmailSender,
 )
+from app.services.trip_access import get_trip_with_relations, require_trip_access
+
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
 GEOCODE_URL = "https://api.mapbox.com/search/geocode/v6/forward"
-
-
-def _get_trip_with_relations(db: Session, trip_id: int) -> Viaje | None:
-    return db.scalar(
-        select(Viaje)
-        .options(
-            selectinload(Viaje.Administrador),
-            selectinload(Viaje.EstadoViaje),
-            selectinload(Viaje.Cronograma).selectinload(DiaCronograma.Actividades),
-            selectinload(Viaje.Participantes).selectinload(ParticipanteViaje.Usuario),
-            selectinload(Viaje.Participantes).selectinload(ParticipanteViaje.RolParticipante),
-            selectinload(Viaje.Participantes).selectinload(ParticipanteViaje.EstadoParticipacion),
-            selectinload(Viaje.Invitaciones).selectinload(InvitacionViaje.EstadoInvitacion),
-            selectinload(Viaje.Destinos).selectinload(DestinoViaje.Destino),
-        )
-        .where(Viaje.IdViaje == trip_id)
-    )
-
-
-def _require_trip_access(viaje: Viaje | None, current_user: Usuario) -> Viaje:
-    if viaje is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Viaje no encontrado")
-
-    if viaje.EstadoViaje.Nombre == "cancelado":
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="El acceso a este viaje ha sido restringido porque fue eliminado.",
-        )
-
-    puede_ver = (
-        viaje.IdAdministrador == current_user.IdUsuario
-        or any(part.IdUsuario == current_user.IdUsuario for part in viaje.Participantes)
-    )
-    if not puede_ver:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="No tienes permisos para ver este viaje",
-        )
-    return viaje
 
 
 def _add_one_month(fecha: date) -> date:
@@ -388,7 +352,7 @@ def get_trip_detail(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
 ) -> TripDetailRead:
-    viaje = _require_trip_access(_get_trip_with_relations(db, trip_id), current_user)
+    viaje = require_trip_access(get_trip_with_relations(db, trip_id), current_user)
     return _build_trip_detail(viaje)
 
 
@@ -399,7 +363,7 @@ def update_trip(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
 ) -> TripUpdateResponse:
-    viaje = _require_trip_access(_get_trip_with_relations(db, trip_id), current_user)
+    viaje = require_trip_access(get_trip_with_relations(db, trip_id), current_user)
     _require_trip_admin(viaje, current_user)
 
     limite_edicion = _add_one_month(viaje.FechaFin)
@@ -507,7 +471,7 @@ def update_trip(
 
     db.commit()
 
-    viaje_actualizado = _get_trip_with_relations(db, trip_id)
+    viaje_actualizado = get_trip_with_relations(db, trip_id)
     return TripUpdateResponse(
         message="Los cambios se guardaron correctamente.",
         trip=_build_trip_detail(viaje_actualizado),
@@ -520,14 +484,14 @@ def delete_trip(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
 ) -> TripMutationResponse:
-    viaje = _get_trip_with_relations(db, trip_id)
+    viaje = get_trip_with_relations(db, trip_id)
     if viaje is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, 
             detail="Viaje no encontrado"
         )
 
-    _require_trip_admin(viaje, current_user)
+    require_trip_access(viaje, current_user)
 
     nuevo_estado = db.scalar(
         select(EstadoViaje).where(
@@ -553,21 +517,20 @@ def delete_trip(
     response_model=ActividadRead,
     status_code=status.HTTP_201_CREATED,
 )
-def create_activity(
+async def create_activity(
     trip_id: int,
     day_id: int,
     payload: ActividadCreate,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
 ) -> ActividadRead:
-    viaje = _require_trip_access(_get_trip_with_relations(db, trip_id), current_user)
+    viaje = require_trip_access(get_trip_with_relations(db, trip_id), current_user)
 
     dia = db.scalar(
         select(DiaCronograma).where(
             DiaCronograma.IdDiaCronograma == day_id,
             DiaCronograma.IdViaje == viaje.IdViaje,
         )
-
     )
     if dia is None:
         raise HTTPException(status_code=404, detail="El día del cronograma no existe en este viaje.")
@@ -584,7 +547,17 @@ def create_activity(
     db.commit()
     db.refresh(actividad)
 
-    return ActividadRead.model_validate(actividad)
+    resultado = ActividadRead.model_validate(actividad)
+
+    # Avisamos a todos los conectados al itinerario de este viaje (menos a
+    # quien lo acaba de crear, que ya lo ve por la respuesta REST normal).
+    await manager.broadcast(trip_id, {
+        "tipo": "actividad_creada",
+        "idDiaCronograma": dia.IdDiaCronograma,
+        "actividad": resultado.model_dump(by_alias=True),
+    })
+
+    return resultado
 
 
 @router.post("/{trip_id}/participants", response_model=TripMutationResponse, status_code=status.HTTP_201_CREATED)
@@ -594,7 +567,7 @@ def add_trip_participant(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
 ) -> TripMutationResponse:
-    viaje = _require_trip_access(_get_trip_with_relations(db, trip_id), current_user)
+    viaje = require_trip_access(get_trip_with_relations(db, trip_id), current_user)
     _require_trip_admin(viaje, current_user)
 
     rol_participante = db.scalar(
@@ -744,7 +717,7 @@ def remove_trip_participant(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
 ) -> TripMutationResponse:
-    viaje = _require_trip_access(_get_trip_with_relations(db, trip_id), current_user)
+    viaje = require_trip_access(get_trip_with_relations(db, trip_id), current_user)
     _require_trip_admin(viaje, current_user)
 
     if user_id == viaje.IdAdministrador:
@@ -771,7 +744,7 @@ def remove_trip_external_invitation(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
 ) -> TripMutationResponse:
-    viaje = _require_trip_access(_get_trip_with_relations(db, trip_id), current_user)
+    viaje = require_trip_access(get_trip_with_relations(db, trip_id), current_user)
     _require_trip_admin(viaje, current_user)
 
     if not payload.email:

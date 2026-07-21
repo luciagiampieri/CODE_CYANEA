@@ -2,6 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.router import api_router
+from app.api.routes.itinerary import router as itinerary_router
 from app.core.config import settings
 
 
@@ -16,7 +17,7 @@ app.add_middleware(
     allow_origins=[
         "http://localhost:8081",
         "http://127.0.0.1:8081",
-        *settings.cors_origins_list  
+        *settings.cors_origins_list
     ],
     allow_credentials=True,
     allow_methods=["*"],
@@ -30,3 +31,4 @@ def healthcheck() -> dict[str, str]:
 
 
 app.include_router(api_router, prefix=settings.api_v1_prefix)
+app.include_router(itinerary_router)

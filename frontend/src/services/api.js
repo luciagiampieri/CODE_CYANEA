@@ -19,7 +19,7 @@ function resolveApiBaseUrl() {
 
 const API_BASE_URL = resolveApiBaseUrl();
 
-async function getStoredToken() {
+export async function getStoredToken() {
   try {
     if (Platform.OS === "web") {
       return typeof localStorage !== "undefined" ? localStorage.getItem(AUTH_TOKEN_KEY) : null;
@@ -29,6 +29,16 @@ async function getStoredToken() {
   } catch {
     return null;
   }
+}
+
+function resolveWsBaseUrl() {
+  return API_BASE_URL.replace(/^http/, "ws").replace(/\/api\/v1$/, "");
+}
+
+export async function getItinerarySocketUrl(tripId) {
+  const token = await getStoredToken();
+  const wsBase = resolveWsBaseUrl();
+  return `${wsBase}/ws/trips/${tripId}/itinerary?token=${encodeURIComponent(token ?? "")}`;
 }
 
 async function authHeaders() {

@@ -1,6 +1,6 @@
 import { FontAwesome6 } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -25,6 +25,7 @@ import {
   emitirVoto,
   getCurrentUser,
   getTripDetail,
+  getItinerarySocketUrl,
   getVotaciones,
   getUsers,
   removeTripExternalInvitation,
@@ -184,6 +185,52 @@ export default function TripDetailScreen({ navigation, route }) {
   useEffect(() => {
     loadTripDetail();
   }, [initialTrip?.id]);
+  
+  useEffect(() => {
+  if (!trip?.id) return;
+
+  let socket = null;
+  let reconnectTimeout = null;
+  let cancelado = false;
+
+  async function conectar() {
+    if (cancelado) return;
+    try {
+      const url = await getItinerarySocketUrl(trip.id);
+      socket = new WebSocket(url);
+
+      socket.onmessage = () => {
+        // No procesamos el contenido del mensaje: ante cualquier evento,
+        // simplemente volvemos a pedir el detalle actualizado del viaje.
+        // Es más simple y menos propenso a errores que mergear el estado
+        // a mano, y el costo extra de red es insignificante para este caso.
+        loadTripDetail();
+      };
+
+      socket.onclose = () => {
+        if (!cancelado) {
+          reconnectTimeout = setTimeout(conectar, 3000);
+        }
+      };
+
+      socket.onerror = () => {
+        socket?.close();
+      };
+    } catch {
+      if (!cancelado) {
+        reconnectTimeout = setTimeout(conectar, 3000);
+      }
+    }
+  }
+
+  conectar();
+
+  return () => {
+    cancelado = true;
+    if (reconnectTimeout) clearTimeout(reconnectTimeout);
+    socket?.close();
+  };
+}, [trip?.id]);
 
   async function loadVotaciones() {
     if (!trip?.id) return;
