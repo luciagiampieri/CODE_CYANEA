@@ -68,7 +68,7 @@ def test_register_rejects_weak_password(client):
         "nombre": "Juan", "apellido": "Perez",
         "nombreUsuario": "juanp2",
         "email": "juan2@test.com",
-        "password": "debil",  # sin mayúscula, sin número, sin especial
+        "password": "debil",
         "aceptaTerminos": True,
     })
     assert response.status_code == 422

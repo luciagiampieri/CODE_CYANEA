@@ -81,6 +81,7 @@ Antes de trabajar en el proyecto, leer:
  
 - `AGENTS.md`
 - `backend/TESTING.md` (estrategia de testing del backend)
+
 `AGENTS.md` contiene:
  
 - convenciones de naming
