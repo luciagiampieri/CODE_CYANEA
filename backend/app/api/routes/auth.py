@@ -16,7 +16,7 @@ from app.core.security import (
 )
 from app.db.session import get_db
 from app.models.usuario import Usuario
-from app.schemas.auth import GoogleLoginRequest, LoginRequest, TokenResponse, FacebookLoginRequest, FacebookRegisterRequest, FacebookAuthResponse
+from app.schemas.auth import GoogleLoginRequest, LoginRequest, TokenResponse, FacebookLoginRequest, FacebookRegisterRequest, FacebookAuthResponse, GoogleAuthResponse, GoogleRegisterRequest
 from app.schemas.usuario import UsuarioRegister, UsuarioRegisterResponse
 from app.services.auth.google_auth_service import GoogleAuthService
 from app.services.auth.facebook_auth_service import FacebookAuthService
@@ -174,22 +174,63 @@ def login(payload: LoginRequest, db: Session = Depends(get_db)) -> TokenResponse
     return TokenResponse(access_token=token)
 
 
-@router.post("/google", response_model=TokenResponse)
+@router.post("/google", response_model=GoogleAuthResponse)
 def login_with_google(
     payload: GoogleLoginRequest,
     db: Session = Depends(get_db),
-) -> TokenResponse:
+) -> GoogleAuthResponse:
     identity = google_auth_service.verify_id_token(payload.idToken)
-    usuario = google_auth_service.resolve_or_create_user(db, identity)
 
-    if not usuario.Activo:
+    usuario = google_auth_service.find_existing_user(db, identity)
+
+    # Usuario existente → login normal
+    if usuario:
+        if not usuario.Activo:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="La cuenta no se encuentra habilitada",
+            )
+
+        token = create_access_token({"sub": usuario.Email, "user_id": usuario.IdUsuario})
+        logger.info("Login con Google exitoso", extra={"user_id": usuario.IdUsuario})
+        return GoogleAuthResponse(requiereRegistro=False, access_token=token)
+
+    # Usuario nuevo → debe completar registro
+    logger.info("Cuenta de Google sin usuario asociado", extra={"google_sub": identity.sub})
+    return GoogleAuthResponse(
+        requiereRegistro=True,
+        nombre=identity.given_name,
+        apellido=identity.family_name,
+        email=identity.email,
+        fotoUrl=identity.picture,
+    )
+
+
+@router.post("/register/google", response_model=TokenResponse)
+def register_with_google(
+    payload: GoogleRegisterRequest,
+    db: Session = Depends(get_db),
+    mail_service: MailService = Depends(get_mail_service),
+) -> TokenResponse:
+    if not payload.aceptaTerminos:
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="La cuenta no se encuentra habilitada",
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Debés aceptar los términos y condiciones para registrarte.",
         )
 
+    identity = google_auth_service.verify_id_token(payload.idToken)
+    usuario = google_auth_service.create_user_from_google(db, identity)
+
+    mail_service.send_template(
+        to=[usuario.Email],
+        subject="Bienvenido a Cyanea",
+        template_name="welcome.html",
+        text_template_name="welcome.txt",
+        context={"nombre": usuario.Nombre},
+    )
+
     token = create_access_token({"sub": usuario.Email, "user_id": usuario.IdUsuario})
-    logger.info("Login con Google exitoso", extra={"user_id": usuario.IdUsuario})
+    logger.info("Registro con Google exitoso", extra={"user_id": usuario.IdUsuario})
     return TokenResponse(access_token=token)
 
 

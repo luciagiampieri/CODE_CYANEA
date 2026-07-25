@@ -15,6 +15,7 @@ import AddGastoScreen from "../screens/AddGastoScreen";
 import InvitationsScreen from "../screens/InvitationsScreen";
 import CrearVotacionScreen from "../screens/CrearVotacionScreen";
 import FacebookRegisterScreen from "../screens/FacebookRegisterScreen";
+import GoogleRegisterScreen from "../screens/GoogleRegisterScreen";
 
 const Stack = createNativeStackNavigator();
 
@@ -60,6 +61,11 @@ export default function AppNavigator() {
           <Stack.Screen
             name="FacebookRegister"
             component={FacebookRegisterScreen}
+            options={{ headerShown: false }}
+          />
+          <Stack.Screen
+            name="GoogleRegister"
+            component={GoogleRegisterScreen}
             options={{ headerShown: false }}
           />
           <Stack.Screen

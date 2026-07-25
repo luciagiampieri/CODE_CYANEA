@@ -113,6 +113,24 @@ export async function registerWithFacebook(accessToken, aceptaTerminos) {
   );
 }
 
+export async function registerWithGoogle(idToken, aceptaTerminos) {
+  const response = await fetch(`${API_BASE_URL}/auth/register/google`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      idToken,
+      aceptaTerminos,
+    }),
+  });
+
+  return parseResponse(
+    response,
+    "No se pudo completar el registro con Google"
+  );
+}
+
 export async function getTrips() {
   const response = await fetch(`${API_BASE_URL}/trips`, {
     headers: await authHeaders(),

@@ -2,6 +2,9 @@
 requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
+[tool.poetry]
+package-mode = false
+
 [project]
 name = "cyanea-api"
 version = "0.1.0"

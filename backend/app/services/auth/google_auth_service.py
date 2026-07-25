@@ -174,22 +174,26 @@ class GoogleAuthService:
             picture=(user_data.get("picture") or "").strip() or None,
         )
 
-    def resolve_or_create_user(self, db: Session, identity: GoogleIdentity) -> Usuario:
+    def find_existing_user(self, db: Session, identity: GoogleIdentity) -> Usuario | None:
+        """
+        Busca una cuenta ya asociada a esta identidad de Google. NO crea
+        usuarios nuevos: si no encuentra nada, devuelve None y quien llama
+        decide qué hacer (p.ej. pedir que complete el registro).
+        """
         usuario = db.scalar(select(Usuario).where(Usuario.GoogleSub == identity.sub))
         if usuario:
             return self._sync_google_user(db, usuario, identity)
 
         usuario = db.scalar(select(Usuario).where(Usuario.Email == identity.email))
+        return usuario
+
+    def create_user_from_google(self, db: Session, identity: GoogleIdentity) -> Usuario:
+        usuario = db.scalar(select(Usuario).where(Usuario.Email == identity.email))
         if usuario:
-            usuario.GoogleSub = identity.sub
-            usuario.ProveedorAutenticacion = "google"
-            if identity.picture and not usuario.FotoUrl:
-                usuario.FotoUrl = identity.picture
-            if not usuario.EmailConfirmado:
-                usuario.EmailConfirmado = True
-            db.commit()
-            db.refresh(usuario)
-            return usuario
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="El correo electrónico ya está registrado.",
+            )
 
         nombre, apellido = self._resolve_names(identity)
         usuario = Usuario(

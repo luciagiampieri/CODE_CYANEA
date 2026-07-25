@@ -33,3 +33,19 @@ class FacebookAuthResponse(BaseModel):
 class FacebookRegisterRequest(BaseModel):
     accessToken: str
     aceptaTerminos: bool
+
+
+class GoogleAuthResponse(BaseModel):
+    requiereRegistro: bool
+    access_token: str | None = None
+    token_type: str = "bearer"
+
+    nombre: str | None = None
+    apellido: str | None = None
+    email: str | None = None
+    fotoUrl: str | None = None
+
+
+class GoogleRegisterRequest(BaseModel):
+    idToken: str
+    aceptaTerminos: bool

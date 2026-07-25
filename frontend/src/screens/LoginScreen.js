@@ -180,8 +180,20 @@ export default function LoginScreen({ navigation }) {
 
       (async () => {
         try {
-          const { access_token } = await loginWithGoogle(googleToken);
-          await login(access_token);
+          const result = await loginWithGoogle(googleToken);
+
+          if (!result.requiereRegistro) {
+            await login(result.access_token);
+            return;
+          }
+
+          navigation.navigate("GoogleRegister", {
+            idToken: googleToken,
+            nombre: result.nombre,
+            apellido: result.apellido,
+            email: result.email,
+            fotoUrl: result.fotoUrl,
+          });
         } catch (err) {
           setError(err.message || "No se pudo iniciar sesión con Google.");
         } finally {
