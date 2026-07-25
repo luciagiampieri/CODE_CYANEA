@@ -41,7 +41,7 @@ import {
 } from "../database/gastosLocal";
 
 import AddActivityScreen from "./AddActivityScreen";
-import { createActivity } from "../services/api";
+import { createActivity, deleteActivity } from "../services/api";
 
 
 const tabs = [
@@ -405,6 +405,40 @@ export default function TripDetailScreen({ navigation, route }) {
     await loadTripDetail();
   }
 
+  const [activityToDelete, setActivityToDelete] = useState(null);
+  const [activityFeedback, setActivityFeedback] = useState(null);
+
+  function handleDeleteActivity(dayId, activityId, activityTitle) {
+    setActivityToDelete({ dayId, activityId, title: activityTitle });
+  }
+
+  async function handleConfirmDeleteActivity() {
+    if (!trip?.id || !activityToDelete) return;
+    const { dayId, activityId, title } = activityToDelete;
+    setActivityToDelete(null);
+
+    try {
+      await deleteActivity(trip.id, dayId, activityId);
+      await loadTripDetail();
+      setActivityFeedback({
+        success: true,
+        message: `"${title}" se eliminó correctamente.`,
+      });
+    } catch (error) {
+      setActivityFeedback({
+        success: false,
+        message:
+          error.message || "Ocurrió un problema al intentar eliminar la actividad.",
+      });
+    }
+  }
+
+  useEffect(() => {
+    if (!activityFeedback) return;
+    const timeout = setTimeout(() => setActivityFeedback(null), 2500);
+    return () => clearTimeout(timeout);
+  }, [activityFeedback]);
+
   async function handleConfirmDelete() {
     if (!trip?.id) return;
     try {
@@ -615,6 +649,15 @@ export default function TripDetailScreen({ navigation, route }) {
                                     <Text style={styles.agendaNote}>{item.note ?? item.Notas}</Text>
                                   ) : null}
                                 </View>
+                                <Pressable
+                                  hitSlop={8}
+                                  onPress={() =>
+                                    handleDeleteActivity(dayId, item.id, item.title ?? item.Titulo)
+                                  }
+                                  style={styles.agendaDeleteButton}
+                                >
+                                  <FontAwesome6 color={colors.textMuted} name="trash" size={13} />
+                                </Pressable>
                               </View>
                             ))
                           ) : (
@@ -910,6 +953,63 @@ export default function TripDetailScreen({ navigation, route }) {
           </View>
         </View>
       </Modal>
+
+      <Modal
+        animationType="fade"
+        transparent={true}
+        visible={!!activityToDelete}
+        onRequestClose={() => setActivityToDelete(null)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalIconContainer}>
+              <FontAwesome6 name="trash-can" size={22} color={colors.danger || "#ef4444"} />
+            </View>
+            <Text style={styles.modalTitle}>¿Eliminar actividad?</Text>
+            <Text style={styles.modalMessage}>
+              Se va a eliminar "{activityToDelete?.title}" del itinerario. Esta acción no se puede deshacer.
+            </Text>
+            <View style={{ height: 10 }} />
+            <View style={styles.modalActions}>
+              <Pressable
+                style={[styles.modalButton, styles.modalButtonCancel]}
+                onPress={() => setActivityToDelete(null)}
+              >
+                <Text style={styles.modalButtonTextCancel}>Cancelar</Text>
+              </Pressable>
+              <Pressable
+                style={[styles.modalButton, styles.modalButtonConfirm]}
+                onPress={handleConfirmDeleteActivity}
+              >
+                <Text style={styles.modalButtonTextConfirm}>Eliminar</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal
+        animationType="fade"
+        transparent={true}
+        visible={!!activityFeedback}
+        onRequestClose={() => setActivityFeedback(null)}
+      >
+        <Pressable style={styles.modalOverlay} onPress={() => setActivityFeedback(null)}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalIconContainer}>
+              <FontAwesome6
+                name={activityFeedback?.success ? "circle-check" : "circle-exclamation"}
+                size={22}
+                color={activityFeedback?.success ? colors.primary : (colors.danger || "#ef4444")}
+              />
+            </View>
+            <Text style={styles.modalTitle}>
+              {activityFeedback?.success ? "Listo" : "Error"}
+            </Text>
+            <Text style={styles.modalMessage}>{activityFeedback?.message}</Text>
+          </View>
+        </Pressable>
+      </Modal>
     </ScreenContainer>
   );
 }
@@ -1077,6 +1177,10 @@ const styles = StyleSheet.create({
   },
   agendaContent: {
     flex: 1,
+  },
+  agendaDeleteButton: {
+    padding: spacing.xs,
+    marginTop: 2,
   },
   agendaHeaderRow: {
     flexDirection: "row",

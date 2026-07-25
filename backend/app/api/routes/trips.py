@@ -560,6 +560,51 @@ async def create_activity(
     return resultado
 
 
+@router.delete(
+    "/{trip_id}/days/{day_id}/activities/{activity_id}",
+    response_model=TripMutationResponse,
+)
+async def delete_activity(
+    trip_id: int,
+    day_id: int,
+    activity_id: int,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> TripMutationResponse:
+    viaje = require_trip_access(get_trip_with_relations(db, trip_id), current_user)
+
+    dia = db.scalar(
+        select(DiaCronograma).where(
+            DiaCronograma.IdDiaCronograma == day_id,
+            DiaCronograma.IdViaje == viaje.IdViaje,
+        )
+    )
+    if dia is None:
+        raise HTTPException(status_code=404, detail="El día del cronograma no existe en este viaje.")
+
+    actividad = db.scalar(
+        select(ActividadItinerario).where(
+            ActividadItinerario.IdActividad == activity_id,
+            ActividadItinerario.IdDiaCronograma == dia.IdDiaCronograma,
+        )
+    )
+    if actividad is None:
+        raise HTTPException(status_code=404, detail="La actividad no existe en este día del itinerario.")
+
+    db.delete(actividad)
+    db.commit()
+
+    # Avisamos a todos los conectados al itinerario de este viaje (menos a
+    # quien la acaba de eliminar, que ya lo ve por la respuesta REST normal).
+    await manager.broadcast(trip_id, {
+        "tipo": "actividad_eliminada",
+        "idDiaCronograma": dia.IdDiaCronograma,
+        "idActividad": activity_id,
+    })
+
+    return TripMutationResponse(message="La actividad ha sido eliminada correctamente.")
+
+
 @router.post("/{trip_id}/participants", response_model=TripMutationResponse, status_code=status.HTTP_201_CREATED)
 def add_trip_participant(
     trip_id: int,

@@ -371,6 +371,17 @@ export async function createActivity(tripId, dayId, payload) {
   return parseResponse(response, "No se pudo crear la actividad");
 }
 
+export async function deleteActivity(tripId, dayId, activityId) {
+  const response = await fetch(
+    `${API_BASE_URL}/trips/${tripId}/days/${dayId}/activities/${activityId}`,
+    {
+      method: "DELETE",
+      headers: await authHeaders(),
+    }
+  );
+  return parseResponse(response, "No se pudo eliminar la actividad");
+}
+
 
 export async function deleteTrip(tripId) {
   const response = await fetch(`${API_BASE_URL}/trips/${tripId}`, {
