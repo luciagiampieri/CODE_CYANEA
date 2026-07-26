@@ -31,6 +31,7 @@ import {
   removeTripExternalInvitation,
   removeTripParticipant,
   deleteTrip,
+  updateActivity,
 } from "../services/api";
 import { colors, radii, spacing, surfaces, textStyles } from "../theme/tokens";
 
@@ -137,6 +138,26 @@ export default function TripDetailScreen({ navigation, route }) {
   const [currentUser, setCurrentUser] = useState(null);
   const [showDeleteModal, setShowDeleteModal] = useState(false); 
   const [showOptionsMenu, setShowOptionsMenu] = useState(false);
+  const [activityEditMessage, setActivityEditMessage] = useState("");
+  const socketRef = useRef(null);
+  const pendingEditRef = useRef(null);
+
+  function enviarMensajeWebSocket(mensaje) {
+    if (socketRef.current?.readyState === WebSocket.OPEN) {
+      socketRef.current.send(JSON.stringify(mensaje));
+      return true;
+    }
+
+    console.error("El WebSocket no está conectado.");
+    return false;
+  }
+
+  function finalizarEdicionActividad(activityId){
+    enviarMensajeWebSocket({
+      tipo: "finalizar_edicion",
+      idActividad: activityId,
+    });
+  }
 
   useEffect(() => {
     async function loadCurrentUser() {
@@ -189,7 +210,6 @@ export default function TripDetailScreen({ navigation, route }) {
   useEffect(() => {
   if (!trip?.id) return;
 
-  let socket = null;
   let reconnectTimeout = null;
   let cancelado = false;
 
@@ -197,24 +217,48 @@ export default function TripDetailScreen({ navigation, route }) {
     if (cancelado) return;
     try {
       const url = await getItinerarySocketUrl(trip.id);
-      socket = new WebSocket(url);
+      console.log("Conectando al WebSocket con URL:", url);
+  
+      socketRef.current = new WebSocket(url);
+      console.log("WebSocket conectado");
+      
+      socketRef.current.onmessage = (event) => {
+        console.log("Mensaje WebSocket recibido:", event.data);
+        try {
+          const mensaje = JSON.parse(event.data);
+          console.log("Mensaje WebSocket recibido:", mensaje);
 
-      socket.onmessage = () => {
-        // No procesamos el contenido del mensaje: ante cualquier evento,
-        // simplemente volvemos a pedir el detalle actualizado del viaje.
-        // Es más simple y menos propenso a errores que mergear el estado
-        // a mano, y el costo extra de red es insignificante para este caso.
-        loadTripDetail();
+          if (mensaje.tipo === "edicion_rechazada"){
+            console.log("Edición rechazada:", mensaje.mensaje);
+
+            setActivityEditMessage(mensaje.mensaje);
+
+            pendingEditRef.current = null;
+            return;
+          }
+          if (mensaje.tipo === "edicion_concedida"){
+            const actividadPendiente = pendingEditRef.current;
+
+            if(actividadPendiente){
+              setActivityModalDay(actividadPendiente);
+              pendingEditRef.current = null;
+            }
+            return;
+          }
+          loadTripDetail();
+        } catch (error) {
+          console.error("Error procesando mensaje WebSocket:", error);
+        }
       };
 
-      socket.onclose = () => {
+      socketRef.current.onclose = () => {
         if (!cancelado) {
           reconnectTimeout = setTimeout(conectar, 3000);
         }
       };
 
-      socket.onerror = () => {
-        socket?.close();
+      socketRef.current.onerror = () => {
+        socketRef.current?.close();
       };
     } catch {
       if (!cancelado) {
@@ -228,7 +272,7 @@ export default function TripDetailScreen({ navigation, route }) {
   return () => {
     cancelado = true;
     if (reconnectTimeout) clearTimeout(reconnectTimeout);
-    socket?.close();
+    socketRef.current?.close();
   };
 }, [trip?.id]);
 
@@ -401,7 +445,18 @@ export default function TripDetailScreen({ navigation, route }) {
 
   async function handleCreateActivity(payload) {
     if (!trip?.id || !activityModalDay) return;
-    await createActivity(trip.id, activityModalDay.id, payload);
+    
+    if (payload.id){
+      await updateActivity(
+      trip.id,
+      activityModalDay.id,
+      payload.id,
+      payload
+    );
+    finalizarEdicionActividad(payload.id);
+    } else {
+      await createActivity(trip.id, activityModalDay.id, payload);
+    }
     await loadTripDetail();
   }
 
@@ -651,10 +706,33 @@ export default function TripDetailScreen({ navigation, route }) {
                                 </View>
                                 <Pressable
                                   hitSlop={8}
+                                  onPress={() => {
+                                    const enviado = enviarMensajeWebSocket({
+                                      tipo: "iniciar_edicion",
+                                      idActividad: item.id,
+                                    });
+
+                                    if (!enviado) {
+                                      return;
+                                    }
+
+                                    pendingEditRef.current = {
+                                      id: dayId,
+                                      label: `${dayDateText} · Día ${dayIndex}`,
+                                      activity: item,
+                                    };
+                                  }}
+                                  style={styles.agendaActionButton}
+                                >
+                                  <FontAwesome6 color={colors.primary} name="pen" size={13} />
+                                </Pressable>
+
+                                <Pressable
+                                  hitSlop={8}
                                   onPress={() =>
                                     handleDeleteActivity(dayId, item.id, item.title ?? item.Titulo)
                                   }
-                                  style={styles.agendaDeleteButton}
+                                  style={styles.agendaActionButton}
                                 >
                                   <FontAwesome6 color={colors.textMuted} name="trash" size={13} />
                                 </Pressable>
@@ -893,6 +971,10 @@ export default function TripDetailScreen({ navigation, route }) {
         onClose={() => setActivityModalDay(null)}
         onSubmit={handleCreateActivity}
         visible={!!activityModalDay}
+        activityToEdit={activityModalDay?.activity}
+        onCancelEdit={(activityId) => {
+          finalizarEdicionActividad(activityId);
+        }}
       />
 
       <Modal
@@ -1010,6 +1092,45 @@ export default function TripDetailScreen({ navigation, route }) {
           </View>
         </Pressable>
       </Modal>
+
+      <Modal
+        animationType="fade"
+        transparent={true}
+        visible={!!activityEditMessage}
+        onRequestClose={() => setActivityEditMessage("")}
+      >
+        <Pressable
+          style={styles.modalOverlay}
+          onPress={() => setActivityEditMessage("")}
+        >
+          <View style={styles.modalContent}>
+            <View style={styles.modalIconContainer}>
+              <FontAwesome6
+                name="triangle-exclamation"
+                size={22}
+                color={colors.danger || "#ef4444"}
+              />
+            </View>
+
+            <Text style={styles.modalTitle}>
+              Actividad en edición
+            </Text>
+
+            <Text style={styles.modalMessage}>
+              {activityEditMessage}
+            </Text>
+
+            <Pressable
+              style={styles.activityEditOkButton}
+              onPress={() => setActivityEditMessage("")}
+            >
+              <Text style={styles.activityEditOkButtonText}>
+                Entendido
+              </Text>
+            </Pressable>
+          </View>
+        </Pressable>
+     </Modal>
     </ScreenContainer>
   );
 }
@@ -1178,7 +1299,12 @@ const styles = StyleSheet.create({
   agendaContent: {
     flex: 1,
   },
-  agendaDeleteButton: {
+  agendaActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.xs,
+  },
+  agendaActionButton: {
     padding: spacing.xs,
     marginTop: 2,
   },
@@ -1336,4 +1462,19 @@ const styles = StyleSheet.create({
     color: colors.textInverse,
     fontSize: 14,
   },
+  activityEditOkButton: {
+  backgroundColor: colors.primary,
+  borderRadius: radii.md,
+  paddingVertical: spacing.md,
+  paddingHorizontal: spacing.lg,
+  marginTop: spacing.lg,
+  alignItems: "center",
+  justifyContent: "center",
+  width: "100%",
+},
+activityEditOkButtonText: {
+  color: colors.textInverse,
+  fontSize: 15,
+  fontWeight: "700",
+},
 });

@@ -28,6 +28,7 @@ from app.models.destino import Destino
 from app.schemas.trip import (
     ActividadCreate,
     ActividadRead,
+    ActividadUpdate,
     TripAdminRead,
     TripCreate,
     TripDetailRead,
@@ -556,6 +557,71 @@ async def create_activity(
         "idDiaCronograma": dia.IdDiaCronograma,
         "actividad": resultado.model_dump(by_alias=True),
     })
+
+    return resultado
+
+
+@router.put(
+    "/{trip_id}/days/{day_id}/activities/{activity_id}",
+    response_model=ActividadRead,
+)
+async def update_activity(
+    trip_id: int,
+    day_id: int,
+    activity_id: int,
+    payload: ActividadUpdate,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> ActividadRead:
+    viaje = require_trip_access(get_trip_with_relations(db, trip_id), current_user)
+
+    dia = db.scalar(
+        select(DiaCronograma).where(
+            DiaCronograma.IdDiaCronograma == day_id,
+            DiaCronograma.IdViaje == viaje.IdViaje,
+        )
+    )
+    if dia is None:
+        raise HTTPException(
+            status_code=404,
+            detail="El día del cronograma no existe en este viaje.",
+        )
+
+    actividad = db.scalar(
+        select(ActividadItinerario).where(
+            ActividadItinerario.IdActividad == activity_id,
+            ActividadItinerario.IdDiaCronograma == dia.IdDiaCronograma,
+        )
+    )
+    if actividad is None:
+        raise HTTPException(
+            status_code=404,
+            detail="La actividad no existe en este día del itinerario.",
+        )
+
+    actividad.Nombre = payload.nombre.strip()
+    actividad.Descripcion = (
+        payload.descripcion.strip()
+        if payload.descripcion
+        else None
+    )
+    actividad.HoraInicio = payload.horaInicio
+    actividad.HoraFin = payload.horaFin
+    actividad.Icono = payload.icono
+
+    db.commit()
+    db.refresh(actividad)
+
+    resultado = ActividadRead.model_validate(actividad)
+
+    await manager.broadcast(
+        trip_id,
+        {
+            "tipo": "actividad_actualizada",
+            "idDiaCronograma": dia.IdDiaCronograma,
+            "actividad": resultado.model_dump(by_alias=True),
+        },
+    )
 
     return resultado
 

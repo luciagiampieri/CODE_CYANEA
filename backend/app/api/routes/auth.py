@@ -1,6 +1,7 @@
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi.security import OAuth2PasswordRequestForm
 from fastapi.responses import RedirectResponse
 from jose import JWTError
 from sqlalchemy import select

@@ -32,6 +32,27 @@ class ActividadCreate(BaseModel):
         return self
 
 
+class ActividadUpdate(BaseModel):
+    nombre: str = Field(
+        ...,
+        min_length=1,
+        max_length=150,
+        description="El nombre de la actividad no puede quedar vacío",
+    )
+    descripcion: str | None = None
+    horaInicio: time_type
+    horaFin: time_type
+    icono: str = Field(default="location-dot", max_length=50)
+
+    @model_validator(mode="after")
+    def validate_horarios(self):
+        if self.horaFin <= self.horaInicio:
+            raise ValueError(
+                "La hora de fin debe ser posterior a la hora de inicio"
+            )
+        return self
+    
+
 class DiaCronogramaRead(BaseModel):
     idDiaCronograma: int = Field(..., alias="IdDiaCronograma")
     fecha: date = Field(..., alias="Fecha")

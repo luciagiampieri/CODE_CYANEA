@@ -41,6 +41,7 @@ export async function getItinerarySocketUrl(tripId) {
   return `${wsBase}/ws/trips/${tripId}/itinerary?token=${encodeURIComponent(token ?? "")}`;
 }
 
+
 async function authHeaders() {
   const token = await getStoredToken();
   return token ? { Authorization: `Bearer ${token}` } : {};
@@ -371,6 +372,23 @@ export async function createActivity(tripId, dayId, payload) {
   return parseResponse(response, "No se pudo crear la actividad");
 }
 
+export async function updateActivity(tripId, dayId, activityId, payload) {
+  const response = await fetch(
+    `${API_BASE_URL}/trips/${tripId}/days/${dayId}/activities/${activityId}`,
+    {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+        ...(await authHeaders()),
+      },
+      body: JSON.stringify(payload),
+    }
+  );
+
+  return parseResponse(response, "No se pudo actualizar la actividad");
+}
+
+
 export async function deleteActivity(tripId, dayId, activityId) {
   const response = await fetch(
     `${API_BASE_URL}/trips/${tripId}/days/${dayId}/activities/${activityId}`,
@@ -399,3 +417,5 @@ if (response.ok) {
   const errorData = await response.json().catch(() => ({}));
   throw new Error(errorData.detail || "No se pudo dar de baja el viaje.");
 }
+
+

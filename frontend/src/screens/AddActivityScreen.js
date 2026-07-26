@@ -1,5 +1,6 @@
-import { useState, useEffect } from "react";
-import { Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import {useState, useEffect } from "react";
+import DateTimePicker from "@react-native-community/datetimepicker";
+import { Platform, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { FontAwesome6 } from "@expo/vector-icons";
 
 import PrimaryButton from "../components/ui/PrimaryButton";
@@ -39,11 +40,12 @@ function isValidTime(value) {
     return /^([01]\d|2[0-3]):([0-5]\d)$/.test(value);
 }
 
-export default function AddActivityScreen({ visible, onClose, onSubmit, dayLabel }) {
+export default function AddActivityScreen({ visible, onClose, onSubmit, dayLabel, activityToEdit=null, onCancelEdit }) {
     const [nombre, setNombre] = useState("");
     const [descripcion, setDescripcion] = useState("");
     const [horaInicio, setHoraInicio] = useState("");
     const [horaFin, setHoraFin] = useState("");
+    const [showTimePicker, setShowTimePicker] = useState(null);
     const [icono, setIcono] = useState("location-dot");
     const [iconoModificadoManual, setIconoModificadoManual] = useState(false);
     const [error, setError] = useState("");
@@ -56,12 +58,47 @@ export default function AddActivityScreen({ visible, onClose, onSubmit, dayLabel
         }
     }, [nombre]);
 
+    
+    useEffect(() => {
+        if (!visible) return;
+
+        if (activityToEdit) {
+            setNombre(activityToEdit.title ?? "");
+            setDescripcion(activityToEdit.note ?? "");
+
+            const [horaInicioEdit, horaFinEdit] = (activityToEdit.time ?? "").split(" - ");
+
+            setHoraInicio(horaInicioEdit ?? "");
+            setHoraFin(horaFinEdit ?? "");
+
+            setIcono(activityToEdit.icon ?? "location-dot");
+            setIconoModificadoManual(true);
+        } else {
+            setNombre("");
+            setDescripcion("");
+            setHoraInicio("");
+            setHoraFin("");
+            setIcono("location-dot");
+            setIconoModificadoManual(false);
+        }
+
+        setError("");
+        setSuccessMessage("");
+    }, [visible, activityToEdit]);
+
+
+
     function handleSelectIcon(iconName) {
         setIcono(iconName);
         setIconoModificadoManual(true);
     }
 
     function resetAndClose() {
+
+        if (activityToEdit?.id){
+            onCancelEdit?.(activityToEdit.id);
+        }
+
         setNombre("");
         setDescripcion("");
         setHoraInicio("");
@@ -71,6 +108,22 @@ export default function AddActivityScreen({ visible, onClose, onSubmit, dayLabel
         setError("");
         setSuccessMessage("");
         onClose();
+    }
+
+    function handleTimeChange(event, selectedDate) {
+        setShowTimePicker(null);
+
+        if (!selectedDate) return;
+
+        const hours = String(selectedDate.getHours()).padStart(2, "0");
+        const minutes = String(selectedDate.getMinutes()).padStart(2, "0");
+        const selectedTime = `${hours}:${minutes}`;
+
+        if (showTimePicker === "inicio") {
+            setHoraInicio(selectedTime);
+        } else if (showTimePicker === "fin") {
+            setHoraFin(selectedTime);
+        }
     }
 
     async function handleSubmit() {
@@ -92,18 +145,25 @@ export default function AddActivityScreen({ visible, onClose, onSubmit, dayLabel
         setSuccessMessage("");
         try {
             await onSubmit({
+                id: activityToEdit?.id,
                 nombre: nombre.trim(),
                 descripcion: descripcion.trim() || null,
                 horaInicio: `${horaInicio}:00`,
                 horaFin: `${horaFin}:00`,
                 icono,
             });
-            setSuccessMessage("¡Actividad creada correctamente!");
+            setSuccessMessage(
+                activityToEdit ? "¡Actividad editada correctamente!" : "¡Actividad agregada correctamente!"
+            );
             setTimeout(() => {
                 resetAndClose();
             }, 1200);
         } catch (err) {
-            setError(err.message || "No se pudo crear la actividad.");
+            setError( 
+                err.message ||
+                (activityToEdit ? "No se pudo editar la actividad." : "No se pudo crear la actividad.")
+
+            );
         } finally {
             setSubmitting(false);
         }
@@ -115,7 +175,9 @@ export default function AddActivityScreen({ visible, onClose, onSubmit, dayLabel
                 <View style={styles.sheet}>
                     <ScrollView keyboardShouldPersistTaps="handled">
                         <View style={styles.headerRow}>
-                            <Text style={styles.title}>Nueva actividad</Text>
+                            <Text style={styles.title}>
+                                {activityToEdit ? "Editar actividad" : "Agregar actividad"}
+                            </Text>
                             <Pressable onPress={resetAndClose}>
                                 <FontAwesome6 color={colors.textMuted} name="xmark" size={18} />
                             </Pressable>
@@ -135,27 +197,71 @@ export default function AddActivityScreen({ visible, onClose, onSubmit, dayLabel
                         <View style={styles.row}>
                             <View style={styles.timeField}>
                                 <Text style={styles.label}>Hora de inicio</Text>
-                                <TextInput
-                                    onChangeText={setHoraInicio}
-                                    placeholder="10:00"
-                                    placeholderTextColor={colors.textMuted}
-                                    style={styles.input}
-                                    value={horaInicio}
-                                    editable={!successMessage}
-                                />
+
+                                {Platform.OS === "web" ? (
+                                    <TextInput
+                                        onChangeText={setHoraInicio}
+                                        placeholder="10:00"
+                                        placeholderTextColor={colors.textMuted}
+                                        style={styles.input}
+                                        value={horaInicio}
+                                        editable={!successMessage}
+                                        type="time"
+                                    />
+                                ) : (
+                                    <Pressable
+                                        onPress={() => !successMessage && setShowTimePicker("inicio")}
+                                        style={styles.input}
+                                >
+                                    <Text style={horaInicio ? styles.timeText : styles.placeholderText}>
+                                        {horaInicio || "Seleccionar hora"}
+                                    </Text>
+                                </Pressable>
+                                )}
                             </View>
+
                             <View style={styles.timeField}>
                                 <Text style={styles.label}>Hora de fin</Text>
-                                <TextInput
-                                    onChangeText={setHoraFin}
-                                    placeholder="12:00"
-                                    placeholderTextColor={colors.textMuted}
+
+                                {Platform.OS === "web" ? (
+                                    <TextInput
+                                        onChangeText={setHoraFin}
+                                        placeholder="12:00"
+                                        placeholderTextColor={colors.textMuted}
+                                        style={styles.input}
+                                        value={horaFin}
+                                        editable={!successMessage}
+                                        type="time"
+                                    />
+                                ) : (
+                                    <Pressable
+                                    onPress={() => !successMessage && setShowTimePicker("fin")}
                                     style={styles.input}
-                                    value={horaFin}
-                                    editable={!successMessage}
-                                />
+                                >
+                                    <Text style={horaFin ? styles.timeText : styles.placeholderText}>
+                                        {horaFin || "Seleccionar hora"}
+                                    </Text>
+                                </Pressable>
+                                )}
                             </View>
                         </View>
+
+                        {Platform.OS !== "web" && showTimePicker ? (
+                            <DateTimePicker
+                                mode="time"
+                                value={
+                                    showTimePicker === "inicio"
+                                        ? horaInicio
+                                            ? new Date(`1970-01-01T${horaInicio}:00`)
+                                            : new Date()
+                                        : horaFin
+                                            ? new Date(`1970-01-01T${horaFin}:00`)
+                                            : new Date()
+                                }
+                                onChange={handleTimeChange}
+                                is24Hour={true}
+                            />
+                        ) : null}
 
                         <Text style={styles.label}>Descripción (opcional)</Text>
                         <TextInput
@@ -198,7 +304,7 @@ export default function AddActivityScreen({ visible, onClose, onSubmit, dayLabel
                         {successMessage ? <Text style={styles.success}>{successMessage}</Text> : null}
 
                         <PrimaryButton
-                            label={submitting ? "Guardando..." : "Guardar actividad"}
+                            label={submitting ? "Guardando..." : activityToEdit ? "Guardar cambios" : "Agregar actividad"}
                             loading={submitting}
                             onPress={handleSubmit}
                             disabled={!!successMessage}
@@ -317,5 +423,13 @@ const styles = StyleSheet.create({
     submitButton: {
         marginTop: spacing.lg,
         marginBottom: spacing.md,
+    },
+    timeText: {
+    ...textStyles.body,
+    color: colors.textPrimary,
+    },
+    placeholderText: {
+        ...textStyles.body,
+        color: colors.textMuted,
     },
 });
