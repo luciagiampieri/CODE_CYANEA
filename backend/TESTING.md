@@ -86,7 +86,20 @@ rápido y aísla los tests de auth de los tests de negocio.
   con token inválido, rechazo si el viaje no existe, rechazo si el usuario no
   es participante, recepción del evento `actividad_creada` al crear una
   actividad por REST, aislamiento entre viajes distintos (no hay fuga de
-  eventos entre conexiones de viajes diferentes).
+  eventos entre conexiones de viajes diferentes). Editar actividad: éxito,
+  validaciones (hora fin inválida, actividad/día inexistente, actividad de
+  otro día, nombre/horarios vacíos), bloqueo de edición concurrente y
+  liberación al desconectarse, broadcast `actividad_actualizada`. Consultar
+  itinerario (US19): `GET /trips/{id}` devuelve el cronograma con los días
+  ordenados por fecha y las actividades de cada día ordenadas por horario
+  (sin importar el orden de carga), acceso permitido a cualquier participante
+  no solo al admin, rechazo a usuarios ajenos al viaje. Crear actividad:
+  éxito, rechazo de horario inválido, día inexistente, permitido a
+  participante no-admin. Eliminar actividad: éxito (y que ya no aparezca al
+  volver a consultar el itinerario), actividad/día inexistente, actividad de
+  otro día, permitido a participante no-admin, broadcast
+  `actividad_eliminada`. Se agregaron también tests de que editar actividad
+  esté permitido a un participante no-admin (no solo al administrador).
 
 ## Pendiente / fuera de alcance por ahora
 

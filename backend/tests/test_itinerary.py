@@ -8,6 +8,7 @@ from app.models.actividad_itinerario import ActividadItinerario
 from app.models.dia_cronograma import DiaCronograma
 from app.models.usuario import Usuario
 from tests.conftest import TestingSessionLocal
+from tests.test_trips import _agregar_participante, _crear_usuario, _token_de
 
 
 @pytest.fixture(autouse=True)
@@ -50,7 +51,7 @@ def test_ws_conecta_si_es_admin_del_viaje(client, usuario_activo, viaje_con_admi
     token = create_access_token({"sub": usuario_activo.Email, "user_id": usuario_activo.IdUsuario})
 
     with client.websocket_connect(_ws_url(viaje.IdViaje, token)):
-        pass  # si la conexión se acepta, no debería tirar excepción
+        pass  
 
 
 def test_ws_rechaza_token_invalido(client, viaje_con_admin):
@@ -172,7 +173,6 @@ def test_ws_no_reenvia_evento_a_quien_no_esta_en_el_mismo_viaje(
         with pytest.raises(Exception):
             ws_otro.receive_text(timeout=0.5)
 
-# TESTS EDITAR ACTIVIDAD
 
 def test_actualizar_actividad_correctamente(
     client,
@@ -267,7 +267,6 @@ def test_actualizar_actividad_de_otro_dia_rechazada(
 ):
     viaje, _ = viaje_con_admin
 
-    # Creamos otro día dentro del mismo viaje
     otro_dia = DiaCronograma(
         IdViaje=viaje.IdViaje,
         Fecha=date_type(2026, 12, 2),
@@ -277,8 +276,6 @@ def test_actualizar_actividad_de_otro_dia_rechazada(
     db_session.commit()
     db_session.refresh(otro_dia)
 
-    # La actividad pertenece a dia_cronograma,
-    # pero intentamos actualizarla usando otro_dia.
     response = client.put(
         f"/api/v1/trips/{viaje.IdViaje}/days/"
         f"{otro_dia.IdDiaCronograma}/activities/"
@@ -389,7 +386,6 @@ def test_ws_bloquea_edicion_concurrente_de_misma_actividad(
 
     url = _ws_url(viaje.IdViaje, token)
 
-    # Primer usuario entra al WebSocket
     with client.websocket_connect(url) as ws_1:
         ws_1.send_json({
             "tipo": "iniciar_edicion",
@@ -401,7 +397,6 @@ def test_ws_bloquea_edicion_concurrente_de_misma_actividad(
         assert respuesta_1["tipo"] == "edicion_concedida"
         assert respuesta_1["idActividad"] == actividad_itinerario.IdActividad
 
-        # Segundo usuario intenta editar la misma actividad
         with client.websocket_connect(url) as ws_2:
             ws_2.send_json({
                 "tipo": "iniciar_edicion",
@@ -430,7 +425,6 @@ def test_ws_permite_editar_nuevamente_despues_de_finalizar_edicion(
 
     url = _ws_url(viaje.IdViaje, token)
 
-    # Primer usuario inicia la edición
     with client.websocket_connect(url) as ws_1:
         ws_1.send_json({
             "tipo": "iniciar_edicion",
@@ -441,13 +435,11 @@ def test_ws_permite_editar_nuevamente_despues_de_finalizar_edicion(
 
         assert respuesta_1["tipo"] == "edicion_concedida"
 
-        # Finaliza la edición
         ws_1.send_json({
             "tipo": "finalizar_edicion",
             "idActividad": actividad_itinerario.IdActividad,
         })
 
-        # El usuario recibe el evento de edición finalizada
         respuesta_finalizacion = ws_1.receive_json()
 
         assert respuesta_finalizacion["tipo"] == "edicion_finalizada"
@@ -456,7 +448,6 @@ def test_ws_permite_editar_nuevamente_despues_de_finalizar_edicion(
             == actividad_itinerario.IdActividad
         )
 
-    # Una nueva conexión intenta editar la misma actividad
     with client.websocket_connect(url) as ws_2:
         ws_2.send_json({
             "tipo": "iniciar_edicion",
@@ -528,7 +519,6 @@ def test_ws_libera_edicion_al_desconectarse(
 
     url = _ws_url(viaje.IdViaje, token)
 
-    # Usuario inicia la edición
     with client.websocket_connect(url) as ws_1:
         ws_1.send_json({
             "tipo": "iniciar_edicion",
@@ -539,10 +529,7 @@ def test_ws_libera_edicion_al_desconectarse(
 
         assert respuesta_1["tipo"] == "edicion_concedida"
 
-    # Al salir del with, el WebSocket se desconecta.
-    # El finally del backend debería liberar la edición.
 
-    # Una nueva conexión intenta editar la misma actividad.
     with client.websocket_connect(url) as ws_2:
         ws_2.send_json({
             "tipo": "iniciar_edicion",
@@ -553,3 +540,266 @@ def test_ws_libera_edicion_al_desconectarse(
 
         assert respuesta_2["tipo"] == "edicion_concedida"
         assert respuesta_2["idActividad"] == actividad_itinerario.IdActividad
+
+
+
+def test_consultar_itinerario_incluye_dias_y_actividades_ordenadas(
+    client, auth_headers, viaje_con_admin, db_session
+):
+    viaje, _ = viaje_con_admin
+
+    dia_2 = DiaCronograma(IdViaje=viaje.IdViaje, Fecha=date_type(2026, 12, 2), IndiceDia=1)
+    dia_1 = DiaCronograma(IdViaje=viaje.IdViaje, Fecha=date_type(2026, 12, 1), IndiceDia=0)
+    db_session.add_all([dia_2, dia_1])
+    db_session.commit()
+    db_session.refresh(dia_1)
+
+    cena = ActividadItinerario(
+        IdDiaCronograma=dia_1.IdDiaCronograma,
+        Nombre="Cena",
+        HoraInicio=time(20, 0),
+        HoraFin=time(22, 0),
+    )
+    desayuno = ActividadItinerario(
+        IdDiaCronograma=dia_1.IdDiaCronograma,
+        Nombre="Desayuno",
+        HoraInicio=time(8, 0),
+        HoraFin=time(9, 0),
+    )
+    db_session.add_all([cena, desayuno])
+    db_session.commit()
+
+    response = client.get(f"/api/v1/trips/{viaje.IdViaje}", headers=auth_headers)
+    assert response.status_code == 200
+
+    cronograma = response.json()["Cronograma"]
+    assert len(cronograma) == 2
+    assert [dia["IdDiaCronograma"] for dia in cronograma] == [
+        dia_1.IdDiaCronograma,
+        dia_2.IdDiaCronograma,
+    ]
+
+    primer_dia = cronograma[0]
+    nombres_en_orden = [actividad["Nombre"] for actividad in primer_dia["Actividades"]]
+    assert nombres_en_orden == ["Desayuno", "Cena"]
+
+
+def test_consultar_itinerario_permite_a_participante_no_admin(
+    client, db_session, viaje_con_admin, dia_cronograma, actividad_itinerario
+):
+    viaje, _ = viaje_con_admin
+
+    invitado = _crear_usuario(db_session, "participante_itinerario")
+    _agregar_participante(db_session, viaje, invitado, estado_nombre="aceptado")
+
+    response = client.get(f"/api/v1/trips/{viaje.IdViaje}", headers=_token_de(invitado))
+
+    assert response.status_code == 200
+    actividades = response.json()["Cronograma"][0]["Actividades"]
+    assert any(a["IdActividad"] == actividad_itinerario.IdActividad for a in actividades)
+
+
+def test_consultar_itinerario_rechaza_usuario_ajeno_al_viaje(
+    client, db_session, viaje_con_admin
+):
+    viaje, _ = viaje_con_admin
+    ajeno = _crear_usuario(db_session, "ajeno_itinerario")
+
+    response = client.get(f"/api/v1/trips/{viaje.IdViaje}", headers=_token_de(ajeno))
+
+    assert response.status_code == 403
+
+
+
+def test_crear_actividad_correctamente(client, auth_headers, viaje_con_admin, dia_cronograma):
+    viaje, _ = viaje_con_admin
+
+    response = client.post(
+        f"/api/v1/trips/{viaje.IdViaje}/days/{dia_cronograma.IdDiaCronograma}/activities",
+        json={
+            "nombre": "Caminata al mirador",
+            "descripcion": "Llevar agua",
+            "horaInicio": "09:00:00",
+            "horaFin": "11:00:00",
+            "icono": "person-hiking",
+        },
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 201
+    data = response.json()
+    assert data["Nombre"] == "Caminata al mirador"
+    assert data["Icono"] == "person-hiking"
+
+
+def test_crear_actividad_rechaza_hora_fin_invalida(client, auth_headers, viaje_con_admin, dia_cronograma):
+    viaje, _ = viaje_con_admin
+
+    response = client.post(
+        f"/api/v1/trips/{viaje.IdViaje}/days/{dia_cronograma.IdDiaCronograma}/activities",
+        json={
+            "nombre": "Actividad con horario invertido",
+            "horaInicio": "15:00:00",
+            "horaFin": "10:00:00",
+        },
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 422
+
+
+def test_crear_actividad_dia_inexistente(client, auth_headers, viaje_con_admin):
+    viaje, _ = viaje_con_admin
+
+    response = client.post(
+        f"/api/v1/trips/{viaje.IdViaje}/days/999999/activities",
+        json={
+            "nombre": "Actividad sin día",
+            "horaInicio": "10:00:00",
+            "horaFin": "12:00:00",
+        },
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 404
+
+
+def test_crear_actividad_permite_a_participante_no_admin(
+    client, db_session, viaje_con_admin, dia_cronograma
+):
+    viaje, _ = viaje_con_admin
+    invitado = _crear_usuario(db_session, "creador_actividad")
+    _agregar_participante(db_session, viaje, invitado, estado_nombre="aceptado")
+
+    response = client.post(
+        f"/api/v1/trips/{viaje.IdViaje}/days/{dia_cronograma.IdDiaCronograma}/activities",
+        json={
+            "nombre": "Actividad creada por participante",
+            "horaInicio": "10:00:00",
+            "horaFin": "11:00:00",
+        },
+        headers=_token_de(invitado),
+    )
+
+    assert response.status_code == 201
+
+
+def test_eliminar_actividad_correctamente(
+    client, auth_headers, viaje_con_admin, dia_cronograma, actividad_itinerario
+):
+    viaje, _ = viaje_con_admin
+
+    response = client.delete(
+        f"/api/v1/trips/{viaje.IdViaje}/days/"
+        f"{dia_cronograma.IdDiaCronograma}/activities/"
+        f"{actividad_itinerario.IdActividad}",
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 200
+
+    detalle = client.get(f"/api/v1/trips/{viaje.IdViaje}", headers=auth_headers)
+    actividades_restantes = detalle.json()["Cronograma"][0]["Actividades"]
+    assert actividades_restantes == []
+
+
+def test_eliminar_actividad_inexistente(client, auth_headers, viaje_con_admin, dia_cronograma):
+    viaje, _ = viaje_con_admin
+
+    response = client.delete(
+        f"/api/v1/trips/{viaje.IdViaje}/days/{dia_cronograma.IdDiaCronograma}/activities/999999",
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 404
+
+
+def test_eliminar_actividad_dia_inexistente(client, auth_headers, viaje_con_admin, actividad_itinerario):
+    viaje, _ = viaje_con_admin
+
+    response = client.delete(
+        f"/api/v1/trips/{viaje.IdViaje}/days/999999/activities/{actividad_itinerario.IdActividad}",
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 404
+
+
+def test_eliminar_actividad_de_otro_dia_rechazada(
+    client, auth_headers, viaje_con_admin, dia_cronograma, actividad_itinerario, db_session
+):
+    viaje, _ = viaje_con_admin
+    otro_dia = DiaCronograma(IdViaje=viaje.IdViaje, Fecha=date_type(2026, 12, 2), IndiceDia=1)
+    db_session.add(otro_dia)
+    db_session.commit()
+    db_session.refresh(otro_dia)
+
+    response = client.delete(
+        f"/api/v1/trips/{viaje.IdViaje}/days/{otro_dia.IdDiaCronograma}/activities/"
+        f"{actividad_itinerario.IdActividad}",
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 404
+
+
+def test_eliminar_actividad_permite_a_participante_no_admin(
+    client, db_session, viaje_con_admin, dia_cronograma, actividad_itinerario
+):
+    viaje, _ = viaje_con_admin
+    invitado = _crear_usuario(db_session, "eliminador_actividad")
+    _agregar_participante(db_session, viaje, invitado, estado_nombre="aceptado")
+
+    response = client.delete(
+        f"/api/v1/trips/{viaje.IdViaje}/days/"
+        f"{dia_cronograma.IdDiaCronograma}/activities/"
+        f"{actividad_itinerario.IdActividad}",
+        headers=_token_de(invitado),
+    )
+
+    assert response.status_code == 200
+
+
+def test_ws_recibe_broadcast_al_eliminar_actividad(
+    client, auth_headers, usuario_activo, viaje_con_admin, dia_cronograma, actividad_itinerario
+):
+    viaje, _ = viaje_con_admin
+    token = create_access_token({"sub": usuario_activo.Email, "user_id": usuario_activo.IdUsuario})
+
+    with client.websocket_connect(_ws_url(viaje.IdViaje, token)) as ws:
+        response = client.delete(
+            f"/api/v1/trips/{viaje.IdViaje}/days/"
+            f"{dia_cronograma.IdDiaCronograma}/activities/"
+            f"{actividad_itinerario.IdActividad}",
+            headers=auth_headers,
+        )
+        assert response.status_code == 200
+
+        evento = ws.receive_json()
+        assert evento["tipo"] == "actividad_eliminada"
+        assert evento["idDiaCronograma"] == dia_cronograma.IdDiaCronograma
+        assert evento["idActividad"] == actividad_itinerario.IdActividad
+
+
+def test_actualizar_actividad_permite_a_participante_no_admin(
+    client, db_session, viaje_con_admin, dia_cronograma, actividad_itinerario
+):
+    viaje, _ = viaje_con_admin
+    invitado = _crear_usuario(db_session, "editor_actividad")
+    _agregar_participante(db_session, viaje, invitado, estado_nombre="aceptado")
+
+    response = client.put(
+        f"/api/v1/trips/{viaje.IdViaje}/days/"
+        f"{dia_cronograma.IdDiaCronograma}/activities/"
+        f"{actividad_itinerario.IdActividad}",
+        json={
+            "nombre": "Editado por participante",
+            "horaInicio": "09:00:00",
+            "horaFin": "10:00:00",
+            "icono": "camera",
+        },
+        headers=_token_de(invitado),
+    )
+
+    assert response.status_code == 200
+    assert response.json()["Nombre"] == "Editado por participante"
