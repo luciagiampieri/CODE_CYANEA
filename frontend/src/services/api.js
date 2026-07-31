@@ -344,7 +344,13 @@ export async function getResultadosVotacion(idVotacion) {
   return parseResponse(response, "No se pudieron obtener los resultados");
 }
 
-// (Opcional) Para cuando tu compañera conecte "emitir voto" al backend:
+export async function getProgresoVotacion(idVotacion) {
+  const response = await fetch(`${API_BASE_URL}/votaciones/${idVotacion}/progreso`, {
+    headers: await authHeaders(),
+  });
+  return parseResponse(response, "No se pudo obtener el progreso de la votación");
+}
+
 export async function emitirVoto(idVotacion, idPropuestas) {
   const response = await fetch(`${API_BASE_URL}/votaciones/${idVotacion}/votar`, {
     method: "POST",
@@ -417,5 +423,3 @@ if (response.ok) {
   const errorData = await response.json().catch(() => ({}));
   throw new Error(errorData.detail || "No se pudo dar de baja el viaje.");
 }
-
-

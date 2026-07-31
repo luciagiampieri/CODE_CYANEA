@@ -17,6 +17,7 @@ import {
 import ScreenContainer from "../components/layout/ScreenContainer";
 import ParticipantSearch from "../components/trip/ParticipantSearch";
 import ParticipantList from "../components/trip/ParticipantList";
+import ResultadosVotacion from "../components/trip/ResultadosVotacion";
 import AvatarStack from "../components/ui/AvatarStack";
 import IconCircleButton from "../components/ui/IconCircleButton";
 import PrimaryButton from "../components/ui/PrimaryButton";
@@ -27,6 +28,8 @@ import {
   getTripDetail,
   getItinerarySocketUrl,
   getVotaciones,
+  getResultadosVotacion,
+  getProgresoVotacion,
   getUsers,
   removeTripExternalInvitation,
   removeTripParticipant,
@@ -43,6 +46,9 @@ import {
 
 import AddActivityScreen from "./AddActivityScreen";
 import { createActivity, deleteActivity } from "../services/api";
+import useItinerarioViewPreference from "../hooks/useItinerarioViewPreference";
+import ItinerarioViewToggle from "../components/trip/ItinerarioViewToggle";
+import ItinerarioCalendarView from "../components/trip/ItinerarioCalendarView";
 
 
 const tabs = [
@@ -110,6 +116,21 @@ function formatDayDate(dateString) {
   return formattedDate.replace(/(\p{L})\p{L}*/gu, (word) => word.charAt(0).toLocaleUpperCase("es-AR") + word.slice(1).toLocaleLowerCase("es-AR"));
 }
 
+function formatDayDateCorta(dateString) {
+  if (!dateString) return "";
+  const date = new Date(dateString);
+  if (Number.isNaN(date.getTime())) return "";
+
+  const formattedDate = new Intl.DateTimeFormat("es-AR", {
+    weekday: "short",
+    day: "2-digit",
+    month: "short",
+    timeZone: "UTC",
+  }).format(date);
+
+  return formattedDate.replace(/(\p{L})\p{L}*/gu, (word) => word.charAt(0).toLocaleUpperCase("es-AR") + word.slice(1).toLocaleLowerCase("es-AR"));
+}
+
 function avisar(titulo, mensaje) {
   if (Platform.OS === "web") {
     window.alert(mensaje);
@@ -128,6 +149,7 @@ export default function TripDetailScreen({ navigation, route }) {
   const [votacionesError, setVotacionesError] = useState("");
   const [votandoId, setVotandoId] = useState(null);
   const [votosSeleccionados, setVotosSeleccionados] = useState({});
+  const [resultadosPorVotacion, setResultadosPorVotacion] = useState({});
   const [participantSearch, setParticipantSearch] = useState("");
   const [userOptions, setUserOptions] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -141,6 +163,7 @@ export default function TripDetailScreen({ navigation, route }) {
   const [activityEditMessage, setActivityEditMessage] = useState("");
   const socketRef = useRef(null);
   const pendingEditRef = useRef(null);
+  const [itinerarioView, setItinerarioView] = useItinerarioViewPreference();
 
   function enviarMensajeWebSocket(mensaje) {
     if (socketRef.current?.readyState === WebSocket.OPEN) {
@@ -180,6 +203,34 @@ export default function TripDetailScreen({ navigation, route }) {
     ]);
     navigation.setParams({ nuevaVotacion: undefined });
   }, [route.params?.nuevaVotacion]);
+
+  useEffect(() => {
+    votacionesActivas.forEach(async (v) => {
+      const esCerrada = v.Estado ? v.Estado === "cerrada" : new Date(v.FechaCierre) < new Date();
+
+      if (esCerrada) {
+        if (resultadosPorVotacion[v.IdVotacion]) return;
+        try {
+          const data = await getResultadosVotacion(v.IdVotacion);
+          setResultadosPorVotacion((prev) => ({ ...prev, [v.IdVotacion]: data }));
+        } catch (error) {
+          setResultadosPorVotacion((prev) => ({
+            ...prev,
+            [v.IdVotacion]: { error: error.message || "No se pudieron cargar los resultados." },
+          }));
+        }
+        return;
+      }
+
+      if (v.YaVoto) {
+        try {
+          const data = await getProgresoVotacion(v.IdVotacion);
+          setResultadosPorVotacion((prev) => ({ ...prev, [v.IdVotacion]: data }));
+        } catch (error) {
+        }
+      }
+    });
+  }, [votacionesActivas]);
 
   async function loadTripDetail() {
     if (!initialTrip?.id) {
@@ -245,6 +296,10 @@ export default function TripDetailScreen({ navigation, route }) {
             }
             return;
           }
+          if (mensaje.tipo === "votacion_actualizada"){
+            loadVotaciones();
+            return;
+          }
           loadTripDetail();
         } catch (error) {
           console.error("Error procesando mensaje WebSocket:", error);
@@ -275,6 +330,68 @@ export default function TripDetailScreen({ navigation, route }) {
     socketRef.current?.close();
   };
 }, [trip?.id]);
+
+  const itinerarioDias = useMemo(() => {
+    let diasBase = [];
+
+    if (trip?.cronograma && trip.cronograma.length > 0) {
+      diasBase = trip.cronograma;
+    } else if (trip?.startDate && trip?.endDate) {
+      const inicio = new Date(`${trip.startDate}T12:00:00`);
+      const fin = new Date(`${trip.endDate}T12:00:00`);
+
+      if (!isNaN(inicio.getTime()) && !isNaN(fin.getTime())) {
+        const diferenciaTiempo = fin.getTime() - inicio.getTime();
+        const totalDias = Math.ceil(diferenciaTiempo / (1000 * 60 * 60 * 24)) + 1;
+
+        for (let i = 0; i < totalDias; i += 1) {
+          const fechaActual = new Date(inicio);
+          fechaActual.setDate(inicio.getDate() + i);
+
+          const año = fechaActual.getFullYear();
+          const mes = String(fechaActual.getMonth() + 1).padStart(2, "0");
+          const dia = String(fechaActual.getDate()).padStart(2, "0");
+
+          diasBase.push({
+            id: `fallback-day-${i + 1}`,
+            indiceDia: i + 1,
+            fecha: `${año}-${mes}-${dia}`,
+            actividades: [],
+          });
+        }
+      }
+    }
+
+    return diasBase.map((day, index) => {
+      const dayId = day.id ?? day.IdDiaCronograma;
+      const dayIndex = day.indiceDia ?? day.IndiceDia ?? index + 1;
+      const fechaRaw = day.fecha ?? day.Fecha;
+
+      const actividadesBackend = (day.actividades ?? day.Actividades ?? []).map((act) => {
+        const horaInicio = (act.horaInicio ?? act.HoraInicio)?.slice(0, 5);
+        const horaFin = (act.horaFin ?? act.HoraFin)?.slice(0, 5);
+        return {
+          id: act.idActividad ?? act.IdActividad,
+          horaInicio,
+          horaFin,
+          time: `${horaInicio} - ${horaFin}`,
+          title: act.nombre ?? act.Nombre,
+          note: act.descripcion ?? act.Descripcion,
+          icon: act.icono ?? act.Icono ?? "location-dot",
+        };
+      });
+      const actividades = day.items ?? actividadesBackend;
+
+      return {
+        dayId,
+        dayIndex,
+        fechaRaw,
+        dayDateText: formatDayDate(fechaRaw),
+        dayDateTextCorta: formatDayDateCorta(fechaRaw),
+        actividades,
+      };
+    });
+  }, [trip?.cronograma, trip?.startDate, trip?.endDate]);
 
   async function loadVotaciones() {
     if (!trip?.id) return;
@@ -619,155 +736,148 @@ export default function TripDetailScreen({ navigation, route }) {
             </View>
           ) : null}
           {activeTab === "itinerario" ? (
-            (() => {
-              let diasAMostrar = [];
+            <View style={styles.itinerarioHeader}>
+              <ItinerarioViewToggle onChange={setItinerarioView} value={itinerarioView} />
+            </View>
+          ) : null}
 
-              if (trip.cronograma && trip.cronograma.length > 0) {
-                diasAMostrar = trip.cronograma;
-              } else if (trip.startDate && trip.endDate) {
-                const inicio = new Date(`${trip.startDate}T12:00:00`);
-                const fin = new Date(`${trip.endDate}T12:00:00`);
-                
-                if (!isNaN(inicio.getTime()) && !isNaN(fin.getTime())) {
-                  const diferenciaTiempo = fin.getTime() - inicio.getTime();
-                  const totalDias = Math.ceil(diferenciaTiempo / (1000 * 60 * 60 * 24)) + 1;
+          {activeTab === "itinerario" && itinerarioView === "timeline" ? (
+            itinerarioDias.length > 0 ? (
+              itinerarioDias.map((day) => {
+                const { dayId, dayIndex, dayDateText, actividades } = day;
+                const isExpanded = expandedDayId === dayId;
 
-                  for (let i = 0; i < totalDias; i++) {
-                    const fechaActual = new Date(inicio);
-                    fechaActual.setDate(inicio.getDate() + i);
-                    
-                    const año = fechaActual.getFullYear();
-                    const mes = String(fechaActual.getMonth() + 1).padStart(2, "0");
-                    const dia = String(fechaActual.getDate()).padStart(2, "0");
+                return (
+                  <View key={dayId} style={[styles.dayCard, !isExpanded && styles.dayCardCompact]}>
+                    <Pressable
+                      onPress={() => setExpandedDayId(isExpanded ? null : dayId)}
+                      style={styles.dayHeader}
+                    >
+                      <View style={[styles.dayIndex, isExpanded && styles.dayIndexActive]}>
+                        <Text style={[styles.dayIndexText, isExpanded && styles.dayIndexTextActive]}>
+                          {dayIndex}
+                        </Text>
+                      </View>
+                      <View style={styles.dayTitleWrap} >
+                        <Text style={styles.dayTitle}>{dayDateText}</Text> 
+                        <Text style={styles.daySubtitle}>Día {dayIndex} del viaje</Text>
+                      </View>
+                      <FontAwesome6 
+                        color={colors.textSecondary} 
+                        name={isExpanded ? "chevron-up" : "chevron-down"} 
+                        size={14} 
+                      />
+                    </Pressable>
 
-                    diasAMostrar.push({
-                      id: `fallback-day-${i + 1}`,
-                      indiceDia: i + 1,
-                      fecha: `${año}-${mes}-${dia}`,
-                      actividades: []
-                    });
-                  }
-                }
-              }
-
-              if (diasAMostrar.length > 0) {
-                return diasAMostrar.map((day, index) => {
-                  const dayId = day.id ?? day.IdDiaCronograma;
-                  const dayIndex = day.indiceDia ?? day.IndiceDia ?? (index + 1);
-                  const dayDateText = formatDayDate(day.fecha ?? day.Fecha);
-                  const actividadesBackend = (day.actividades ?? day.Actividades ?? []).map((act) => ({
-                    id: act.idActividad ?? act.IdActividad,
-                    time: `${(act.horaInicio ?? act.HoraInicio)?.slice(0, 5)} - ${(act.horaFin ?? act.HoraFin)?.slice(0, 5)}`,
-                    title: act.nombre ?? act.Nombre,
-                    note: act.descripcion ?? act.Descripcion,
-                    icon: act.icono ?? act.Icono ?? "location-dot",
-                  }));
-                  const actividades = day.items ?? actividadesBackend;
-                  const isExpanded = expandedDayId === dayId;
-
-                  return (
-                    <View key={dayId} style={[styles.dayCard, !isExpanded && styles.dayCardCompact]}>
-                      <Pressable  
-                        onPress={() => setExpandedDayId(isExpanded ? null : dayId)}
-                        style={styles.dayHeader}
-                      >
-                        <View style={[styles.dayIndex, isExpanded && styles.dayIndexActive]}>
-                          <Text style={[styles.dayIndexText, isExpanded && styles.dayIndexTextActive]}>
-                            {dayIndex}
-                          </Text>
-                        </View>
-                        <View style={styles.dayTitleWrap} >
-                          <Text style={styles.dayTitle}>{dayDateText}</Text> 
-                          <Text style={styles.daySubtitle}>Día {dayIndex} del viaje</Text>
-                        </View>
-                        <FontAwesome6 
-                          color={colors.textSecondary} 
-                          name={isExpanded ? "chevron-up" : "chevron-down"} 
-                          size={14} 
-                        />
-                      </Pressable>
-
-                      {isExpanded ? (
-                        <View style={styles.dayAgenda}>
-                          {actividades.length > 0 ? (
-                            actividades.map((item, actIndex) => (
-                              <View key={item.id ?? actIndex} style={styles.agendaItem}>
-                                <View style={styles.agendaIcon}>
-                                  <FontAwesome6 color={colors.primary} name={item.icon ?? "location-dot"} size={14} />
-                                </View>
-                                <View style={styles.agendaContent}>
-                                  <View style={styles.agendaHeaderRow}>
-                                    <Text style={styles.agendaTime}>{item.time ?? item.Hora ?? "---"}</Text>
-                                    <Text style={styles.agendaTitle}>{item.title ?? item.Titulo}</Text>
-                                  </View>
-                                  {!!item.note || item.Notas ? (
-                                    <Text style={styles.agendaNote}>{item.note ?? item.Notas}</Text>
-                                  ) : null}
-                                </View>
-                                <Pressable
-                                  hitSlop={8}
-                                  onPress={() => {
-                                    const enviado = enviarMensajeWebSocket({
-                                      tipo: "iniciar_edicion",
-                                      idActividad: item.id,
-                                    });
-
-                                    if (!enviado) {
-                                      return;
-                                    }
-
-                                    pendingEditRef.current = {
-                                      id: dayId,
-                                      label: `${dayDateText} · Día ${dayIndex}`,
-                                      activity: item,
-                                    };
-                                  }}
-                                  style={styles.agendaActionButton}
-                                >
-                                  <FontAwesome6 color={colors.primary} name="pen" size={13} />
-                                </Pressable>
-
-                                <Pressable
-                                  hitSlop={8}
-                                  onPress={() =>
-                                    handleDeleteActivity(dayId, item.id, item.title ?? item.Titulo)
-                                  }
-                                  style={styles.agendaActionButton}
-                                >
-                                  <FontAwesome6 color={colors.textMuted} name="trash" size={13} />
-                                </Pressable>
+                    {isExpanded ? (
+                      <View style={styles.dayAgenda}>
+                        {actividades.length > 0 ? (
+                          actividades.map((item, actIndex) => (
+                            <View key={item.id ?? actIndex} style={styles.agendaItem}>
+                              <View style={styles.agendaIcon}>
+                                <FontAwesome6 color={colors.primary} name={item.icon ?? "location-dot"} size={14} />
                               </View>
-                            ))
-                          ) : (
-                            <Text style={styles.sectionCopy}>No hay actividades agendadas para este día todavía.</Text>
-                          )}
+                              <View style={styles.agendaContent}>
+                                <View style={styles.agendaHeaderRow}>
+                                  <Text style={styles.agendaTime}>{item.time ?? item.Hora ?? "---"}</Text>
+                                  <Text style={styles.agendaTitle}>{item.title ?? item.Titulo}</Text>
+                                </View>
+                                {!!item.note || item.Notas ? (
+                                  <Text style={styles.agendaNote}>{item.note ?? item.Notas}</Text>
+                                ) : null}
+                              </View>
+                              <Pressable
+                                hitSlop={8}
+                                onPress={() => {
+                                  const enviado = enviarMensajeWebSocket({
+                                    tipo: "iniciar_edicion",
+                                    idActividad: item.id,
+                                  });
 
-                          <Pressable
-                            onPress={() =>
-                              setActivityModalDay({
-                                id: dayId,
-                                label: `${dayDateText} · Día ${dayIndex}`,
-                              })
-                            }
-                            style={styles.addActivityButton}
-                          >
-                            <FontAwesome6 color={colors.primary} name="plus" size={12} />
-                            <Text style={styles.addActivityText}>Agregar actividad</Text>
-                          </Pressable>
-                        </View>
-                      ) : null}
-                    </View>
-                  );
-                });
+                                  if (!enviado) {
+                                    return;
+                                  }
+
+                                  pendingEditRef.current = {
+                                    id: dayId,
+                                    label: `${dayDateText} · Día ${dayIndex}`,
+                                    activity: item,
+                                  };
+                                }}
+                                style={styles.agendaActionButton}
+                              >
+                                <FontAwesome6 color={colors.primary} name="pen" size={13} />
+                              </Pressable>
+
+                              <Pressable
+                                hitSlop={8}
+                                onPress={() =>
+                                  handleDeleteActivity(dayId, item.id, item.title ?? item.Titulo)
+                                }
+                                style={styles.agendaActionButton}
+                              >
+                                <FontAwesome6 color={colors.textMuted} name="trash" size={13} />
+                              </Pressable>
+                            </View>
+                          ))
+                        ) : (
+                          <Text style={styles.sectionCopy}>No hay actividades agendadas para este día todavía.</Text>
+                        )}
+
+                        <Pressable
+                          onPress={() =>
+                            setActivityModalDay({
+                              id: dayId,
+                              label: `${dayDateText} · Día ${dayIndex}`,
+                            })
+                          }
+                          style={styles.addActivityButton}
+                        >
+                          <FontAwesome6 color={colors.primary} name="plus" size={12} />
+                          <Text style={styles.addActivityText}>Agregar actividad</Text>
+                        </Pressable>
+                      </View>
+                    ) : null}
+                  </View>
+                );
+              })
+            ) : (
+              <View style={styles.sectionCard}>
+                <Text style={styles.sectionHeading}>Fechas sin definir</Text>
+                <Text style={styles.sectionCopy}>Establecé las fechas de ida y vuelta para estructurar el cronograma.</Text>
+              </View>
+            )
+          ) : null}
+
+          {activeTab === "itinerario" && itinerarioView === "calendario" ? (
+            <ItinerarioCalendarView
+              dias={itinerarioDias}
+              onAddActivity={(day) =>
+                setActivityModalDay({
+                  id: day.dayId,
+                  label: `${day.dayDateText} · Día ${day.dayIndex}`,
+                })
               }
+              onDeleteActivity={(day, actividad) =>
+                handleDeleteActivity(day.dayId, actividad.id, actividad.title)
+              }
+              onEditActivity={(day, actividad) => {
+                const enviado = enviarMensajeWebSocket({
+                  tipo: "iniciar_edicion",
+                  idActividad: actividad.id,
+                });
 
-              return (
-                <View style={styles.sectionCard}>
-                  <Text style={styles.sectionHeading}>Fechas sin definir</Text>
-                  <Text style={styles.sectionCopy}>Establecé las fechas de ida y vuelta para estructurar el cronograma.</Text>
-                </View>
-              );
-            })()
+                if (!enviado) {
+                  return;
+                }
+
+                pendingEditRef.current = {
+                  id: day.dayId,
+                  label: `${day.dayDateText} · Día ${day.dayIndex}`,
+                  activity: actividad,
+                };
+              }}
+            />
           ) : null}
 
           {activeTab === "gastos" ? (
@@ -840,6 +950,7 @@ export default function TripDetailScreen({ navigation, route }) {
                 const esCerrada = votacion.Estado
                   ? votacion.Estado === "cerrada"
                   : new Date(votacion.FechaCierre) < new Date();
+                const mostrarResultados = esCerrada || votacion.YaVoto;
                 const opcionesElegidas = votosSeleccionados[votacion.IdVotacion] || [];
                 const enviandoEsteVoto = votandoId === votacion.IdVotacion;
 
@@ -891,7 +1002,23 @@ export default function TripDetailScreen({ navigation, route }) {
                     </View>
 
                     <View style={{ marginTop: 15, gap: 10 }}>
-                      {votacion.Propuestas.map((propuesta) => {
+                      {mostrarResultados ? (
+                        (() => {
+                          const resultado = resultadosPorVotacion[votacion.IdVotacion];
+                          if (!resultado) {
+                            return <ActivityIndicator color={colors.primary} />;
+                          }
+                          if (resultado.error) {
+                            return (
+                              <Text style={{ color: colors.danger, fontWeight: '600', fontSize: 13 }}>
+                                {resultado.error}
+                              </Text>
+                            );
+                          }
+                          return <ResultadosVotacion resultados={resultado} mostrarGanador={esCerrada} />;
+                        })()
+                      ) : (
+                        votacion.Propuestas.map((propuesta) => {
                         const marcada = opcionesElegidas.includes(propuesta.IdPropuesta);
                         return (
                           <Pressable
@@ -918,13 +1045,12 @@ export default function TripDetailScreen({ navigation, route }) {
                             <Text style={{ color: colors.textPrimary }}>{propuesta.Texto}</Text>
                           </Pressable>
                         );
-                      })}
+                        })
+                      )}
                     </View>
 
                     <View style={{ marginTop: 15 }}>
-                      {esCerrada ? (
-                        <Text style={{ color: colors.danger, fontWeight: '600', fontSize: 13 }}>⚠️ Esta votación ha finalizado por fecha límite.</Text>
-                      ) : votacion.YaVoto ? (
+                      {esCerrada ? null : votacion.YaVoto ? (
                         <Text style={{ color: colors.success, fontWeight: '600', fontSize: 13 }}>✓ Ya registraste tu voto en esta decisión grupal.</Text>
                       ) : (
                         <PrimaryButton
@@ -1130,7 +1256,7 @@ export default function TripDetailScreen({ navigation, route }) {
             </Pressable>
           </View>
         </Pressable>
-     </Modal>
+      </Modal>
     </ScreenContainer>
   );
 }
@@ -1220,6 +1346,10 @@ const styles = StyleSheet.create({
     backgroundColor: colors.background,
     padding: spacing.lg,
     gap: spacing.md,
+  },
+  itinerarioHeader: {
+    flexDirection: "row",
+    justifyContent: "flex-end",
   },
   loadingWrap: {
     position: "absolute",
