@@ -1,4 +1,5 @@
 ﻿import { Platform } from "react-native";
+import { File, UploadType } from "expo-file-system";
 
 const AUTH_TOKEN_KEY = "auth_token";
 
@@ -422,4 +423,93 @@ if (response.ok) {
 
   const errorData = await response.json().catch(() => ({}));
   throw new Error(errorData.detail || "No se pudo dar de baja el viaje.");
+}
+
+export async function getDocumentCategories() {
+  const response = await fetch(
+    `${API_BASE_URL}/trips/documents/categories`,
+    {
+      headers: await authHeaders(),
+    }
+  );
+
+  return parseResponse(
+    response,
+    "No se pudieron obtener las categorías de documentos"
+  );
+}
+
+export async function uploadTripDocument(
+  tripId,
+  archivo,
+  idCategoriaDocumento,
+  nombreArchivo
+) {
+  const token = await getStoredToken();
+  const fileType = archivo.mimeType || archivo.type || "application/octet-stream";
+
+  if (Platform.OS === "web") {
+    const formData = new FormData();
+    const safeName = nombreArchivo || archivo.name || "documento.pdf";
+
+    if (archivo.file instanceof Blob || archivo.file instanceof File) {
+      formData.append("archivo", archivo.file, safeName);
+    } else if (archivo.uri && archivo.uri.startsWith("blob:")) {
+      const response = await fetch(archivo.uri);
+      const blob = await response.blob();
+      formData.append("archivo", blob, safeName);
+    } else {
+      formData.append("archivo", archivo, safeName);
+    }
+    formData.append("IdCategoriaDocumento", String(idCategoriaDocumento));
+    if (nombreArchivo) formData.append("NombreArchivo", nombreArchivo);
+
+    const response = await fetch(`${API_BASE_URL}/trips/${tripId}/documents`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+      body: formData,
+    });
+
+    return parseResponse(response, "No se pudo subir el documento");
+  } else {
+    // Nativo: API nueva de expo-file-system (SDK 54+)
+    const file = new File(archivo.uri);
+
+    const parameters = {
+      IdCategoriaDocumento: String(idCategoriaDocumento),
+    };
+    if (nombreArchivo) {
+      parameters.NombreArchivo = nombreArchivo;
+    }
+
+    const result = await file.upload(
+      `${API_BASE_URL}/trips/${tripId}/documents`,
+      {
+        httpMethod: "POST",
+        uploadType: UploadType.MULTIPART,
+        fieldName: "archivo",
+        mimeType: fileType,
+        parameters,
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      }
+    );
+
+    // result: { status, headers, body } — no es un Response de fetch
+    if (result.status < 200 || result.status >= 300) {
+      let mensaje = "No se pudo subir el documento";
+      try {
+        const parsed = JSON.parse(result.body);
+        mensaje = parsed.detail || parsed.message || mensaje;
+      } catch (e) {}
+      throw new Error(mensaje);
+    }
+
+    try {
+      return JSON.parse(result.body);
+    } catch (e) {
+      return result.body;
+    }
+  }
 }

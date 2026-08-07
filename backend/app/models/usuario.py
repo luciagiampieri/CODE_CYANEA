@@ -74,3 +74,7 @@ class Usuario(Base):
     EmailConfirmado: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default="false"
     )
+    DocumentosSubidos = relationship(
+        "DocumentoViaje",
+        back_populates="UsuarioSubida"
+    )

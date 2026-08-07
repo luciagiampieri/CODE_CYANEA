@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.core.config import settings
 from app.api.deps import get_current_user
-from app.api.routes.itinerary import manager
+from app.services.websocket_manager import manager
 from app.db.session import get_db
 from app.models.estado_invitacion import EstadoInvitacion
 from app.models.estado_participacion import EstadoParticipacion

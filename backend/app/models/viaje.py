@@ -86,5 +86,10 @@ class Viaje(Base):
         back_populates="Viaje",
         cascade="all, delete-orphan", 
     )
+    Documentos = relationship(
+        "DocumentoViaje",
+        back_populates="Viaje",
+        cascade="all, delete-orphan",
+    )
     
 

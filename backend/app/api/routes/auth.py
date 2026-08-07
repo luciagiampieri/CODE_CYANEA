@@ -135,6 +135,7 @@ def confirm_email(
 # POST /auth/login 
 @router.post("/login", response_model=TokenResponse)
 def login(payload: LoginRequest, db: Session = Depends(get_db)) -> TokenResponse:
+
     credentials_error = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Correo electrónico o contraseña incorrectos",

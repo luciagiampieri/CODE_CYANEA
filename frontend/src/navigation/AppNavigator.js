@@ -16,6 +16,7 @@ import InvitationsScreen from "../screens/InvitationsScreen";
 import CrearVotacionScreen from "../screens/CrearVotacionScreen";
 import FacebookRegisterScreen from "../screens/FacebookRegisterScreen";
 import GoogleRegisterScreen from "../screens/GoogleRegisterScreen";
+import DocumentsScreen from "../screens/DocumentsScreen";
 
 const Stack = createNativeStackNavigator();
 
@@ -103,6 +104,15 @@ export default function AppNavigator() {
           <Stack.Screen
             name="TripDetail"
             component={TripDetailScreen}
+            options={{
+              headerShown: false,
+              gestureEnabled: true,
+              animation: "slide_from_right",
+            }}
+          />
+          <Stack.Screen
+            name="Documents"
+            component={DocumentsScreen}
             options={{
               headerShown: false,
               gestureEnabled: true,

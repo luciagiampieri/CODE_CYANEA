@@ -47,6 +47,11 @@ class Settings(BaseSettings):
     #Mapbox
     mapbox_access_token: str = ""
 
+    # Supabase
+    supabase_url: str = ""
+    supabase_service_key: str = ""
+    supabase_bucket: str = "trip-documents"
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",

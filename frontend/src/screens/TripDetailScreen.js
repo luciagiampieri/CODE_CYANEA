@@ -904,7 +904,22 @@ export default function TripDetailScreen({ navigation, route }) {
           {activeTab === "docs" ? (
             <View style={styles.sectionCard}>
               <Text style={styles.sectionHeading}>Documentos</Text>
-              <Text style={styles.sectionCopy}>Reservas, vouchers y archivos del viaje aparecerán aquí.</Text>
+
+              <Text style={styles.sectionCopy}>
+                Reservas, vouchers y archivos del viaje aparecerán aquí.
+              </Text>
+
+              <PrimaryButton
+                label="Subir documentos"
+                icon="folder-open"
+                iconPosition="left"
+                onPress={() =>
+                  navigation.navigate("Documents", {
+                    tripId: trip.id,
+                  })
+                }
+                style={styles.fullButton}
+              />
             </View>
           ) : null}
 
