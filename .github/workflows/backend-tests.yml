@@ -16,6 +16,7 @@ jobs:
       - name: Set test environment variables
         run: |
           echo "SUPABASE_URL=https://fake.supabase.co" >> $GITHUB_ENV
-          echo "SUPABASE_KEY=fake-key" >> $GITHUB_ENV
+          echo "SUPABASE_SERVICE_KEY=fake-key" >> $GITHUB_ENV
+          echo "SUPABASE_BUCKET=trip-documents" >> $GITHUB_ENV
 
       - run: pytest --cov=app --cov-report=term-missing -v
