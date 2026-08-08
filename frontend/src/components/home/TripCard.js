@@ -14,7 +14,17 @@ const STATUS_LABEL = {
 export default function TripCard({ trip, onPress, compact = false }) {
   const statusKey = trip.status?.toLowerCase();
   const statusLabel = STATUS_LABEL[statusKey] ?? trip.statusLabel ?? "Planificando";
-  const progressValue = Math.max(8, Math.min(100, Number(trip.budgetProgress ?? 62)));
+  const hasBudgetData = Boolean(trip.budgetLabel || trip.budgetProgress != null);
+  const progressValue = hasBudgetData
+    ? Math.max(0, Math.min(100, Number(trip.budgetProgress ?? 0)))
+    : null;
+  const HeroContainer = trip.image ? ImageBackground : View;
+  const heroProps = trip.image
+    ? {
+        source: { uri: trip.image },
+        imageStyle: styles.image,
+      }
+    : {};
 
   return (
     <Pressable
@@ -24,7 +34,14 @@ export default function TripCard({ trip, onPress, compact = false }) {
       style={({ pressed }) => [styles.pressable, compact && styles.compactPressable, pressed && styles.pressed]}
     >
       <View style={styles.card}>
-        <ImageBackground imageStyle={styles.image} source={{ uri: trip.image }} style={[styles.imageFrame, compact && styles.imageFrameCompact]}>
+        <HeroContainer
+          {...heroProps}
+          style={[
+            styles.imageFrame,
+            !trip.image && styles.imageFrameFallback,
+            compact && styles.imageFrameCompact,
+          ]}
+        >
           <View style={styles.imageOverlay}>
             <View style={styles.topRow}>
               <View />
@@ -46,7 +63,7 @@ export default function TripCard({ trip, onPress, compact = false }) {
               </Text>
             </View>
           </View>
-        </ImageBackground>
+        </HeroContainer>
 
         <View style={styles.footer}>
           <View style={styles.metaRow}>
@@ -57,16 +74,20 @@ export default function TripCard({ trip, onPress, compact = false }) {
             <AvatarStack max={4} overflowLabel={trip.avatarOverflowLabel} participants={trip.participantsPreview ?? []} size={28} />
           </View>
 
-          <View style={styles.budgetRow}>
-            <Text style={styles.budgetLabel}>Presupuesto</Text>
-            <Text style={styles.budgetValue}>
-              {trip.budgetLabel ?? "€4.800"} · {progressValue}% usado
-            </Text>
-          </View>
+          {hasBudgetData ? (
+            <>
+              <View style={styles.budgetRow}>
+                <Text style={styles.budgetLabel}>Presupuesto</Text>
+                <Text style={styles.budgetValue}>
+                  {trip.budgetLabel} · {progressValue}% usado
+                </Text>
+              </View>
 
-          <View style={styles.progressTrack}>
-            <View style={[styles.progressFill, { width: `${progressValue}%` }]} />
-          </View>
+              <View style={styles.progressTrack}>
+                <View style={[styles.progressFill, { width: `${progressValue}%` }]} />
+              </View>
+            </>
+          ) : null}
         </View>
       </View>
     </Pressable>
@@ -92,6 +113,9 @@ const styles = StyleSheet.create({
   imageFrame: {
     minHeight: 236,
     justifyContent: "space-between",
+  },
+  imageFrameFallback: {
+    backgroundColor: colors.primarySoft,
   },
   imageFrameCompact: {
     minHeight: 220,

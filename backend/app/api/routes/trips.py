@@ -323,7 +323,9 @@ def list_trips(
     viajes = db.scalars(
         select(Viaje)
         .options(
-            selectinload(Viaje.Destinos).selectinload(DestinoViaje.Destino)
+            selectinload(Viaje.Destinos).selectinload(DestinoViaje.Destino),
+            selectinload(Viaje.Participantes).selectinload(ParticipanteViaje.Usuario),
+            selectinload(Viaje.Participantes).selectinload(ParticipanteViaje.EstadoParticipacion),
         )
         .join(ParticipanteViaje, ParticipanteViaje.IdViaje == Viaje.IdViaje)
         .join(EstadoViaje, EstadoViaje.IdEstadoViaje == Viaje.IdEstadoViaje)
@@ -363,8 +365,22 @@ def list_trips(
             startDate=viaje.FechaInicio,
             endDate=viaje.FechaFin,
             cronograma=[],
-            participantUserIds=[],
-            participants=[],
+            participantUserIds=[
+                participacion.Usuario.IdUsuario
+                for participacion in viaje.Participantes
+                if participacion.EstadoParticipacion.Nombre == "aceptado"
+            ],
+            participants=[
+                {
+                    "id": participacion.Usuario.IdUsuario,
+                    "nombreUsuario": participacion.Usuario.NombreUsuario,
+                    "nombreCompleto": f"{participacion.Usuario.Nombre} {participacion.Usuario.Apellido}",
+                    "email": participacion.Usuario.Email,
+                    "fotoUrl": participacion.Usuario.FotoUrl,
+                }
+                for participacion in viaje.Participantes
+                if participacion.EstadoParticipacion.Nombre == "aceptado"
+            ],
             invitedEmails=[],
         )
         for viaje in viajes

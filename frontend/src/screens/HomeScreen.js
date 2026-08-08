@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
 import {
-  Image,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -11,7 +10,6 @@ import { FontAwesome6 } from "@expo/vector-icons";
 
 import ScreenContainer from "../components/layout/ScreenContainer";
 import TripCard from "../components/home/TripCard";
-import Avatar from "../components/ui/Avatar";
 import IconCircleButton from "../components/ui/IconCircleButton";
 import MetricCard from "../components/ui/MetricCard";
 import useResponsive from "../hooks/useResponsive";
@@ -22,21 +20,6 @@ import {
   spacing,
   textStyles,
 } from "../theme/tokens";
-
-const fallbackImages = [
-  "https://images.unsplash.com/photo-1507525428034-b723cf961d3e?auto=format&fit=crop&w=1400&q=80",
-  "https://images.unsplash.com/photo-1539650116574-75c0c6d73f4e?auto=format&fit=crop&w=1400&q=80",
-  "https://images.unsplash.com/photo-1483683804023-6ccdb62f86ef?auto=format&fit=crop&w=1400&q=80",
-  "https://images.unsplash.com/photo-1516483638261-f4dbaf036963?auto=format&fit=crop&w=1400&q=80",
-];
-
-const previewParticipants = [
-  { id: 1, nombreCompleto: "Lucía Giampieri" },
-  { id: 2, nombreCompleto: "Candela Páez" },
-  { id: 3, nombreCompleto: "Ticiana Gatica" },
-  { id: 4, nombreCompleto: "Luciano Correa" },
-  { id: 5, nombreCompleto: "María Paz" },
-];
 
 function formatDateRange(trip) {
   const startDateStr = trip.startDate || trip.FechaInicio;
@@ -61,6 +44,37 @@ function formatDateRange(trip) {
   return `${monthFormatter.format(start)} - ${monthFormatter.format(end)} ${end.getUTCFullYear()}`;
 }
 
+function normalizeTrip(trip) {
+  const destinations = trip.destinations || trip.Destinations || [];
+  const participants = trip.participants || trip.Participants || [];
+  const destinationLabel = destinations.length
+    ? destinations.map((item) => `${item.name}, ${item.country}`).join(" · ")
+    : trip.destination || trip.Destino || "Destino a confirmar";
+
+  const participantPreview = participants.slice(0, 4).map((participant) => ({
+    id: participant.id,
+    key: `${trip.id ?? trip.IdViaje}-${participant.id}`,
+    nombreCompleto: participant.nombreCompleto,
+    fotoUrl: participant.fotoUrl,
+  }));
+
+  return {
+    ...trip,
+    title: trip.title || trip.Titulo || "Viaje sin nombre",
+    destination: destinationLabel,
+    status: (trip.status || trip.Estado || "activo").toLowerCase(),
+    image: trip.image || null,
+    dateLabel: formatDateRange(trip),
+    participantsPreview: participantPreview,
+    avatarOverflowLabel: participants.length > 4 ? `+${participants.length - 4}` : undefined,
+    hasBudgetData: Boolean(trip.budgetLabel || trip.budget != null || trip.budgetProgress != null),
+    budgetLabel:
+      trip.budgetLabel ||
+      (trip.budget != null && trip.currency ? `${trip.currency} ${Number(trip.budget).toLocaleString("es-AR")}` : null),
+    budgetProgress: trip.budgetProgress ?? null,
+  };
+}
+
 export default function HomeScreen({ navigation }) {
   const [trips, setTrips] = useState([]);
   const [currentUser, setCurrentUser] = useState(null);
@@ -73,7 +87,7 @@ export default function HomeScreen({ navigation }) {
           getTrips(),
           getCurrentUser().catch(() => null),
         ]);
-        
+
         setTrips(tripData);
         setCurrentUser(me);
       } catch {
@@ -85,46 +99,34 @@ export default function HomeScreen({ navigation }) {
   }, []);
 
   const decoratedTrips = useMemo(
-    () =>
-      trips.map((trip, index) => ({
-        ...trip,
-        title: trip.title || trip.Titulo || "Viaje sin nombre",
-        destination: 
-        (trip.destinations || trip.Destinations)?.length > 0
-          ? (trip.destinations || trip.Destinations)
-              .map((d) => `${d.name}, ${d.country}`)
-              .join(" · ")
-            : trip.destination || trip.Destino || "Destino a confirmar",
-
-        status: (trip.status || trip.Estado || "activo").toLowerCase(),
-        image: trip.image || fallbackImages[index % fallbackImages.length],
-        dateLabel: formatDateRange(trip),
-        budgetLabel: trip.budgetLabel || `€${(trip.budget || 4800).toLocaleString("es-AR")}`,
-        budgetProgress: trip.budgetProgress || [62, 18, 44, 73][index % 4],
-        participantsPreview:
-          trip.participantsPreview ||
-          previewParticipants.slice(0, 4 + (index % 2)).map((participant) => ({
-            ...participant,
-            key: `${trip.IdViaje ?? trip.id}-${participant.id}`,
-          })),
-        avatarOverflowLabel: index % 2 === 0 ? "+4" : undefined,
-      })),
+    () => trips.map((trip) => normalizeTrip(trip)),
     [trips]
   );
 
   const metrics = useMemo(() => {
-    const countries = new Set(
-      decoratedTrips
-        .map((trip) => trip.destination.split(",").slice(-1)[0]?.trim())
-        .filter(Boolean)
-    );
+    const countries = new Set();
+    const companionIds = new Set();
+
+    decoratedTrips.forEach((trip) => {
+      (trip.destinations || []).forEach((destination) => {
+        if (destination.country) {
+          countries.add(destination.country);
+        }
+      });
+
+      (trip.participants || []).forEach((participant) => {
+        if (participant.id && participant.id !== currentUser?.id) {
+          companionIds.add(participant.id);
+        }
+      });
+    });
 
     return {
       viajes: decoratedTrips.length,
-      companeros: 14,
-      paises: countries.size || 1,
+      companeros: companionIds.size,
+      paises: countries.size,
     };
-  }, [decoratedTrips]);
+  }, [currentUser?.id, decoratedTrips]);
 
   return (
     <ScreenContainer fullWidth padded={false}>
@@ -138,16 +140,6 @@ export default function HomeScreen({ navigation }) {
 
             <View style={styles.headerActions}>
               <IconCircleButton icon="bell" onPress={() => navigation.navigate("Invitaciones")} />
-              <View style={styles.avatarRing}>
-                {currentUser?.fotoUrl ? (
-                  <Avatar imageUrl={currentUser.fotoUrl} name={currentUser.nombreCompleto} size={42} />
-                ) : (
-                  <Image
-                    source={{ uri: "https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=200&q=80" }}
-                    style={styles.profileImage}
-                  />
-                )}
-              </View>
             </View>
           </View>
         </View>
@@ -229,20 +221,6 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: spacing.sm,
-  },
-  avatarRing: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    borderWidth: 2,
-    borderColor: colors.accent,
-    padding: 2,
-    backgroundColor: colors.surface,
-  },
-  profileImage: {
-    width: "100%",
-    height: "100%",
-    borderRadius: 20,
   },
   body: {
     flex: 1,

@@ -1,6 +1,7 @@
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
+from sqlalchemy import BigInteger, create_engine
+from sqlalchemy.ext.compiler import compiles
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
@@ -18,15 +19,13 @@ from app.models.categorias_gastos import CategoriasGastos
 from app.models.estado_transferencia_liquidacion import EstadoTransferenciaLiquidacion
 from app.models.participante_viaje import ParticipanteViaje
 
-from sqlalchemy import BigInteger
-from sqlalchemy.ext.compiler import compiles
-
 
 @compiles(BigInteger, "sqlite")
 def _compile_big_integer_as_integer_for_sqlite(type_, compiler, **kw):
     """SQLite solo autoincrementa PKs declaradas como INTEGER (no BIGINT).
     Esto es solo para que los tests con SQLite generen IDs automáticamente;
-    en Postgres (producción) esto no aplica y el modelo sigue usando BIGINT."""
+    en Postgres (producción) esto no aplica y el modelo sigue usando BIGINT.
+    """
     return "INTEGER"
 
 
@@ -53,6 +52,7 @@ def db_session():
 @pytest.fixture()
 def client(db_session):
     """TestClient de FastAPI con la DB real reemplazada por la de test."""
+
     def _override_get_db():
         yield db_session
 
@@ -101,10 +101,13 @@ def master_data(db_session):
 def usuario_activo(db_session):
     """Un usuario con email confirmado, listo para loguear."""
     usuario = Usuario(
-        Nombre="Ana", Apellido="Test", NombreUsuario="ana_test",
+        Nombre="Ana",
+        Apellido="Test",
+        NombreUsuario="ana_test",
         Email="ana@test.com",
         HashedPassword=hash_password("Password123!"),
-        Activo=True, EmailConfirmado=True,
+        Activo=True,
+        EmailConfirmado=True,
     )
     db_session.add(usuario)
     db_session.commit()
