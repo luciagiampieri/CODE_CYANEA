@@ -7,6 +7,8 @@ from app.models.participante_viaje import ParticipanteViaje
 from app.models.rol_participante import RolParticipante
 from app.models.usuario import Usuario
 from app.models.viaje import Viaje
+from app.models.destino import Destino
+from app.models.destino_viaje import DestinoViaje
 from app.models.gasto import Gasto
 from app.models.participantes_gastos import ParticipantesGastos
 from app.models.categorias_gastos import CategoriasGastos
@@ -15,6 +17,9 @@ from app.models.propuesta import Propuesta
 from app.models.voto import Voto
 from app.models.dia_cronograma import DiaCronograma
 from app.models.actividad_itinerario import ActividadItinerario
+from app.models.moneda import Moneda
+from app.models.lugar_interes import LugarInteres
+from app.models.lugar_interes_viaje import LugarInteresViaje
 
 __all__ = [
     "Base",
@@ -26,6 +31,8 @@ __all__ = [
     "RolParticipante",
     "Usuario",
     "Viaje",
+    "Destino",
+    "DestinoViaje",
     "Gasto",
     "ParticipantesGastos",
     "CategoriasGastos",
@@ -34,4 +41,7 @@ __all__ = [
     "Voto",
     "DiaCronograma",
     "ActividadItinerario",
+    "Moneda",
+    "LugarInteres",
+    "LugarInteresViaje",
 ]

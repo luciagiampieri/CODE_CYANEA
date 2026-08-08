@@ -112,9 +112,9 @@ rápido y aísla los tests de auth de los tests de negocio.
 - Reconexión del WebSocket ante desconexiones y múltiples conexiones
   simultáneas (más de dos) al mismo viaje: se probó el caso de una conexión
   adicional recibiendo el broadcast, pero no escenarios con "n" clientes.
-- `GET /trips/search` (autocompletado de destinos vía Mapbox): no tiene
+- `GET /trips/search` (autocompletado de destinos vía Google Places): no tiene
   tests todavía porque llama a una API externa (`httpx.AsyncClient` contra
-  Mapbox). Para testearlo sin pegarle a la red real habría que mockear
+  Google Places). Para testearlo sin pegarle a la red real habría que mockear
   `httpx.AsyncClient.get` (por ejemplo con `respx` o un monkeypatch manual);
   se dejó afuera de esta ronda porque no es lógica de negocio propia del
   proyecto, es un simple passthrough a un servicio externo.

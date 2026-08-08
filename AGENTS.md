@@ -280,6 +280,21 @@ Orden actual:
 - el modulo de mail es compartido y debe servir para invitaciones, notificaciones futuras, recuperacion de password y casos similares
 - las notificaciones funcionales por correo deben pasar por un servicio central `NotificationService` en `backend/app/services/notifications/`
 - aunque la pantalla de perfil todavia no exista, las preferencias y el consentimiento de email se modelan desde `Usuarios` y deben viajar en `/users/me`
+- la busqueda de destinos para alta y edicion de viaje se resuelve desde backend contra Google Places y se configura con `GOOGLE_MAPS_API_KEY`
+- la portada visual del viaje se resuelve desde Google Places usando el primer destino seleccionado como referencia
+- el backend persiste `Viajes.GooglePlaceIdPortada` y expone la imagen por proxy propio para no exponer la API key de Google en el frontend
+- la exploracion de lugares de interes del viaje usa Google Places para busqueda y Google Maps JavaScript en web para visualizacion interactiva
+- el ranking de atracciones populares en exploracion se calcula dinamicamente desde Google Places segun el centro visible del mapa
+- el ranking de atracciones populares en exploracion debe presentarse en un panel lateral o modal dedicado, no intercalado en el flujo principal de seleccion y guardado de lugares
+- los componentes del feature de mapa viven en `frontend/src/components/map/`
+- el flujo vigente del feature es:
+  - buscar lugar con Google Places
+  - al seleccionar un lugar, consultar Place Details para cargar rating y reseñas on-demand
+  - guardar lugar en el viaje
+  - visualizarlo en mapa junto a destinos base
+  - sugerir atracciones populares segun la ciudad o zona actualmente visible
+  - agendarlo en un `DiaCronograma`
+  - crear una `ActividadItinerario` vinculada a `IdLugarInteresViaje`
 
 ### Convenciones de notificaciones
 
@@ -313,6 +328,7 @@ Orden actual:
 - estilo limpio, profesional y mobile-first
 - en Expo no se usa un `styles.css` global; la identidad visual debe centralizarse en tokens compartidos y helpers de estilo
 - evitar hardcodear colores, radios o espaciados por componente si ya existe token equivalente
+- los módulos de infraestructura nativa con dependencias exclusivas de dispositivo, como SQLite offline, deben resolverse con archivos por plataforma (`*.native.js` / `*.web.js`) para no romper el bundle web
 - la interfaz activa toma como referencia una app de viajes mobile-first con header azul profundo, superficies marfil y tarjetas con imagen protagonista
 - usar serif editorial para wordmark de marca, titulos grandes de pantalla, nombres de viajes y valores KPI
 - usar sans para labels, formularios, navegacion, metadata, tabs y acciones

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { FontAwesome6 } from "@expo/vector-icons";
 import {
+  ImageBackground,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -60,6 +61,7 @@ export default function CreateTripScreen({ navigation }) {
   const [currencies, setCurrencies] = useState([]);
   const [destinationSearch, setDestinationSearch] = useState("");
   const [destinationOptions, setDestinationOptions] = useState([]);
+  const primaryDestination = form.destinations[0] ?? null;
 
   useEffect(() => {
     async function loadCurrentUser() {
@@ -448,6 +450,23 @@ export default function CreateTripScreen({ navigation }) {
                       ))}
                     </ScrollView>
                   </View>
+
+                  {primaryDestination?.imageUrl ? (
+                    <View style={styles.coverPreviewSection}>
+                      <Text style={styles.fieldLabel}>Portada estimada del viaje</Text>
+                      <ImageBackground
+                        source={{ uri: primaryDestination.imageUrl }}
+                        imageStyle={styles.coverPreviewImage}
+                        style={styles.coverPreview}
+                      >
+                        <View style={styles.coverPreviewOverlay}>
+                          <Text style={styles.coverPreviewBadge}>Primer destino seleccionado</Text>
+                          <Text style={styles.coverPreviewTitle}>{primaryDestination.name}</Text>
+                          <Text style={styles.coverPreviewSubtitle}>{primaryDestination.country}</Text>
+                        </View>
+                      </ImageBackground>
+                    </View>
+                  ) : null}
 
                   <View style={[styles.row, isTablet && styles.rowTablet]}>
                     <DateField
@@ -886,7 +905,38 @@ showMoreText: {
   color: colors.primary,
   fontSize: 13,
 },
-destinationSection: {
+  destinationSection: {
   marginTop: spacing.lg,
+},
+coverPreviewSection: {
+  marginTop: spacing.md,
+},
+coverPreview: {
+  minHeight: 180,
+  borderRadius: radii.lg,
+  overflow: "hidden",
+  justifyContent: "flex-end",
+},
+coverPreviewImage: {
+  borderRadius: radii.lg,
+},
+coverPreviewOverlay: {
+  padding: spacing.lg,
+  backgroundColor: "rgba(19, 39, 80, 0.42)",
+},
+coverPreviewBadge: {
+  ...textStyles.label,
+  color: colors.accent,
+  marginBottom: spacing.xs,
+},
+coverPreviewTitle: {
+  ...textStyles.tripTitle,
+  color: colors.textInverse,
+  fontSize: 24,
+},
+coverPreviewSubtitle: {
+  ...textStyles.body,
+  color: "#edf2ff",
+  marginTop: spacing.xxs,
 },
 });

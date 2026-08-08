@@ -736,9 +736,24 @@ export default function TripDetailScreen({ navigation, route }) {
             </View>
           ) : null}
           {activeTab === "itinerario" ? (
-            <View style={styles.itinerarioHeader}>
-              <ItinerarioViewToggle onChange={setItinerarioView} value={itinerarioView} />
-            </View>
+            <>
+              <View style={styles.sectionCard}>
+                <Text style={styles.sectionHeading}>Explorar destinos</Text>
+                <Text style={styles.sectionCopy}>
+                  Abre el mapa del viaje para revisar destinos base y guardar lugares de interés con Google Maps.
+                </Text>
+                <PrimaryButton
+                  icon="map-location-dot"
+                  iconPosition="left"
+                  label="Explorar destinos de interés"
+                  onPress={() => navigation.navigate("ExplorePlaces", { tripId: trip.id })}
+                  style={styles.fullButton}
+                />
+              </View>
+              <View style={styles.itinerarioHeader}>
+                <ItinerarioViewToggle onChange={setItinerarioView} value={itinerarioView} />
+              </View>
+            </>
           ) : null}
 
           {activeTab === "itinerario" && itinerarioView === "timeline" ? (

@@ -7,6 +7,7 @@ from app.schemas.usuario import UsuarioRead
 
 class ActividadRead(BaseModel):
     idActividad: int = Field(..., alias="IdActividad")
+    idLugarInteresViaje: int | None = Field(None, alias="IdLugarInteresViaje")
     nombre: str = Field(..., alias="Nombre")
     descripcion: str | None = Field(None, alias="Descripcion")
     horaInicio: time_type = Field(..., alias="HoraInicio")
@@ -19,6 +20,7 @@ class ActividadRead(BaseModel):
 
 
 class ActividadCreate(BaseModel):
+    idLugarInteresViaje: int | None = None
     nombre: str = Field(..., min_length=1, max_length=150)
     descripcion: str | None = None
     horaInicio: time_type
@@ -68,6 +70,8 @@ class DestinationCreate(BaseModel):
     country: str
     lat: float | None = None
     lng: float | None = None
+    placeId: str | None = None
+    imageUrl: str | None = None
 
 
 class DestinationRead(BaseModel):
@@ -76,6 +80,8 @@ class DestinationRead(BaseModel):
     country: str
     lat: float | None = None
     lng: float | None = None
+    placeId: str | None = None
+    imageUrl: str | None = None
 
     class Config:
         from_attributes = True
@@ -84,6 +90,7 @@ class DestinationRead(BaseModel):
 class TripRead(BaseModel):
     id: int
     title: str
+    image: str | None = None
     destinations: list[DestinationRead] = Field(default_factory=list)
     status: str
     currency: str

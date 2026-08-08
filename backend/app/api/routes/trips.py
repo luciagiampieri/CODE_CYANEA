@@ -2,16 +2,16 @@ from calendar import monthrange
 from datetime import datetime, timedelta, date
 import logging
 from secrets import token_urlsafe
-from urllib import response
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query
-import httpx
+from fastapi.responses import RedirectResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
-from app.core.config import settings
 from app.api.deps import get_current_user
 from app.services.websocket_manager import manager
+from app.core.config import settings
 from app.db.session import get_db
 from app.models.estado_invitacion import EstadoInvitacion
 from app.models.estado_participacion import EstadoParticipacion
@@ -48,12 +48,13 @@ from app.services.notifications.invitation_email_sender import (
     InvitationEmailPayload,
     InvitationEmailSender,
 )
+from app.services.destination_search import build_destination_image_url, search_destinations
+from app.services.place_search import get_place_photo_uri
 from app.services.trip_access import get_trip_with_relations, require_trip_access
 
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
-GEOCODE_URL = "https://api.mapbox.com/search/geocode/v6/forward"
 
 
 def _add_one_month(fecha: date) -> date:
@@ -71,6 +72,31 @@ def _require_trip_admin(viaje: Viaje, current_user: Usuario) -> None:
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Solo el administrador del viaje puede modificar participantes",
         )
+
+
+def _trip_image_url(viaje: Viaje) -> str | None:
+    if not viaje.GooglePlaceIdPortada:
+        return None
+    encoded_place_id = quote(viaje.GooglePlaceIdPortada, safe="")
+    return f"{settings.api_base_url}/trips/destination-photo?placeId={encoded_place_id}"
+
+
+async def _resolve_cover_place_id(destinations: list) -> str | None:
+    if not destinations:
+        return None
+
+    first_destination = destinations[0]
+    if getattr(first_destination, "placeId", None):
+        return first_destination.placeId
+
+    query = ", ".join(
+        part for part in [getattr(first_destination, "name", None), getattr(first_destination, "country", None)] if part
+    )
+    if not query:
+        return None
+
+    results = await search_destinations(query, limit=1)
+    return results[0].place_id if results else None
 
 
 def _build_trip_detail(viaje: Viaje) -> TripDetailRead:
@@ -97,6 +123,7 @@ def _build_trip_detail(viaje: Viaje) -> TripDetailRead:
     return TripDetailRead(
         id=viaje.IdViaje,
         title=viaje.Titulo,
+        image=_trip_image_url(viaje),
         destinations= [DestinationRead(
             id=rel.Destino.IdDestino,
             name=rel.Destino.Nombre,
@@ -242,54 +269,46 @@ def respond_to_invitation(
 
 @router.get("/search")
 async def search_destinos(q: str = Query(..., min_length=2)):
-    params = {
-        "q": q,
-        "access_token": settings.mapbox_access_token,
-        "language": "es",
-        "limit": 5,
-        "types": "country,region,place"
-    }
+    try:
+        resultados = await search_destinations(q.strip(), limit=5)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="No se pudo consultar el servicio externo de destinos",
+        ) from exc
 
-    async with httpx.AsyncClient() as client:
-        response = await client.get(GEOCODE_URL, params=params)
-        response.raise_for_status()
-        data = response.json() 
+    return [
+        {
+            "name": item.name,
+            "country": item.country,
+            "lat": item.lat,
+            "lng": item.lng,
+            "placeId": item.place_id,
+            "imageUrl": build_destination_image_url(item.place_id),
+        }
+        for item in resultados
+    ]
 
-    vistos = set()
-    resultados = []
 
-    for feature in data.get("features", []):
-        props = feature.get("properties", {})
-        coords = feature.get("geometry", {}).get("coordinates", [])
+@router.get("/destination-photo", include_in_schema=False)
+async def get_destination_photo(
+    placeId: str = Query(..., min_length=2),
+) -> RedirectResponse:
+    try:
+        photo_uri = await get_place_photo_uri(placeId)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="No se pudo obtener la foto del destino",
+        ) from exc
 
-        name = props.get("name") or props.get("full_address")
-        
-        context = props.get("context", {})
-        country = None
-        if isinstance(context, dict):
-            country = context.get("country", {}).get("name")
-        
-        if not country:
-            country = props.get("place_formatted", "").split(",")[-1].strip()
+    if not photo_uri:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No hay foto disponible para este destino",
+        )
 
-        name = name or "Lugar desconocido"
-        country = country or "País desconocido"
-
-        clave_unica = (name, country)
-
-        if clave_unica in vistos:
-            continue
-
-        vistos.add(clave_unica)
-
-        resultados.append({
-            "name": name,
-            "country": country,
-            "lat": coords[1] if len(coords) == 2 else None,
-            "lng": coords[0] if len(coords) == 2 else None,
-        })
-
-    return resultados
+    return RedirectResponse(photo_uri)
 
 
 @router.get("", response_model=list[TripRead])
@@ -324,6 +343,7 @@ def list_trips(
         TripRead(
             id=viaje.IdViaje,
             title=viaje.Titulo,
+            image=_trip_image_url(viaje),
             destinations=[
                 DestinationRead(
                     id=rel.Destino.IdDestino,
@@ -358,7 +378,7 @@ def get_trip_detail(
 
 
 @router.put("/{trip_id}", response_model=TripUpdateResponse)
-def update_trip(
+async def update_trip(
     trip_id: int,
     payload: TripUpdate,
     db: Session = Depends(get_db),
@@ -411,6 +431,7 @@ def update_trip(
     viaje.Descripcion = payload.description.strip() if payload.description else None
     viaje.FechaInicio = payload.startDate
     viaje.FechaFin = payload.endDate
+    viaje.GooglePlaceIdPortada = await _resolve_cover_place_id(payload.destinations)
 
     destinos_actuales_por_clave = {
         (rel.Destino.Nombre, rel.Destino.Pais): rel for rel in viaje.Destinos
@@ -876,7 +897,7 @@ def remove_trip_external_invitation(
 
 
 @router.post("", response_model=TripRead, status_code=status.HTTP_201_CREATED)
-def create_trip(
+async def create_trip(
     payload: TripCreate,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
@@ -972,6 +993,7 @@ def create_trip(
         FechaFin=payload.endDate,
         IdEstadoViaje=estado_activo.IdEstadoViaje,
         Moneda=payload.currency.upper(),
+        GooglePlaceIdPortada=await _resolve_cover_place_id(payload.destinations),
         IdAdministrador=admin_user_id,
     )
     db.add(viaje)
@@ -1096,6 +1118,7 @@ def create_trip(
     return TripRead(
         id=viaje.IdViaje,
         title=viaje.Titulo,
+        image=_trip_image_url(viaje),
         destinations=[
             DestinationRead(
                 id=rel.Destino.IdDestino,

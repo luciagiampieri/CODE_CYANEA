@@ -21,6 +21,14 @@ class ActividadItinerario(Base):
         ),
         nullable=False,
     )
+    IdLugarInteresViaje: Mapped[int | None] = mapped_column(
+        ForeignKey(
+            "LugaresInteresViajes.IdLugarInteresViaje",
+            name="FK_ActIt_LugInteresViajes_IdLugarInteresViaje",
+            ondelete="SET NULL",
+        ),
+        nullable=True,
+    )
     Nombre: Mapped[str] = mapped_column(String(150), nullable=False)
     Descripcion: Mapped[str | None] = mapped_column(Text(), nullable=True)
     HoraInicio: Mapped[time] = mapped_column(Time(), nullable=False)
@@ -33,3 +41,4 @@ class ActividadItinerario(Base):
     )
 
     DiaCronograma = relationship("DiaCronograma", back_populates="Actividades")
+    LugarInteresViaje = relationship("LugarInteresViaje", back_populates="Actividades")

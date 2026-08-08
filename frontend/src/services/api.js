@@ -147,6 +147,74 @@ export async function getTripDetail(tripId) {
   return parseResponse(response, "No se pudo obtener el detalle del viaje");
 }
 
+export async function getTripPlaces(tripId) {
+  const response = await fetch(`${API_BASE_URL}/trips/${tripId}/places`, {
+    headers: await authHeaders(),
+  });
+  return parseResponse(response, "No se pudieron obtener los lugares de interés");
+}
+
+export async function searchTripPlaces(tripId, query) {
+  const response = await fetch(
+    `${API_BASE_URL}/trips/${tripId}/places/search?q=${encodeURIComponent(query)}`,
+    {
+      headers: await authHeaders(),
+    }
+  );
+  return parseResponse(response, "No se pudieron buscar lugares");
+}
+
+export async function getTripPopularPlaces(tripId, lat, lng, limit = 6) {
+  const response = await fetch(
+    `${API_BASE_URL}/trips/${tripId}/places/popular?lat=${encodeURIComponent(lat)}&lng=${encodeURIComponent(lng)}&limit=${encodeURIComponent(limit)}`,
+    {
+      headers: await authHeaders(),
+    }
+  );
+  return parseResponse(response, "No se pudieron obtener los lugares populares");
+}
+
+export async function getTripPlaceDetail(tripId, tripPlaceId) {
+  const response = await fetch(`${API_BASE_URL}/trips/${tripId}/places/${tripPlaceId}`, {
+    headers: await authHeaders(),
+  });
+  return parseResponse(response, "No se pudo obtener el detalle del lugar");
+}
+
+export async function getPlaceDetails(tripId, placeId) {
+  const response = await fetch(
+    `${API_BASE_URL}/trips/${tripId}/places/details?placeId=${encodeURIComponent(placeId)}`,
+    {
+      headers: await authHeaders(),
+    }
+  );
+  return parseResponse(response, "No se pudieron obtener las reseñas del lugar");
+}
+
+export async function saveTripPlace(tripId, payload) {
+  const response = await fetch(`${API_BASE_URL}/trips/${tripId}/places`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(await authHeaders()),
+    },
+    body: JSON.stringify(payload),
+  });
+  return parseResponse(response, "No se pudo guardar el lugar en el viaje");
+}
+
+export async function scheduleTripPlace(tripId, tripPlaceId, payload) {
+  const response = await fetch(`${API_BASE_URL}/trips/${tripId}/places/${tripPlaceId}/schedule`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(await authHeaders()),
+    },
+    body: JSON.stringify(payload),
+  });
+  return parseResponse(response, "No se pudo agregar el lugar al itinerario");
+}
+
 export async function updateTrip(tripId, payload) {
   const response = await fetch(`${API_BASE_URL}/trips/${tripId}`, {
     method: "PUT",

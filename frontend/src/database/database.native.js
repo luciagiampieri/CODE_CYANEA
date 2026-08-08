@@ -1,20 +1,8 @@
-import { Platform } from "react-native";
 import * as SQLite from "expo-sqlite";
 
-let db = null;
-
-// Solo abrimos la conexión física si NO estamos en un navegador web
-if (Platform.OS !== "web") {
-  db = SQLite.openDatabaseSync("viajes_offline.db");
-}
+const db = SQLite.openDatabaseSync("viajes_offline.db");
 
 export function inicializarBaseDeDatos() {
-  // En la web no inicializamos tablas nativas
-  if (Platform.OS === "web") {
-    console.log("Entorno Web detectado: Omitiendo inicialización nativa de SQLite.");
-    return;
-  }
-
   try {
     db.execSync(`
       CREATE TABLE IF NOT EXISTS gastos_pendientes (
@@ -50,8 +38,6 @@ export function inicializarBaseDeDatos() {
         nombre_usuario TEXT NOT NULL
       );
     `);
-
-    console.log("SQLite inicializado correctamente con tablas de caché.");
   } catch (error) {
     console.error("Error SQLite:", error);
   }

@@ -28,6 +28,7 @@ class Viaje(Base):
         ForeignKey("Monedas.Codigo", name="FK_Viajes_Monedas_Codigo"),
         nullable=False,
     )
+    GooglePlaceIdPortada: Mapped[str | None] = mapped_column(String(255), nullable=True)
     IdAdministrador: Mapped[int] = mapped_column(
         ForeignKey("Usuarios.IdUsuario", name="FK_Viajes_Usuarios_IdAdministrador"),
         nullable=False,
@@ -88,6 +89,11 @@ class Viaje(Base):
     )
     Documentos = relationship(
         "DocumentoViaje",
+        back_populates="Viaje",
+        cascade="all, delete-orphan",
+    )
+    LugaresInteres = relationship(
+        "LugarInteresViaje",
         back_populates="Viaje",
         cascade="all, delete-orphan",
     )
