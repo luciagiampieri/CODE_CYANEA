@@ -1,53 +1,166 @@
-import { Linking, Pressable, StyleSheet, Text, View } from "react-native";
-import { useEffect } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { StyleSheet, Text, View } from "react-native";
+import MapView, { Marker, PROVIDER_GOOGLE } from "react-native-maps";
 import { FontAwesome6 } from "@expo/vector-icons";
 
 import { colors, radii, spacing, surfaces, textStyles } from "../../theme/tokens";
 
-function buildMapsUrl(marker) {
-  const query = encodeURIComponent(marker.address || marker.name);
-  return `https://www.google.com/maps/search/?api=1&query=${query}&query_place_id=${encodeURIComponent(
-    marker.placeId?.replace(/^google:/, "") ?? ""
-  )}`;
+const DEFAULT_CENTER = {
+  latitude: -34.6037,
+  longitude: -58.3816,
+  latitudeDelta: 0.28,
+  longitudeDelta: 0.28,
+};
+
+function buildInitialRegion(initialCenter) {
+  if (typeof initialCenter?.lat === "number" && typeof initialCenter?.lng === "number") {
+    return {
+      latitude: initialCenter.lat,
+      longitude: initialCenter.lng,
+      latitudeDelta: 0.28,
+      longitudeDelta: 0.28,
+    };
+  }
+
+  return DEFAULT_CENTER;
 }
 
-export default function MapCanvas({ initialCenter, markers = [], onMarkerPress, onViewportChange }) {
+function resolveMarkerColor(kind) {
+  switch (kind) {
+    case "tripDestination":
+      return colors.accentStrong;
+    case "savedPlace":
+      return colors.primarySoft;
+    default:
+      return colors.danger;
+  }
+}
+
+export default function MapCanvas({
+  initialCenter,
+  markers = [],
+  offline = false,
+  onMarkerPress,
+  onPlacePick,
+  onViewportChange,
+}) {
+  const mapRef = useRef(null);
+  const hasMountedRegionRef = useRef(false);
+  const [region, setRegion] = useState(() => buildInitialRegion(initialCenter));
+
+  const validMarkers = useMemo(
+    () =>
+      markers.filter(
+        (marker) => typeof marker?.lat === "number" && typeof marker?.lng === "number"
+      ),
+    [markers]
+  );
+
   useEffect(() => {
-    if (initialCenter?.lat && initialCenter?.lng) {
-      onViewportChange?.(initialCenter);
-    }
+    if (hasMountedRegionRef.current) return;
+    const nextRegion = buildInitialRegion(initialCenter);
+    setRegion(nextRegion);
+    hasMountedRegionRef.current = true;
+    onViewportChange?.({
+      lat: nextRegion.latitude,
+      lng: nextRegion.longitude,
+    });
   }, [initialCenter, onViewportChange]);
+
+  function handleRegionChangeComplete(nextRegion) {
+    setRegion(nextRegion);
+    onViewportChange?.({
+      lat: nextRegion.latitude,
+      lng: nextRegion.longitude,
+    });
+  }
+
+  function handlePoiClick(event) {
+    const poi = event?.nativeEvent;
+    if (!poi?.placeId || !poi?.coordinate) return;
+
+    onPlacePick?.({
+      placeId: `google:${poi.placeId}`,
+      name: poi.name ?? "Lugar de interés",
+      address: poi.name ?? "Lugar de interés",
+      lat: poi.coordinate.latitude,
+      lng: poi.coordinate.longitude,
+      category: "Lugar de interés",
+      kind: "searchResult",
+      alreadySaved: false,
+      metadata: {
+        source: "google-maps-poi",
+      },
+    });
+  }
 
   return (
     <View style={styles.wrap}>
-      <View style={styles.placeholder}>
-        <FontAwesome6 color={colors.primary} name="map-location-dot" size={18} />
-        <Text style={styles.title}>Mapa interactivo</Text>
-        <Text style={styles.copy}>
-          En móvil nativo se listan los puntos disponibles y puedes abrirlos en Google Maps.
-        </Text>
+      <View style={styles.mapCard}>
+        <MapView
+          ref={mapRef}
+          initialRegion={region}
+          provider={PROVIDER_GOOGLE}
+          poiClickEnabled
+          onPoiClick={handlePoiClick}
+          onRegionChangeComplete={handleRegionChangeComplete}
+          moveOnMarkerPress={false}
+          rotateEnabled={false}
+          showsCompass
+          showsIndoors={false}
+          showsTraffic={false}
+          style={styles.map}
+        >
+          {validMarkers.map((marker) => (
+            <Marker
+              key={`${marker.kind}-${marker.id ?? marker.placeId ?? marker.name}`}
+              coordinate={{ latitude: marker.lat, longitude: marker.lng }}
+              onPress={() => onMarkerPress?.(marker)}
+              pinColor={resolveMarkerColor(marker.kind)}
+              title={marker.name}
+              description={marker.address}
+            />
+          ))}
+        </MapView>
+
+        <View pointerEvents="none" style={styles.overlayTop}>
+          <View style={styles.hintPill}>
+            <FontAwesome6 color={colors.primary} name="hand-pointer" size={12} />
+            <Text style={styles.hintText}>Toca un marcador o un punto de interés para ver el detalle</Text>
+          </View>
+        </View>
+
+        {offline ? (
+          <View style={styles.offlineOverlay}>
+            <FontAwesome6 color={colors.warning} name="wifi" size={14} />
+            <Text style={styles.offlineText}>Sin conexión. El mapa puede no actualizar resultados.</Text>
+          </View>
+        ) : null}
       </View>
 
-      <View style={styles.list}>
-        {markers.map((marker) => (
-          <Pressable
-            key={`${marker.kind}-${marker.id ?? marker.placeId ?? marker.name}`}
-            onPress={() => onMarkerPress?.(marker)}
-            style={styles.row}
-          >
-            <View style={styles.rowIcon}>
-              <FontAwesome6 color={colors.primary} name="location-dot" size={14} />
-            </View>
-            <View style={styles.rowCopy}>
-              <Text style={styles.rowTitle}>{marker.name}</Text>
-              <Text style={styles.rowMeta}>{marker.address}</Text>
-            </View>
-            <Pressable onPress={() => Linking.openURL(buildMapsUrl(marker))} style={styles.openButton}>
-              <FontAwesome6 color={colors.primary} name="arrow-up-right-from-square" size={12} />
-            </Pressable>
-          </Pressable>
-        ))}
+      <View style={styles.footer}>
+        <View style={styles.legendItem}>
+          <View style={[styles.legendDot, { backgroundColor: colors.accentStrong }]} />
+          <Text style={styles.legendText}>Destino</Text>
+        </View>
+        <View style={styles.legendItem}>
+          <View style={[styles.legendDot, { backgroundColor: colors.primarySoft }]} />
+          <Text style={styles.legendText}>Guardado</Text>
+        </View>
+        <View style={styles.legendItem}>
+          <View style={[styles.legendDot, { backgroundColor: colors.danger }]} />
+          <Text style={styles.legendText}>Resultado</Text>
+        </View>
       </View>
+
+      {validMarkers.length === 0 ? (
+        <View style={styles.emptyCard}>
+          <Text style={styles.emptyTitle}>Todavía no hay puntos para mostrar.</Text>
+          <Text style={styles.emptyCopy}>
+            Busca un lugar o agrega destinos base para empezar a explorar el mapa.
+          </Text>
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -56,59 +169,87 @@ const styles = StyleSheet.create({
   wrap: {
     gap: spacing.md,
   },
-  placeholder: {
+  mapCard: {
     ...surfaces.card,
-    padding: spacing.lg,
-    alignItems: "center",
-    gap: spacing.sm,
+    overflow: "hidden",
+    minHeight: 360,
   },
-  title: {
-    ...textStyles.bodyStrong,
-    color: colors.primary,
+  map: {
+    width: "100%",
+    minHeight: 360,
   },
-  copy: {
-    ...textStyles.meta,
-    color: colors.textSecondary,
-    textAlign: "center",
+  overlayTop: {
+    position: "absolute",
+    top: spacing.md,
+    left: spacing.md,
+    right: spacing.md,
   },
-  list: {
-    gap: spacing.sm,
-  },
-  row: {
-    ...surfaces.card,
+  hintPill: {
+    alignSelf: "flex-start",
     flexDirection: "row",
     alignItems: "center",
-    gap: spacing.sm,
-    padding: spacing.md,
+    gap: spacing.xs,
+    backgroundColor: "rgba(255,255,255,0.94)",
+    borderRadius: radii.pill,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
+    borderWidth: 1,
+    borderColor: colors.border,
   },
-  rowIcon: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
+  hintText: {
+    ...textStyles.meta,
+    color: colors.primary,
+  },
+  offlineOverlay: {
+    position: "absolute",
+    left: spacing.md,
+    right: spacing.md,
+    bottom: spacing.md,
+    flexDirection: "row",
     alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: colors.accentMuted,
+    gap: spacing.xs,
+    backgroundColor: "rgba(255,244,198,0.96)",
+    borderRadius: radii.md,
+    borderWidth: 1,
+    borderColor: colors.accentStrong,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
   },
-  rowCopy: {
+  offlineText: {
+    ...textStyles.meta,
+    color: colors.warning,
     flex: 1,
   },
-  rowTitle: {
+  footer: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: spacing.md,
+  },
+  legendItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.xs,
+  },
+  legendDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+  },
+  legendText: {
+    ...textStyles.meta,
+    color: colors.textSecondary,
+  },
+  emptyCard: {
+    ...surfaces.card,
+    padding: spacing.lg,
+    gap: spacing.xs,
+  },
+  emptyTitle: {
     ...textStyles.bodyStrong,
     color: colors.primary,
   },
-  rowMeta: {
+  emptyCopy: {
     ...textStyles.meta,
     color: colors.textSecondary,
-    marginTop: spacing.xxs,
-  },
-  openButton: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    borderWidth: 1,
-    borderColor: colors.border,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: colors.surface,
   },
 });

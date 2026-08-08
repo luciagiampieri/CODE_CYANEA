@@ -284,6 +284,8 @@ Orden actual:
 - la portada visual del viaje se resuelve desde Google Places usando el primer destino seleccionado como referencia
 - el backend persiste `Viajes.GooglePlaceIdPortada` y expone la imagen por proxy propio para no exponer la API key de Google en el frontend
 - la exploracion de lugares de interes del viaje usa Google Places para busqueda y Google Maps JavaScript en web para visualizacion interactiva
+- en mobile nativo Expo, la fase 1 de parity usa `react-native-maps` en `frontend/src/components/map/MapCanvas.native.js`; la logica de busqueda, detalle y recomendados sigue centralizada en backend
+- en mobile nativo Expo, la fase 2 de parity habilita seleccion de POIs desde el mapa nativo con `onPoiClick` y presenta recomendados en formato bottom-sheet en lugar de panel lateral
 - el ranking de atracciones populares en exploracion se calcula dinamicamente desde Google Places segun el centro visible del mapa
 - el ranking de atracciones populares en exploracion debe presentarse en un panel lateral o modal dedicado, no intercalado en el flujo principal de seleccion y guardado de lugares
 - los componentes del feature de mapa viven en `frontend/src/components/map/`
