@@ -95,8 +95,12 @@ async def _resolve_cover_place_id(destinations: list) -> str | None:
     if not query:
         return None
 
-    results = await search_destinations(query, limit=1)
-    return results[0].place_id if results else None
+    try:
+        results = await search_destinations(query, limit=1)
+        return results[0].place_id if results else None
+    except Exception as error:
+        logger.warning("No se pudo resolver la portada automatica del viaje: %s", error)
+        return None
 
 
 def _build_trip_detail(viaje: Viaje) -> TripDetailRead:

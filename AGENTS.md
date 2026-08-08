@@ -243,11 +243,32 @@ Respetar el modelo de dominio en espanol. No introducir nombres tipo `trip_id`, 
 - `RolesParticipantes`
 - `EstadosParticipaciones`
 - `EstadosInvitaciones`
+- `EstadosTransferenciasLiquidaciones`
 
 Datos maestros y seed:
 
 - `backend/scripts/sql/007_datos_maestros.sql`
 - `backend/scripts/sql/008_seed_minimo.sql`
+
+## Liquidacion de gastos
+
+Reglas vigentes para la HU de balance y liquidacion:
+
+- el balance neto de cada participante se calcula siempre desde `Gastos` y `ParticipantesGastos`
+- no persistir balances derivados por participante
+- la persistencia se hace por version de liquidacion en:
+  - `LiquidacionesViajes`
+  - `TransferenciasLiquidaciones`
+  - `EstadosTransferenciasLiquidaciones`
+- una liquidacion representa un plan ejecutable de transferencias para un viaje en un momento dado
+- cuando cambian los gastos del viaje se invalida la liquidacion activa anterior y se genera una nueva version
+- marcar una transferencia como realizada solo cambia su estado dentro de la liquidacion activa; no modifica los gastos base
+- la UI de esta HU se muestra dentro del tab `Gastos` del detalle del viaje, no en una pantalla paralela
+
+## Integraciones externas
+
+- ninguna integracion externa no esencial debe impedir los flujos base del dominio
+- si falla la resolucion automatica de portada, lugares o metadata externa, el viaje debe poder crearse o actualizarse igual, degradando funcionalidad en forma controlada y registrando warning
 
 ## Convenciones de scripts SQL
 
