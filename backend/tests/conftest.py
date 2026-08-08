@@ -15,6 +15,7 @@ from app.models.estado_invitacion import EstadoInvitacion
 from app.models.rol_participante import RolParticipante
 from app.models.viaje import Viaje
 from app.models.categorias_gastos import CategoriasGastos
+from app.models.estado_transferencia_liquidacion import EstadoTransferenciaLiquidacion
 from app.models.participante_viaje import ParticipanteViaje
 
 from sqlalchemy import BigInteger
@@ -86,7 +87,13 @@ def master_data(db_session):
         RolParticipante(Nombre="participante", Descripcion="Usuario invitado al viaje.", Activo=True),
     ]
 
-    db_session.add_all(estados_viaje + estados_participacion + estados_invitacion + roles)
+    estados_transferencia = [
+        EstadoTransferenciaLiquidacion(Nombre="pendiente", Activo=True),
+        EstadoTransferenciaLiquidacion(Nombre="realizada", Activo=True),
+        EstadoTransferenciaLiquidacion(Nombre="anulada", Activo=True),
+    ]
+
+    db_session.add_all(estados_viaje + estados_participacion + estados_invitacion + roles + estados_transferencia)
     db_session.commit()
 
 

@@ -349,6 +349,39 @@ export async function createExpense(payload) {
   );
 }
 
+export async function getTripSettlement(tripId) {
+  const response = await fetch(`${API_BASE_URL}/trips/${tripId}/settlement`, {
+    headers: await authHeaders(),
+  });
+  return parseResponse(response, "No se pudo obtener la liquidación del viaje");
+}
+
+export async function rebuildTripSettlement(tripId) {
+  const response = await fetch(`${API_BASE_URL}/trips/${tripId}/settlement/rebuild`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(await authHeaders()),
+    },
+  });
+  return parseResponse(response, "No se pudo recalcular la liquidación");
+}
+
+export async function markSettlementTransferPaid(tripId, transferId, realizada = true) {
+  const response = await fetch(
+    `${API_BASE_URL}/trips/${tripId}/settlement/transfers/${transferId}`,
+    {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+        ...(await authHeaders()),
+      },
+      body: JSON.stringify({ Realizada: realizada }),
+    }
+  );
+  return parseResponse(response, "No se pudo actualizar la transferencia");
+}
+
 export async function getCurrencies() {
   const response = await fetch(`${API_BASE_URL}/monedas`, {
     headers: await authHeaders(),

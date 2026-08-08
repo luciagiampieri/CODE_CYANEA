@@ -18,8 +18,11 @@ from app.models.voto import Voto
 from app.models.dia_cronograma import DiaCronograma
 from app.models.actividad_itinerario import ActividadItinerario
 from app.models.moneda import Moneda
+from app.models.estado_transferencia_liquidacion import EstadoTransferenciaLiquidacion
+from app.models.liquidacion_viaje import LiquidacionViaje
 from app.models.lugar_interes import LugarInteres
 from app.models.lugar_interes_viaje import LugarInteresViaje
+from app.models.transferencia_liquidacion import TransferenciaLiquidacion
 
 __all__ = [
     "Base",
@@ -42,6 +45,9 @@ __all__ = [
     "DiaCronograma",
     "ActividadItinerario",
     "Moneda",
+    "EstadoTransferenciaLiquidacion",
+    "LiquidacionViaje",
     "LugarInteres",
     "LugarInteresViaje",
+    "TransferenciaLiquidacion",
 ]

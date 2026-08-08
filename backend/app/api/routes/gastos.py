@@ -19,6 +19,7 @@ from app.schemas.gasto import (
 )
 from app.models.gasto import TipoDivisionEnum
 from app.models.viaje import Viaje
+from app.services.liquidacion_service import rebuild_settlement_plan
 
 router = APIRouter()
 
@@ -171,6 +172,8 @@ def create_gasto(data: GastoCreate, db: Session = Depends(get_db), current_user:
     
     db.commit()
     db.refresh(gasto)
+
+    rebuild_settlement_plan(db, data.IdViaje)
 
     return {
         "message": "Gasto creado correctamente",

@@ -85,3 +85,13 @@ class ParticipanteViaje(Base):
         back_populates="ParticipanteViaje",
         foreign_keys="ParticipantesGastos.IdParticipanteViaje",
     )
+    TransferenciasComoDeudor = relationship(
+        "TransferenciaLiquidacion",
+        foreign_keys="TransferenciaLiquidacion.IdParticipanteDeudor",
+        back_populates="ParticipanteDeudor",
+    )
+    TransferenciasComoAcreedor = relationship(
+        "TransferenciaLiquidacion",
+        foreign_keys="TransferenciaLiquidacion.IdParticipanteAcreedor",
+        back_populates="ParticipanteAcreedor",
+    )

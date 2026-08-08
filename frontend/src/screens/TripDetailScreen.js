@@ -25,14 +25,17 @@ import {
   addTripParticipant,
   emitirVoto,
   getCurrentUser,
+  getTripSettlement,
   getTripDetail,
   getItinerarySocketUrl,
   getVotaciones,
   getResultadosVotacion,
   getProgresoVotacion,
   getUsers,
+  markSettlementTransferPaid,
   removeTripExternalInvitation,
   removeTripParticipant,
+  rebuildTripSettlement,
   deleteTrip,
   updateActivity,
 } from "../services/api";
@@ -139,6 +142,19 @@ function avisar(titulo, mensaje) {
   }
 }
 
+function formatMoney(amount, currency) {
+  const numeric = Number(amount ?? 0);
+  if (Number.isNaN(numeric)) {
+    return `${currency} 0,00`;
+  }
+
+  return new Intl.NumberFormat("es-AR", {
+    style: "currency",
+    currency: currency || "EUR",
+    minimumFractionDigits: 2,
+  }).format(numeric);
+}
+
 export default function TripDetailScreen({ navigation, route }) {
   const initialTrip = normalizeTrip(route.params?.trip);
   const [trip, setTrip] = useState(initialTrip);
@@ -161,6 +177,10 @@ export default function TripDetailScreen({ navigation, route }) {
   const [showDeleteModal, setShowDeleteModal] = useState(false); 
   const [showOptionsMenu, setShowOptionsMenu] = useState(false);
   const [activityEditMessage, setActivityEditMessage] = useState("");
+  const [settlement, setSettlement] = useState(null);
+  const [loadingSettlement, setLoadingSettlement] = useState(false);
+  const [settlementError, setSettlementError] = useState("");
+  const [updatingTransferId, setUpdatingTransferId] = useState(null);
   const socketRef = useRef(null);
   const pendingEditRef = useRef(null);
   const [itinerarioView, setItinerarioView] = useItinerarioViewPreference();
@@ -254,9 +274,32 @@ export default function TripDetailScreen({ navigation, route }) {
     }
   }
 
+  async function loadSettlement() {
+    if (!initialTrip?.id) {
+      return;
+    }
+
+    try {
+      setLoadingSettlement(true);
+      setSettlementError("");
+      const data = await getTripSettlement(initialTrip.id);
+      setSettlement(data);
+    } catch (error) {
+      setSettlementError(error.message || "No se pudo cargar la liquidación del viaje.");
+    } finally {
+      setLoadingSettlement(false);
+    }
+  }
+
   useEffect(() => {
     loadTripDetail();
   }, [initialTrip?.id]);
+
+  useEffect(() => {
+    if (activeTab === "gastos") {
+      loadSettlement();
+    }
+  }, [activeTab, initialTrip?.id]);
   
   useEffect(() => {
   if (!trip?.id) return;
@@ -414,6 +457,7 @@ export default function TripDetailScreen({ navigation, route }) {
   useEffect(() => {
     const unsubscribe = navigation.addListener("focus", () => {
       loadTripDetail();
+      loadSettlement();
     });
     return unsubscribe;
   }, [navigation, initialTrip?.id]);
@@ -575,6 +619,34 @@ export default function TripDetailScreen({ navigation, route }) {
       await createActivity(trip.id, activityModalDay.id, payload);
     }
     await loadTripDetail();
+  }
+
+  async function handleRebuildSettlement() {
+    if (!trip?.id) return;
+    try {
+      setLoadingSettlement(true);
+      setSettlementError("");
+      const data = await rebuildTripSettlement(trip.id);
+      setSettlement(data);
+    } catch (error) {
+      setSettlementError(error.message || "No se pudo recalcular la liquidación.");
+    } finally {
+      setLoadingSettlement(false);
+    }
+  }
+
+  async function handleMarkTransferPaid(transferId, realizada) {
+    if (!trip?.id) return;
+    try {
+      setUpdatingTransferId(transferId);
+      setSettlementError("");
+      const data = await markSettlementTransferPaid(trip.id, transferId, realizada);
+      setSettlement(data);
+    } catch (error) {
+      setSettlementError(error.message || "No se pudo actualizar la transferencia.");
+    } finally {
+      setUpdatingTransferId(null);
+    }
   }
 
   const [activityToDelete, setActivityToDelete] = useState(null);
@@ -911,7 +983,120 @@ export default function TripDetailScreen({ navigation, route }) {
 
               <View style={styles.sectionCard}>
                 <Text style={styles.sectionHeading}>Balance general</Text>
-                <Text style={styles.sectionCopy}>Todavía no hay desbalances importantes para resolver.</Text>
+                <Text style={styles.sectionCopy}>
+                  El sistema calcula automáticamente las deudas netas y propone la menor cantidad posible de transferencias.
+                </Text>
+                <PrimaryButton
+                  icon="rotate"
+                  iconPosition="left"
+                  label="Recalcular liquidación"
+                  loading={loadingSettlement}
+                  onPress={handleRebuildSettlement}
+                  style={styles.fullButton}
+                  variant="secondary"
+                />
+                {settlementError ? (
+                  <Text style={styles.settlementError}>{settlementError}</Text>
+                ) : null}
+              </View>
+
+              <View style={styles.sectionCard}>
+                <View style={styles.settlementHeaderRow}>
+                  <Text style={styles.sectionHeading}>Resumen por participante</Text>
+                  {loadingSettlement ? <ActivityIndicator color={colors.primary} /> : null}
+                </View>
+                {settlement?.ResumenParticipantes?.length ? (
+                  <View style={styles.settlementList}>
+                    {settlement.ResumenParticipantes.map((item) => {
+                      const balancePendiente = Number(item.BalancePendiente ?? 0);
+                      const esAcreedor = balancePendiente > 0;
+                      const esDeudor = balancePendiente < 0;
+                      return (
+                        <View key={item.IdParticipanteViaje} style={styles.settlementRow}>
+                          <View style={styles.settlementPerson}>
+                            <Text style={styles.settlementPersonName}>{item.NombreCompleto}</Text>
+                            <Text style={styles.settlementPersonMeta}>
+                              Balance original: {formatMoney(item.BalanceOriginal, settlement.Moneda)}
+                            </Text>
+                          </View>
+                          <View style={styles.settlementRight}>
+                            <View
+                              style={[
+                                styles.settlementBadge,
+                                esAcreedor
+                                  ? styles.settlementBadgeSuccess
+                                  : esDeudor
+                                    ? styles.settlementBadgeWarning
+                                    : styles.settlementBadgeNeutral,
+                              ]}
+                            >
+                              <Text style={styles.settlementBadgeText}>
+                                {esAcreedor ? "Debe cobrar" : esDeudor ? "Debe pagar" : "Saldado"}
+                              </Text>
+                            </View>
+                            <Text style={styles.settlementAmount}>
+                              {formatMoney(item.BalancePendiente, settlement.Moneda)}
+                            </Text>
+                          </View>
+                        </View>
+                      );
+                    })}
+                  </View>
+                ) : !loadingSettlement ? (
+                  <Text style={styles.sectionCopy}>Todavía no hay participantes aceptados para calcular la liquidación.</Text>
+                ) : null}
+              </View>
+
+              <View style={styles.sectionCard}>
+                <Text style={styles.sectionHeading}>Plan de liquidación</Text>
+                {settlement?.Transferencias?.length ? (
+                  <View style={styles.settlementList}>
+                    {settlement.Transferencias.map((transfer) => {
+                      const pendiente = transfer.Estado === "pendiente";
+                      return (
+                        <View key={transfer.IdTransferenciaLiquidacion} style={styles.transferCard}>
+                          <View style={styles.transferHeader}>
+                            <View style={styles.transferTextWrap}>
+                              <Text style={styles.transferTitle}>
+                                {transfer.NombreDeudor} paga a {transfer.NombreAcreedor}
+                              </Text>
+                              <Text style={styles.transferMeta}>
+                                {formatMoney(transfer.Monto, settlement.Moneda)}
+                              </Text>
+                            </View>
+                            <View
+                              style={[
+                                styles.settlementBadge,
+                                pendiente ? styles.settlementBadgeWarning : styles.settlementBadgeSuccess,
+                              ]}
+                            >
+                              <Text style={styles.settlementBadgeText}>
+                                {pendiente ? "Pendiente" : "Realizada"}
+                              </Text>
+                            </View>
+                          </View>
+
+                          <PrimaryButton
+                            icon={pendiente ? "check" : "arrow-rotate-left"}
+                            iconPosition="left"
+                            label={pendiente ? "Marcar como realizada" : "Volver a pendiente"}
+                            loading={updatingTransferId === transfer.IdTransferenciaLiquidacion}
+                            onPress={() =>
+                              handleMarkTransferPaid(
+                                transfer.IdTransferenciaLiquidacion,
+                                pendiente
+                              )
+                            }
+                            style={styles.transferButton}
+                            variant={pendiente ? "primary" : "secondary"}
+                          />
+                        </View>
+                      );
+                    })}
+                  </View>
+                ) : !loadingSettlement ? (
+                  <Text style={styles.sectionCopy}>No hay deudas pendientes. El grupo está balanceado.</Text>
+                ) : null}
               </View>
             </View>
           ) : null}
@@ -1515,6 +1700,100 @@ const styles = StyleSheet.create({
     ...textStyles.body,
     color: colors.textSecondary,
     marginTop: spacing.sm,
+  },
+  settlementHeaderRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: spacing.sm,
+  },
+  settlementList: {
+    marginTop: spacing.md,
+    gap: spacing.sm,
+  },
+  settlementRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: spacing.md,
+    paddingVertical: spacing.sm,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
+  settlementPerson: {
+    flex: 1,
+    minWidth: 0,
+  },
+  settlementPersonName: {
+    ...textStyles.bodyStrong,
+    color: colors.primary,
+  },
+  settlementPersonMeta: {
+    ...textStyles.meta,
+    color: colors.textSecondary,
+    marginTop: spacing.xxs,
+  },
+  settlementRight: {
+    alignItems: "flex-end",
+    gap: spacing.xs,
+  },
+  settlementBadge: {
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 6,
+    borderRadius: radii.pill,
+  },
+  settlementBadgeSuccess: {
+    backgroundColor: colors.successSurface,
+  },
+  settlementBadgeWarning: {
+    backgroundColor: colors.warningSurface,
+  },
+  settlementBadgeNeutral: {
+    backgroundColor: colors.surfaceAlt,
+  },
+  settlementBadgeText: {
+    ...textStyles.meta,
+    color: colors.primaryStrong,
+    fontSize: 12,
+  },
+  settlementAmount: {
+    ...textStyles.bodyStrong,
+    color: colors.primary,
+  },
+  settlementError: {
+    ...textStyles.meta,
+    color: colors.danger,
+    marginTop: spacing.sm,
+  },
+  transferCard: {
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radii.md,
+    padding: spacing.md,
+    gap: spacing.sm,
+    backgroundColor: colors.surfaceMuted,
+  },
+  transferHeader: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    gap: spacing.sm,
+  },
+  transferTextWrap: {
+    flex: 1,
+    minWidth: 0,
+  },
+  transferTitle: {
+    ...textStyles.bodyStrong,
+    color: colors.primary,
+  },
+  transferMeta: {
+    ...textStyles.body,
+    color: colors.textSecondary,
+    marginTop: spacing.xxs,
+  },
+  transferButton: {
+    minHeight: 46,
   },
   fullButton: {
     marginTop: spacing.lg,

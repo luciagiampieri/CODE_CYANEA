@@ -97,5 +97,11 @@ class Viaje(Base):
         back_populates="Viaje",
         cascade="all, delete-orphan",
     )
+    Liquidaciones = relationship(
+        "LiquidacionViaje",
+        back_populates="Viaje",
+        cascade="all, delete-orphan",
+        foreign_keys="LiquidacionViaje.IdViaje",
+    )
     
 
