@@ -14,6 +14,7 @@ GOOGLE_PLACES_TEXT_SEARCH_URL = "https://places.googleapis.com/v1/places:searchT
 class DestinationSearchResult:
     name: str
     country: str
+    province_state: str | None
     lat: float | None
     lng: float | None
     place_id: str | None = None
@@ -40,13 +41,16 @@ async def search_destinations(query: str, limit: int = 5) -> list[DestinationSea
             "places.location,"
             "places.types,"
             "places.primaryType,"
-            "places.primaryTypeDisplayName"
+            "places.primaryTypeDisplayName,"
+            "places.addressComponents"
         ),
     }
     payload = {
         "textQuery": query.strip(),
         "languageCode": "es",
         "maxResultCount": limit,
+        "includedType": "locality",
+        "rankPreference": "RELEVANCE",
     }
 
     async with httpx.AsyncClient(timeout=12.0, verify=False) as client:
@@ -67,9 +71,27 @@ def _parse_google_results(results: list[dict], limit: int) -> list[DestinationSe
 
     for item in results:
         name = item.get("displayName", {}).get("text") or "Destino desconocido"
+
+        types = item.get("types", [])
+        if "locality" not in types:
+            continue
+
         address = item.get("formattedAddress") or name
         parts = [segment.strip() for segment in address.split(",") if segment.strip()]
         country = parts[-1] if parts else name
+        province_state = None
+
+        for component in item.get("addressComponents", []):
+            types = component.get("types", [])
+
+            if "administrative_area_level_1" in types:
+
+                province_state = (
+                    component.get("longText")
+                    or component.get("shortText")
+                )
+                break
+
         location = item.get("location", {})
 
         key = (name, country)
@@ -81,6 +103,7 @@ def _parse_google_results(results: list[dict], limit: int) -> list[DestinationSe
             DestinationSearchResult(
                 name=name,
                 country=country,
+                province_state=province_state,
                 lat=location.get("latitude"),
                 lng=location.get("longitude"),
                 place_id=f"google:{item.get('id')}" if item.get("id") else None,

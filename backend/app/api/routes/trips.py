@@ -25,9 +25,11 @@ from app.models.usuario import Usuario
 from app.models.viaje import Viaje
 from app.models.destino_viaje import DestinoViaje
 from app.models.destino import Destino
+from app.models.lugar_interes import LugarInteres
 from app.schemas.trip import (
     ActividadCreate,
     ActividadRead,
+    ActividadUbicacionCreate,
     ActividadUpdate,
     TripAdminRead,
     TripCreate,
@@ -42,7 +44,10 @@ from app.schemas.trip import (
     TripUpdateResponse,
     InvitationResponse,
     DestinationRead,
+    DiaCronogramaRead,
 )
+from app.schemas.place import TripPlaceRead
+
 from app.services.mail import get_mail_service
 from app.services.notifications.invitation_email_sender import (
     InvitationEmailPayload,
@@ -103,6 +108,40 @@ async def _resolve_cover_place_id(destinations: list) -> str | None:
         return None
 
 
+def _build_trip_place(lugar) -> TripPlaceRead | None:
+    if lugar is None:
+        return None
+
+    return TripPlaceRead(
+        id=lugar.IdLugarInteres,
+        placeId=lugar.GooglePlaceId,
+        name=lugar.Nombre,
+        address=lugar.Direccion,
+        lat=lugar.Lat,
+        lng=lugar.Lng,
+        category=lugar.Categoria,
+        photoUrl=lugar.FotoUrl,
+        notes=None,
+        scheduledDays=[],
+    )
+
+def _build_actividad_read(actividad: ActividadItinerario) -> ActividadRead:
+    lugar = actividad.LugarInteres
+
+    if lugar is None and actividad.LugarInteresViaje is not None:
+        lugar = actividad.LugarInteresViaje.LugarInteres
+
+    return ActividadRead(
+        IdActividad=actividad.IdActividad,
+        IdLugarInteres=lugar.IdLugarInteres if lugar else None,
+        LugarInteres=_build_trip_place(lugar),
+        Nombre=actividad.Nombre,
+        Descripcion=actividad.Descripcion,
+        HoraInicio=actividad.HoraInicio,
+        HoraFin=actividad.HoraFin,
+        Icono=actividad.Icono,
+    )
+
 def _build_trip_detail(viaje: Viaje) -> TripDetailRead:
     participantes_visibles = [
         participacion
@@ -141,7 +180,18 @@ def _build_trip_detail(viaje: Viaje) -> TripDetailRead:
         currency=viaje.Moneda,
         startDate=viaje.FechaInicio,
         endDate=viaje.FechaFin,
-        cronograma=list(viaje.Cronograma or []),
+        cronograma=[
+            DiaCronogramaRead(
+                IdDiaCronograma=dia.IdDiaCronograma,
+                Fecha=dia.Fecha,
+                IndiceDia=dia.IndiceDia,
+                Actividades=[
+                    _build_actividad_read(actividad)
+                    for actividad in (dia.Actividades or [])
+                ],
+            )
+            for dia in (viaje.Cronograma or [])
+        ],
         admin=TripAdminRead(
             id=viaje.Administrador.IdUsuario,
             nombreCompleto=f"{viaje.Administrador.Nombre} {viaje.Administrador.Apellido}",
@@ -285,6 +335,7 @@ async def search_destinos(q: str = Query(..., min_length=2)):
         {
             "name": item.name,
             "country": item.country,
+            "provinceState": item.province_state,
             "lat": item.lat,
             "lng": item.lng,
             "placeId": item.place_id,
@@ -577,9 +628,31 @@ async def create_activity(
     if dia is None:
         raise HTTPException(status_code=404, detail="El día del cronograma no existe en este viaje.")
 
+    lugar = None
+
+    print("ID LUGAR RECIBIDO:", payload.idLugarInteres)
+
+    if payload.idLugarInteres is not None:
+        print("BUSCANDO LUGAR ID:", payload.idLugarInteres)
+
+        lugar = db.scalar(
+            select(LugarInteres).where(
+                LugarInteres.IdLugarInteres == payload.idLugarInteres
+            )
+        )
+
+        print("LUGAR ENCONTRADO:", lugar)
+
+        if lugar is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="El lugar de interés seleccionado no existe.",
+            )
+
     actividad = ActividadItinerario(
         IdDiaCronograma=dia.IdDiaCronograma,
         Nombre=payload.nombre.strip(),
+        IdLugarInteres=payload.idLugarInteres,
         Descripcion=payload.descripcion.strip() if payload.descripcion else None,
         HoraInicio=payload.horaInicio,
         HoraFin=payload.horaFin,
@@ -589,7 +662,7 @@ async def create_activity(
     db.commit()
     db.refresh(actividad)
 
-    resultado = ActividadRead.model_validate(actividad)
+    resultado = _build_actividad_read(actividad)
 
     # Avisamos a todos los conectados al itinerario de este viaje (menos a
     # quien lo acaba de crear, que ya lo ve por la respuesta REST normal).
@@ -600,7 +673,6 @@ async def create_activity(
     })
 
     return resultado
-
 
 @router.put(
     "/{trip_id}/days/{day_id}/activities/{activity_id}",
@@ -640,7 +712,23 @@ async def update_activity(
             detail="La actividad no existe en este día del itinerario.",
         )
 
+    lugar = None
+
+    if payload.idLugarInteres is not None:
+        lugar = db.scalar(
+            select(LugarInteres).where(
+                LugarInteres.IdLugarInteres == payload.idLugarInteres
+            )
+        )
+
+        if lugar is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="El lugar de interés no existe.",
+            )
+    
     actividad.Nombre = payload.nombre.strip()
+    actividad.IdLugarInteres = payload.idLugarInteres if lugar else None
     actividad.Descripcion = (
         payload.descripcion.strip()
         if payload.descripcion
@@ -653,7 +741,7 @@ async def update_activity(
     db.commit()
     db.refresh(actividad)
 
-    resultado = ActividadRead.model_validate(actividad)
+    resultado = _build_actividad_read(actividad)
 
     await manager.broadcast(
         trip_id,
@@ -1031,6 +1119,7 @@ async def create_trip(
             destino = Destino(
                 Nombre=destino_data.name,
                 Pais=destino_data.country,
+                ProvinciaEstado=destino_data.provinceState,
                 Lat=destino_data.lat,
                 Lng=destino_data.lng
             )
@@ -1144,6 +1233,7 @@ async def create_trip(
                 id=rel.Destino.IdDestino,
                 name=rel.Destino.Nombre,
                 country=rel.Destino.Pais,
+                provinceState=rel.Destino.ProvinciaEstado,
                 lat=rel.Destino.Lat,
                 lng=rel.Destino.Lng
             )

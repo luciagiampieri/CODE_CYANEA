@@ -49,7 +49,7 @@ export default function PlaceScheduleSheet({ days = [], onClose, onSubmit, place
     if (!visible || !place) return;
     setDayId(dayOptions[0]?.id ?? null);
     setNombre(place.name ?? "");
-    setDescripcion(place.address ?? "");
+    setDescripcion("");
     setHoraInicio("");
     setHoraFin("");
     setIcono(suggestIcon(place));
@@ -130,6 +130,13 @@ export default function PlaceScheduleSheet({ days = [], onClose, onSubmit, place
               placeholderTextColor={colors.textMuted}
               style={styles.input}
               value={nombre}
+            />
+
+            <Text style={styles.label}>Ubicación</Text>
+            <TextInput
+              editable={false}
+              style={styles.input}
+              value={place?.address ?? ""}
             />
 
             <Text style={styles.label}>Descripción</Text>

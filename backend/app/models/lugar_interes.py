@@ -35,3 +35,9 @@ class LugarInteres(Base):
         back_populates="LugarInteres",
         cascade="all, delete-orphan",
     )
+
+    Actividades = relationship(
+        "ActividadItinerario",
+        back_populates="LugarInteres",
+    )
+    

@@ -203,6 +203,22 @@ export async function saveTripPlace(tripId, payload) {
   return parseResponse(response, "No se pudo guardar el lugar en el viaje");
 }
 
+export async function saveActivityLocation(tripId, payload) {
+  const response = await fetch(`${API_BASE_URL}/trips/${tripId}/places/location`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(await authHeaders()),
+    },
+    body: JSON.stringify(payload),
+  });
+
+  return parseResponse(
+    response,
+    "No se pudo guardar la ubicación de la actividad"
+  );
+}
+
 export async function scheduleTripPlace(tripId, tripPlaceId, payload) {
   const response = await fetch(`${API_BASE_URL}/trips/${tripId}/places/${tripPlaceId}/schedule`, {
     method: "POST",

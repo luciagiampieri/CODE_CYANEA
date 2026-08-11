@@ -25,7 +25,7 @@ from app.schemas.place import (
     TripPlaceSearchRead,
 )
 from app.schemas.trip import ActividadRead
-from app.services.place_search import get_place_details, search_popular_places, search_trip_places
+from app.services.place_search import get_place_details, search_popular_places, search_trip_places, get_trip_allowed_regions
 from app.services.trip_access import get_trip_with_relations, require_trip_access
 
 router = APIRouter()
@@ -96,7 +96,7 @@ def _serialize_trip_place(trip_place: LugarInteresViaje) -> TripPlaceRead:
 
     place = trip_place.LugarInteres
     return TripPlaceRead(
-        id=trip_place.IdLugarInteresViaje,
+        id=trip_place.IdLugarInteres,
         placeId=place.GooglePlaceId,
         name=place.Nombre,
         address=place.Direccion,
@@ -116,8 +116,14 @@ async def search_places(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
 ) -> list[TripPlaceSearchRead]:
-    require_trip_access(get_trip_with_relations(db, trip_id), current_user)
-    results = await search_trip_places(q.strip(), limit=8)
+
+    viaje = get_trip_with_relations(db, trip_id)
+    require_trip_access(viaje, current_user)
+
+    allowed_regions = get_trip_allowed_regions(viaje)
+
+    results = await search_trip_places(q.strip(), allowed_regions=allowed_regions, limit=8)
+
     return [
         TripPlaceSearchRead(
             placeId=item.place_id,
@@ -131,7 +137,8 @@ async def search_places(
             metadata=item.metadata,
         )
         for item in results
-        if item.lat is not None and item.lng is not None
+        if item.lat is not None
+        and item.lng is not None
     ]
 
 
@@ -221,6 +228,51 @@ def list_trip_places(
 
     return [_serialize_trip_place(place) for place in places]
 
+@router.post("/trips/{trip_id}/places/location")
+def create_activity_location(
+    trip_id: int,
+    payload: TripPlaceCreate,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> TripPlaceRead:
+    require_trip_access(get_trip_with_relations(db, trip_id), current_user)
+
+    place = db.scalar(
+        select(LugarInteres).where(
+            LugarInteres.GooglePlaceId == payload.placeId.strip()
+        )
+    )
+
+    print("PLACE ENCONTRADO ANTES:", place)
+
+    if place is None:
+        print("CREANDO NUEVO LUGAR:", payload.placeId)
+        place = LugarInteres(
+            GooglePlaceId=payload.placeId.strip(),
+            Nombre=payload.name.strip(),
+            Direccion=payload.address.strip(),
+            Lat=payload.lat,
+            Lng=payload.lng,
+            Categoria=payload.category.strip() if payload.category else None,
+            FotoUrl=payload.photoUrl.strip() if payload.photoUrl else None,
+            MetadataJson=payload.metadata,
+        )
+        db.add(place)
+        db.commit()
+        db.refresh(place)
+
+    return TripPlaceRead(
+        id=place.IdLugarInteres,
+        placeId=place.GooglePlaceId,
+        name=place.Nombre,
+        address=place.Direccion,
+        lat=place.Lat,
+        lng=place.Lng,
+        category=place.Categoria,
+        photoUrl=place.FotoUrl,
+        notes=None,
+        scheduledDays=[],
+    )
 
 @router.get("/trips/{trip_id}/places/{trip_place_id}", response_model=TripPlaceRead)
 def get_trip_place_detail(
@@ -316,9 +368,25 @@ async def schedule_trip_place(
     require_trip_access(get_trip_with_relations(db, trip_id), current_user)
     _ensure_trip_days(db, trip_id)
 
-    trip_place = _load_trip_place(db, trip_id, trip_place_id)
+    trip_place = db.scalar(
+        select(LugarInteresViaje)
+        .options(
+            selectinload(LugarInteresViaje.LugarInteres),
+            selectinload(LugarInteresViaje.Actividades).selectinload(
+                ActividadItinerario.DiaCronograma
+            ),
+        )
+        .where(
+            LugarInteresViaje.IdViaje == trip_id,
+            LugarInteresViaje.IdLugarInteres == trip_place_id,
+        )
+    )
+
     if trip_place is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Lugar de interés no encontrado")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Lugar de interés no encontrado",
+        )
 
     day = None
     if payload.dayId is not None:
@@ -369,3 +437,4 @@ async def schedule_trip_place(
         },
     )
     return result
+

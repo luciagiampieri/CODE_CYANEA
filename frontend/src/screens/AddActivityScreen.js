@@ -4,6 +4,7 @@ import { Platform, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, Vi
 import { FontAwesome6 } from "@expo/vector-icons";
 
 import PrimaryButton from "../components/ui/PrimaryButton";
+import { searchTripPlaces, saveActivityLocation} from "../services/api";
 import { colors, radii, spacing, textStyles } from "../theme/tokens";
 
 const ICON_OPTIONS = [
@@ -40,7 +41,7 @@ function isValidTime(value) {
     return /^([01]\d|2[0-3]):([0-5]\d)$/.test(value);
 }
 
-export default function AddActivityScreen({ visible, onClose, onSubmit, dayLabel, activityToEdit=null, onCancelEdit }) {
+export default function AddActivityScreen({ visible, onClose, onSubmit, dayLabel, tripId, activityToEdit=null, onCancelEdit }) {
     const [nombre, setNombre] = useState("");
     const [descripcion, setDescripcion] = useState("");
     const [horaInicio, setHoraInicio] = useState("");
@@ -51,6 +52,11 @@ export default function AddActivityScreen({ visible, onClose, onSubmit, dayLabel
     const [error, setError] = useState("");
     const [submitting, setSubmitting] = useState(false);
     const [successMessage, setSuccessMessage] = useState("");
+    const [ubicacion, setUbicacion] = useState(null);
+    const [showLocationPicker, setShowLocationPicker] = useState(false);
+    const [locationQuery, setLocationQuery] = useState("");
+    const [locationResults, setLocationResults] = useState([]);
+    const [searchingLocations, setSearchingLocations] = useState(false);
 
     useEffect(() => {
         if (!iconoModificadoManual) {
@@ -63,6 +69,9 @@ export default function AddActivityScreen({ visible, onClose, onSubmit, dayLabel
         if (!visible) return;
 
         if (activityToEdit) {
+            console.log("ACTIVIDAD A EDITAR:", activityToEdit);
+            console.log("UBICACIÓN:", activityToEdit.lugarInteres);
+
             setNombre(activityToEdit.title ?? "");
             setDescripcion(activityToEdit.note ?? "");
 
@@ -73,6 +82,8 @@ export default function AddActivityScreen({ visible, onClose, onSubmit, dayLabel
 
             setIcono(activityToEdit.icon ?? "location-dot");
             setIconoModificadoManual(true);
+
+            setUbicacion(activityToEdit.lugarInteres ?? null);
         } else {
             setNombre("");
             setDescripcion("");
@@ -80,6 +91,7 @@ export default function AddActivityScreen({ visible, onClose, onSubmit, dayLabel
             setHoraFin("");
             setIcono("location-dot");
             setIconoModificadoManual(false);
+            setUbicacion(null);
         }
 
         setError("");
@@ -139,7 +151,6 @@ export default function AddActivityScreen({ visible, onClose, onSubmit, dayLabel
             setError("La hora de fin debe ser posterior a la hora de inicio.");
             return;
         }
-
         setSubmitting(true);
         setError("");
         setSuccessMessage("");
@@ -151,6 +162,7 @@ export default function AddActivityScreen({ visible, onClose, onSubmit, dayLabel
                 horaInicio: `${horaInicio}:00`,
                 horaFin: `${horaFin}:00`,
                 icono,
+                idLugarInteres: ubicacion?.id || null,
             });
             setSuccessMessage(
                 activityToEdit ? "¡Actividad editada correctamente!" : "¡Actividad agregada correctamente!"
@@ -169,7 +181,62 @@ export default function AddActivityScreen({ visible, onClose, onSubmit, dayLabel
         }
     }
 
+    async function handleSearchLocations(query) {
+        setLocationQuery(query);
+
+        if (query.trim().length < 2) {
+            setLocationResults([]);
+            return;
+        }
+
+        setSearchingLocations(true);
+
+        try {
+            const results = await searchTripPlaces(tripId, query.trim());
+            setLocationResults(results);
+        } catch (err) {
+            setLocationResults([]);
+            setError(err.message || "No se pudieron buscar lugares.");
+        } finally {
+            setSearchingLocations(false);
+        }
+    }
+
+    async function handleSelectLocation(place) {
+        try {
+
+            setSearchingLocations(true);
+            setError("");
+            
+            const response = await saveActivityLocation(tripId, {
+                placeId: place.placeId,
+                name: place.name,
+                address: place.address,
+                lat: place.lat,
+                lng: place.lng,
+                category: place.category,
+                metadata: place.metadata,
+            });
+            
+            setUbicacion(response);
+            setShowLocationPicker(false);
+            setLocationQuery("");
+            setLocationResults([]);
+        } catch (err) {
+            
+            setError(err.message || "No se pudo guardar la ubicación.");
+        } finally {
+            setSearchingLocations(false);
+        }
+    }
+
+    function handleRemoveLocation() {
+        setUbicacion(null);
+        setError("");
+    }
+
     return (
+        <>
         <Modal animationType="slide" transparent visible={visible} onRequestClose={resetAndClose}>
             <View style={styles.overlay}>
                 <View style={styles.sheet}>
@@ -263,6 +330,37 @@ export default function AddActivityScreen({ visible, onClose, onSubmit, dayLabel
                             />
                         ) : null}
 
+                        <Text style={styles.label}>Ubicación (opcional)</Text>
+
+                        <View style={styles.locationInputContainer}>
+                            <Pressable
+                                style={styles.locationInput}
+                                onPress={() => {
+                                    if (!successMessage) {
+                                        setShowLocationPicker(true);
+                                    }
+                                }}
+                            >
+                                <Text style={ubicacion ? styles.timeText : styles.placeholderText}>
+                                    {ubicacion ? ubicacion.name : "Seleccionar ubicación"}
+                                </Text>
+                            </Pressable>
+
+                            {ubicacion ? (
+                                <Pressable
+                                    style={styles.removeLocationButton}
+                                    onPress={handleRemoveLocation}
+                                    disabled={!!successMessage}
+                                >
+                                    <FontAwesome6
+                                        name="trash-can"
+                                        size={16}
+                                        color={colors.danger}
+                                    />
+                                </Pressable>
+                            ) : null}
+                        </View>
+
                         <Text style={styles.label}>Descripción (opcional)</Text>
                         <TextInput
                             multiline
@@ -314,6 +412,83 @@ export default function AddActivityScreen({ visible, onClose, onSubmit, dayLabel
                 </View>
             </View>
         </Modal>
+        <Modal
+            animationType="slide"
+            transparent
+            visible={showLocationPicker}
+            onRequestClose={() => setShowLocationPicker(false)}
+        >
+            <View style={styles.overlay}>
+                <View style={styles.sheet}>
+                    <View style={styles.headerRow}>
+                        <Text style={styles.title}>
+                            Seleccionar ubicación
+                        </Text>
+
+                        <Pressable
+                            onPress={() => setShowLocationPicker(false)}
+                        >
+                            <FontAwesome6
+                                color={colors.textMuted}
+                                name="xmark"
+                                size={18}
+                            />
+                        </Pressable>
+                    </View>
+
+                    <TextInput
+                        value={locationQuery}
+                        onChangeText={handleSearchLocations}
+                        placeholder="Buscar un lugar..."
+                        placeholderTextColor={colors.textMuted}
+                        style={styles.input}
+                        autoFocus
+                    />
+
+                    {searchingLocations ? (
+                        <Text style={styles.placeholderText}>
+                            Buscando lugares...
+                        </Text>
+                    ) : locationResults.length > 0 ? (
+                        <View style={styles.locationResults}>
+                            {locationResults.map((place) => (
+                                <Pressable
+                                    key={place.placeId}
+                                    style={styles.locationResult}
+                                    onPress={() => handleSelectLocation(place)}
+                                >
+                                    <FontAwesome6
+                                        name="location-dot"
+                                        size={16}
+                                        color={colors.primary}
+                                    />
+
+                                    <View style={styles.locationResultText}>
+                                        <Text style={styles.locationResultName}>
+                                            {place.name}
+                                        </Text>
+
+                                        <Text style={styles.locationResultAddress}>
+                                            {place.address}
+                                        </Text>
+                                    </View>
+                                </Pressable>
+                            ))}
+                        </View>
+                    ) : locationQuery.trim().length >= 2 ? (
+                        <Text style={styles.placeholderText}>
+                            No se encontraron lugares.
+                        </Text>
+                    ) : (
+                        <Text style={styles.placeholderText}>
+                            Escribí el nombre de un lugar para buscarlo.
+                        </Text>
+                    )}
+
+                </View>
+            </View>
+        </Modal>
+        </>
     );
 }
 
@@ -431,5 +606,56 @@ const styles = StyleSheet.create({
     placeholderText: {
         ...textStyles.body,
         color: colors.textMuted,
+    },
+    locationResults: {
+    marginTop: spacing.md,
+    gap: spacing.sm,
+    },
+    locationResult: {
+        flexDirection: "row",
+        alignItems: "center",
+        gap: spacing.md,
+        padding: spacing.md,
+        borderWidth: 1,
+        borderColor: colors.border,
+        borderRadius: radii.md,
+        backgroundColor: colors.surface,
+    },
+    locationResultText: {
+        flex: 1,
+    },
+    locationResultName: {
+        ...textStyles.body,
+        color: colors.textPrimary,
+        fontWeight: "600",
+    },
+    locationResultAddress: {
+        ...textStyles.meta,
+        color: colors.textSecondary,
+        marginTop: spacing.xxs,
+    },
+    locationInputContainer: {
+        position: "relative",
+        justifyContent: "center",
+    },
+
+    locationInput: {
+        minHeight: 48,
+        borderWidth: 1,
+        borderColor: colors.border,
+        borderRadius: radii.md,
+        backgroundColor: colors.surface,
+        paddingHorizontal: spacing.md,
+        paddingRight: 48,
+        justifyContent: "center",
+    },
+
+    removeLocationButton: {
+        position: "absolute",
+        right: spacing.sm,
+        height: 40,
+        width: 40,
+        alignItems: "center",
+        justifyContent: "center",
     },
 });

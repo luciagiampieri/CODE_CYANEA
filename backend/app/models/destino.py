@@ -10,6 +10,7 @@ class Destino(Base):
     Pais: Mapped[str] = mapped_column(String(100), nullable=False)
     Lat: Mapped[float | None] = mapped_column(nullable=True)
     Lng: Mapped[float | None] = mapped_column(nullable=True)
+    ProvinciaEstado: Mapped[str | None] = mapped_column(String(150), nullable=True)
 
     DestinoViajes = relationship( 
         "DestinoViaje",

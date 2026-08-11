@@ -19,6 +19,7 @@ class PlaceSearchResult:
     name: str
     address: str
     country: str
+    admin_area: str | None
     lat: float | None
     lng: float | None
     category: str | None = None
@@ -58,7 +59,7 @@ class PlaceDetailsResult:
     reviews: list[PlaceReviewResult]
 
 
-async def search_trip_places(query: str, limit: int = 8) -> list[PlaceSearchResult]:
+async def search_trip_places(query: str, allowed_regions: list[dict[str, str | None]], limit: int = 8) -> list[PlaceSearchResult]:
     data = await _google_places_text_search(
         {
             "textQuery": query,
@@ -74,7 +75,59 @@ async def search_trip_places(query: str, limit: int = 8) -> list[PlaceSearchResu
             "places.googleMapsUri"
         ),
     )
-    return _parse_google_places_results(data)
+
+    results = _parse_google_places_results(data)
+
+    enriched_results = []
+
+    for result in results:
+        enriched_result = await _enrich_place_location(result)
+
+        if is_place_allowed(enriched_result, allowed_regions):
+            enriched_results.append(enriched_result)
+
+    return enriched_results[:limit]
+
+
+def is_place_allowed(
+    place: PlaceSearchResult,
+    allowed_regions: list[dict[str, str | None]],
+) -> bool:
+    if not place.country:
+        return False
+
+    place_country = place.country.strip().lower()
+    place_admin_area = (
+        place.admin_area.strip().lower()
+        if place.admin_area
+        else None
+    )
+
+    for region in allowed_regions:
+        allowed_country = region["country"]
+        allowed_admin_area = region["admin_area"]
+
+        if not allowed_country:
+            continue
+
+        if place_country != allowed_country.strip().lower():
+            continue
+
+        # Si el destino tiene provincia/estado/región,
+        # el lugar debe pertenecer a esa misma región.
+        if allowed_admin_area:
+            if not place_admin_area:
+                continue
+
+            if place_admin_area == allowed_admin_area.strip().lower():
+                return True
+
+        # Si no pudimos determinar una región para el destino,
+        # por ahora permitimos por país.
+        else:
+            return True
+
+    return False
 
 
 async def search_popular_places(lat: float, lng: float, limit: int = 6) -> PopularPlacesResponse:
@@ -249,6 +302,66 @@ async def _reverse_geocode_context(lat: float, lng: float) -> str | None:
     return None
 
 
+async def _reverse_geocode_location(
+    lat: float,
+    lng: float,
+) -> dict[str, str | None]:
+    params = {
+        "latlng": f"{lat},{lng}",
+        "language": "es",
+        "key": settings.google_maps_api_key,
+    }
+
+    async with httpx.AsyncClient(timeout=12.0, verify=False) as client:
+        response = await client.get(
+            GOOGLE_GEOCODE_URL,
+            params=params,
+        )
+        response.raise_for_status()
+        data = response.json()
+
+    country = None
+    admin_area = None
+
+    for result in data.get("results", []):
+        for component in result.get("address_components", []):
+            component_types = set(component.get("types") or [])
+
+            if "country" in component_types:
+                country = component.get("long_name")
+
+            if "administrative_area_level_1" in component_types:
+                admin_area = component.get("long_name")
+
+        if country and admin_area:
+            break
+
+    return {
+        "country": country,
+        "admin_area": admin_area,
+    }
+
+
+def get_trip_allowed_regions(viaje) -> list[dict[str, str | None]]:
+    allowed_regions: list[dict[str, str | None]] = []
+
+    for relacion in viaje.Destinos:
+        destino = relacion.Destino
+
+        if not destino.Pais:
+            continue
+
+        region = {
+            "country": destino.Pais,
+            "admin_area": destino.ProvinciaEstado,
+        }
+
+        if region not in allowed_regions:
+            allowed_regions.append(region)
+
+    return allowed_regions
+
+
 def _extract_address_component(components: list[dict], accepted_types: set[str]) -> str | None:
     for component in components:
         component_types = set(component.get("types") or [])
@@ -283,6 +396,7 @@ def _parse_google_places_results(data: dict) -> list[PlaceSearchResult]:
                 name=name,
                 address=address,
                 country=country,
+                admin_area=None,
                 lat=location.get("latitude"),
                 lng=location.get("longitude"),
                 category=primary_type or (types[0] if types else None),
@@ -298,6 +412,23 @@ def _parse_google_places_results(data: dict) -> list[PlaceSearchResult]:
         )
 
     return results
+
+
+async def _enrich_place_location(
+    result: PlaceSearchResult,
+) -> PlaceSearchResult:
+    if result.lat is None or result.lng is None:
+        return result
+
+    location = await _reverse_geocode_location(
+        result.lat,
+        result.lng,
+    )
+
+    result.country = location.get("country") or result.country
+    result.admin_area = location.get("admin_area")
+
+    return result
 
 
 def _parse_place_details(data: dict) -> PlaceDetailsResult:

@@ -3,11 +3,14 @@ from datetime import date, datetime, time as time_type
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from app.schemas.usuario import UsuarioRead
-
+from app.schemas.place import TripPlaceRead
 
 class ActividadRead(BaseModel):
     idActividad: int = Field(..., alias="IdActividad")
+    idLugarInteres: int | None = Field(None, alias="IdLugarInteres")
     idLugarInteresViaje: int | None = Field(None, alias="IdLugarInteresViaje")
+    lugarInteres: TripPlaceRead | None = Field(None, alias="LugarInteres")
+
     nombre: str = Field(..., alias="Nombre")
     descripcion: str | None = Field(None, alias="Descripcion")
     horaInicio: time_type = Field(..., alias="HoraInicio")
@@ -18,10 +21,9 @@ class ActividadRead(BaseModel):
         from_attributes = True
         populate_by_name = True
 
-
 class ActividadCreate(BaseModel):
-    idLugarInteresViaje: int | None = None
     nombre: str = Field(..., min_length=1, max_length=150)
+    idLugarInteres: int | None = None
     descripcion: str | None = None
     horaInicio: time_type
     horaFin: time_type
@@ -33,8 +35,28 @@ class ActividadCreate(BaseModel):
             raise ValueError("La hora de fin debe ser posterior a la hora de inicio")
         return self
 
+class ActividadLugarCreate(BaseModel):
+    placeId: str = Field(..., min_length=1, max_length=255)
+    nombre: str = Field(..., min_length=1, max_length=200)
+    direccion: str = Field(..., min_length=1, max_length=255)
+    lat: float
+    lng: float
+    categoria: str | None = Field(default=None, max_length=100)
+    fotoUrl: str | None = Field(default=None, max_length=500)
+    metadata: dict | None = None
+
+class ActividadUbicacionCreate(BaseModel):
+    placeId: str = Field(..., min_length=1, max_length=255)
+    name: str = Field(..., min_length=1, max_length=200)
+    address: str = Field(..., min_length=1, max_length=255)
+    lat: float
+    lng: float
+    category: str | None = Field(default=None, max_length=100)
+    photoUrl: str | None = Field(default=None, max_length=500)
+    metadata: dict | None = None
 
 class ActividadUpdate(BaseModel):
+    idLugarInteres: int | None = None
     nombre: str = Field(
         ...,
         min_length=1,
@@ -68,6 +90,7 @@ class DiaCronogramaRead(BaseModel):
 class DestinationCreate(BaseModel):
     name: str
     country: str
+    provinceState: str | None = None
     lat: float | None = None
     lng: float | None = None
     placeId: str | None = None
@@ -78,6 +101,7 @@ class DestinationRead(BaseModel):
     id: int
     name: str
     country: str
+    provinceState: str | None = None
     lat: float | None = None
     lng: float | None = None
     placeId: str | None = None

@@ -5,6 +5,7 @@ from datetime import time
 from app.api.routes import itinerary as itinerary_module
 from app.core.security import create_access_token, hash_password
 from app.models.actividad_itinerario import ActividadItinerario
+from app.models.lugar_interes import LugarInteres
 from app.models.dia_cronograma import DiaCronograma
 from app.models.usuario import Usuario
 from tests.conftest import TestingSessionLocal
@@ -610,6 +611,77 @@ def test_consultar_itinerario_rechaza_usuario_ajeno_al_viaje(
     assert response.status_code == 403
 
 
+def test_crear_actividad_sin_lugar_correctamente(
+    client,
+    auth_headers,
+    viaje_con_admin,
+    dia_cronograma,
+):
+    viaje, _ = viaje_con_admin
+
+    response = client.post(
+        f"/api/v1/trips/{viaje.IdViaje}/days/"
+        f"{dia_cronograma.IdDiaCronograma}/activities",
+        json={
+            "nombre": "Actividad sin lugar",
+            "descripcion": "Actividad sin ubicación asociada",
+            "horaInicio": "10:00:00",
+            "horaFin": "12:00:00",
+            "icono": "camera",
+        },
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 201
+
+    data = response.json()
+
+    assert data["Nombre"] == "Actividad sin lugar"
+    assert data["IdLugarInteres"] is None
+
+
+def test_crear_actividad_con_lugar_correctamente(
+    client,
+    auth_headers,
+    viaje_con_admin,
+    dia_cronograma,
+    db_session,
+):
+    viaje, _ = viaje_con_admin
+
+    lugar = LugarInteres(
+        GooglePlaceId="google-place-123",
+        Nombre="Museo del Louvre",
+        Direccion="Paris, Francia",
+        Lat=48.8606,
+        Lng=2.3376,
+        Categoria="museo",
+    )
+    db_session.add(lugar)
+    db_session.commit()
+    db_session.refresh(lugar)
+
+    response = client.post(
+        f"/api/v1/trips/{viaje.IdViaje}/days/"
+        f"{dia_cronograma.IdDiaCronograma}/activities",
+        json={
+            "nombre": "Visita al Louvre",
+            "descripcion": "Visita al museo",
+            "horaInicio": "10:00:00",
+            "horaFin": "12:00:00",
+            "icono": "building",
+            "idLugarInteres": lugar.IdLugarInteres,
+        },
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 201
+
+    data = response.json()
+
+    assert data["Nombre"] == "Visita al Louvre"
+    assert data["IdLugarInteres"] == lugar.IdLugarInteres
+
 
 def test_crear_actividad_correctamente(client, auth_headers, viaje_con_admin, dia_cronograma):
     viaje, _ = viaje_con_admin
@@ -662,6 +734,31 @@ def test_crear_actividad_dia_inexistente(client, auth_headers, viaje_con_admin):
     )
 
     assert response.status_code == 404
+
+def test_crear_actividad_rechaza_lugar_inexistente(
+    client,
+    auth_headers,
+    viaje_con_admin,
+    dia_cronograma,
+):
+    viaje, _ = viaje_con_admin
+
+    response = client.post(
+        f"/api/v1/trips/{viaje.IdViaje}/days/"
+        f"{dia_cronograma.IdDiaCronograma}/activities",
+        json={
+            "nombre": "Actividad con lugar inexistente",
+            "horaInicio": "10:00:00",
+            "horaFin": "12:00:00",
+            "idLugarInteres": 999999,
+        },
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == (
+        "El lugar de interés seleccionado no existe."
+    )
 
 
 def test_crear_actividad_permite_a_participante_no_admin(
@@ -803,3 +900,125 @@ def test_actualizar_actividad_permite_a_participante_no_admin(
 
     assert response.status_code == 200
     assert response.json()["Nombre"] == "Editado por participante"
+
+
+def test_actualizar_actividad_rechaza_lugar_inexistente(
+    client,
+    auth_headers,
+    viaje_con_admin,
+    dia_cronograma,
+    actividad_itinerario,
+):
+    viaje, _ = viaje_con_admin
+
+    response = client.put(
+        f"/api/v1/trips/{viaje.IdViaje}/days/"
+        f"{dia_cronograma.IdDiaCronograma}/activities/"
+        f"{actividad_itinerario.IdActividad}",
+        json={
+            "nombre": "Actividad actualizada",
+            "descripcion": "Descripción actualizada",
+            "horaInicio": "10:00:00",
+            "horaFin": "12:00:00",
+            "icono": "camera",
+            "idLugarInteres": 999999,
+        },
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "El lugar de interés no existe."
+
+
+def test_actualizar_actividad_con_lugar_correctamente(
+    client,
+    auth_headers,
+    viaje_con_admin,
+    dia_cronograma,
+    actividad_itinerario,
+    db_session,
+):
+    viaje, _ = viaje_con_admin
+
+    lugar = LugarInteres(
+        GooglePlaceId="google-place-456",
+        Nombre="Torre Eiffel",
+        Direccion="Champ de Mars, Paris",
+        Lat=48.8584,
+        Lng=2.2945,
+        Categoria="monumento",
+    )
+    db_session.add(lugar)
+    db_session.commit()
+    db_session.refresh(lugar)
+
+    response = client.put(
+        f"/api/v1/trips/{viaje.IdViaje}/days/"
+        f"{dia_cronograma.IdDiaCronograma}/activities/"
+        f"{actividad_itinerario.IdActividad}",
+        json={
+            "nombre": "Visita a la Torre Eiffel",
+            "descripcion": "Visita actualizada",
+            "horaInicio": "11:00:00",
+            "horaFin": "13:00:00",
+            "icono": "building",
+            "idLugarInteres": lugar.IdLugarInteres,
+        },
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 200
+
+    data = response.json()
+
+    assert data["Nombre"] == "Visita a la Torre Eiffel"
+    assert data["IdLugarInteres"] == lugar.IdLugarInteres
+
+
+def test_actualizar_actividad_quita_lugar_correctamente(
+    client,
+    auth_headers,
+    viaje_con_admin,
+    dia_cronograma,
+    actividad_itinerario,
+    db_session,
+):
+    viaje, _ = viaje_con_admin
+
+    lugar = LugarInteres(
+        GooglePlaceId="google-place-789",
+        Nombre="Museo de París",
+        Direccion="Paris, Francia",
+        Lat=48.8606,
+        Lng=2.3376,
+        Categoria="museo",
+    )
+    db_session.add(lugar)
+    db_session.commit()
+    db_session.refresh(lugar)
+
+    actividad_itinerario.IdLugarInteres = lugar.IdLugarInteres
+    db_session.commit()
+    db_session.refresh(actividad_itinerario)
+
+    response = client.put(
+        f"/api/v1/trips/{viaje.IdViaje}/days/"
+        f"{dia_cronograma.IdDiaCronograma}/activities/"
+        f"{actividad_itinerario.IdActividad}",
+        json={
+            "nombre": "Actividad sin lugar",
+            "descripcion": "Se quitó el lugar asociado",
+            "horaInicio": "10:00:00",
+            "horaFin": "12:00:00",
+            "icono": "camera",
+            "idLugarInteres": None,
+        },
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 200
+
+    data = response.json()
+
+    assert data["Nombre"] == "Actividad sin lugar"
+    assert data["IdLugarInteres"] is None

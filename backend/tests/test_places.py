@@ -1,10 +1,12 @@
 from datetime import time
+import pytest
 
 from app.api.routes import places as places_module
 from app.models.actividad_itinerario import ActividadItinerario
 from app.models.dia_cronograma import DiaCronograma
 from app.models.lugar_interes import LugarInteres
 from app.models.lugar_interes_viaje import LugarInteresViaje
+from app.services import place_search as places_service
 from app.services.place_search import (
     PlaceDetailsResult,
     PlaceReviewResult,
@@ -46,7 +48,7 @@ def _crear_lugar_guardado(db_session, viaje, usuario, google_place_id="google:pa
 def test_search_places_devuelve_resultados_normalizados(client, auth_headers, viaje_con_admin, monkeypatch):
     viaje, _ = viaje_con_admin
 
-    async def fake_search_trip_places(query, limit=8):
+    async def fake_search_trip_places(query,allowed_regions, limit=8):
         assert query == "catedral palma"
         assert limit == 8
         return [
@@ -55,6 +57,7 @@ def test_search_places_devuelve_resultados_normalizados(client, auth_headers, vi
                 name="Catedral de Palma",
                 address="Pl. de la Seu, Palma, España",
                 country="España",
+                admin_area=None,
                 lat=39.567,
                 lng=2.648,
                 category="cathedral",
@@ -66,6 +69,7 @@ def test_search_places_devuelve_resultados_normalizados(client, auth_headers, vi
                 name="Resultado inválido",
                 address="Sin coordenadas",
                 country="España",
+                admin_area=None,
                 lat=None,
                 lng=None,
             ),
@@ -85,6 +89,31 @@ def test_search_places_devuelve_resultados_normalizados(client, auth_headers, vi
     assert body[0]["placeId"] == "google:1"
     assert body[0]["name"] == "Catedral de Palma"
     assert body[0]["provider"] == "google_places"
+
+
+def test_search_places_direccion_no_reconocida_no_devuelve_resultados(
+    client, auth_headers, viaje_con_admin, monkeypatch
+):
+    viaje, _ = viaje_con_admin
+
+    async def fake_search_trip_places(query, allowed_regions=None, limit=8):
+        assert query == "direccion inexistente 999999"
+        return []
+
+    monkeypatch.setattr(
+        places_module,
+        "search_trip_places",
+        fake_search_trip_places,
+    )
+
+    response = client.get(
+        f"/api/v1/trips/{viaje.IdViaje}/places/search",
+        params={"q": "direccion inexistente 999999"},
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 200
+    assert response.json() == []
 
 
 def test_search_places_rechaza_usuario_ajeno(client, db_session, viaje_con_admin, monkeypatch):
@@ -120,6 +149,7 @@ def test_popular_places_devuelve_contexto_y_items(client, auth_headers, viaje_co
                     name="Catedral de Palma",
                     address="Palma, España",
                     country="España",
+                    admin_area=None,
                     lat=39.567,
                     lng=2.648,
                     category="tourist_attraction",
@@ -310,3 +340,181 @@ def test_schedule_trip_place_rechaza_horario_invalido(client, db_session, auth_h
 
     assert response.status_code == 422
     assert response.json()["detail"] == "La hora de fin debe ser posterior a la hora de inicio"
+
+
+def test_is_place_allowed_rechaza_ubicacion_fuera_del_destino():
+    lugar = places_service.PlaceSearchResult(
+        place_id="google:123",
+        name="Lugar en Buenos Aires",
+        address="Buenos Aires, Argentina",
+        country="Argentina",
+        admin_area="Buenos Aires",
+        lat=-34.6037,
+        lng=-58.3816,
+    )
+
+    allowed_regions = [
+        {
+            "country": "Argentina",
+            "admin_area": "Córdoba",
+        }
+    ]
+
+    assert places_service.is_place_allowed(
+        lugar,
+        allowed_regions,
+    ) is False
+
+
+def test_is_place_allowed_rechaza_ubicacion_de_otro_pais():
+    lugar = places_service.PlaceSearchResult(
+        place_id="google:456",
+        name="Córdoba en otro país",
+        address="Córdoba, España",
+        country="España",
+        admin_area="Córdoba",
+        lat=37.8882,
+        lng=-4.7794,
+    )
+
+    allowed_regions = [
+        {
+            "country": "Argentina",
+            "admin_area": "Córdoba",
+        }
+    ]
+
+    assert places_service.is_place_allowed(
+        lugar,
+        allowed_regions,
+    ) is False
+
+
+def test_is_place_allowed_acepta_ubicacion_del_destino():
+    lugar = places_service.PlaceSearchResult(
+        place_id="google:789",
+        name="Museo de Córdoba",
+        address="Córdoba, Argentina",
+        country="Argentina",
+        admin_area="Córdoba",
+        lat=-31.4201,
+        lng=-64.1888,
+    )
+
+    allowed_regions = [
+        {
+            "country": "Argentina",
+            "admin_area": "Córdoba",
+        }
+    ]
+
+    assert places_service.is_place_allowed(
+        lugar,
+        allowed_regions,
+    ) is True
+
+
+def test_is_place_allowed_acepta_cualquier_region_si_destino_solo_tiene_pais():
+    lugar = places_service.PlaceSearchResult(
+        place_id="google:999",
+        name="Lugar en Mendoza",
+        address="Mendoza, Argentina",
+        country="Argentina",
+        admin_area="Mendoza",
+        lat=-32.8895,
+        lng=-68.8458,
+    )
+
+    allowed_regions = [
+        {
+            "country": "Argentina",
+            "admin_area": None,
+        }
+    ]
+
+    assert places_service.is_place_allowed(
+        lugar,
+        allowed_regions,
+    ) is True
+
+
+@pytest.mark.anyio
+async def test_search_trip_places_filtra_ubicaciones_fuera_del_destino(monkeypatch):
+    resultados_google = [
+        places_service.PlaceSearchResult(
+            place_id="google:cordoba",
+            name="Lugar en Córdoba",
+            address="Córdoba, Argentina",
+            country="Argentina",
+            admin_area="Córdoba",
+            lat=-31.4201,
+            lng=-64.1888,
+        ),
+        places_service.PlaceSearchResult(
+            place_id="google:buenos-aires",
+            name="Lugar en Buenos Aires",
+            address="Buenos Aires, Argentina",
+            country="Argentina",
+            admin_area="Buenos Aires",
+            lat=-34.6037,
+            lng=-58.3816,
+        ),
+    ]
+
+    async def fake_google_places_text_search(payload, field_mask):
+        return {
+            "places": [
+                {
+                    "id": "cordoba",
+                    "displayName": {"text": "Lugar en Córdoba"},
+                    "formattedAddress": "Córdoba, Argentina",
+                    "location": {
+                        "latitude": -31.4201,
+                        "longitude": -64.1888,
+                    },
+                },
+                {
+                    "id": "buenos-aires",
+                    "displayName": {"text": "Lugar en Buenos Aires"},
+                    "formattedAddress": "Buenos Aires, Argentina",
+                    "location": {
+                        "latitude": -34.6037,
+                        "longitude": -58.3816,
+                    },
+                },
+            ]
+        }
+
+    async def fake_enrich(result):
+        for esperado in resultados_google:
+            if esperado.place_id == result.place_id:
+                return esperado
+        return result
+
+    monkeypatch.setattr(
+        places_service,
+        "_google_places_text_search",
+        fake_google_places_text_search,
+    )
+    monkeypatch.setattr(
+        places_service,
+        "_enrich_place_location",
+        fake_enrich,
+    )
+
+    allowed_regions = [
+        {
+            "country": "Argentina",
+            "admin_area": "Córdoba",
+        }
+    ]
+
+    resultados = await places_service.search_trip_places(
+        "museo",
+        allowed_regions=allowed_regions,
+        limit=8,
+    )
+
+    assert len(resultados) == 1
+    assert resultados[0].name == "Lugar en Córdoba"
+    assert resultados[0].admin_area == "Córdoba"

@@ -415,6 +415,8 @@ export default function TripDetailScreen({ navigation, route }) {
         const horaFin = (act.horaFin ?? act.HoraFin)?.slice(0, 5);
         return {
           id: act.idActividad ?? act.IdActividad,
+          idLugarInteres: act.idLugarInteres ?? act.IdLugarInteres ?? null,
+          lugarInteres: act.lugarInteres ?? act.LugarInteres ?? null,
           horaInicio,
           horaFin,
           time: `${horaInicio} - ${horaFin}`,
@@ -1309,6 +1311,7 @@ export default function TripDetailScreen({ navigation, route }) {
       ) : null}
       <AddActivityScreen
         dayLabel={activityModalDay?.label}
+        tripId={trip?.id}
         onClose={() => setActivityModalDay(null)}
         onSubmit={handleCreateActivity}
         visible={!!activityModalDay}
