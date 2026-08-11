@@ -655,3 +655,42 @@ export async function getTripDocuments(tripId) {
 
   return parseResponse(response, "No se pudieron cargar los documentos del viaje");
 }
+
+export async function getRepositorioItems(tripId) {
+  const response = await fetch(`${API_BASE_URL}/trips/${tripId}/repositorio`, {
+    headers: await authHeaders(),
+  });
+  return parseResponse(response, "No se pudo cargar la información del repositorio");
+}
+
+export async function createRepositorioItem(tripId, payload) {
+  const response = await fetch(`${API_BASE_URL}/trips/${tripId}/repositorio`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(await authHeaders()),
+    },
+    body: JSON.stringify(payload),
+  });
+  return parseResponse(response, "No se pudo guardar la información");
+}
+
+export async function updateRepositorioItem(tripId, itemId, payload) {
+  const response = await fetch(`${API_BASE_URL}/trips/${tripId}/repositorio/${itemId}`, {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+      ...(await authHeaders()),
+    },
+    body: JSON.stringify(payload),
+  });
+  return parseResponse(response, "No se pudo actualizar la información");
+}
+
+export async function deleteRepositorioItem(tripId, itemId) {
+  const response = await fetch(`${API_BASE_URL}/trips/${tripId}/repositorio/${itemId}`, {
+    method: "DELETE",
+    headers: await authHeaders(),
+  });
+  return parseResponse(response, "No se pudo eliminar la información");
+}

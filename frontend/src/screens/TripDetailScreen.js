@@ -1,4 +1,5 @@
 import { FontAwesome6 } from "@expo/vector-icons";
+import * as Clipboard from "expo-clipboard";
 import { LinearGradient } from "expo-linear-gradient";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -43,7 +44,7 @@ import {
 } from "../services/api";
 import { colors, radii, spacing, surfaces, textStyles } from "../theme/tokens";
 
-import { getTripParticipants, getExpenseCategories, getTripDocuments } from "../services/api";
+import { getTripParticipants, getExpenseCategories, getTripDocuments, getRepositorioItems, deleteRepositorioItem } from "../services/api";
 import {
   guardarParticipantesEnCache,
   guardarCategoriasEnCache,
@@ -199,6 +200,10 @@ export default function TripDetailScreen({ navigation, route }) {
   const [documentos, setDocumentos] = useState([]);
   const [loadingDocumentos, setLoadingDocumentos] = useState(false);
   const [documentosError, setDocumentosError] = useState("");
+  const [repositorioItems, setRepositorioItems] = useState([]);
+  const [loadingRepositorio, setLoadingRepositorio] = useState(false);
+  const [repositorioError, setRepositorioError] = useState("");
+  const [eliminandoItemId, setEliminandoItemId] = useState(null);
   const [updatingTransferId, setUpdatingTransferId] = useState(null);
   const socketRef = useRef(null);
   const pendingEditRef = useRef(null);
@@ -329,6 +334,54 @@ export default function TripDetailScreen({ navigation, route }) {
     }
   }
 
+  async function loadRepositorio() {
+    if (!initialTrip?.id) {
+      return;
+    }
+
+    try {
+      setLoadingRepositorio(true);
+      setRepositorioError("");
+      const data = await getRepositorioItems(initialTrip.id);
+      setRepositorioItems(data);
+    } catch (error) {
+      setRepositorioError(error.message || "No se pudo cargar la información del repositorio.");
+    } finally {
+      setLoadingRepositorio(false);
+    }
+  }
+
+  async function copiarContenido(contenido) {
+    try {
+      await Clipboard.setStringAsync(contenido);
+      avisar("Copiado", "El contenido se copió al portapapeles.");
+    } catch (error) {
+      avisar("Error", "No se pudo copiar el contenido.");
+    }
+  }
+
+  async function eliminarItemRepositorio(item) {
+    const ejecutar = async () => {
+      try {
+        setEliminandoItemId(item.IdItemRepositorio);
+        await deleteRepositorioItem(trip.id, item.IdItemRepositorio);
+        setRepositorioItems((prev) =>
+          prev.filter((i) => i.IdItemRepositorio !== item.IdItemRepositorio)
+        );
+      } catch (error) {
+        avisar("No se pudo eliminar", error.message || "Ocurrió un error al eliminar el ítem.");
+      } finally {
+        setEliminandoItemId(null);
+      }
+    };
+
+    confirmar(
+      "Eliminar información",
+      `¿Seguro que querés eliminar "${item.Titulo}"?`,
+      ejecutar
+    );
+  }
+
   async function abrirDocumento(url) {
     try {
       await Linking.openURL(url);
@@ -350,6 +403,7 @@ export default function TripDetailScreen({ navigation, route }) {
   useEffect(() => {
     if (activeTab === "docs") {
       loadDocumentos();
+      loadRepositorio();
     }
   }, [activeTab, initialTrip?.id]);
   
@@ -1154,6 +1208,7 @@ export default function TripDetailScreen({ navigation, route }) {
           ) : null}
 
           {activeTab === "docs" ? (
+            <>
             <View style={styles.sectionCard}>
               <Text style={styles.sectionHeading}>Documentos</Text>
 
@@ -1206,6 +1261,139 @@ export default function TripDetailScreen({ navigation, route }) {
                 style={[styles.fullButton, { marginTop: spacing.md }]}
               />
             </View>
+
+            <View style={[styles.sectionCard, { marginTop: spacing.md }]}>
+              <Text style={styles.sectionHeading}>Información relevante</Text>
+
+              {loadingRepositorio ? (
+                <ActivityIndicator color={colors.primary} style={{ marginTop: spacing.md }} />
+              ) : repositorioError ? (
+                <Text style={styles.settlementError}>{repositorioError}</Text>
+              ) : repositorioItems.length === 0 ? (
+                <Text style={styles.sectionCopy}>
+                  Enlaces, direcciones y contactos útiles para el viaje aparecerán aquí.
+                </Text>
+              ) : (
+                <View style={{ gap: spacing.sm, marginTop: spacing.sm }}>
+                  {repositorioItems.map((item) => {
+                    const eliminandoEsteItem = eliminandoItemId === item.IdItemRepositorio;
+                    const iconoPorTipo = {
+                      enlace: "link",
+                      direccion: "location-dot",
+                      contacto: "address-book",
+                      otro: "circle-info",
+                    };
+                    return (
+                      <View
+                        key={item.IdItemRepositorio}
+                        style={{
+                          borderWidth: 1,
+                          borderColor: colors.border,
+                          borderRadius: radii.md,
+                          padding: spacing.md,
+                          gap: 6,
+                        }}
+                      >
+                        <View style={{ flexDirection: "row", alignItems: "flex-start", gap: spacing.sm }}>
+                          <FontAwesome6
+                            name={iconoPorTipo[item.Tipo] || "circle-info"}
+                            size={16}
+                            color={colors.primary}
+                          />
+                          <View style={{ flex: 1 }}>
+                            <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                              <Text style={styles.sectionCopy}>{item.Titulo}</Text>
+                              <View
+                                style={{
+                                  paddingHorizontal: 6,
+                                  paddingVertical: 2,
+                                  borderRadius: 6,
+                                  backgroundColor: item.EsPublico ? "#e0f2fe" : "#f3e8ff",
+                                }}
+                              >
+                                <Text style={{ fontSize: 10, fontWeight: "700", color: item.EsPublico ? "#0369a1" : "#6b21a8" }}>
+                                  {item.EsPublico ? "PÚBLICO" : "PRIVADO"}
+                                </Text>
+                              </View>
+                            </View>
+                            <Text style={[styles.sectionCopy, { fontSize: 13, marginTop: 2 }]}>
+                              {item.Contenido}
+                            </Text>
+                            {item.Descripcion ? (
+                              <Text style={[styles.sectionCopy, { fontSize: 12, opacity: 0.7, marginTop: 2 }]}>
+                                {item.Descripcion}
+                              </Text>
+                            ) : null}
+                            <Text style={[styles.sectionCopy, { fontSize: 11, opacity: 0.6, marginTop: 2 }]}>
+                              Agregado por {item.NombreUsuarioCreador}
+                            </Text>
+                          </View>
+                        </View>
+
+                        <View style={{ flexDirection: "row", gap: spacing.md, marginTop: 6 }}>
+                          <Pressable
+                            onPress={() => copiarContenido(item.Contenido)}
+                            style={{ flexDirection: "row", alignItems: "center", gap: 4 }}
+                          >
+                            <FontAwesome6 name="copy" size={12} color={colors.textSecondary} />
+                            <Text style={{ fontSize: 12, color: colors.textSecondary, fontWeight: "600" }}>Copiar</Text>
+                          </Pressable>
+
+                          {item.EsPropio ? (
+                            <>
+                              <Pressable
+                                onPress={() =>
+                                  navigation.navigate("GuardarInformacion", {
+                                    tripId: trip.id,
+                                    item,
+                                    onItemGuardado: (actualizado) =>
+                                      setRepositorioItems((prev) =>
+                                        prev.map((i) =>
+                                          i.IdItemRepositorio === actualizado.IdItemRepositorio ? actualizado : i
+                                        )
+                                      ),
+                                  })
+                                }
+                                style={{ flexDirection: "row", alignItems: "center", gap: 4 }}
+                              >
+                                <FontAwesome6 name="pen" size={12} color={colors.textSecondary} />
+                                <Text style={{ fontSize: 12, color: colors.textSecondary, fontWeight: "600" }}>Editar</Text>
+                              </Pressable>
+
+                              <Pressable
+                                onPress={() => eliminarItemRepositorio(item)}
+                                disabled={eliminandoEsteItem}
+                                style={{ flexDirection: "row", alignItems: "center", gap: 4, opacity: eliminandoEsteItem ? 0.6 : 1 }}
+                              >
+                                <FontAwesome6 name="trash" size={12} color={colors.danger} />
+                                <Text style={{ fontSize: 12, color: colors.danger, fontWeight: "600" }}>
+                                  {eliminandoEsteItem ? "Eliminando..." : "Eliminar"}
+                                </Text>
+                              </Pressable>
+                            </>
+                          ) : null}
+                        </View>
+                      </View>
+                    );
+                  })}
+                </View>
+              )}
+
+              <PrimaryButton
+                label="Agregar información"
+                icon="plus"
+                iconPosition="left"
+                onPress={() =>
+                  navigation.navigate("GuardarInformacion", {
+                    tripId: trip.id,
+                    onItemGuardado: (nuevoItem) =>
+                      setRepositorioItems((prev) => [nuevoItem, ...prev]),
+                  })
+                }
+                style={[styles.fullButton, { marginTop: spacing.md }]}
+              />
+            </View>
+            </>
           ) : null}
 
           {activeTab === "votar" ? (
