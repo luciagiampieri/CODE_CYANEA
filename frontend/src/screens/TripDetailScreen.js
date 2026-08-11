@@ -183,6 +183,18 @@ export default function TripDetailScreen({ navigation, route }) {
   const [cancelandoId, setCancelandoId] = useState(null);
   const [votosSeleccionados, setVotosSeleccionados] = useState({});
   const [resultadosPorVotacion, setResultadosPorVotacion] = useState({});
+  // Una votación cancelada sin ningún voto registrado no aporta nada: se oculta de la lista.
+  // Mientras el resultado todavía no cargó, se muestra igual para no ocultar de más.
+  const votacionesVisibles = useMemo(
+    () =>
+      votacionesActivas.filter((v) => {
+        if (v.Estado !== "cancelada") return true;
+        const resultado = resultadosPorVotacion[v.IdVotacion];
+        if (!resultado || resultado.error) return true;
+        return resultado.TotalVotos !== 0;
+      }),
+    [votacionesActivas, resultadosPorVotacion]
+  );
   const [participantSearch, setParticipantSearch] = useState("");
   const [userOptions, setUserOptions] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -1428,7 +1440,7 @@ export default function TripDetailScreen({ navigation, route }) {
                 <View style={styles.sectionCard}>
                   <Text style={styles.sectionCopy}>{votacionesError}</Text>
                 </View>
-              ) : votacionesActivas.length === 0 ? (
+              ) : votacionesVisibles.length === 0 ? (
                 <View style={styles.sectionCard}>
                   <Text style={styles.sectionCopy}>
                     Todavía no hay votaciones para este viaje. ¡Creá la primera!
@@ -1436,7 +1448,7 @@ export default function TripDetailScreen({ navigation, route }) {
                 </View>
               ) : null}
 
-              {votacionesActivas.map((votacion) => {
+              {votacionesVisibles.map((votacion) => {
                 const esCancelada = votacion.Estado === "cancelada";
                 const esCerrada = votacion.Estado
                   ? votacion.Estado === "cerrada"

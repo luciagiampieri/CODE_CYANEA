@@ -8,9 +8,12 @@ import NetInfo from "@react-native-community/netinfo";
 import { AuthProvider } from "./src/context/AuthContext";
 import AppNavigator from "./src/navigation/AppNavigator";
 import { colors } from "./src/theme/tokens";
+import { injectWebFocusStyles } from "./src/theme/webFocusStyles";
 
 import { inicializarBaseDeDatos } from "./src/database/database";
 import { sincronizarGastosOffline } from "./src/database/gastosLocal";
+
+injectWebFocusStyles();
 
 const navigationTheme = {
   ...DefaultTheme,
