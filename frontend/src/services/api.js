@@ -484,6 +484,17 @@ export async function emitirVoto(idVotacion, idPropuestas) {
   return parseResponse(response, "No se pudo registrar el voto");
 }
 
+export async function cancelarVotacion(idVotacion) {
+  const response = await fetch(`${API_BASE_URL}/votaciones/${idVotacion}/cancelar`, {
+    method: "POST",
+    headers: {
+      ...(await authHeaders()),
+    },
+    body: JSON.stringify({}),
+  });
+  return parseResponse(response, "No se pudo cancelar la votación");
+}
+
 export async function createActivity(tripId, dayId, payload) {
   const response = await fetch(
     `${API_BASE_URL}/trips/${tripId}/days/${dayId}/activities`,

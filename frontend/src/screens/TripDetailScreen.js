@@ -25,6 +25,7 @@ import PrimaryButton from "../components/ui/PrimaryButton";
 import {
   addTripParticipant,
   emitirVoto,
+  cancelarVotacion,
   getCurrentUser,
   getTripSettlement,
   getTripDetail,
@@ -143,6 +144,19 @@ function avisar(titulo, mensaje) {
   }
 }
 
+function confirmar(titulo, mensaje, onConfirmar) {
+  if (Platform.OS === "web") {
+    if (window.confirm(mensaje)) {
+      onConfirmar();
+    }
+  } else {
+    Alert.alert(titulo, mensaje, [
+      { text: "Volver", style: "cancel" },
+      { text: "Confirmar", style: "destructive", onPress: onConfirmar },
+    ]);
+  }
+}
+
 function formatMoney(amount, currency) {
   const numeric = Number(amount ?? 0);
   if (Number.isNaN(numeric)) {
@@ -165,6 +179,7 @@ export default function TripDetailScreen({ navigation, route }) {
   const [loadingVotaciones, setLoadingVotaciones] = useState(false);
   const [votacionesError, setVotacionesError] = useState("");
   const [votandoId, setVotandoId] = useState(null);
+  const [cancelandoId, setCancelandoId] = useState(null);
   const [votosSeleccionados, setVotosSeleccionados] = useState({});
   const [resultadosPorVotacion, setResultadosPorVotacion] = useState({});
   const [participantSearch, setParticipantSearch] = useState("");
@@ -230,9 +245,11 @@ export default function TripDetailScreen({ navigation, route }) {
 
   useEffect(() => {
     votacionesActivas.forEach(async (v) => {
-      const esCerrada = v.Estado ? v.Estado === "cerrada" : new Date(v.FechaCierre) < new Date();
+      const finalizada = v.Estado
+        ? v.Estado === "cerrada" || v.Estado === "cancelada"
+        : new Date(v.FechaCierre) < new Date();
 
-      if (esCerrada) {
+      if (finalizada) {
         if (resultadosPorVotacion[v.IdVotacion]) return;
         try {
           const data = await getResultadosVotacion(v.IdVotacion);
@@ -1230,12 +1247,17 @@ export default function TripDetailScreen({ navigation, route }) {
               ) : null}
 
               {votacionesActivas.map((votacion) => {
+                const esCancelada = votacion.Estado === "cancelada";
                 const esCerrada = votacion.Estado
                   ? votacion.Estado === "cerrada"
                   : new Date(votacion.FechaCierre) < new Date();
-                const mostrarResultados = esCerrada || votacion.YaVoto;
+                const finalizada = esCerrada || esCancelada;
+                const mostrarResultados = finalizada || votacion.YaVoto;
                 const opcionesElegidas = votosSeleccionados[votacion.IdVotacion] || [];
                 const enviandoEsteVoto = votandoId === votacion.IdVotacion;
+                const cancelandoEstaVotacion = cancelandoId === votacion.IdVotacion;
+                const esCreador = currentUser && String(currentUser.id) === String(votacion.IdCreador);
+                const puedeCancelar = esCreador && !finalizada;
 
                 const togglePropuesta = (idPropuesta, tipo) => {
                   setVotosSeleccionados(prev => {
@@ -1273,6 +1295,29 @@ export default function TripDetailScreen({ navigation, route }) {
                   }
                 };
 
+                const ejecutarCancelacion = async () => {
+                  try {
+                    setCancelandoId(votacion.IdVotacion);
+                    const actualizada = await cancelarVotacion(votacion.IdVotacion);
+                    avisar("Votación cancelada", "La votación se canceló correctamente.");
+                    setVotacionesActivas(prev =>
+                      prev.map(v => v.IdVotacion === votacion.IdVotacion ? { ...v, ...actualizada } : v)
+                    );
+                  } catch (error) {
+                    avisar("No se pudo cancelar", error.message || "Ocurrió un error al cancelar la votación.");
+                  } finally {
+                    setCancelandoId(null);
+                  }
+                };
+
+                const cancelarEstaVotacion = () => {
+                  confirmar(
+                    "Cancelar votación",
+                    `¿Seguro que querés cancelar "${votacion.Titulo}"? Los votos ya registrados se conservarán como histórico, pero no se podrán emitir nuevos votos.`,
+                    ejecutarCancelacion
+                  );
+                };
+
                 return (
                   <View key={votacion.IdVotacion} style={styles.sectionCard}>
                     <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
@@ -1306,7 +1351,7 @@ export default function TripDetailScreen({ navigation, route }) {
                         return (
                           <Pressable
                             key={propuesta.IdPropuesta}
-                            disabled={votacion.YaVoto || esCerrada}
+                            disabled={votacion.YaVoto || finalizada}
                             onPress={() => togglePropuesta(propuesta.IdPropuesta, votacion.Tipo)}
                             style={{
                               flexDirection: 'row',
@@ -1333,7 +1378,11 @@ export default function TripDetailScreen({ navigation, route }) {
                     </View>
 
                     <View style={{ marginTop: 15 }}>
-                      {esCerrada ? null : votacion.YaVoto ? (
+                      {esCancelada ? (
+                        <Text style={{ color: colors.textMuted, fontWeight: '600', fontSize: 13 }}>
+                          🚫 Esta votación fue cancelada por su creador.
+                        </Text>
+                      ) : esCerrada ? null : votacion.YaVoto ? (
                         <Text style={{ color: colors.success, fontWeight: '600', fontSize: 13 }}>✓ Ya registraste tu voto en esta decisión grupal.</Text>
                       ) : (
                         <PrimaryButton
@@ -1343,6 +1392,27 @@ export default function TripDetailScreen({ navigation, route }) {
                           style={{ marginTop: 5 }}
                         />
                       )}
+
+                      {puedeCancelar ? (
+                        <Pressable
+                          onPress={cancelarEstaVotacion}
+                          disabled={cancelandoEstaVotacion}
+                          style={{
+                            flexDirection: 'row',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: 6,
+                            marginTop: 10,
+                            paddingVertical: 10,
+                            opacity: cancelandoEstaVotacion ? 0.6 : 1,
+                          }}
+                        >
+                          <FontAwesome6 name="ban" size={12} color={colors.danger} />
+                          <Text style={{ color: colors.danger, fontWeight: '700', fontSize: 13 }}>
+                            {cancelandoEstaVotacion ? "Cancelando..." : "Cancelar votación"}
+                          </Text>
+                        </Pressable>
+                      ) : null}
                     </View>
                   </View>
                 );

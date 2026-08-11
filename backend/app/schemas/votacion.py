@@ -69,9 +69,13 @@ class VotacionRead(BaseModel):
     Titulo: str
     Tipo: str
     FechaCierre: datetime
-    Estado: str = Field(..., description="'abierta' o 'cerrada' (derivado de FechaCierre)")
+    Estado: str = Field(..., description="'abierta', 'cerrada' o 'cancelada' (derivado)")
     YaVoto: bool = False
     Propuestas: list[PropuestaRead] = Field(default_factory=list)
+    FechaCancelacion: datetime | None = Field(
+        default=None, description="Momento en que se cancelo la votacion, si aplica"
+    )
+    IdCreador: int = Field(..., description="Id del usuario que creo la votacion")
 
     class Config:
         from_attributes = True

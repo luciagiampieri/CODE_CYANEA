@@ -35,6 +35,8 @@ def _aware(fecha: datetime) -> datetime:
 
 
 def _estado(votacion: Votacion) -> str:
+    if votacion.FechaCancelacion is not None:
+        return "cancelada"
     return "cerrada" if _aware(votacion.FechaCierre) <= _ahora_utc() else "abierta"
 
 
@@ -74,6 +76,7 @@ def _build_votacion_read(
 
     return VotacionRead(
         IdVotacion=votacion.IdVotacion,
+        IdCreador=votacion.IdCreador,
         Titulo=votacion.Titulo,
         Tipo=_tipo_str(votacion),
         FechaCierre=_aware(votacion.FechaCierre),
@@ -82,6 +85,7 @@ def _build_votacion_read(
         Propuestas=[
             PropuestaRead(IdPropuesta=p.IdPropuesta, Texto=p.Texto) for p in propuestas
         ],
+        FechaCancelacion=_aware(votacion.FechaCancelacion) if votacion.FechaCancelacion else None,
     )
 
 
@@ -226,10 +230,10 @@ def resultados_votacion(
     if not _es_miembro_del_viaje(db, viaje, current_user):
         raise HTTPException(status_code=403, detail="No formas parte de este viaje.")
 
-    if _estado(votacion) != "cerrada":
+    if _estado(votacion) not in ("cerrada", "cancelada"):
         raise HTTPException(
             status_code=400,
-            detail="Los resultados solo están disponibles cuando la votación finalizó.",
+            detail="Los resultados solo están disponibles cuando la votación finalizó o fue cancelada.",
         )
 
     return _calcular_resultados(db, votacion, current_user.IdUsuario)
@@ -279,6 +283,9 @@ def emitir_voto(
     if not votacion:
         raise HTTPException(status_code=404, detail="La votación no existe.")
 
+    if votacion.FechaCancelacion is not None:
+        raise HTTPException(status_code=400, detail="La votación fue cancelada.")
+
     if _ahora_utc() > _aware(votacion.FechaCierre):
         raise HTTPException(status_code=400, detail="La votación ya ha cerrado.")
 
@@ -318,3 +325,43 @@ def emitir_voto(
     )
 
     return {"detail": "Voto registrado correctamente. ¡Gracias por participar!"}
+
+
+@router.post("/{id_votacion}/cancelar", response_model=VotacionRead)
+def cancelar_votacion(
+    id_votacion: int,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> VotacionRead:
+    votacion = db.scalar(
+        select(Votacion)
+        .options(selectinload(Votacion.Propuestas))
+        .where(Votacion.IdVotacion == id_votacion)
+    )
+    if votacion is None:
+        raise HTTPException(status_code=404, detail="La votación no existe.")
+
+    if votacion.IdCreador != current_user.IdUsuario:
+        raise HTTPException(
+            status_code=403,
+            detail="Solo el creador de la votación puede cancelarla.",
+        )
+
+    if _estado(votacion) != "abierta":
+        raise HTTPException(
+            status_code=400,
+            detail="Solo se pueden cancelar votaciones que están activas.",
+        )
+
+    votacion.FechaCancelacion = _ahora_utc()
+    db.commit()
+    db.refresh(votacion)
+
+    background_tasks.add_task(
+        ws_manager.broadcast,
+        votacion.IdViaje,
+        {"tipo": "votacion_actualizada", "idVotacion": votacion.IdVotacion},
+    )
+
+    return _build_votacion_read(db, votacion, current_user.IdUsuario)
