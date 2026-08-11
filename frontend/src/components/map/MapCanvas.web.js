@@ -16,6 +16,10 @@ function markerIcon(kind) {
   }
 }
 
+function computeMarkerKey(markerData) {
+  return `${markerData.kind}-${markerData.id ?? markerData.placeId ?? markerData.name}`;
+}
+
 function loadGoogleMaps() {
   if (typeof window === "undefined") {
     return Promise.reject(new Error("Google Maps solo esta disponible en web."));
@@ -96,6 +100,7 @@ export default function MapCanvas({
   initialCenter,
   markers = [],
   offline = false,
+  highlightedMarkerId = null,
   onMarkerPress,
   onPlacePick,
   onViewportChange,
@@ -109,6 +114,9 @@ export default function MapCanvas({
   const onMarkerPressRef = useRef(onMarkerPress);
   const onPlacePickRef = useRef(onPlacePick);
   const onViewportChangeRef = useRef(onViewportChange);
+  const highlightedMarkerIdRef = useRef(highlightedMarkerId);
+  const highlightTimeoutRef = useRef(null);
+  const previousHighlightedKeyRef = useRef(null);
   const [status, setStatus] = useState("loading");
   const [error, setError] = useState("");
 
@@ -130,6 +138,10 @@ export default function MapCanvas({
   useEffect(() => {
     onViewportChangeRef.current = onViewportChange;
   }, [onViewportChange]);
+
+  useEffect(() => {
+    highlightedMarkerIdRef.current = highlightedMarkerId;
+  }, [highlightedMarkerId]);
 
   useEffect(() => {
     if (offline) {
@@ -238,21 +250,28 @@ export default function MapCanvas({
   useEffect(() => {
     if (status !== "ready" || !mapRef.current || !window.google?.maps) return;
 
-    markerRefs.current.forEach((marker) => marker.setMap(null));
+    markerRefs.current.forEach((entry) => entry.marker.setMap(null));
     markerRefs.current = [];
 
     const stableMarkers = markers.filter((marker) => !marker.volatile);
 
     markers.forEach((markerData) => {
+      const key = computeMarkerKey(markerData);
+      const isHighlighted = highlightedMarkerIdRef.current === key;
+      const icon = isHighlighted
+        ? { url: markerIcon(markerData.kind), scaledSize: new window.google.maps.Size(50, 50) }
+        : markerIcon(markerData.kind);
+
       const marker = new window.google.maps.Marker({
         map: mapRef.current,
         position: { lat: markerData.lat, lng: markerData.lng },
         title: markerData.name,
-        icon: markerIcon(markerData.kind),
+        icon,
+        zIndex: isHighlighted ? 999 : undefined,
       });
 
       marker.addListener("click", () => onMarkerPressRef.current?.(markerData));
-      markerRefs.current.push(marker);
+      markerRefs.current.push({ key, marker, data: markerData });
     });
 
     const bounds = new window.google.maps.LatLngBounds();
@@ -280,6 +299,56 @@ export default function MapCanvas({
       lastAutoViewportKeyRef.current = stableMarkersKey;
     }
   }, [fallbackCenter, initialCenter, markers, onMarkerPress, status]);
+
+  useEffect(() => {
+    if (status !== "ready" || !mapRef.current || !window.google?.maps) return undefined;
+
+    if (highlightTimeoutRef.current) {
+      window.clearTimeout(highlightTimeoutRef.current);
+      highlightTimeoutRef.current = null;
+    }
+
+    if (previousHighlightedKeyRef.current && previousHighlightedKeyRef.current !== highlightedMarkerId) {
+      const previousEntry = markerRefs.current.find((entry) => entry.key === previousHighlightedKeyRef.current);
+      if (previousEntry) {
+        previousEntry.marker.setAnimation(null);
+        previousEntry.marker.setIcon(markerIcon(previousEntry.data.kind));
+        previousEntry.marker.setZIndex(undefined);
+      }
+    }
+
+    if (!highlightedMarkerId) {
+      previousHighlightedKeyRef.current = null;
+      return undefined;
+    }
+
+    const entry = markerRefs.current.find((item) => item.key === highlightedMarkerId);
+    if (!entry) {
+      previousHighlightedKeyRef.current = null;
+      return undefined;
+    }
+
+    entry.marker.setIcon({
+      url: markerIcon(entry.data.kind),
+      scaledSize: new window.google.maps.Size(50, 50),
+    });
+    entry.marker.setZIndex(999);
+    entry.marker.setAnimation(window.google.maps.Animation.BOUNCE);
+    mapRef.current.panTo(entry.marker.getPosition());
+
+    highlightTimeoutRef.current = window.setTimeout(() => {
+      entry.marker.setAnimation(null);
+    }, 1400);
+
+    previousHighlightedKeyRef.current = highlightedMarkerId;
+
+    return () => {
+      if (highlightTimeoutRef.current) {
+        window.clearTimeout(highlightTimeoutRef.current);
+        highlightTimeoutRef.current = null;
+      }
+    };
+  }, [highlightedMarkerId, status]);
 
   return (
     <View style={styles.wrap}>

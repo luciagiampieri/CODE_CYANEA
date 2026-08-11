@@ -42,6 +42,11 @@ const NEARBY_CATEGORIES = [
 
 const NEARBY_PAGE_SIZE = 5;
 
+function getMarkerKey(marker) {
+  if (!marker) return null;
+  return `${marker.kind}-${marker.id ?? marker.placeId ?? marker.name}`;
+}
+
 function resolveVisibleCategory(category) {
   if (!category) return null;
   const normalized = category.trim().toLowerCase();
@@ -138,6 +143,7 @@ export default function ExplorePlacesScreen({ navigation, route }) {
   const [nearbyError, setNearbyError] = useState("");
   const [hasSelectedNearbyFilter, setHasSelectedNearbyFilter] = useState(false);
   const [nearbyVisibleCount, setNearbyVisibleCount] = useState(NEARBY_PAGE_SIZE);
+  const [highlightedMarkerKey, setHighlightedMarkerKey] = useState(null);
 
   useEffect(() => {
     const unsubscribe = NetInfo.addEventListener((state) => {
@@ -236,7 +242,7 @@ export default function ExplorePlacesScreen({ navigation, route }) {
   const stableMapMarkers = useMemo(() => {
     const unique = new Map();
     [...destinationMarkers, ...savedPlaceMarkers, ...searchedMarkers].forEach((marker) => {
-      unique.set(`${marker.kind}-${marker.id ?? marker.placeId ?? marker.name}`, marker);
+      unique.set(getMarkerKey(marker), marker);
     });
     return Array.from(unique.values());
   }, [destinationMarkers, savedPlaceMarkers, searchedMarkers]);
@@ -244,7 +250,7 @@ export default function ExplorePlacesScreen({ navigation, route }) {
   const mapMarkers = useMemo(() => {
     const unique = new Map();
     [...stableMapMarkers, ...resolvedNearbyPlaces].forEach((marker) => {
-      unique.set(`${marker.kind}-${marker.id ?? marker.placeId ?? marker.name}`, marker);
+      unique.set(getMarkerKey(marker), marker);
     });
     return Array.from(unique.values());
   }, [stableMapMarkers, resolvedNearbyPlaces]);
@@ -555,6 +561,7 @@ export default function ExplorePlacesScreen({ navigation, route }) {
   function handleSelectPlace(place) {
     const resolvedPlace = resolveSelectedPlace(place);
     setSelectedPlace(resolvedPlace);
+    setHighlightedMarkerKey(resolvedPlace ? getMarkerKey(resolvedPlace) : null);
   }
 
   function handleSelectPopularPlace(place) {
@@ -566,6 +573,11 @@ export default function ExplorePlacesScreen({ navigation, route }) {
     const resolvedPlace = resolveSelectedPlace(place);
     if (!resolvedPlace || resolvedPlace.kind !== "savedPlace") return;
     setScheduleTarget(resolvedPlace);
+  }
+
+  function handleCloseSelectedPlace() {
+    setSelectedPlace(null);
+    setHighlightedMarkerKey(null);
   }
 
   function handleViewportChange(nextCenter) {
@@ -598,7 +610,7 @@ export default function ExplorePlacesScreen({ navigation, route }) {
           <Text style={styles.heroEyebrow}>Exploración visual del viaje</Text>
           <Text style={styles.heroTitle}>Destinos de interés</Text>
           <Text style={styles.heroCopy}>
-            Busca lugares con Google Places, guardalos en el viaje y llevalos directo al itinerario.
+            Busca lugares con Google Places, guárdalos en el viaje y llévalos directo al itinerario.
           </Text>
         </View>
 
@@ -626,7 +638,7 @@ export default function ExplorePlacesScreen({ navigation, route }) {
 
               <View style={styles.sectionCard}>
                 <Text style={styles.sectionLabel}>Buscar lugar</Text>
-                <Text style={styles.sectionTitle}>Explorá nuevos puntos para el viaje.</Text>
+                <Text style={styles.sectionTitle}>Explora nuevos puntos para el viaje</Text>
                 <View style={styles.searchRow}>
                   <TextInput
                     onChangeText={setSearchQuery}
@@ -700,6 +712,7 @@ export default function ExplorePlacesScreen({ navigation, route }) {
                     initialCenter={initialCenter}
                     markers={mapMarkers}
                     offline={offline}
+                    highlightedMarkerId={highlightedMarkerKey}
                     onMarkerPress={handleSelectPlace}
                     onPlacePick={handleSelectPlace}
                     onViewportChange={handleViewportChange}
@@ -707,7 +720,7 @@ export default function ExplorePlacesScreen({ navigation, route }) {
                 </View>
 
                 <Text style={styles.sectionHint}>
-                  Tocá un marcador para revisar su detalle, guardarlo o sumarlo al itinerario.
+                  Toca un marcador para revisar su detalle, guardarlo o sumarlo al itinerario.
                 </Text>
                 <PrimaryButton
                   icon="stars"
@@ -763,11 +776,12 @@ export default function ExplorePlacesScreen({ navigation, route }) {
                     {visibleNearbyPlaces.map((place) => {
                       const visibleCategory = resolveVisibleCategory(place.category);
                       const distanceLabel = formatDistance(place.distanceMeters);
+                      const isHighlighted = highlightedMarkerKey === getMarkerKey(place);
                       return (
                         <Pressable
                           key={`nearby-${place.placeId}-${place.name}`}
                           onPress={() => handleSelectPlace(place)}
-                          style={styles.resultRow}
+                          style={[styles.resultRow, isHighlighted && styles.resultRowHighlighted]}
                         >
                           <View style={styles.resultIcon}>
                             <FontAwesome6
@@ -821,7 +835,7 @@ export default function ExplorePlacesScreen({ navigation, route }) {
 
               {selectedPlace ? (
                 <PlaceDetailSheet
-                  onClose={() => setSelectedPlace(null)}
+                  onClose={handleCloseSelectedPlace}
                   onSave={handleSaveSelectedPlace}
                   onSaveAndSchedule={handleSaveAndScheduleSelectedPlace}
                   onSchedule={() => handleOpenSchedule(selectedPlace)}
@@ -841,7 +855,7 @@ export default function ExplorePlacesScreen({ navigation, route }) {
                   <View style={styles.emptyState}>
                     <Text style={styles.emptyTitle}>Todavía no hay lugares guardados.</Text>
                     <Text style={styles.emptyCopy}>
-                      Buscá un punto en el mapa y guardalo para que después puedas agendarlo en un día del viaje.
+                      Busca un punto en el mapa y guárdalo para que después puedas agendarlo en un día del viaje.
                     </Text>
                   </View>
                 ) : (
@@ -915,7 +929,7 @@ export default function ExplorePlacesScreen({ navigation, route }) {
             {!popularLoading && popularError ? <Text style={styles.inlineMessage}>{popularError}</Text> : null}
 
             {!popularLoading && !popularError && popularPlaces.length === 0 ? (
-              <Text style={styles.sectionHint}>Mové el mapa o hacé zoom para cargar atracciones populares.</Text>
+              <Text style={styles.sectionHint}>Mueve el mapa o haz zoom para cargar atracciones populares.</Text>
             ) : null}
 
             {!popularLoading && popularPlaces.length > 0 ? (
@@ -935,7 +949,7 @@ export default function ExplorePlacesScreen({ navigation, route }) {
                       <Text style={styles.popularMeta}>
                         {place.rating ? `★ ${place.rating.toFixed(1)}` : "Sin rating"} ·{" "}
                         {place.userRatingsTotal ? `${place.userRatingsTotal} reseñas` : "Sin reseñas"} ·{" "}
-                        {place.alreadySaved ? "Ya guardado" : "Tocá para agregar"}
+                        {place.alreadySaved ? "Ya guardado" : "Toca para agregar"}
                       </Text>
                     </View>
                   </Pressable>
@@ -1082,11 +1096,16 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surfaceMuted,
     padding: spacing.md,
   },
+  resultRowHighlighted: {
+    borderColor: colors.primary,
+    borderWidth: 2,
+    backgroundColor: "rgba(37, 99, 235, 0.08)",
+  },
   resultIcon: {
     width: 34,
     height: 34,
     borderRadius: 17,
-    backgroundColor: colors.surface,
+    backgroundColor: colors.accentMuted,
     alignItems: "center",
     justifyContent: "center",
   },
