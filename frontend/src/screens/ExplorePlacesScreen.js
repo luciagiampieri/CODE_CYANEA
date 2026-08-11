@@ -137,6 +137,7 @@ export default function ExplorePlacesScreen({ navigation, route }) {
   const [schedulingPlace, setSchedulingPlace] = useState(false);
   const [scheduleTarget, setScheduleTarget] = useState(null);
   const [feedbackMessage, setFeedbackMessage] = useState("");
+  const [feedbackError, setFeedbackError] = useState("");
   const [selectedCategory, setSelectedCategory] = useState(null);
   const [nearbyPlaces, setNearbyPlaces] = useState([]);
   const [nearbyLoading, setNearbyLoading] = useState(false);
@@ -485,12 +486,13 @@ export default function ExplorePlacesScreen({ navigation, route }) {
     try {
       setSavingPlace(true);
       setFeedbackMessage("");
+      setFeedbackError("");
       const response = await persistSelectedPlace(selectedPlace);
       if (!response) return;
       setFeedbackMessage(response.message);
       setSelectedPlace({ ...response.place, kind: "savedPlace" });
     } catch (saveError) {
-      setFeedbackMessage(saveError.message || "No se pudo guardar el lugar.");
+      setFeedbackError(saveError.message || "No se pudo guardar el lugar.");
     } finally {
       setSavingPlace(false);
     }
@@ -502,6 +504,7 @@ export default function ExplorePlacesScreen({ navigation, route }) {
     try {
       setSavingAndScheduling(true);
       setFeedbackMessage("");
+      setFeedbackError("");
 
       const resolvedPlace = resolveSelectedPlace(selectedPlace);
       if (resolvedPlace?.kind === "savedPlace") {
@@ -518,7 +521,7 @@ export default function ExplorePlacesScreen({ navigation, route }) {
       setSelectedPlace(savedPlace);
       setScheduleTarget(savedPlace);
     } catch (saveError) {
-      setFeedbackMessage(saveError.message || "No se pudo preparar el lugar para el itinerario.");
+      setFeedbackError(saveError.message || "No se pudo preparar el lugar para el itinerario.");
     } finally {
       setSavingAndScheduling(false);
     }
@@ -656,6 +659,7 @@ export default function ExplorePlacesScreen({ navigation, route }) {
                   />
                 </View>
                 {searchError ? <Text style={styles.inlineMessage}>{searchError}</Text> : null}
+                {feedbackError ? <Text style={styles.inlineMessage}>{feedbackError}</Text> : null}
                 {feedbackMessage ? <Text style={styles.inlineSuccess}>{feedbackMessage}</Text> : null}
 
                 {searchResults.length > 0 ? (

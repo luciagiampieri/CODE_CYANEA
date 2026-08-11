@@ -206,8 +206,8 @@ def test_create_trip_place_guarda_lugar_y_evitar_duplicado(client, db_session, a
     second = client.post(f"/api/v1/trips/{viaje.IdViaje}/places", json=payload, headers=auth_headers)
 
     assert first.status_code == 201
-    assert second.status_code == 201
-    assert second.json()["message"] == "El lugar ya estaba guardado en este viaje."
+    assert second.status_code == 409
+    assert second.json()["detail"] == "El lugar ya fue guardado previamente en este viaje."
 
     lugares = db_session.query(LugarInteresViaje).filter_by(IdViaje=viaje.IdViaje).all()
     assert len(lugares) == 1

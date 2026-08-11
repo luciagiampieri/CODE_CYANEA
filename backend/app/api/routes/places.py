@@ -322,9 +322,9 @@ def create_trip_place(
         )
     )
     if existing is not None:
-        return TripPlaceMutationResponse(
-            message="El lugar ya estaba guardado en este viaje.",
-            place=_serialize_trip_place(existing),
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="El lugar ya fue guardado previamente en este viaje.",
         )
 
     trip_place = LugarInteresViaje(
