@@ -5,6 +5,7 @@ import {
   ActivityIndicator,
   Alert,
   ImageBackground,
+  Linking,
   Platform,
   Pressable,
   ScrollView,
@@ -41,7 +42,7 @@ import {
 } from "../services/api";
 import { colors, radii, spacing, surfaces, textStyles } from "../theme/tokens";
 
-import { getTripParticipants, getExpenseCategories } from "../services/api";
+import { getTripParticipants, getExpenseCategories, getTripDocuments } from "../services/api";
 import {
   guardarParticipantesEnCache,
   guardarCategoriasEnCache,
@@ -180,6 +181,9 @@ export default function TripDetailScreen({ navigation, route }) {
   const [settlement, setSettlement] = useState(null);
   const [loadingSettlement, setLoadingSettlement] = useState(false);
   const [settlementError, setSettlementError] = useState("");
+  const [documentos, setDocumentos] = useState([]);
+  const [loadingDocumentos, setLoadingDocumentos] = useState(false);
+  const [documentosError, setDocumentosError] = useState("");
   const [updatingTransferId, setUpdatingTransferId] = useState(null);
   const socketRef = useRef(null);
   const pendingEditRef = useRef(null);
@@ -291,6 +295,31 @@ export default function TripDetailScreen({ navigation, route }) {
     }
   }
 
+  async function loadDocumentos() {
+    if (!initialTrip?.id) {
+      return;
+    }
+
+    try {
+      setLoadingDocumentos(true);
+      setDocumentosError("");
+      const data = await getTripDocuments(initialTrip.id);
+      setDocumentos(data);
+    } catch (error) {
+      setDocumentosError(error.message || "No se pudieron cargar los documentos del viaje.");
+    } finally {
+      setLoadingDocumentos(false);
+    }
+  }
+
+  async function abrirDocumento(url) {
+    try {
+      await Linking.openURL(url);
+    } catch (error) {
+      Alert.alert("Error", "No se pudo abrir el documento. Intentá nuevamente.");
+    }
+  }
+
   useEffect(() => {
     loadTripDetail();
   }, [initialTrip?.id]);
@@ -298,6 +327,12 @@ export default function TripDetailScreen({ navigation, route }) {
   useEffect(() => {
     if (activeTab === "gastos") {
       loadSettlement();
+    }
+  }, [activeTab, initialTrip?.id]);
+
+  useEffect(() => {
+    if (activeTab === "docs") {
+      loadDocumentos();
     }
   }, [activeTab, initialTrip?.id]);
   
@@ -1105,9 +1140,42 @@ export default function TripDetailScreen({ navigation, route }) {
             <View style={styles.sectionCard}>
               <Text style={styles.sectionHeading}>Documentos</Text>
 
-              <Text style={styles.sectionCopy}>
-                Reservas, vouchers y archivos del viaje aparecerán aquí.
-              </Text>
+              {loadingDocumentos ? (
+                <ActivityIndicator color={colors.primary} style={{ marginTop: spacing.md }} />
+              ) : documentosError ? (
+                <Text style={styles.settlementError}>{documentosError}</Text>
+              ) : documentos.length === 0 ? (
+                <Text style={styles.sectionCopy}>
+                  Reservas, vouchers y archivos del viaje aparecerán aquí.
+                </Text>
+              ) : (
+                <View style={{ gap: spacing.sm, marginTop: spacing.sm }}>
+                  {documentos.map((documento) => (
+                    <Pressable
+                      key={documento.IdDocumento}
+                      onPress={() => abrirDocumento(documento.UrlArchivo)}
+                      style={{
+                        flexDirection: "row",
+                        alignItems: "center",
+                        borderWidth: 1,
+                        borderColor: colors.border,
+                        borderRadius: radii.md,
+                        padding: spacing.md,
+                        gap: spacing.sm,
+                      }}
+                    >
+                      <FontAwesome6 name="file-lines" size={18} color={colors.primary} />
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.sectionCopy}>{documento.NombreArchivo}</Text>
+                        <Text style={[styles.sectionCopy, { fontSize: 12, opacity: 0.7 }]}>
+                          {documento.NombreCategoria} · Subido por {documento.NombreUsuarioSubida}
+                        </Text>
+                      </View>
+                      <FontAwesome6 name="up-right-from-square" size={14} color={colors.textSecondary} />
+                    </Pressable>
+                  ))}
+                </View>
+              )}
 
               <PrimaryButton
                 label="Subir documentos"
@@ -1118,7 +1186,7 @@ export default function TripDetailScreen({ navigation, route }) {
                     tripId: trip.id,
                   })
                 }
-                style={styles.fullButton}
+                style={[styles.fullButton, { marginTop: spacing.md }]}
               />
             </View>
           ) : null}

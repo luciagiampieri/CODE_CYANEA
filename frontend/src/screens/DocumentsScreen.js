@@ -12,6 +12,7 @@ import {
     FlatList,
     Platform,
     KeyboardAvoidingView,
+    Linking,
 } from "react-native";
 
 import * as DocumentPicker from "expo-document-picker";
@@ -23,6 +24,7 @@ import PrimaryButton from "../components/ui/PrimaryButton";
 
 import {
     getDocumentCategories,
+    getTripDocuments,
     uploadTripDocument,
 } from "../services/api";
 
@@ -55,6 +57,10 @@ export default function DocumentsScreen({ route, navigation }) {
     const [categorias, setCategorias] = useState([]);
     const [idCategoria, setIdCategoria] = useState(null);
 
+    const [documentos, setDocumentos] = useState([]);
+    const [loadingDocumentos, setLoadingDocumentos] = useState(true);
+    const [errorDocumentos, setErrorDocumentos] = useState("");
+
     const [modalCategoriaVisible, setModalCategoriaVisible] = useState(false);
 
     const [archivo, setArchivo] = useState(null);
@@ -66,6 +72,35 @@ export default function DocumentsScreen({ route, navigation }) {
     const categoriaSeleccionada = categorias.find(
         (c) => c.IdCategoriaDocumento === idCategoria
     );
+
+    async function cargarDocumentos() {
+        try {
+            setLoadingDocumentos(true);
+            setErrorDocumentos("");
+            const data = await getTripDocuments(tripId);
+            setDocumentos(data);
+        } catch (error) {
+            console.log("📡 No se pudieron cargar los documentos del viaje:", error);
+            setErrorDocumentos(
+                error?.message ||
+                    "No se pudieron cargar los documentos. Intentá nuevamente más tarde."
+            );
+        } finally {
+            setLoadingDocumentos(false);
+        }
+    }
+
+    async function abrirDocumento(url) {
+        try {
+            await Linking.openURL(url);
+        } catch (error) {
+            console.log("⚠️ Error al abrir el documento:", error);
+            mostrarAlertaConfirmacion(
+                "Error",
+                "No se pudo abrir el documento. Intentá nuevamente."
+            );
+        }
+    }
 
     useEffect(() => {
         async function cargarDatos() {
@@ -85,6 +120,7 @@ export default function DocumentsScreen({ route, navigation }) {
             }
         }
         cargarDatos();
+        cargarDocumentos();
     }, [tripId]);
 
     function limpiarError(campo) {
@@ -160,6 +196,8 @@ export default function DocumentsScreen({ route, navigation }) {
                 : nombreDocumento;
 
             await uploadTripDocument(tripId, archivo, idCategoria, nombreFinal);
+
+            await cargarDocumentos();
 
             mostrarAlertaConfirmacion("Éxito", "Documento subido correctamente.", () =>
                 navigation.goBack()
@@ -243,6 +281,46 @@ export default function DocumentsScreen({ route, navigation }) {
 
                     <View style={styles.body}>
                         <View style={styles.card}>
+                            <Text style={styles.cardTitle}>Documentos del viaje</Text>
+
+                            {loadingDocumentos ? (
+                                <View style={styles.centeredInline}>
+                                    <ActivityIndicator size="small" color={colors.primary} />
+                                </View>
+                            ) : errorDocumentos ? (
+                                <Text style={styles.fieldError}>{errorDocumentos}</Text>
+                            ) : documentos.length === 0 ? (
+                                <Text style={styles.emptyText}>
+                                    Todavía no se subió ningún documento a este viaje.
+                                </Text>
+                            ) : (
+                                <View style={styles.documentList}>
+                                    {documentos.map((documento) => (
+                                        <Pressable
+                                            key={documento.IdDocumento}
+                                            style={styles.documentRow}
+                                            onPress={() => abrirDocumento(documento.UrlArchivo)}
+                                        >
+                                            <FontAwesome6
+                                                name="file-lines"
+                                                size={18}
+                                                color={colors.primary}
+                                                style={{ marginRight: 12 }}
+                                            />
+                                            <View style={{ flex: 1 }}>
+                                                <Text style={styles.fileName}>{documento.NombreArchivo}</Text>
+                                                <Text style={styles.fileSize}>
+                                                    {documento.NombreCategoria} · Subido por {documento.NombreUsuarioSubida}
+                                                </Text>
+                                            </View>
+                                            <FontAwesome6 name="up-right-from-square" size={14} color={colors.textSecondary} />
+                                        </Pressable>
+                                    ))}
+                                </View>
+                            )}
+                        </View>
+
+                        <View style={[styles.card, { marginTop: spacing.lg }]}>
                             <Text style={styles.cardTitle}>Información del documento</Text>
 
                             <View style={styles.field}>
@@ -490,6 +568,24 @@ const styles = StyleSheet.create({
         ...surfaces.card,
         padding: spacing.lg,
         gap: spacing.md,
+    },
+    centeredInline: {
+        alignItems: "center",
+        justifyContent: "center",
+        paddingVertical: spacing.md,
+    },
+    documentList: {
+        gap: spacing.sm,
+    },
+    documentRow: {
+        flexDirection: "row",
+        alignItems: "center",
+        borderWidth: 1,
+        borderColor: colors.border,
+        borderRadius: radii.md,
+        backgroundColor: colors.surfaceMuted || colors.surface,
+        paddingHorizontal: spacing.md,
+        paddingVertical: spacing.md,
     },
     cardTitle: {
         ...textStyles.tripTitle,

@@ -35,3 +35,14 @@ def subir_documento(
     )
 
     return ruta_limpia
+
+
+def obtener_url_publica(ruta_archivo: str) -> str:
+    """Arma la URL pública completa a partir de la ruta guardada en el bucket.
+
+    Asume que el bucket 'trip-documents' está configurado como público en
+    Supabase. Si en algún momento pasa a ser privado, esta función debería
+    reemplazarse por supabase.storage.from_(...).create_signed_url(...),
+    que genera URLs temporales en vez de permanentes.
+    """
+    return supabase.storage.from_(settings.supabase_bucket).get_public_url(ruta_archivo)

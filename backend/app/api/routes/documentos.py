@@ -15,11 +15,59 @@ from app.models import (
     ParticipanteViaje,
     EstadoParticipacion,
 )
+from app.schemas.documento_viaje import DocumentoViajeRead
 
-from app.services.supabase.storage import subir_documento
+from app.services.supabase.storage import subir_documento, obtener_url_publica
 from app.services.websocket_manager import manager
 
 router = APIRouter()
+
+
+def _verificar_participante_aceptado(
+    db: Session,
+    trip_id: int,
+    current_user: Usuario,
+) -> None:
+    estado_aceptado = db.scalar(
+        select(EstadoParticipacion).where(
+            EstadoParticipacion.Nombre == "aceptado",
+            EstadoParticipacion.Activo.is_(True)
+        )
+    )
+
+    if not estado_aceptado:
+        raise HTTPException(
+            status_code=500,
+            detail="Estado aceptado no configurado"
+        )
+
+    participante = db.scalar(
+        select(ParticipanteViaje).where(
+            ParticipanteViaje.IdViaje == trip_id,
+            ParticipanteViaje.IdUsuario == current_user.IdUsuario,
+            ParticipanteViaje.IdEstadoParticipacion == estado_aceptado.IdEstadoParticipacion
+        )
+    )
+
+    if not participante:
+        raise HTTPException(
+            status_code=403,
+            detail="No formas parte de este viaje"
+        )
+
+
+def _serializar_documento(documento: DocumentoViaje) -> DocumentoViajeRead:
+    return DocumentoViajeRead(
+        IdDocumento=documento.IdDocumento,
+        IdViaje=documento.IdViaje,
+        IdCategoriaDocumento=documento.IdCategoriaDocumento,
+        IdUsuarioSubida=documento.IdUsuarioSubida,
+        NombreArchivo=documento.NombreArchivo,
+        UrlArchivo=obtener_url_publica(documento.UrlArchivo),
+        FechaSubida=documento.FechaSubida,
+        NombreCategoria=documento.CategoriaDocumentoRelacion.Nombre,
+        NombreUsuarioSubida=f"{documento.UsuarioSubida.Nombre} {documento.UsuarioSubida.Apellido}",
+    )
 
 @router.get("/documents/categories")
 def obtener_categorias_documentos(db: Session = Depends(get_db)):
@@ -61,32 +109,7 @@ async def subir_documento_viaje(
         )
 
 
-    estado_aceptado = db.scalar(
-        select(EstadoParticipacion).where(
-            EstadoParticipacion.Nombre == "aceptado",
-            EstadoParticipacion.Activo.is_(True)
-        )
-    )
-
-    if not estado_aceptado:
-        raise HTTPException(
-            status_code=500,
-            detail="Estado aceptado no configurado"
-        )
-
-    participante = db.scalar(
-        select(ParticipanteViaje).where(
-            ParticipanteViaje.IdViaje == trip_id,
-            ParticipanteViaje.IdUsuario == current_user.IdUsuario,
-            ParticipanteViaje.IdEstadoParticipacion == estado_aceptado.IdEstadoParticipacion
-        )
-    )
-
-    if not participante:
-        raise HTTPException(
-            status_code=403,
-            detail="No formas parte de este viaje"
-        )
+    _verificar_participante_aceptado(db, trip_id, current_user)
 
     extensiones_permitidas = {
     ".pdf",
@@ -172,3 +195,28 @@ async def subir_documento_viaje(
         "IdDocumento": documento.IdDocumento
     }
 
+
+@router.get("/{trip_id}/documents", response_model=list[DocumentoViajeRead])
+def listar_documentos_viaje(
+    trip_id: int,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+):
+    viaje = db.get(Viaje, trip_id)
+
+    if not viaje:
+        raise HTTPException(
+            status_code=404,
+            detail="Viaje no encontrado"
+        )
+
+    _verificar_participante_aceptado(db, trip_id, current_user)
+
+    documentos = (
+        db.query(DocumentoViaje)
+        .filter(DocumentoViaje.IdViaje == trip_id)
+        .order_by(DocumentoViaje.FechaSubida.desc())
+        .all()
+    )
+
+    return [_serializar_documento(documento) for documento in documentos]

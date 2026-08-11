@@ -633,3 +633,14 @@ export async function uploadTripDocument(
     }
   }
 }
+
+export async function getTripDocuments(tripId) {
+  const token = await getStoredToken();
+
+  const response = await fetch(`${API_BASE_URL}/trips/${tripId}/documents`, {
+    method: "GET",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+
+  return parseResponse(response, "No se pudieron cargar los documentos del viaje");
+}
