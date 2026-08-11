@@ -100,3 +100,21 @@ class TripPlaceScheduleCreate(BaseModel):
     horaInicio: str
     horaFin: str
     icono: str = Field(default="location-dot", max_length=50)
+
+
+class NearbyPlaceRead(BaseModel):
+    placeId: str
+    name: str
+    address: str
+    lat: float | None = None
+    lng: float | None = None
+    category: str | None = None
+    provider: str | None = None
+    rating: float | None = None
+    userRatingsTotal: int | None = None
+    distanceMeters: float | None = None
+
+
+class NearbyPlacesResponse(BaseModel):
+    category: str | None = None
+    items: list[NearbyPlaceRead] = []

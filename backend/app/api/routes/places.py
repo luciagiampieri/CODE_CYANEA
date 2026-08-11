@@ -23,9 +23,11 @@ from app.schemas.place import (
     TripPlaceRead,
     TripPlaceScheduleCreate,
     TripPlaceSearchRead,
+    NearbyPlaceRead,
+    NearbyPlacesResponse
 )
 from app.schemas.trip import ActividadRead
-from app.services.place_search import get_place_details, search_popular_places, search_trip_places
+from app.services.place_search import get_place_details, search_popular_places, search_trip_places, search_nearby_places, CATEGORY_TYPE_MAP
 from app.services.trip_access import get_trip_with_relations, require_trip_access
 
 router = APIRouter()
@@ -200,6 +202,52 @@ async def get_place_details_route(
         ],
     )
 
+@router.get("/trips/{trip_id}/places/nearby", response_model=NearbyPlacesResponse)
+async def nearby_places(
+    trip_id: int,
+    lat: float = Query(...),
+    lng: float = Query(...),
+    category: str | None = Query(default=None),
+    radius: float = Query(default=2000.0, ge=100.0, le=20000.0),
+    limit: int = Query(default=20, ge=1, le=20),
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> NearbyPlacesResponse:
+    require_trip_access(get_trip_with_relations(db, trip_id), current_user)
+
+    normalized_category = category.strip().lower() if category else None
+    if normalized_category and normalized_category not in CATEGORY_TYPE_MAP:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Categoría inválida. Opciones válidas: {', '.join(CATEGORY_TYPE_MAP.keys())}",
+        )
+
+    results = await search_nearby_places(
+        lat=lat,
+        lng=lng,
+        category=normalized_category,
+        radius=radius,
+        limit=limit,
+    )
+    return NearbyPlacesResponse(
+        category=normalized_category,
+        items=[
+            NearbyPlaceRead(
+                placeId=item.place_id,
+                name=item.name,
+                address=item.address,
+                lat=item.lat,
+                lng=item.lng,
+                category=item.category,
+                provider=item.provider,
+                rating=item.rating,
+                userRatingsTotal=item.user_ratings_total,
+                distanceMeters=item.distance_meters,
+            )
+            for item in results
+            if item.lat is not None and item.lng is not None
+        ],
+    )
 
 @router.get("/trips/{trip_id}/places", response_model=list[TripPlaceRead])
 def list_trip_places(

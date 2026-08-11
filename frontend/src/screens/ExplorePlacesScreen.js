@@ -21,6 +21,7 @@ import PlaceScheduleSheet from "../components/map/PlaceScheduleSheet";
 import MetricCard from "../components/ui/MetricCard";
 import PrimaryButton from "../components/ui/PrimaryButton";
 import {
+  getNearbyPlaces,
   getPlaceDetails,
   getTripPopularPlaces,
   getTripDetail,
@@ -30,6 +31,32 @@ import {
   searchTripPlaces,
 } from "../services/api";
 import { colors, radii, spacing, surfaces, textStyles } from "../theme/tokens";
+
+const NEARBY_CATEGORIES = [
+  { key: null, label: "Todos", icon: "border-all" },
+  { key: "restaurantes", label: "Restaurantes", icon: "utensils" },
+  { key: "cafeterias", label: "Cafeterías", icon: "mug-hot" },
+  { key: "atracciones", label: "Atracciones", icon: "camera" },
+  { key: "servicios", label: "Servicios", icon: "briefcase-medical" },
+];
+
+const NEARBY_PAGE_SIZE = 5;
+
+function resolveVisibleCategory(category) {
+  if (!category) return null;
+  const normalized = category.trim().toLowerCase();
+  if (normalized.includes("_")) return null;
+  if (normalized === "establishment" || normalized === "point_of_interest" || normalized === "point of interest") {
+    return null;
+  }
+  return category;
+}
+
+function formatDistance(distanceMeters) {
+  if (typeof distanceMeters !== "number") return null;
+  if (distanceMeters < 1000) return `${Math.round(distanceMeters)} m`;
+  return `${(distanceMeters / 1000).toFixed(1)} km`;
+}
 
 function normalizeDestination(destination) {
   return {
@@ -105,6 +132,12 @@ export default function ExplorePlacesScreen({ navigation, route }) {
   const [schedulingPlace, setSchedulingPlace] = useState(false);
   const [scheduleTarget, setScheduleTarget] = useState(null);
   const [feedbackMessage, setFeedbackMessage] = useState("");
+  const [selectedCategory, setSelectedCategory] = useState(null);
+  const [nearbyPlaces, setNearbyPlaces] = useState([]);
+  const [nearbyLoading, setNearbyLoading] = useState(false);
+  const [nearbyError, setNearbyError] = useState("");
+  const [hasSelectedNearbyFilter, setHasSelectedNearbyFilter] = useState(false);
+  const [nearbyVisibleCount, setNearbyVisibleCount] = useState(NEARBY_PAGE_SIZE);
 
   useEffect(() => {
     const unsubscribe = NetInfo.addEventListener((state) => {
@@ -181,13 +214,46 @@ export default function ExplorePlacesScreen({ navigation, route }) {
     [savedPlacesByPlaceId, searchResults]
   );
 
-  const mapMarkers = useMemo(() => {
+  const resolvedNearbyPlaces = useMemo(
+    () =>
+      nearbyPlaces
+        .map((item) => {
+          const saved = savedPlacesByPlaceId.get(item.placeId);
+          if (saved) {
+            return { ...saved, alreadySaved: true, distanceMeters: item.distanceMeters, volatile: true };
+          }
+          return { ...item, kind: "searchResult", alreadySaved: false, volatile: true };
+        })
+        .filter((item) => item.lat && item.lng),
+    [nearbyPlaces, savedPlacesByPlaceId]
+  );
+
+  const visibleNearbyPlaces = useMemo(
+    () => resolvedNearbyPlaces.slice(0, nearbyVisibleCount),
+    [resolvedNearbyPlaces, nearbyVisibleCount]
+  );
+
+  const stableMapMarkers = useMemo(() => {
     const unique = new Map();
     [...destinationMarkers, ...savedPlaceMarkers, ...searchedMarkers].forEach((marker) => {
       unique.set(`${marker.kind}-${marker.id ?? marker.placeId ?? marker.name}`, marker);
     });
     return Array.from(unique.values());
   }, [destinationMarkers, savedPlaceMarkers, searchedMarkers]);
+
+  const mapMarkers = useMemo(() => {
+    const unique = new Map();
+    [...stableMapMarkers, ...resolvedNearbyPlaces].forEach((marker) => {
+      unique.set(`${marker.kind}-${marker.id ?? marker.placeId ?? marker.name}`, marker);
+    });
+    return Array.from(unique.values());
+  }, [stableMapMarkers, resolvedNearbyPlaces]);
+
+  const initialCenter = useMemo(() => {
+    const firstMarker = stableMapMarkers[0];
+    if (!firstMarker) return null;
+    return { lat: firstMarker.lat, lng: firstMarker.lng };
+  }, [stableMapMarkers]);
 
   const scheduledDaysCount = useMemo(() => {
     const unique = new Set();
@@ -225,12 +291,6 @@ export default function ExplorePlacesScreen({ navigation, route }) {
     [places]
   );
 
-  const initialCenter = useMemo(() => {
-    const firstMarker = mapMarkers[0];
-    if (!firstMarker) return null;
-    return { lat: firstMarker.lat, lng: firstMarker.lng };
-  }, [mapMarkers]);
-
   const tripDays = useMemo(() => resolveTripDays(trip), [trip]);
 
   useEffect(() => {
@@ -240,6 +300,12 @@ export default function ExplorePlacesScreen({ navigation, route }) {
 
   useEffect(() => {
     if (!tripId || !viewportCenter?.lat || !viewportCenter?.lng) return undefined;
+
+    if (offline) {
+      setPopularError("Sin conexión a internet. No se pueden cargar lugares recomendados en este momento.");
+      setPopularPlaces([]);
+      return undefined;
+    }
 
     const timeoutId = setTimeout(async () => {
       try {
@@ -267,7 +333,52 @@ export default function ExplorePlacesScreen({ navigation, route }) {
     }, 450);
 
     return () => clearTimeout(timeoutId);
-  }, [tripId, viewportCenter, savedPlacesByPlaceId]);
+  }, [tripId, viewportCenter, savedPlacesByPlaceId, offline]);
+
+  useEffect(() => {
+    if (!tripId || !viewportCenter?.lat || !viewportCenter?.lng) return undefined;
+
+    if (!hasSelectedNearbyFilter) {
+      setNearbyPlaces([]);
+      setNearbyError("");
+      setNearbyLoading(false);
+      return undefined;
+    }
+
+    if (offline) {
+      setNearbyError("Sin conexión a internet. No se pueden buscar puntos de interés cercanos en este momento.");
+      setNearbyPlaces([]);
+      return undefined;
+    }
+
+    const timeoutId = setTimeout(async () => {
+      try {
+        setNearbyLoading(true);
+        setNearbyError("");
+        const response = await getNearbyPlaces(tripId, viewportCenter.lat, viewportCenter.lng, selectedCategory);
+        const items = response.items || [];
+        setNearbyPlaces(items);
+        if (items.length === 0) {
+          setNearbyError(
+            selectedCategory
+              ? "No encontramos resultados para esta categoría en la zona seleccionada."
+              : "No encontramos puntos de interés cercanos en esta zona."
+          );
+        }
+      } catch (loadError) {
+        setNearbyError(loadError.message || "No se pudieron buscar puntos de interés cercanos.");
+        setNearbyPlaces([]);
+      } finally {
+        setNearbyLoading(false);
+      }
+    }, 450);
+
+    return () => clearTimeout(timeoutId);
+  }, [tripId, viewportCenter, selectedCategory, offline, hasSelectedNearbyFilter]);
+
+  useEffect(() => {
+    setNearbyVisibleCount(NEARBY_PAGE_SIZE);
+  }, [selectedCategory, viewportCenter]);
 
   useEffect(() => {
     if (!tripId || !selectedPlace?.placeId) return undefined;
@@ -321,6 +432,12 @@ export default function ExplorePlacesScreen({ navigation, route }) {
     if (!searchQuery.trim()) {
       setSearchResults([]);
       setSearchError("");
+      return;
+    }
+
+    if (offline) {
+      setSearchResults([]);
+      setSearchError("Sin conexión a internet. No se pueden buscar lugares en este momento.");
       return;
     }
 
@@ -464,6 +581,11 @@ export default function ExplorePlacesScreen({ navigation, route }) {
     });
   }
 
+  function handleSelectNearbyCategory(categoryKey) {
+    setSelectedCategory(categoryKey);
+    setHasSelectedNearbyFilter(true);
+  }
+
   return (
     <ScreenContainer fullWidth padded={false}>
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
@@ -476,7 +598,7 @@ export default function ExplorePlacesScreen({ navigation, route }) {
           <Text style={styles.heroEyebrow}>Exploración visual del viaje</Text>
           <Text style={styles.heroTitle}>Destinos de interés</Text>
           <Text style={styles.heroCopy}>
-            Busca lugares con Google Places, guárdalos en el viaje y llévalos directo al itinerario.
+            Busca lugares con Google Places, guardalos en el viaje y llevalos directo al itinerario.
           </Text>
         </View>
 
@@ -504,7 +626,7 @@ export default function ExplorePlacesScreen({ navigation, route }) {
 
               <View style={styles.sectionCard}>
                 <Text style={styles.sectionLabel}>Buscar lugar</Text>
-                <Text style={styles.sectionTitle}>Explora nuevos puntos para el viaje</Text>
+                <Text style={styles.sectionTitle}>Explorá nuevos puntos para el viaje.</Text>
                 <View style={styles.searchRow}>
                   <TextInput
                     onChangeText={setSearchQuery}
@@ -585,7 +707,7 @@ export default function ExplorePlacesScreen({ navigation, route }) {
                 </View>
 
                 <Text style={styles.sectionHint}>
-                  Toca un marcador para revisar su detalle, guardarlo o sumarlo al itinerario.
+                  Tocá un marcador para revisar su detalle, guardarlo o sumarlo al itinerario.
                 </Text>
                 <PrimaryButton
                   icon="stars"
@@ -595,6 +717,106 @@ export default function ExplorePlacesScreen({ navigation, route }) {
                   style={styles.popularTrigger}
                   variant="secondary"
                 />
+              </View>
+
+              <View style={styles.sectionCard}>
+                <Text style={styles.sectionLabel}>Puntos de interés cercanos</Text>
+                <Text style={styles.sectionTitle}>Filtrar por categoría</Text>
+                <View style={styles.chipsRow}>
+                  {NEARBY_CATEGORIES.map((cat) => {
+                    const active = hasSelectedNearbyFilter && cat.key === selectedCategory;
+                    return (
+                      <Pressable
+                        key={cat.key ?? "todos"}
+                        onPress={() => handleSelectNearbyCategory(cat.key)}
+                        style={[styles.chip, active && styles.chipActive]}
+                      >
+                        <FontAwesome6
+                          color={active ? colors.textInverse : colors.primary}
+                          name={cat.icon}
+                          size={12}
+                        />
+                        <Text style={[styles.chipText, active && styles.chipTextActive]}>{cat.label}</Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+
+                {!hasSelectedNearbyFilter ? (
+                  <Text style={styles.sectionHint}>
+                    Elegí "Todos" o una categoría para buscar puntos de interés cercanos a esta zona del mapa.
+                  </Text>
+                ) : null}
+
+                {hasSelectedNearbyFilter && nearbyLoading ? (
+                  <View style={styles.listLoading}>
+                    <ActivityIndicator color={colors.primary} />
+                  </View>
+                ) : null}
+
+                {hasSelectedNearbyFilter && !nearbyLoading && nearbyError ? (
+                  <Text style={styles.inlineMessage}>{nearbyError}</Text>
+                ) : null}
+
+                {hasSelectedNearbyFilter && !nearbyLoading && resolvedNearbyPlaces.length > 0 ? (
+                  <View style={styles.resultList}>
+                    {visibleNearbyPlaces.map((place) => {
+                      const visibleCategory = resolveVisibleCategory(place.category);
+                      const distanceLabel = formatDistance(place.distanceMeters);
+                      return (
+                        <Pressable
+                          key={`nearby-${place.placeId}-${place.name}`}
+                          onPress={() => handleSelectPlace(place)}
+                          style={styles.resultRow}
+                        >
+                          <View style={styles.resultIcon}>
+                            <FontAwesome6
+                              color={colors.primary}
+                              name={place.alreadySaved ? "bookmark" : "location-dot"}
+                              size={14}
+                            />
+                          </View>
+                          <View style={styles.resultCopy}>
+                            <Text style={styles.resultName}>{place.name}</Text>
+                            <Text style={styles.resultAddress}>{place.address}</Text>
+                            <Text style={styles.placeMeta}>
+                              {[
+                                visibleCategory,
+                                distanceLabel,
+                                typeof place.rating === "number" ? `★ ${place.rating.toFixed(1)}` : null,
+                                place.userRatingsTotal ? `${place.userRatingsTotal} reseñas` : null,
+                              ]
+                                .filter(Boolean)
+                                .join(" · ")}
+                            </Text>
+                          </View>
+                        </Pressable>
+                      );
+                    })}
+
+                    {resolvedNearbyPlaces.length > nearbyVisibleCount ? (
+                      <Pressable
+                        onPress={() => setNearbyVisibleCount((count) => count + NEARBY_PAGE_SIZE)}
+                        style={styles.showMoreButton}
+                      >
+                        <Text style={styles.showMoreText}>
+                          Ver {Math.min(NEARBY_PAGE_SIZE, resolvedNearbyPlaces.length - nearbyVisibleCount)} más
+                          {"  "}
+                          ({resolvedNearbyPlaces.length - nearbyVisibleCount} restantes)
+                        </Text>
+                      </Pressable>
+                    ) : null}
+
+                    {nearbyVisibleCount > NEARBY_PAGE_SIZE ? (
+                      <Pressable
+                        onPress={() => setNearbyVisibleCount(NEARBY_PAGE_SIZE)}
+                        style={styles.showLessButton}
+                      >
+                        <Text style={styles.showLessText}>Ver menos</Text>
+                      </Pressable>
+                    ) : null}
+                  </View>
+                ) : null}
               </View>
 
               {selectedPlace ? (
@@ -619,7 +841,7 @@ export default function ExplorePlacesScreen({ navigation, route }) {
                   <View style={styles.emptyState}>
                     <Text style={styles.emptyTitle}>Todavía no hay lugares guardados.</Text>
                     <Text style={styles.emptyCopy}>
-                      Busca un punto en el mapa y guárdalo para que después puedas agendarlo en un día del viaje.
+                      Buscá un punto en el mapa y guardalo para que después puedas agendarlo en un día del viaje.
                     </Text>
                   </View>
                 ) : (
@@ -693,7 +915,7 @@ export default function ExplorePlacesScreen({ navigation, route }) {
             {!popularLoading && popularError ? <Text style={styles.inlineMessage}>{popularError}</Text> : null}
 
             {!popularLoading && !popularError && popularPlaces.length === 0 ? (
-              <Text style={styles.sectionHint}>Mueve el mapa o haz zoom para cargar atracciones populares.</Text>
+              <Text style={styles.sectionHint}>Mové el mapa o hacé zoom para cargar atracciones populares.</Text>
             ) : null}
 
             {!popularLoading && popularPlaces.length > 0 ? (
@@ -713,7 +935,7 @@ export default function ExplorePlacesScreen({ navigation, route }) {
                       <Text style={styles.popularMeta}>
                         {place.rating ? `★ ${place.rating.toFixed(1)}` : "Sin rating"} ·{" "}
                         {place.userRatingsTotal ? `${place.userRatingsTotal} reseñas` : "Sin reseñas"} ·{" "}
-                        {place.alreadySaved ? "Ya guardado" : "Toca para agregar"}
+                        {place.alreadySaved ? "Ya guardado" : "Tocá para agregar"}
                       </Text>
                     </View>
                   </Pressable>
@@ -880,6 +1102,38 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
     marginTop: spacing.xxs,
   },
+  chipsRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: spacing.sm,
+    marginTop: spacing.lg,
+  },
+  chip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.xs,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radii.pill,
+    backgroundColor: colors.surfaceMuted,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+  },
+  chipActive: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
+  },
+  chipText: {
+    ...textStyles.meta,
+    color: colors.primary,
+  },
+  chipTextActive: {
+    color: colors.textInverse,
+  },
+  listLoading: {
+    marginTop: spacing.lg,
+    alignItems: "center",
+  },
   legendRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -920,6 +1174,29 @@ const styles = StyleSheet.create({
   popularTrigger: {
     marginTop: spacing.md,
     alignSelf: "flex-start",
+  },
+  showMoreButton: {
+    marginTop: spacing.sm,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radii.md,
+    paddingVertical: spacing.sm,
+    backgroundColor: colors.surface,
+  },
+  showMoreText: {
+    ...textStyles.bodyStrong,
+    color: colors.primary,
+  },
+  showLessButton: {
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: spacing.xs,
+  },
+  showLessText: {
+    ...textStyles.meta,
+    color: colors.textSecondary,
   },
   popularOverlay: {
     flex: 1,

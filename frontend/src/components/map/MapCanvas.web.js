@@ -241,7 +241,7 @@ export default function MapCanvas({
     markerRefs.current.forEach((marker) => marker.setMap(null));
     markerRefs.current = [];
 
-    const bounds = new window.google.maps.LatLngBounds();
+    const stableMarkers = markers.filter((marker) => !marker.volatile);
 
     markers.forEach((markerData) => {
       const marker = new window.google.maps.Marker({
@@ -253,27 +253,31 @@ export default function MapCanvas({
 
       marker.addListener("click", () => onMarkerPressRef.current?.(markerData));
       markerRefs.current.push(marker);
-      bounds.extend(marker.getPosition());
     });
 
-    const autoViewportKey = markers
+    const bounds = new window.google.maps.LatLngBounds();
+    stableMarkers.forEach((markerData) => {
+      bounds.extend({ lat: markerData.lat, lng: markerData.lng });
+    });
+
+    const stableMarkersKey = stableMarkers
       .map((marker) => `${marker.kind}:${marker.id ?? marker.placeId ?? marker.name}`)
       .sort()
       .join("|");
     const shouldAutoAdjustViewport =
-      !hasUserMovedMapRef.current || autoViewportKey !== lastAutoViewportKeyRef.current;
+      !hasUserMovedMapRef.current || stableMarkersKey !== lastAutoViewportKeyRef.current;
 
     if (shouldAutoAdjustViewport) {
-      if (markers.length > 1) {
+      if (stableMarkers.length > 1) {
         mapRef.current.fitBounds(bounds, 64);
-      } else if (markers.length === 1) {
-        mapRef.current.setCenter({ lat: markers[0].lat, lng: markers[0].lng });
+      } else if (stableMarkers.length === 1) {
+        mapRef.current.setCenter({ lat: stableMarkers[0].lat, lng: stableMarkers[0].lng });
         mapRef.current.setZoom(12);
       } else {
         mapRef.current.setCenter(fallbackCenter);
         mapRef.current.setZoom(initialCenter ? 6 : 4);
       }
-      lastAutoViewportKeyRef.current = autoViewportKey;
+      lastAutoViewportKeyRef.current = stableMarkersKey;
     }
   }, [fallbackCenter, initialCenter, markers, onMarkerPress, status]);
 

@@ -174,6 +174,25 @@ export async function getTripPopularPlaces(tripId, lat, lng, limit = 6) {
   return parseResponse(response, "No se pudieron obtener los lugares populares");
 }
 
+export async function getNearbyPlaces(tripId, lat, lng, category, radius = 2000, limit = 20) {
+  const params = new URLSearchParams();
+  params.set("lat", String(lat));
+  params.set("lng", String(lng));
+  if (category) {
+    params.set("category", category);
+  }
+  params.set("radius", String(radius));
+  params.set("limit", String(limit));
+
+  const response = await fetch(
+    `${API_BASE_URL}/trips/${tripId}/places/nearby?${params.toString()}`,
+    {
+      headers: await authHeaders(),
+    }
+  );
+  return parseResponse(response, "No se pudieron obtener los puntos de interés cercanos");
+}
+
 export async function getTripPlaceDetail(tripId, tripPlaceId) {
   const response = await fetch(`${API_BASE_URL}/trips/${tripId}/places/${tripPlaceId}`, {
     headers: await authHeaders(),
