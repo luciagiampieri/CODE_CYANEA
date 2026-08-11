@@ -11,6 +11,15 @@ GOOGLE_PLACES_TEXT_SEARCH_URL = "https://places.googleapis.com/v1/places:searchT
 GOOGLE_GEOCODE_URL = "https://maps.googleapis.com/maps/api/geocode/json"
 GOOGLE_PLACE_DETAILS_URL = "https://places.googleapis.com/v1/places/{place_id}"
 GOOGLE_PLACE_PHOTO_MEDIA_URL = "https://places.googleapis.com/v1/{photo_name}/media"
+GOOGLE_PLACES_NEARBY_SEARCH_URL = "https://places.googleapis.com/v1/places:searchNearby"
+
+
+CATEGORY_TYPE_MAP: dict[str, list[str]] = {
+    "restaurantes": ["restaurant"],
+    "cafeterias": ["cafe"],
+    "atracciones": ["tourist_attraction"],
+    "servicios": ["atm", "bank", "hospital", "pharmacy", "gas_station"],
+}
 
 
 @dataclass
@@ -57,6 +66,20 @@ class PlaceDetailsResult:
     user_ratings_total: int | None
     google_maps_uri: str | None
     reviews: list[PlaceReviewResult]
+
+
+@dataclass
+class NearbyPlaceResult:
+    place_id: str
+    name: str
+    address: str
+    lat: float | None
+    lng: float | None
+    category: str | None
+    provider: str | None
+    rating: float | None
+    user_ratings_total: int | None
+    distance_meters: float | None
 
 
 async def search_trip_places(query: str, allowed_regions: list[dict[str, str | None]], limit: int = 8) -> list[PlaceSearchResult]:
@@ -183,6 +206,108 @@ async def get_place_photo_uri(place_id: str, max_width_px: int = 1600) -> str | 
         return None
     return await _get_photo_uri(photo_name, max_width_px=max_width_px)
 
+
+async def search_nearby_places(
+    lat: float,
+    lng: float,
+    category: str | None = None,
+    radius: float = 2000.0,
+    limit: int = 20,
+) -> list[NearbyPlaceResult]:
+    included_types = CATEGORY_TYPE_MAP.get(category) if category else None
+
+    payload: dict = {
+        "maxResultCount": limit,
+        "languageCode": "es",
+        "rankPreference": "DISTANCE",
+        "locationRestriction": {
+            "circle": {
+                "center": {"latitude": lat, "longitude": lng},
+                "radius": radius,
+            }
+        },
+    }
+    if included_types:
+        payload["includedTypes"] = included_types
+
+    data = await _google_places_nearby_search(payload)
+    return _parse_nearby_results(data, origin_lat=lat, origin_lng=lng)
+
+
+async def _google_places_nearby_search(payload: dict) -> dict:
+    if not settings.google_maps_api_key:
+        raise ValueError("GOOGLE_MAPS_API_KEY no esta configurada")
+
+    headers = {
+        "Content-Type": "application/json",
+        "X-Goog-Api-Key": settings.google_maps_api_key,
+        "X-Goog-FieldMask": (
+            "places.id,"
+            "places.displayName,"
+            "places.formattedAddress,"
+            "places.location,"
+            "places.types,"
+            "places.primaryType,"
+            "places.primaryTypeDisplayName,"
+            "places.rating,"
+            "places.userRatingCount"
+        ),
+    }
+
+    async with httpx.AsyncClient(timeout=12.0, verify=False) as client:
+        response = await client.post(
+            GOOGLE_PLACES_NEARBY_SEARCH_URL,
+            headers=headers,
+            json=payload,
+        )
+        response.raise_for_status()
+        return response.json()
+
+
+def _haversine_meters(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
+    earth_radius_m = 6371000.0
+    phi1 = math.radians(lat1)
+    phi2 = math.radians(lat2)
+    dphi = math.radians(lat2 - lat1)
+    dlambda = math.radians(lng2 - lng1)
+    a = math.sin(dphi / 2) ** 2 + math.cos(phi1) * math.cos(phi2) * math.sin(dlambda / 2) ** 2
+    return 2 * earth_radius_m * math.asin(math.sqrt(a))
+
+
+def _parse_nearby_results(data: dict, origin_lat: float, origin_lng: float) -> list[NearbyPlaceResult]:
+    results: list[NearbyPlaceResult] = []
+
+    for item in data.get("places", []):
+        name = item.get("displayName", {}).get("text") or "Lugar desconocido"
+        address = item.get("formattedAddress") or name
+        location = item.get("location", {})
+        lat = location.get("latitude")
+        lng = location.get("longitude")
+
+        distance_meters = None
+        if lat is not None and lng is not None:
+            distance_meters = round(_haversine_meters(origin_lat, origin_lng, lat, lng), 1)
+
+        types = item.get("types") or []
+        primary_type = item.get("primaryTypeDisplayName", {}).get("text") or item.get("primaryType")
+
+        results.append(
+            NearbyPlaceResult(
+                place_id=f"google:{item.get('id')}",
+                name=name,
+                address=address,
+                lat=lat,
+                lng=lng,
+                category=primary_type or (types[0] if types else None),
+                provider="google_places",
+                rating=item.get("rating"),
+                user_ratings_total=item.get("userRatingCount"),
+                distance_meters=distance_meters,
+            )
+        )
+
+    results.sort(key=lambda place: (place.distance_meters is None, place.distance_meters or 0))
+    return results
 
 async def _google_places_text_search(payload: dict, field_mask: str) -> dict:
     if not settings.google_maps_api_key:

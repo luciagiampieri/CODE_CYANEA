@@ -22,6 +22,7 @@ from app.models.estado_transferencia_liquidacion import EstadoTransferenciaLiqui
 from app.models.liquidacion_viaje import LiquidacionViaje
 from app.models.lugar_interes import LugarInteres
 from app.models.lugar_interes_viaje import LugarInteresViaje
+from app.models.item_repositorio import ItemRepositorioViaje
 from app.models.transferencia_liquidacion import TransferenciaLiquidacion
 __all__ = [
     "EstadoInvitacion",
@@ -46,5 +47,6 @@ __all__ = [
     "LiquidacionViaje",
     "LugarInteres",
     "LugarInteresViaje",
+    "ItemRepositorioViaje",
     "TransferenciaLiquidacion",
 ]

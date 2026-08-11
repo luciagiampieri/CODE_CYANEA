@@ -134,11 +134,7 @@ def confirm_email(
 
 # POST /auth/login 
 @router.post("/login", response_model=TokenResponse)
-#def login(payload: LoginRequest, db: Session = Depends(get_db)) -> TokenResponse:
-def login(
-    form_data: OAuth2PasswordRequestForm = Depends(),
-    db: Session = Depends(get_db),
-) -> TokenResponse:
+def login(payload: LoginRequest, db: Session = Depends(get_db)) -> TokenResponse:
 
     credentials_error = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
@@ -147,8 +143,7 @@ def login(
     )
 
     usuario = db.scalar(
-        #select(Usuario).where(Usuario.Email == payload.email.strip().lower())
-        select(Usuario).where(Usuario.Email == form_data.username.strip().lower())
+        select(Usuario).where(Usuario.Email == payload.email.strip().lower())
     )
 
     if usuario is None:
@@ -163,8 +158,7 @@ def login(
     if not usuario.HashedPassword:
         raise credentials_error
 
-    #if not verify_password(payload.password, usuario.HashedPassword):
-    if not verify_password(form_data.password, usuario.HashedPassword):
+    if not verify_password(payload.password, usuario.HashedPassword):
         raise credentials_error
 
     # Verificar que confirmó el email antes de dejar entrar

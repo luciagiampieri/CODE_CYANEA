@@ -24,9 +24,17 @@ def categoria_documento(db_session):
 
 @pytest.fixture(autouse=True)
 def mock_storage(monkeypatch):
+    # subir_documento en producción devuelve la ruta interna del archivo
+    # dentro del bucket, no una URL. Replicamos eso acá.
     monkeypatch.setattr(
         "app.api.routes.documentos.subir_documento",
-        lambda archivo, ruta: f"https://fake-storage/{ruta}"
+        lambda archivo, ruta: ruta
+    )
+    # obtener_url_publica es la que arma la URL visible/pública a partir
+    # de esa ruta. La mockeamos separada para no depender de Supabase real.
+    monkeypatch.setattr(
+        "app.api.routes.documentos.obtener_url_publica",
+        lambda ruta: f"https://fake-public-url/{ruta}"
     )
 
     
@@ -412,3 +420,115 @@ def test_subir_documento_se_guarda_en_bd(
     assert documento.IdCategoriaDocumento == (
         categoria_documento.IdCategoriaDocumento
     )
+
+
+def test_listar_documentos_viaje_devuelve_info_asociada(
+    client,
+    auth_headers,
+    viaje_con_admin,
+    categoria_documento,
+):
+    viaje, _ = viaje_con_admin
+
+    client.post(
+        f"/api/v1/trips/{viaje.IdViaje}/documents",
+        headers=auth_headers,
+        files={
+            "archivo": (
+                "pasaje.pdf",
+                io.BytesIO(b"contenido"),
+                "application/pdf",
+            )
+        },
+        data={
+            "IdCategoriaDocumento": categoria_documento.IdCategoriaDocumento,
+            "NombreArchivo": "Pasaje Mendoza",
+        },
+    )
+
+    response = client.get(
+        f"/api/v1/trips/{viaje.IdViaje}/documents",
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 200
+
+    body = response.json()
+    assert len(body) == 1
+    assert body[0]["NombreArchivo"] == "Pasaje Mendoza.pdf"
+    assert body[0]["NombreCategoria"] == categoria_documento.Nombre
+    assert body[0]["UrlArchivo"].startswith("https://fake-public-url/")
+    assert "NombreUsuarioSubida" in body[0]
+
+
+def test_listar_documentos_viaje_vacio(
+    client,
+    auth_headers,
+    viaje_con_admin,
+):
+    viaje, _ = viaje_con_admin
+
+    response = client.get(
+        f"/api/v1/trips/{viaje.IdViaje}/documents",
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 200
+    assert response.json() == []
+
+
+def test_listar_documentos_viaje_rechaza_usuario_ajeno(
+    client,
+    db_session,
+    viaje_con_admin,
+    categoria_documento,
+):
+    viaje, _ = viaje_con_admin
+
+    usuario_externo = Usuario(
+        Nombre="Pedro",
+        Apellido="Test",
+        NombreUsuario="pedro_test_docs",
+        Email="pedro_docs@test.com",
+        HashedPassword="hashed",
+        Activo=True,
+        EmailConfirmado=True,
+    )
+
+    db_session.add(usuario_externo)
+    db_session.commit()
+    db_session.refresh(usuario_externo)
+
+    token = create_access_token(
+        {
+            "sub": usuario_externo.Email,
+            "user_id": usuario_externo.IdUsuario,
+        }
+    )
+
+    headers = {
+        "Authorization": f"Bearer {token}"
+    }
+
+    response = client.get(
+        f"/api/v1/trips/{viaje.IdViaje}/documents",
+        headers=headers,
+    )
+
+    assert response.status_code == 403
+    assert response.json()["detail"] == (
+        "No formas parte de este viaje"
+    )
+
+
+def test_listar_documentos_viaje_no_existe(
+    client,
+    auth_headers,
+):
+    response = client.get(
+        "/api/v1/trips/99999/documents",
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Viaje no encontrado"

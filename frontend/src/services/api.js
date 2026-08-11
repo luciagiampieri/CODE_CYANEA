@@ -174,6 +174,25 @@ export async function getTripPopularPlaces(tripId, lat, lng, limit = 6) {
   return parseResponse(response, "No se pudieron obtener los lugares populares");
 }
 
+export async function getNearbyPlaces(tripId, lat, lng, category, radius = 2000, limit = 20) {
+  const params = new URLSearchParams();
+  params.set("lat", String(lat));
+  params.set("lng", String(lng));
+  if (category) {
+    params.set("category", category);
+  }
+  params.set("radius", String(radius));
+  params.set("limit", String(limit));
+
+  const response = await fetch(
+    `${API_BASE_URL}/trips/${tripId}/places/nearby?${params.toString()}`,
+    {
+      headers: await authHeaders(),
+    }
+  );
+  return parseResponse(response, "No se pudieron obtener los puntos de interés cercanos");
+}
+
 export async function getTripPlaceDetail(tripId, tripPlaceId) {
   const response = await fetch(`${API_BASE_URL}/trips/${tripId}/places/${tripPlaceId}`, {
     headers: await authHeaders(),
@@ -481,6 +500,17 @@ export async function emitirVoto(idVotacion, idPropuestas) {
   return parseResponse(response, "No se pudo registrar el voto");
 }
 
+export async function cancelarVotacion(idVotacion) {
+  const response = await fetch(`${API_BASE_URL}/votaciones/${idVotacion}/cancelar`, {
+    method: "POST",
+    headers: {
+      ...(await authHeaders()),
+    },
+    body: JSON.stringify({}),
+  });
+  return parseResponse(response, "No se pudo cancelar la votación");
+}
+
 export async function createActivity(tripId, dayId, payload) {
   const response = await fetch(
     `${API_BASE_URL}/trips/${tripId}/days/${dayId}/activities`,
@@ -629,4 +659,54 @@ export async function uploadTripDocument(
       return result.body;
     }
   }
+}
+
+export async function getTripDocuments(tripId) {
+  const token = await getStoredToken();
+
+  const response = await fetch(`${API_BASE_URL}/trips/${tripId}/documents`, {
+    method: "GET",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+
+  return parseResponse(response, "No se pudieron cargar los documentos del viaje");
+}
+
+export async function getRepositorioItems(tripId) {
+  const response = await fetch(`${API_BASE_URL}/trips/${tripId}/repositorio`, {
+    headers: await authHeaders(),
+  });
+  return parseResponse(response, "No se pudo cargar la información del repositorio");
+}
+
+export async function createRepositorioItem(tripId, payload) {
+  const response = await fetch(`${API_BASE_URL}/trips/${tripId}/repositorio`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(await authHeaders()),
+    },
+    body: JSON.stringify(payload),
+  });
+  return parseResponse(response, "No se pudo guardar la información");
+}
+
+export async function updateRepositorioItem(tripId, itemId, payload) {
+  const response = await fetch(`${API_BASE_URL}/trips/${tripId}/repositorio/${itemId}`, {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+      ...(await authHeaders()),
+    },
+    body: JSON.stringify(payload),
+  });
+  return parseResponse(response, "No se pudo actualizar la información");
+}
+
+export async function deleteRepositorioItem(tripId, itemId) {
+  const response = await fetch(`${API_BASE_URL}/trips/${tripId}/repositorio/${itemId}`, {
+    method: "DELETE",
+    headers: await authHeaders(),
+  });
+  return parseResponse(response, "No se pudo eliminar la información");
 }

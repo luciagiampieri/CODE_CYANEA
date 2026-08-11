@@ -1,10 +1,12 @@
 import { FontAwesome6 } from "@expo/vector-icons";
+import * as Clipboard from "expo-clipboard";
 import { LinearGradient } from "expo-linear-gradient";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
   ImageBackground,
+  Linking,
   Platform,
   Pressable,
   ScrollView,
@@ -24,6 +26,7 @@ import PrimaryButton from "../components/ui/PrimaryButton";
 import {
   addTripParticipant,
   emitirVoto,
+  cancelarVotacion,
   getCurrentUser,
   getTripSettlement,
   getTripDetail,
@@ -41,7 +44,7 @@ import {
 } from "../services/api";
 import { colors, radii, spacing, surfaces, textStyles } from "../theme/tokens";
 
-import { getTripParticipants, getExpenseCategories } from "../services/api";
+import { getTripParticipants, getExpenseCategories, getTripDocuments, getRepositorioItems, deleteRepositorioItem } from "../services/api";
 import {
   guardarParticipantesEnCache,
   guardarCategoriasEnCache,
@@ -142,6 +145,19 @@ function avisar(titulo, mensaje) {
   }
 }
 
+function confirmar(titulo, mensaje, onConfirmar) {
+  if (Platform.OS === "web") {
+    if (window.confirm(mensaje)) {
+      onConfirmar();
+    }
+  } else {
+    Alert.alert(titulo, mensaje, [
+      { text: "Volver", style: "cancel" },
+      { text: "Confirmar", style: "destructive", onPress: onConfirmar },
+    ]);
+  }
+}
+
 function formatMoney(amount, currency) {
   const numeric = Number(amount ?? 0);
   if (Number.isNaN(numeric)) {
@@ -164,6 +180,7 @@ export default function TripDetailScreen({ navigation, route }) {
   const [loadingVotaciones, setLoadingVotaciones] = useState(false);
   const [votacionesError, setVotacionesError] = useState("");
   const [votandoId, setVotandoId] = useState(null);
+  const [cancelandoId, setCancelandoId] = useState(null);
   const [votosSeleccionados, setVotosSeleccionados] = useState({});
   const [resultadosPorVotacion, setResultadosPorVotacion] = useState({});
   const [participantSearch, setParticipantSearch] = useState("");
@@ -180,6 +197,13 @@ export default function TripDetailScreen({ navigation, route }) {
   const [settlement, setSettlement] = useState(null);
   const [loadingSettlement, setLoadingSettlement] = useState(false);
   const [settlementError, setSettlementError] = useState("");
+  const [documentos, setDocumentos] = useState([]);
+  const [loadingDocumentos, setLoadingDocumentos] = useState(false);
+  const [documentosError, setDocumentosError] = useState("");
+  const [repositorioItems, setRepositorioItems] = useState([]);
+  const [loadingRepositorio, setLoadingRepositorio] = useState(false);
+  const [repositorioError, setRepositorioError] = useState("");
+  const [eliminandoItemId, setEliminandoItemId] = useState(null);
   const [updatingTransferId, setUpdatingTransferId] = useState(null);
   const socketRef = useRef(null);
   const pendingEditRef = useRef(null);
@@ -226,9 +250,11 @@ export default function TripDetailScreen({ navigation, route }) {
 
   useEffect(() => {
     votacionesActivas.forEach(async (v) => {
-      const esCerrada = v.Estado ? v.Estado === "cerrada" : new Date(v.FechaCierre) < new Date();
+      const finalizada = v.Estado
+        ? v.Estado === "cerrada" || v.Estado === "cancelada"
+        : new Date(v.FechaCierre) < new Date();
 
-      if (esCerrada) {
+      if (finalizada) {
         if (resultadosPorVotacion[v.IdVotacion]) return;
         try {
           const data = await getResultadosVotacion(v.IdVotacion);
@@ -291,6 +317,79 @@ export default function TripDetailScreen({ navigation, route }) {
     }
   }
 
+  async function loadDocumentos() {
+    if (!initialTrip?.id) {
+      return;
+    }
+
+    try {
+      setLoadingDocumentos(true);
+      setDocumentosError("");
+      const data = await getTripDocuments(initialTrip.id);
+      setDocumentos(data);
+    } catch (error) {
+      setDocumentosError(error.message || "No se pudieron cargar los documentos del viaje.");
+    } finally {
+      setLoadingDocumentos(false);
+    }
+  }
+
+  async function loadRepositorio() {
+    if (!initialTrip?.id) {
+      return;
+    }
+
+    try {
+      setLoadingRepositorio(true);
+      setRepositorioError("");
+      const data = await getRepositorioItems(initialTrip.id);
+      setRepositorioItems(data);
+    } catch (error) {
+      setRepositorioError(error.message || "No se pudo cargar la información del repositorio.");
+    } finally {
+      setLoadingRepositorio(false);
+    }
+  }
+
+  async function copiarContenido(contenido) {
+    try {
+      await Clipboard.setStringAsync(contenido);
+      avisar("Copiado", "El contenido se copió al portapapeles.");
+    } catch (error) {
+      avisar("Error", "No se pudo copiar el contenido.");
+    }
+  }
+
+  async function eliminarItemRepositorio(item) {
+    const ejecutar = async () => {
+      try {
+        setEliminandoItemId(item.IdItemRepositorio);
+        await deleteRepositorioItem(trip.id, item.IdItemRepositorio);
+        setRepositorioItems((prev) =>
+          prev.filter((i) => i.IdItemRepositorio !== item.IdItemRepositorio)
+        );
+      } catch (error) {
+        avisar("No se pudo eliminar", error.message || "Ocurrió un error al eliminar el ítem.");
+      } finally {
+        setEliminandoItemId(null);
+      }
+    };
+
+    confirmar(
+      "Eliminar información",
+      `¿Seguro que querés eliminar "${item.Titulo}"?`,
+      ejecutar
+    );
+  }
+
+  async function abrirDocumento(url) {
+    try {
+      await Linking.openURL(url);
+    } catch (error) {
+      Alert.alert("Error", "No se pudo abrir el documento. Intentá nuevamente.");
+    }
+  }
+
   useEffect(() => {
     loadTripDetail();
   }, [initialTrip?.id]);
@@ -298,6 +397,13 @@ export default function TripDetailScreen({ navigation, route }) {
   useEffect(() => {
     if (activeTab === "gastos") {
       loadSettlement();
+    }
+  }, [activeTab, initialTrip?.id]);
+
+  useEffect(() => {
+    if (activeTab === "docs") {
+      loadDocumentos();
+      loadRepositorio();
     }
   }, [activeTab, initialTrip?.id]);
   
@@ -1104,12 +1210,46 @@ export default function TripDetailScreen({ navigation, route }) {
           ) : null}
 
           {activeTab === "docs" ? (
+            <>
             <View style={styles.sectionCard}>
               <Text style={styles.sectionHeading}>Documentos</Text>
 
-              <Text style={styles.sectionCopy}>
-                Reservas, vouchers y archivos del viaje aparecerán aquí.
-              </Text>
+              {loadingDocumentos ? (
+                <ActivityIndicator color={colors.primary} style={{ marginTop: spacing.md }} />
+              ) : documentosError ? (
+                <Text style={styles.settlementError}>{documentosError}</Text>
+              ) : documentos.length === 0 ? (
+                <Text style={styles.sectionCopy}>
+                  Reservas, vouchers y archivos del viaje aparecerán aquí.
+                </Text>
+              ) : (
+                <View style={{ gap: spacing.sm, marginTop: spacing.sm }}>
+                  {documentos.map((documento) => (
+                    <Pressable
+                      key={documento.IdDocumento}
+                      onPress={() => abrirDocumento(documento.UrlArchivo)}
+                      style={{
+                        flexDirection: "row",
+                        alignItems: "center",
+                        borderWidth: 1,
+                        borderColor: colors.border,
+                        borderRadius: radii.md,
+                        padding: spacing.md,
+                        gap: spacing.sm,
+                      }}
+                    >
+                      <FontAwesome6 name="file-lines" size={18} color={colors.primary} />
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.sectionCopy}>{documento.NombreArchivo}</Text>
+                        <Text style={[styles.sectionCopy, { fontSize: 12, opacity: 0.7 }]}>
+                          {documento.NombreCategoria} · Subido por {documento.NombreUsuarioSubida}
+                        </Text>
+                      </View>
+                      <FontAwesome6 name="up-right-from-square" size={14} color={colors.textSecondary} />
+                    </Pressable>
+                  ))}
+                </View>
+              )}
 
               <PrimaryButton
                 label="Subir documentos"
@@ -1120,9 +1260,142 @@ export default function TripDetailScreen({ navigation, route }) {
                     tripId: trip.id,
                   })
                 }
-                style={styles.fullButton}
+                style={[styles.fullButton, { marginTop: spacing.md }]}
               />
             </View>
+
+            <View style={[styles.sectionCard, { marginTop: spacing.md }]}>
+              <Text style={styles.sectionHeading}>Información relevante</Text>
+
+              {loadingRepositorio ? (
+                <ActivityIndicator color={colors.primary} style={{ marginTop: spacing.md }} />
+              ) : repositorioError ? (
+                <Text style={styles.settlementError}>{repositorioError}</Text>
+              ) : repositorioItems.length === 0 ? (
+                <Text style={styles.sectionCopy}>
+                  Enlaces, direcciones y contactos útiles para el viaje aparecerán aquí.
+                </Text>
+              ) : (
+                <View style={{ gap: spacing.sm, marginTop: spacing.sm }}>
+                  {repositorioItems.map((item) => {
+                    const eliminandoEsteItem = eliminandoItemId === item.IdItemRepositorio;
+                    const iconoPorTipo = {
+                      enlace: "link",
+                      direccion: "location-dot",
+                      contacto: "address-book",
+                      otro: "circle-info",
+                    };
+                    return (
+                      <View
+                        key={item.IdItemRepositorio}
+                        style={{
+                          borderWidth: 1,
+                          borderColor: colors.border,
+                          borderRadius: radii.md,
+                          padding: spacing.md,
+                          gap: 6,
+                        }}
+                      >
+                        <View style={{ flexDirection: "row", alignItems: "flex-start", gap: spacing.sm }}>
+                          <FontAwesome6
+                            name={iconoPorTipo[item.Tipo] || "circle-info"}
+                            size={16}
+                            color={colors.primary}
+                          />
+                          <View style={{ flex: 1 }}>
+                            <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                              <Text style={styles.sectionCopy}>{item.Titulo}</Text>
+                              <View
+                                style={{
+                                  paddingHorizontal: 6,
+                                  paddingVertical: 2,
+                                  borderRadius: 6,
+                                  backgroundColor: item.EsPublico ? "#e0f2fe" : "#f3e8ff",
+                                }}
+                              >
+                                <Text style={{ fontSize: 10, fontWeight: "700", color: item.EsPublico ? "#0369a1" : "#6b21a8" }}>
+                                  {item.EsPublico ? "PÚBLICO" : "PRIVADO"}
+                                </Text>
+                              </View>
+                            </View>
+                            <Text style={[styles.sectionCopy, { fontSize: 13, marginTop: 2 }]}>
+                              {item.Contenido}
+                            </Text>
+                            {item.Descripcion ? (
+                              <Text style={[styles.sectionCopy, { fontSize: 12, opacity: 0.7, marginTop: 2 }]}>
+                                {item.Descripcion}
+                              </Text>
+                            ) : null}
+                            <Text style={[styles.sectionCopy, { fontSize: 11, opacity: 0.6, marginTop: 2 }]}>
+                              Agregado por {item.NombreUsuarioCreador}
+                            </Text>
+                          </View>
+                        </View>
+
+                        <View style={{ flexDirection: "row", gap: spacing.md, marginTop: 6 }}>
+                          <Pressable
+                            onPress={() => copiarContenido(item.Contenido)}
+                            style={{ flexDirection: "row", alignItems: "center", gap: 4 }}
+                          >
+                            <FontAwesome6 name="copy" size={12} color={colors.textSecondary} />
+                            <Text style={{ fontSize: 12, color: colors.textSecondary, fontWeight: "600" }}>Copiar</Text>
+                          </Pressable>
+
+                          {item.EsPropio ? (
+                            <>
+                              <Pressable
+                                onPress={() =>
+                                  navigation.navigate("GuardarInformacion", {
+                                    tripId: trip.id,
+                                    item,
+                                    onItemGuardado: (actualizado) =>
+                                      setRepositorioItems((prev) =>
+                                        prev.map((i) =>
+                                          i.IdItemRepositorio === actualizado.IdItemRepositorio ? actualizado : i
+                                        )
+                                      ),
+                                  })
+                                }
+                                style={{ flexDirection: "row", alignItems: "center", gap: 4 }}
+                              >
+                                <FontAwesome6 name="pen" size={12} color={colors.textSecondary} />
+                                <Text style={{ fontSize: 12, color: colors.textSecondary, fontWeight: "600" }}>Editar</Text>
+                              </Pressable>
+
+                              <Pressable
+                                onPress={() => eliminarItemRepositorio(item)}
+                                disabled={eliminandoEsteItem}
+                                style={{ flexDirection: "row", alignItems: "center", gap: 4, opacity: eliminandoEsteItem ? 0.6 : 1 }}
+                              >
+                                <FontAwesome6 name="trash" size={12} color={colors.danger} />
+                                <Text style={{ fontSize: 12, color: colors.danger, fontWeight: "600" }}>
+                                  {eliminandoEsteItem ? "Eliminando..." : "Eliminar"}
+                                </Text>
+                              </Pressable>
+                            </>
+                          ) : null}
+                        </View>
+                      </View>
+                    );
+                  })}
+                </View>
+              )}
+
+              <PrimaryButton
+                label="Agregar información"
+                icon="plus"
+                iconPosition="left"
+                onPress={() =>
+                  navigation.navigate("GuardarInformacion", {
+                    tripId: trip.id,
+                    onItemGuardado: (nuevoItem) =>
+                      setRepositorioItems((prev) => [nuevoItem, ...prev]),
+                  })
+                }
+                style={[styles.fullButton, { marginTop: spacing.md }]}
+              />
+            </View>
+            </>
           ) : null}
 
           {activeTab === "votar" ? (
@@ -1164,12 +1437,17 @@ export default function TripDetailScreen({ navigation, route }) {
               ) : null}
 
               {votacionesActivas.map((votacion) => {
+                const esCancelada = votacion.Estado === "cancelada";
                 const esCerrada = votacion.Estado
                   ? votacion.Estado === "cerrada"
                   : new Date(votacion.FechaCierre) < new Date();
-                const mostrarResultados = esCerrada || votacion.YaVoto;
+                const finalizada = esCerrada || esCancelada;
+                const mostrarResultados = finalizada || votacion.YaVoto;
                 const opcionesElegidas = votosSeleccionados[votacion.IdVotacion] || [];
                 const enviandoEsteVoto = votandoId === votacion.IdVotacion;
+                const cancelandoEstaVotacion = cancelandoId === votacion.IdVotacion;
+                const esCreador = currentUser && String(currentUser.id) === String(votacion.IdCreador);
+                const puedeCancelar = esCreador && !finalizada;
 
                 const togglePropuesta = (idPropuesta, tipo) => {
                   setVotosSeleccionados(prev => {
@@ -1207,6 +1485,29 @@ export default function TripDetailScreen({ navigation, route }) {
                   }
                 };
 
+                const ejecutarCancelacion = async () => {
+                  try {
+                    setCancelandoId(votacion.IdVotacion);
+                    const actualizada = await cancelarVotacion(votacion.IdVotacion);
+                    avisar("Votación cancelada", "La votación se canceló correctamente.");
+                    setVotacionesActivas(prev =>
+                      prev.map(v => v.IdVotacion === votacion.IdVotacion ? { ...v, ...actualizada } : v)
+                    );
+                  } catch (error) {
+                    avisar("No se pudo cancelar", error.message || "Ocurrió un error al cancelar la votación.");
+                  } finally {
+                    setCancelandoId(null);
+                  }
+                };
+
+                const cancelarEstaVotacion = () => {
+                  confirmar(
+                    "Cancelar votación",
+                    `¿Seguro que querés cancelar "${votacion.Titulo}"? Los votos ya registrados se conservarán como histórico, pero no se podrán emitir nuevos votos.`,
+                    ejecutarCancelacion
+                  );
+                };
+
                 return (
                   <View key={votacion.IdVotacion} style={styles.sectionCard}>
                     <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
@@ -1240,7 +1541,7 @@ export default function TripDetailScreen({ navigation, route }) {
                         return (
                           <Pressable
                             key={propuesta.IdPropuesta}
-                            disabled={votacion.YaVoto || esCerrada}
+                            disabled={votacion.YaVoto || finalizada}
                             onPress={() => togglePropuesta(propuesta.IdPropuesta, votacion.Tipo)}
                             style={{
                               flexDirection: 'row',
@@ -1267,7 +1568,11 @@ export default function TripDetailScreen({ navigation, route }) {
                     </View>
 
                     <View style={{ marginTop: 15 }}>
-                      {esCerrada ? null : votacion.YaVoto ? (
+                      {esCancelada ? (
+                        <Text style={{ color: colors.textMuted, fontWeight: '600', fontSize: 13 }}>
+                          🚫 Esta votación fue cancelada por su creador.
+                        </Text>
+                      ) : esCerrada ? null : votacion.YaVoto ? (
                         <Text style={{ color: colors.success, fontWeight: '600', fontSize: 13 }}>✓ Ya registraste tu voto en esta decisión grupal.</Text>
                       ) : (
                         <PrimaryButton
@@ -1277,6 +1582,27 @@ export default function TripDetailScreen({ navigation, route }) {
                           style={{ marginTop: 5 }}
                         />
                       )}
+
+                      {puedeCancelar ? (
+                        <Pressable
+                          onPress={cancelarEstaVotacion}
+                          disabled={cancelandoEstaVotacion}
+                          style={{
+                            flexDirection: 'row',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: 6,
+                            marginTop: 10,
+                            paddingVertical: 10,
+                            opacity: cancelandoEstaVotacion ? 0.6 : 1,
+                          }}
+                        >
+                          <FontAwesome6 name="ban" size={12} color={colors.danger} />
+                          <Text style={{ color: colors.danger, fontWeight: '700', fontSize: 13 }}>
+                            {cancelandoEstaVotacion ? "Cancelando..." : "Cancelar votación"}
+                          </Text>
+                        </Pressable>
+                      ) : null}
                     </View>
                   </View>
                 );

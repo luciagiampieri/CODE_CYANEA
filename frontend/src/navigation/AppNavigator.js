@@ -17,6 +17,7 @@ import CrearVotacionScreen from "../screens/CrearVotacionScreen";
 import FacebookRegisterScreen from "../screens/FacebookRegisterScreen";
 import GoogleRegisterScreen from "../screens/GoogleRegisterScreen";
 import DocumentsScreen from "../screens/DocumentsScreen";
+import GuardarInformacionScreen from "../screens/GuardarInformacionScreen";
 import ExplorePlacesScreen from "../screens/ExplorePlacesScreen";
 
 const Stack = createNativeStackNavigator();
@@ -141,6 +142,15 @@ export default function AppNavigator() {
           <Stack.Screen
             name="CrearVotacion"
             component={CrearVotacionScreen}
+            options={{
+              headerShown: false,
+              gestureEnabled: true,
+              animation: "slide_from_right",
+            }}
+          />
+          <Stack.Screen
+            name="GuardarInformacion"
+            component={GuardarInformacionScreen}
             options={{
               headerShown: false,
               gestureEnabled: true,

@@ -220,3 +220,98 @@ def test_progreso_actualiza_al_emitir_nuevo_voto(client, db_session, auth_header
     resultado_asado_final = next(r for r in progreso_actualizado["Resultados"] if r["IdPropuesta"] == id_asado)
     assert progreso_actualizado["TotalVotos"] == 2
     assert resultado_asado_final["Porcentaje"] == 50.0
+
+
+def test_cancelar_votacion_activa_siendo_creador(client, auth_headers, viaje_con_admin):
+    viaje, _ = viaje_con_admin
+    crear = client.post("/api/v1/votaciones", json=_payload_votacion(viaje.IdViaje), headers=auth_headers)
+    id_votacion = crear.json()["IdVotacion"]
+
+    response = client.post(f"/api/v1/votaciones/{id_votacion}/cancelar", headers=auth_headers)
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["Estado"] == "cancelada"
+    assert body["FechaCancelacion"] is not None
+
+
+def test_cancelar_votacion_rechaza_usuario_no_creador(client, db_session, auth_headers, viaje_con_admin):
+    viaje, _ = viaje_con_admin
+    crear = client.post("/api/v1/votaciones", json=_payload_votacion(viaje.IdViaje), headers=auth_headers)
+    id_votacion = crear.json()["IdVotacion"]
+
+    _, headers_bob = _crear_usuario_miembro(db_session, viaje)
+
+    response = client.post(f"/api/v1/votaciones/{id_votacion}/cancelar", headers=headers_bob)
+
+    assert response.status_code == 403
+    assert response.json()["detail"] == "Solo el creador de la votación puede cancelarla."
+
+
+def test_cancelar_votacion_rechaza_votacion_no_activa(client, db_session, auth_headers, viaje_con_admin):
+    viaje, _ = viaje_con_admin
+    crear = client.post("/api/v1/votaciones", json=_payload_votacion(viaje.IdViaje), headers=auth_headers)
+    id_votacion = crear.json()["IdVotacion"]
+
+    _cerrar_votacion(db_session, id_votacion)
+
+    response = client.post(f"/api/v1/votaciones/{id_votacion}/cancelar", headers=auth_headers)
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "Solo se pueden cancelar votaciones que están activas."
+
+
+def test_cancelar_votacion_ya_cancelada_es_rechazada(client, auth_headers, viaje_con_admin):
+    viaje, _ = viaje_con_admin
+    crear = client.post("/api/v1/votaciones", json=_payload_votacion(viaje.IdViaje), headers=auth_headers)
+    id_votacion = crear.json()["IdVotacion"]
+
+    primera = client.post(f"/api/v1/votaciones/{id_votacion}/cancelar", headers=auth_headers)
+    segunda = client.post(f"/api/v1/votaciones/{id_votacion}/cancelar", headers=auth_headers)
+
+    assert primera.status_code == 200
+    assert segunda.status_code == 400
+
+
+def test_no_se_puede_votar_en_votacion_cancelada(client, db_session, auth_headers, viaje_con_admin):
+    viaje, _ = viaje_con_admin
+    crear = client.post("/api/v1/votaciones", json=_payload_votacion(viaje.IdViaje), headers=auth_headers)
+    id_votacion = crear.json()["IdVotacion"]
+    id_asado = crear.json()["Propuestas"][0]["IdPropuesta"]
+
+    client.post(f"/api/v1/votaciones/{id_votacion}/cancelar", headers=auth_headers)
+
+    _, headers_bob = _crear_usuario_miembro(db_session, viaje)
+    response = client.post(
+        f"/api/v1/votaciones/{id_votacion}/votar",
+        json={"idPropuestas": [id_asado]},
+        headers=headers_bob,
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "La votación fue cancelada."
+
+
+def test_cancelar_votacion_conserva_votos_existentes_como_historico(client, db_session, auth_headers, viaje_con_admin):
+    viaje, _ = viaje_con_admin
+    crear = client.post("/api/v1/votaciones", json=_payload_votacion(viaje.IdViaje), headers=auth_headers)
+    id_votacion = crear.json()["IdVotacion"]
+    id_asado = crear.json()["Propuestas"][0]["IdPropuesta"]
+
+    client.post(
+        f"/api/v1/votaciones/{id_votacion}/votar",
+        json={"idPropuestas": [id_asado]},
+        headers=auth_headers,
+    )
+
+    client.post(f"/api/v1/votaciones/{id_votacion}/cancelar", headers=auth_headers)
+
+    from app.models.voto import Voto
+    votos_restantes = db_session.query(Voto).filter_by(IdVotacion=id_votacion).all()
+    assert len(votos_restantes) == 1
+    assert votos_restantes[0].IdPropuesta == id_asado
+
+    resultados = client.get(f"/api/v1/votaciones/{id_votacion}/resultados", headers=auth_headers)
+    assert resultados.status_code == 200
+    assert resultados.json()["Estado"] == "cancelada"
+    assert resultados.json()["TotalVotos"] == 1

@@ -61,6 +61,10 @@ class Votacion(Base):
         onupdate=func.now(),
         nullable=False,
     )
+    FechaCancelacion: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
 
     # Relaciones. No tocamos Viaje/Usuario: relacion unidireccional desde aca.
     Viaje = relationship("Viaje", foreign_keys=[IdViaje])
