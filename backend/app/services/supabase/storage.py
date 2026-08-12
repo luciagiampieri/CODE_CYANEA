@@ -1,48 +1,50 @@
+from __future__ import annotations
+
+from datetime import datetime
+from pathlib import Path
 import unicodedata
+
 from fastapi import UploadFile
-from app.services.supabase.client import supabase
+
 from app.core.config import settings
+from app.services.supabase.client import supabase
 
 
 def limpiar_nombre_ruta(texto: str) -> str:
-    """Remueve tildes, acentos y espacios para que Supabase Storage no devuelva error 400."""
     if not texto:
         return ""
-    # Normaliza caracteres Unicode (separa la letra de su tilde) y descarta la tilde
-    nfkd_form = unicodedata.normalize('NFKD', texto)
-    solo_ascii = "".join([c for c in nfkd_form if not unicodedata.combining(c)])
-    # Reemplaza espacios por guiones bajos por seguridad
+
+    nfkd_form = unicodedata.normalize("NFKD", texto)
+    solo_ascii = "".join([char for char in nfkd_form if not unicodedata.combining(char)])
     return solo_ascii.replace(" ", "_")
 
 
-def subir_documento(
-    archivo: UploadFile,
-    ruta_archivo: str
-) -> str:
-    contenido = archivo.file.read()
-
-    # Sanitizamos cada segmento de la ruta o la ruta entera para limpiar tildes (ej: Documentación -> Documentacion)
+def _normalizar_ruta(ruta_archivo: str) -> str:
     partes = ruta_archivo.split("/")
     partes_limpias = [limpiar_nombre_ruta(parte) for parte in partes]
-    ruta_limpia = "/".join(partes_limpias)
+    return "/".join(partes_limpias)
+
+
+def subir_documento(archivo: UploadFile, ruta_archivo: str) -> str:
+    contenido = archivo.file.read()
+    ruta_limpia = _normalizar_ruta(ruta_archivo)
 
     supabase.storage.from_(settings.supabase_bucket).upload(
         path=ruta_limpia,
         file=contenido,
-        file_options={
-            "content-type": archivo.content_type
-        }
+        file_options={"content-type": archivo.content_type},
     )
 
     return ruta_limpia
 
 
-def obtener_url_publica(ruta_archivo: str) -> str:
-    """Arma la URL pública completa a partir de la ruta guardada en el bucket.
+def subir_foto_perfil(archivo: UploadFile, user_id: int) -> str:
+    extension = Path(archivo.filename or "foto.jpg").suffix.lower() or ".jpg"
+    timestamp = datetime.utcnow().strftime("%Y%m%d%H%M%S")
+    nombre_base = Path(archivo.filename or "foto").stem or "foto"
+    ruta_archivo = f"profile-photos/{user_id}/{timestamp}-{nombre_base}{extension}"
+    return subir_documento(archivo, ruta_archivo)
 
-    Asume que el bucket 'trip-documents' está configurado como público en
-    Supabase. Si en algún momento pasa a ser privado, esta función debería
-    reemplazarse por supabase.storage.from_(...).create_signed_url(...),
-    que genera URLs temporales en vez de permanentes.
-    """
+
+def obtener_url_publica(ruta_archivo: str) -> str:
     return supabase.storage.from_(settings.supabase_bucket).get_public_url(ruta_archivo)

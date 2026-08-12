@@ -13,7 +13,7 @@ class Usuario(Base):
     Email: Mapped[str] = mapped_column(String(255), nullable=False)
     Nombre: Mapped[str] = mapped_column(String(100), nullable=False)
     Apellido: Mapped[str] = mapped_column(String(100), nullable=False)
-    NombreUsuario: Mapped[str] = mapped_column(String(50), nullable=False)
+    NombreUsuario: Mapped[str] = mapped_column(String(50), nullable=False, unique=True)
     HashedPassword: Mapped[str] = mapped_column("HashedPassword", String(255), nullable=False)
     GoogleSub: Mapped[str | None] = mapped_column(String(255), nullable=True)
     FacebookId: Mapped[str | None] = mapped_column(String(255), nullable=True)

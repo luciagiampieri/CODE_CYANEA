@@ -3,6 +3,7 @@ import { FontAwesome6 } from "@expo/vector-icons";
 
 import HomeScreen from "../screens/HomeScreen";
 import PlaceholderScreen from "../screens/PlaceholderScreen";
+import ProfileScreen from "../screens/ProfileScreen";
 import { colors, radii, spacing, textStyles } from "../theme/tokens";
 
 const Tab = createBottomTabNavigator();
@@ -33,12 +34,8 @@ const tabs = [
   },
   {
     name: "Perfil",
-    component: PlaceholderScreen,
+    component: ProfileScreen,
     icon: "user",
-    params: {
-      title: "Perfil",
-      message: "Perfil y preferencias del usuario en una próxima iteración.",
-    },
   },
 ];
 

@@ -301,6 +301,7 @@ Orden actual:
 - el modulo de mail es compartido y debe servir para invitaciones, notificaciones futuras, recuperacion de password y casos similares
 - las notificaciones funcionales por correo deben pasar por un servicio central `NotificationService` en `backend/app/services/notifications/`
 - aunque la pantalla de perfil todavia no exista, las preferencias y el consentimiento de email se modelan desde `Usuarios` y deben viajar en `/users/me`
+- la foto de perfil del usuario se almacena en Supabase Storage dentro del bucket configurado, bajo el prefijo `profile-photos/`, y la URL resultante se persiste en `Usuarios.FotoUrl`
 - la busqueda de destinos para alta y edicion de viaje se resuelve desde backend contra Google Places y se configura con `GOOGLE_MAPS_API_KEY`
 - la portada visual del viaje se resuelve desde Google Places usando el primer destino seleccionado como referencia
 - el backend persiste `Viajes.GooglePlaceIdPortada` y expone la imagen por proxy propio para no exponer la API key de Google en el frontend
@@ -390,13 +391,14 @@ Backend:
 - listado de viajes
 - alta de viaje
 - listado de usuarios
-- usuario actual hardcodeado a `luciano` por ahora
+- el usuario actual se resuelve desde la autenticación vigente; no documentar ni asumir usuarios hardcodeados
 - invitaciones externas persistidas y preparadas para envio de mail
 
 Frontend activo:
 
 - home en Expo
 - tabs base del producto
+- pantalla de perfil con lectura y edicion de nombre, apellido, nombre de usuario y foto
 - pantalla de nuevo viaje en Expo
 - busqueda de usuarios contra backend
 - agregado de participantes registrados

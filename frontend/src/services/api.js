@@ -312,6 +312,72 @@ export async function getCurrentUser() {
   return parseResponse(response, "No se pudo obtener el usuario actual");
 }
 
+export async function updateCurrentUser(payload) {
+  const response = await fetch(`${API_BASE_URL}/users/me`, {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+      ...(await authHeaders()),
+    },
+    body: JSON.stringify(payload),
+  });
+  return parseResponse(response, "No se pudo actualizar el perfil");
+}
+
+export async function uploadProfilePhoto(archivo) {
+  const token = await getStoredToken();
+  const fileType = archivo.mimeType || archivo.type || "application/octet-stream";
+
+  if (Platform.OS === "web") {
+    const formData = new FormData();
+    const safeName = archivo.fileName || archivo.name || "perfil.jpg";
+
+    if (archivo.file instanceof Blob || archivo.file instanceof File) {
+      formData.append("archivo", archivo.file, safeName);
+    } else if (archivo.uri && archivo.uri.startsWith("blob:")) {
+      const response = await fetch(archivo.uri);
+      const blob = await response.blob();
+      formData.append("archivo", blob, safeName);
+    } else {
+      formData.append("archivo", archivo, safeName);
+    }
+
+    const response = await fetch(`${API_BASE_URL}/users/me/photo`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+      body: formData,
+    });
+
+    return parseResponse(response, "No se pudo subir la foto de perfil");
+  }
+
+  const file = new File(archivo.uri);
+  const result = await file.upload(`${API_BASE_URL}/users/me/photo`, {
+    httpMethod: "POST",
+    uploadType: UploadType.MULTIPART,
+    fieldName: "archivo",
+    mimeType: fileType,
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  });
+
+  if (result.status < 200 || result.status >= 300) {
+    let mensaje = "No se pudo subir la foto de perfil";
+    try {
+      const parsed = JSON.parse(result.body);
+      mensaje = parsed.detail || parsed.message || mensaje;
+    } catch {}
+    throw new Error(mensaje);
+  }
+
+  try {
+    return JSON.parse(result.body);
+  } catch {
+    return result.body;
+  }
+}
+
 export async function createTrip(payload) {
   const response = await fetch(`${API_BASE_URL}/trips`, {
     method: "POST",
