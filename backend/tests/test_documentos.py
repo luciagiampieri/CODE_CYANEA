@@ -24,14 +24,10 @@ def categoria_documento(db_session):
 
 @pytest.fixture(autouse=True)
 def mock_storage(monkeypatch):
-    # subir_documento en producción devuelve la ruta interna del archivo
-    # dentro del bucket, no una URL. Replicamos eso acá.
     monkeypatch.setattr(
         "app.api.routes.documentos.subir_documento",
         lambda archivo, ruta: ruta
     )
-    # obtener_url_publica es la que arma la URL visible/pública a partir
-    # de esa ruta. La mockeamos separada para no depender de Supabase real.
     monkeypatch.setattr(
         "app.api.routes.documentos.obtener_url_publica",
         lambda ruta: f"https://fake-public-url/{ruta}"

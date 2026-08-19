@@ -115,8 +115,6 @@ def test_ws_recibe_broadcast_al_crear_actividad(
 def test_ws_no_reenvia_evento_a_quien_no_esta_en_el_mismo_viaje(
     client, db_session, auth_headers, usuario_activo, viaje_con_admin, dia_cronograma
 ):
-    """Dos viajes distintos: crear una actividad en uno no debe emitir nada
-    a quien está conectado escuchando el itinerario del otro."""
     from app.models.viaje import Viaje
     from app.models.estado_viaje import EstadoViaje
     from app.models.rol_participante import RolParticipante

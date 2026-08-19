@@ -26,11 +26,35 @@ from app.schemas.place import (
     NearbyPlaceRead,
     NearbyPlacesResponse
 )
-from app.schemas.trip import ActividadRead
+from app.schemas.trip import ActividadRead, RutaDiariaRead
 from app.services.place_search import get_place_details, search_popular_places, search_trip_places, get_trip_allowed_regions, search_nearby_places, CATEGORY_TYPE_MAP
+from app.services.route_generation import sincronizar_ruta_tras_cambio_actividad
 from app.services.trip_access import get_trip_with_relations, require_trip_access
 
 router = APIRouter()
+
+
+async def _sincronizar_y_notificar_ruta(db: Session, dia: DiaCronograma, trip_id: int) -> None:
+    resultado_ruta = await sincronizar_ruta_tras_cambio_actividad(db, dia)
+    if resultado_ruta is None:
+        return
+
+    if resultado_ruta["tipo"] == "ruta_actualizada":
+        ruta_read = RutaDiariaRead.model_validate(resultado_ruta["ruta"])
+        await manager.broadcast(trip_id, {
+            "tipo": "ruta_actualizada",
+            "idDiaCronograma": dia.IdDiaCronograma,
+            "ruta": ruta_read.model_dump(by_alias=True),
+            "actividadesExcluidas": [
+                {"idActividad": a.IdActividad, "nombre": a.Nombre}
+                for a in resultado_ruta["actividadesExcluidas"]
+            ],
+        })
+    elif resultado_ruta["tipo"] == "ruta_eliminada":
+        await manager.broadcast(trip_id, {
+            "tipo": "ruta_eliminada",
+            "idDiaCronograma": dia.IdDiaCronograma,
+        })
 
 
 def _parse_time(value: str, field_name: str) -> time:
@@ -484,4 +508,7 @@ async def schedule_trip_place(
             "actividad": result.model_dump(by_alias=True),
         },
     )
+
+    await _sincronizar_y_notificar_ruta(db, day, trip_id)
+
     return result

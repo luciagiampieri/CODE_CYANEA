@@ -9,6 +9,7 @@ from datetime import date as date_type
 from app.main import app
 from app.db.session import Base, get_db
 from app.core.security import hash_password, create_access_token
+from app.services.mail import get_mail_service
 from app.models.usuario import Usuario
 from app.models.estado_viaje import EstadoViaje
 from app.models.estado_participacion import EstadoParticipacion
@@ -22,10 +23,6 @@ from app.models.participante_viaje import ParticipanteViaje
 
 @compiles(BigInteger, "sqlite")
 def _compile_big_integer_as_integer_for_sqlite(type_, compiler, **kw):
-    """SQLite solo autoincrementa PKs declaradas como INTEGER (no BIGINT).
-    Esto es solo para que los tests con SQLite generen IDs automáticamente;
-    en Postgres (producción) esto no aplica y el modelo sigue usando BIGINT.
-    """
     return "INTEGER"
 
 
@@ -39,7 +36,6 @@ TestingSessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=Fals
 
 @pytest.fixture()
 def db_session():
-    """Crea todas las tablas, entrega una sesión, y limpia todo al final."""
     Base.metadata.create_all(bind=engine)
     session = TestingSessionLocal()
     try:
@@ -47,6 +43,18 @@ def db_session():
     finally:
         session.close()
         Base.metadata.drop_all(bind=engine)
+
+
+class _FakeMailService:
+
+    def __init__(self):
+        self.enviados = []
+
+    def send_template(self, **kwargs):
+        self.enviados.append(kwargs)
+
+    def send_html(self, **kwargs):
+        self.enviados.append(kwargs)
 
 
 @pytest.fixture()
@@ -57,6 +65,7 @@ def client(db_session):
         yield db_session
 
     app.dependency_overrides[get_db] = _override_get_db
+    app.dependency_overrides[get_mail_service] = lambda: _FakeMailService()
     with TestClient(app) as test_client:
         yield test_client
     app.dependency_overrides.clear()

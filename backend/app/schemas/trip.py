@@ -75,13 +75,39 @@ class ActividadUpdate(BaseModel):
                 "La hora de fin debe ser posterior a la hora de inicio"
             )
         return self
-    
+
+
+class RutaDiariaRead(BaseModel):
+    idRutaDiaria: int = Field(..., alias="IdRutaDiaria")
+    idDiaCronograma: int = Field(..., alias="IdDiaCronograma")
+    polilineaCodificada: str = Field(..., alias="PolilineaCodificada")
+    distanciaMetros: int = Field(..., alias="DistanciaMetros")
+    duracionSegundos: int = Field(..., alias="DuracionSegundos")
+    idsActividadesOrdenadas: list[int] = Field(..., alias="IdsActividadesOrdenadas")
+    fechaGeneracion: datetime = Field(..., alias="FechaGeneracion")
+
+    class Config:
+        from_attributes = True
+        populate_by_name = True
+
+
+class ActividadExcluidaRead(BaseModel):
+    idActividad: int
+    nombre: str
+
+
+class RutaGeneradaResponse(BaseModel):
+    message: str
+    ruta: RutaDiariaRead
+    actividadesExcluidas: list[ActividadExcluidaRead] = Field(default_factory=list)
+
 
 class DiaCronogramaRead(BaseModel):
     idDiaCronograma: int = Field(..., alias="IdDiaCronograma")
     fecha: date = Field(..., alias="Fecha")
     indiceDia: int = Field(..., alias="IndiceDia")
     actividades: list[ActividadRead] = Field(default_factory=list, alias="Actividades")
+    ruta: RutaDiariaRead | None = Field(None, alias="Ruta")
 
     class Config:
         from_attributes = True

@@ -21,3 +21,10 @@ class DiaCronograma(Base):
         cascade="all, delete-orphan",
         order_by="ActividadItinerario.HoraInicio",
     )
+
+    Ruta = relationship(
+    "RutaDiaria",
+    back_populates="DiaCronograma",
+    uselist=False,
+    cascade="all, delete-orphan",
+    )
