@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, StyleSheet, Text, View } from "react-native";
 
 import { colors, radii, spacing, surfaces, textStyles } from "../../theme/tokens";
+import { decodePolyline } from "../../utils/polyline";
 
 const GOOGLE_MAPS_SCRIPT_ID = "cyanea-google-maps-script";
 
@@ -11,6 +12,8 @@ function markerIcon(kind) {
       return "https://maps.google.com/mapfiles/ms/icons/yellow-dot.png";
     case "savedPlace":
       return "https://maps.google.com/mapfiles/ms/icons/blue-dot.png";
+    case "routeStop":
+      return "https://maps.google.com/mapfiles/ms/icons/purple-dot.png";
     default:
       return "https://maps.google.com/mapfiles/ms/icons/red-dot.png";
   }
@@ -104,10 +107,12 @@ export default function MapCanvas({
   onMarkerPress,
   onPlacePick,
   onViewportChange,
+  routePolyline = null,
 }) {
   const containerRef = useRef(null);
   const mapRef = useRef(null);
   const markerRefs = useRef([]);
+  const polylineRef = useRef(null);
   const placesServiceRef = useRef(null);
   const hasUserMovedMapRef = useRef(false);
   const lastAutoViewportKeyRef = useRef("");
@@ -246,6 +251,32 @@ export default function MapCanvas({
       cancelled = true;
     };
   }, [fallbackCenter, initialCenter, offline]);
+
+  useEffect(() => {
+    if (status !== "ready" || !mapRef.current || !window.google?.maps) return;
+
+    if (polylineRef.current) {
+      polylineRef.current.setMap(null);
+      polylineRef.current = null;
+    }
+
+    const path = decodePolyline(routePolyline);
+    if (path.length === 0) return;
+
+    const polyline = new window.google.maps.Polyline({
+      path,
+      geodesic: true,
+      strokeColor: colors.accentStrong,
+      strokeOpacity: 1,
+      strokeWeight: 4,
+    });
+    polyline.setMap(mapRef.current);
+    polylineRef.current = polyline;
+
+    const bounds = new window.google.maps.LatLngBounds();
+    path.forEach((point) => bounds.extend(point));
+    mapRef.current.fitBounds(bounds, 64);
+  }, [routePolyline, status]);
 
   useEffect(() => {
     if (status !== "ready" || !mapRef.current || !window.google?.maps) return;

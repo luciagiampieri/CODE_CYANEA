@@ -1,10 +1,12 @@
 import { FontAwesome6 } from "@expo/vector-icons";
-import { useMemo } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { useMemo, useState } from "react";
+import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
 
+import MapCanvas from "../map/MapCanvas";
 import useResponsive from "../../hooks/useResponsive";
 import { colors, radii, spacing, surfaces, textStyles } from "../../theme/tokens";
 import { calcularActividadesSolapadas } from "../../utils/itinerarioOverlaps";
+import { buildRouteMarkers } from "../../utils/routeMarkers";
 
 const ANCHO_MINIMO_COLUMNA = 240;
 const MAXIMO_COLUMNAS = 4;
@@ -15,8 +17,11 @@ export default function ItinerarioCalendarView({
   onEditActivity,
   onDeleteActivity,
   onAddActivity,
+  onGenerarRuta,
+  generandoRutaDayId = null,
 }) {
   const { width } = useResponsive();
+  const [diaConMapaVisible, setDiaConMapaVisible] = useState(null);
 
   const columnas = useMemo(() => {
     const anchoDisponible = Math.max(width - spacing.lg * 2, ANCHO_MINIMO_COLUMNA);
@@ -121,6 +126,86 @@ export default function ItinerarioCalendarView({
                   <FontAwesome6 color={colors.primary} name="plus" size={11} />
                   <Text style={styles.agregarTexto}>Agregar</Text>
                 </Pressable>
+
+                {(() => {
+                  const actividadesConUbicacion = (dia.actividades ?? []).filter(
+                    (item) => item.idLugarInteres || item.lugarInteres
+                  );
+                  const puedeGenerarRuta = actividadesConUbicacion.length >= 2;
+                  const generando = generandoRutaDayId === dia.dayId;
+                  const routeMarkers = buildRouteMarkers(dia.actividades, dia.ruta);
+                  const mapaVisible = diaConMapaVisible === dia.dayId;
+
+                  return (
+                    <View style={styles.routeSection}>
+                      {dia.ruta ? (
+                        <View style={styles.routeSummaryRow}>
+                          <View style={styles.routeSummary}>
+                            <FontAwesome6 color={colors.primary} name="route" size={11} />
+                            <Text style={styles.routeSummaryText}>
+                              {(dia.ruta.distanciaMetros / 1000).toFixed(1)} km ·{" "}
+                              {Math.round(dia.ruta.duracionSegundos / 60)} min
+                            </Text>
+                          </View>
+                          {dia.ruta.polilineaCodificada ? (
+                            <Pressable
+                              onPress={() =>
+                                setDiaConMapaVisible((current) =>
+                                  current === dia.dayId ? null : dia.dayId
+                                )
+                              }
+                              style={styles.routeMapToggle}
+                            >
+                              <FontAwesome6
+                                color={colors.primary}
+                                name={mapaVisible ? "chevron-up" : "map-location-dot"}
+                                size={10}
+                              />
+                              <Text style={styles.routeMapToggleText}>
+                                {mapaVisible ? "Ocultar" : "Ver mapa"}
+                              </Text>
+                            </Pressable>
+                          ) : null}
+                        </View>
+                      ) : null}
+
+                      {dia.ruta && mapaVisible ? (
+                        <View style={styles.routeMapWrap}>
+                          <MapCanvas
+                            initialCenter={
+                              routeMarkers[0]
+                                ? { lat: routeMarkers[0].lat, lng: routeMarkers[0].lng }
+                                : undefined
+                            }
+                            markers={routeMarkers}
+                            routePolyline={dia.ruta.polilineaCodificada}
+                          />
+                        </View>
+                      ) : null}
+
+                      {puedeGenerarRuta ? (
+                        <Pressable
+                          disabled={generando}
+                          onPress={() => onGenerarRuta?.(dia.dayId)}
+                          style={[styles.agregarBoton, generando && styles.agregarBotonDisabled]}
+                        >
+                          {generando ? (
+                            <ActivityIndicator color={colors.primary} size="small" />
+                          ) : (
+                            <FontAwesome6 color={colors.primary} name="route" size={11} />
+                          )}
+                          <Text style={styles.agregarTexto}>
+                            {generando ? "Generando..." : dia.ruta ? "Regenerar ruta" : "Generar ruta"}
+                          </Text>
+                        </Pressable>
+                      ) : (
+                        <Text style={styles.routeHint}>
+                          Agregá 2+ actividades con ubicación para generar una ruta.
+                        </Text>
+                      )}
+                    </View>
+                  );
+                })()}
               </View>
             </View>
           </View>
@@ -240,6 +325,54 @@ const styles = StyleSheet.create({
         ...textStyles.bodyStrong,
         color: colors.primary,
         fontSize: 12,
+    },
+    agregarBotonDisabled: {
+        opacity: 0.6,
+    },
+    routeSection: {
+        marginTop: spacing.xs,
+        gap: spacing.xxs,
+    },
+    routeSummaryRow: {
+        flexDirection: "row",
+        alignItems: "center",
+        justifyContent: "space-between",
+        gap: spacing.xs,
+        flexWrap: "wrap",
+    },
+    routeSummary: {
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 4,
+        backgroundColor: colors.surfaceAlt,
+        borderRadius: radii.pill ?? 999,
+        paddingVertical: 4,
+        paddingHorizontal: spacing.xs,
+    },
+    routeSummaryText: {
+        ...textStyles.meta,
+        color: colors.primary,
+        fontSize: 11,
+        fontWeight: "600",
+    },
+    routeMapToggle: {
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 4,
+    },
+    routeMapToggleText: {
+        ...textStyles.meta,
+        color: colors.primary,
+        fontSize: 11,
+        fontWeight: "600",
+    },
+    routeMapWrap: {
+        marginTop: spacing.xxs,
+    },
+    routeHint: {
+        ...textStyles.meta,
+        color: colors.textMuted,
+        fontSize: 11,
     },
     sectionCard: {
         ...surfaces.card,

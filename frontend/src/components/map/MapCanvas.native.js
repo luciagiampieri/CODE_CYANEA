@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { StyleSheet, Text, View } from "react-native";
-import MapView, { Marker, PROVIDER_GOOGLE } from "react-native-maps";
+import MapView, { Marker, Polyline, PROVIDER_GOOGLE } from "react-native-maps";
 import { FontAwesome6 } from "@expo/vector-icons";
 
 import { colors, radii, spacing, surfaces, textStyles } from "../../theme/tokens";
+import { decodePolyline } from "../../utils/polyline";
 
 const DEFAULT_CENTER = {
   latitude: -34.6037,
@@ -31,6 +32,8 @@ function resolveMarkerColor(kind) {
       return colors.accentStrong;
     case "savedPlace":
       return colors.primarySoft;
+    case "routeStop":
+      return colors.primary;
     default:
       return colors.danger;
   }
@@ -43,6 +46,7 @@ export default function MapCanvas({
   onMarkerPress,
   onPlacePick,
   onViewportChange,
+  routePolyline = null,
 }) {
   const mapRef = useRef(null);
   const hasMountedRegionRef = useRef(false);
@@ -55,6 +59,23 @@ export default function MapCanvas({
       ),
     [markers]
   );
+
+  const routeCoordinates = useMemo(
+    () =>
+      decodePolyline(routePolyline).map((point) => ({
+        latitude: point.lat,
+        longitude: point.lng,
+      })),
+    [routePolyline]
+  );
+
+  useEffect(() => {
+    if (!mapRef.current || routeCoordinates.length === 0) return;
+    mapRef.current.fitToCoordinates(routeCoordinates, {
+      edgePadding: { top: 60, right: 60, bottom: 60, left: 60 },
+      animated: true,
+    });
+  }, [routeCoordinates]);
 
   useEffect(() => {
     if (hasMountedRegionRef.current) return;
@@ -121,6 +142,14 @@ export default function MapCanvas({
               description={marker.address}
             />
           ))}
+
+          {routeCoordinates.length > 0 ? (
+            <Polyline
+              coordinates={routeCoordinates}
+              strokeColor={colors.accentStrong}
+              strokeWidth={4}
+            />
+          ) : null}
         </MapView>
 
         <View pointerEvents="none" style={styles.overlayTop}>

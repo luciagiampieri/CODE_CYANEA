@@ -147,6 +147,14 @@ export async function getTripDetail(tripId) {
   return parseResponse(response, "No se pudo obtener el detalle del viaje");
 }
 
+export async function generateTripRoute(tripId, dayId) {
+  const response = await fetch(`${API_BASE_URL}/trips/${tripId}/days/${dayId}/route`, {
+    method: "POST",
+    headers: await authHeaders(),
+  });
+  return parseResponse(response, "No se pudo generar la ruta");
+}
+
 export async function getTripPlaces(tripId) {
   const response = await fetch(`${API_BASE_URL}/trips/${tripId}/places`, {
     headers: await authHeaders(),
@@ -692,7 +700,6 @@ export async function uploadTripDocument(
 
     return parseResponse(response, "No se pudo subir el documento");
   } else {
-    // Nativo: API nueva de expo-file-system (SDK 54+)
     const file = new File(archivo.uri);
 
     const parameters = {
@@ -716,7 +723,6 @@ export async function uploadTripDocument(
       }
     );
 
-    // result: { status, headers, body } — no es un Response de fetch
     if (result.status < 200 || result.status >= 300) {
       let mensaje = "No se pudo subir el documento";
       try {
