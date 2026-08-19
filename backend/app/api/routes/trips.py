@@ -6,6 +6,7 @@ from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from fastapi.responses import RedirectResponse
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
@@ -56,14 +57,46 @@ from app.services.notifications.invitation_email_sender import (
 from app.services.destination_search import build_destination_image_url, search_destinations
 from app.services.place_search import get_place_photo_uri
 from app.services.trip_access import get_trip_with_relations, require_trip_access
-from app.models.ruta_diaria import RutaDiaria
-from app.services.route_generation import (
-    RutaProviderError,
-    RutaValidationError,
-    generar_ruta_diaria,
-    sincronizar_ruta_tras_cambio_actividad,
-)
-from app.schemas.trip import RutaDiariaRead, RutaGeneradaResponse, ActividadExcluidaRead
+
+ROUTE_GENERATION_AVAILABLE = True
+try:
+    from app.services.route_generation import (
+        RutaProviderError,
+        RutaValidationError,
+        generar_ruta_diaria,
+        sincronizar_ruta_tras_cambio_actividad,
+    )
+    from app.schemas.trip import RutaDiariaRead, RutaGeneradaResponse, ActividadExcluidaRead
+except (ImportError, ModuleNotFoundError):
+    ROUTE_GENERATION_AVAILABLE = False
+
+    class RutaProviderError(Exception):
+        """Error al generar rutas cuando el proveedor no está disponible."""
+
+    class RutaValidationError(Exception):
+        """Error de validación de datos para generación de rutas."""
+
+        def __init__(self, message: str):
+            super().__init__(message)
+            self.message = message
+
+    async def generar_ruta_diaria(db: Session, dia: DiaCronograma):
+        raise RutaProviderError("La generación de rutas no está disponible.")
+
+    async def sincronizar_ruta_tras_cambio_actividad(db: Session, dia: DiaCronograma):
+        return None
+
+    class ActividadExcluidaRead(BaseModel):
+        idActividad: int
+        nombre: str
+
+    class RutaDiariaRead(BaseModel):
+        model_config = ConfigDict(extra="allow")
+
+    class RutaGeneradaResponse(BaseModel):
+        message: str
+        ruta: RutaDiariaRead | None = None
+        actividadesExcluidas: list[ActividadExcluidaRead] = Field(default_factory=list)
 
 
 router = APIRouter()
@@ -154,6 +187,9 @@ async def _sincronizar_y_notificar_ruta(db: Session, dia: DiaCronograma, trip_id
     """Tras crear/editar/eliminar una actividad, regenera o elimina la ruta
     del día (si ya existía una) y avisa por WebSocket a todos los conectados.
     No hace nada si el día nunca tuvo una ruta generada (CA3/CA6)."""
+    if not ROUTE_GENERATION_AVAILABLE:
+        return
+
     resultado_ruta = await sincronizar_ruta_tras_cambio_actividad(db, dia)
     if resultado_ruta is None:
         return
@@ -223,7 +259,6 @@ def _build_trip_detail(viaje: Viaje) -> TripDetailRead:
                     _build_actividad_read(actividad)
                     for actividad in (dia.Actividades or [])
                 ],
-                Ruta=dia.Ruta,
             )
             for dia in (viaje.Cronograma or [])
         ],
@@ -851,6 +886,12 @@ async def generate_route(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
 ) -> RutaGeneradaResponse:
+    if not ROUTE_GENERATION_AVAILABLE:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="La generación de rutas no está disponible en este entorno.",
+        )
+
     viaje = require_trip_access(get_trip_with_relations(db, trip_id), current_user)
 
     dia = db.scalar(

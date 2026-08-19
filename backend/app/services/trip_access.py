@@ -17,7 +17,6 @@ def get_trip_with_relations(db: Session, trip_id: int) -> Viaje | None:
             selectinload(Viaje.Administrador),
             selectinload(Viaje.EstadoViaje),
             selectinload(Viaje.Cronograma).selectinload(DiaCronograma.Actividades),
-            selectinload(Viaje.Cronograma).selectinload(DiaCronograma.Ruta),
             selectinload(Viaje.Participantes).selectinload(ParticipanteViaje.Usuario),
             selectinload(Viaje.Participantes).selectinload(ParticipanteViaje.RolParticipante),
             selectinload(Viaje.Participantes).selectinload(ParticipanteViaje.EstadoParticipacion),
