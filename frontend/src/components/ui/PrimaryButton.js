@@ -16,6 +16,7 @@ export default function PrimaryButton({
 }) {
   const isPrimary = variant === "primary";
   const indicatorColor = isPrimary ? colors.textInverse : colors.primary;
+  const iconOnly = Boolean(icon) && !label;
 
   return (
     <Pressable
@@ -24,6 +25,7 @@ export default function PrimaryButton({
       style={({ pressed }) => [
         styles.button,
         isPrimary ? styles.buttonPrimary : styles.buttonSecondary,
+        iconOnly && styles.buttonIconOnly,
         (disabled || loading) && styles.buttonDisabled,
         pressed && !disabled && !loading ? styles.buttonPressed : null,
         style,
@@ -34,13 +36,25 @@ export default function PrimaryButton({
       ) : (
         <>
           {icon && iconPosition === "left" ? (
-            <FontAwesome6 color={indicatorColor} name={icon} size={14} style={styles.iconLeft} />
+            <FontAwesome6
+              color={indicatorColor}
+              name={icon}
+              size={14}
+              style={!iconOnly ? styles.iconLeft : null}
+            />
           ) : null}
-          <Text style={[styles.label, isPrimary ? styles.labelPrimary : styles.labelSecondary, textStyle]}>
-            {label}
-          </Text>
+          {label ? (
+            <Text style={[styles.label, isPrimary ? styles.labelPrimary : styles.labelSecondary, textStyle]}>
+              {label}
+            </Text>
+          ) : null}
           {icon && iconPosition === "right" ? (
-            <FontAwesome6 color={indicatorColor} name={icon} size={14} style={styles.iconRight} />
+            <FontAwesome6
+              color={indicatorColor}
+              name={icon}
+              size={14}
+              style={!iconOnly ? styles.iconRight : null}
+            />
           ) : null}
         </>
       )}
@@ -65,6 +79,10 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surface,
     borderWidth: 1,
     borderColor: colors.border,
+  },
+  buttonIconOnly: {
+    width: 54,
+    paddingHorizontal: 0,
   },
   buttonDisabled: {
     opacity: 0.6,

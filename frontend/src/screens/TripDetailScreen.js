@@ -913,7 +913,7 @@ export default function TripDetailScreen({ navigation, route }) {
                 onPress={() => setActiveTab(tab.id)}
                 style={[styles.tabButton, active && styles.tabButtonActive]}
               >
-                <FontAwesome6 color={active ? colors.accent : colors.primary} name={tab.icon} size={12} />
+                <FontAwesome6 color={active ? colors.accent : colors.primary} name={tab.icon} size={18} />
                 <Text style={[styles.tabText, active && styles.tabTextActive]}>{tab.label}</Text>
               </Pressable>
             );

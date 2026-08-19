@@ -19,6 +19,7 @@ import GoogleRegisterScreen from "../screens/GoogleRegisterScreen";
 import DocumentsScreen from "../screens/DocumentsScreen";
 import GuardarInformacionScreen from "../screens/GuardarInformacionScreen";
 import ExplorePlacesScreen from "../screens/ExplorePlacesScreen";
+import EditProfileScreen from "../screens/EditProfileScreen";
 
 const Stack = createNativeStackNavigator();
 
@@ -97,6 +98,15 @@ export default function AppNavigator() {
           <Stack.Screen
             name="EditarViaje"
             component={EditTripScreen}
+            options={{
+              headerShown: false,
+              gestureEnabled: true,
+              animation: "slide_from_right",
+            }}
+          />
+          <Stack.Screen
+            name="EditarPerfil"
+            component={EditProfileScreen}
             options={{
               headerShown: false,
               gestureEnabled: true,

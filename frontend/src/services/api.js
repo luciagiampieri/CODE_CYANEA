@@ -312,6 +312,13 @@ export async function getCurrentUser() {
   return parseResponse(response, "No se pudo obtener el usuario actual");
 }
 
+export async function getPaisesVisitados() {
+  const response = await fetch(`${API_BASE_URL}/users/me/paises-visitados`, {
+    headers: await authHeaders(),
+  });
+  return parseResponse(response, "No se pudieron obtener los países visitados");
+}
+
 export async function updateCurrentUser(payload) {
   const response = await fetch(`${API_BASE_URL}/users/me`, {
     method: "PUT",

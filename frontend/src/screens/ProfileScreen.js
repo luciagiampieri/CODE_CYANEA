@@ -1,14 +1,12 @@
-import * as ImagePicker from "expo-image-picker";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { useFocusEffect } from "@react-navigation/native";
 import {
-  Alert,
-  KeyboardAvoidingView,
-  Platform,
+  ActivityIndicator,
+  Image,
+  Pressable,
   ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   View,
 } from "react-native";
 
@@ -16,10 +14,11 @@ import ScreenContainer from "../components/layout/ScreenContainer";
 import Avatar from "../components/ui/Avatar";
 import PrimaryButton from "../components/ui/PrimaryButton";
 import useResponsive from "../hooks/useResponsive";
-import { getCurrentUser, updateCurrentUser, uploadProfilePhoto } from "../services/api";
+import { getCurrentUser, getPaisesVisitados, getTrips } from "../services/api";
 import { colors, radii, spacing, surfaces, textStyles } from "../theme/tokens";
 
-const initialForm = {
+const initialProfile = {
+  id: null,
   nombre: "",
   apellido: "",
   nombreUsuario: "",
@@ -27,307 +26,522 @@ const initialForm = {
   fotoUrl: "",
 };
 
+
+const COUNTRY_CODES = {
+  argentina: "ar",
+  brasil: "br",
+  chile: "cl",
+  uruguay: "uy",
+  paraguay: "py",
+  bolivia: "bo",
+  peru: "pe",
+  "perú": "pe",
+  colombia: "co",
+  ecuador: "ec",
+  mexico: "mx",
+  "méxico": "mx",
+  espana: "es",
+  "españa": "es",
+  francia: "fr",
+  italia: "it",
+  portugal: "pt",
+  alemania: "de",
+  "estados unidos": "us",
+  japon: "jp",
+  "japón": "jp",
+};
+
+function flagImageUrlFor(country) {
+  const code = COUNTRY_CODES[country.trim().toLowerCase()];
+  return code ? `https://flagcdn.com/h80/${code}.png` : null;
+}
+
+function formatFechaCorta(fechaIso) {
+  if (!fechaIso) return "";
+  const fecha = new Date(`${fechaIso}T00:00:00`);
+  return fecha.toLocaleDateString("es-AR", { day: "2-digit", month: "short" });
+}
+
+function calcularProximoViaje(viajes) {
+  const hoy = new Date();
+  hoy.setHours(0, 0, 0, 0);
+  let proximo = null;
+
+  for (const viaje of viajes) {
+    if (viaje.status === "activo" && viaje.startDate) {
+      const inicio = new Date(`${viaje.startDate}T00:00:00`);
+      if (inicio >= hoy && (!proximo || inicio < new Date(`${proximo.startDate}T00:00:00`))) {
+        proximo = viaje;
+      }
+    }
+  }
+
+  return proximo;
+}
+
+
+function calcularEstadisticas(viajes, idUsuarioActual, year) {
+  const filtrados = year == null
+    ? viajes
+    : viajes.filter((viaje) => viaje.startDate && new Date(`${viaje.startDate}T00:00:00`).getFullYear() === year);
+
+  const amigosIds = new Set();
+  const paisesSet = new Set();
+
+  for (const viaje of filtrados) {
+    for (const participante of viaje.participants ?? []) {
+      if (participante.id !== idUsuarioActual) {
+        amigosIds.add(participante.id);
+      }
+    }
+    for (const destino of viaje.destinations ?? []) {
+      if (destino.country) {
+        paisesSet.add(destino.country);
+      }
+    }
+  }
+
+  return {
+    totalViajes: filtrados.length,
+    totalAmigos: amigosIds.size,
+    totalPaises: paisesSet.size,
+  };
+}
+
 export default function ProfileScreen({ navigation }) {
-  const [form, setForm] = useState(initialForm);
-  const [errors, setErrors] = useState({});
+  const [profile, setProfile] = useState(initialProfile);
+  const [paises, setPaises] = useState([]);
+  const [trips, setTrips] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [statusMessage, setStatusMessage] = useState("");
+  const [selectedYear, setSelectedYear] = useState(null);
   const { isDesktop } = useResponsive();
 
-  useEffect(() => {
-    loadProfile();
-  }, []);
+  useFocusEffect(
+    useCallback(() => {
+      let active = true;
 
-  useFocusEffect(() => {
-    setStatusMessage("");
-    return () => {
-      setStatusMessage("");
-    };
-  });
+      async function loadData() {
+        setLoading(true);
+        setStatusMessage("");
+        try {
+          const [data, visitados, viajes] = await Promise.all([
+            getCurrentUser(),
+            getPaisesVisitados().catch(() => ({ paises: [] })),
+            getTrips().catch(() => []),
+          ]);
+          if (!active) return;
 
-  async function loadProfile() {
-    setLoading(true);
-    setStatusMessage("");
-    try {
-      const profile = await getCurrentUser();
-      setForm({
-        nombre: profile.nombre ?? "",
-        apellido: profile.apellido ?? "",
-        nombreUsuario: profile.nombreUsuario ?? "",
-        email: profile.email ?? "",
-        fotoUrl: profile.fotoUrl ?? "",
-      });
-    } catch (error) {
-      setStatusMessage(error.message || "No se pudo cargar el perfil.");
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  function updateField(field, value) {
-    setForm((current) => ({ ...current, [field]: value }));
-    setErrors((current) => ({ ...current, [field]: null }));
-    setStatusMessage("");
-  }
-
-  function validateForm() {
-    const nextErrors = {};
-    if (!form.nombre.trim()) nextErrors.nombre = "El nombre es obligatorio.";
-    if (!form.apellido.trim()) nextErrors.apellido = "El apellido es obligatorio.";
-    if (!form.nombreUsuario.trim()) nextErrors.nombreUsuario = "El nombre de usuario es obligatorio.";
-    setErrors(nextErrors);
-    return Object.keys(nextErrors).length === 0;
-  }
-
-  async function handleSave() {
-    if (!validateForm()) {
-      return;
-    }
-
-    setSaving(true);
-    setStatusMessage("");
-    try {
-      const updated = await updateCurrentUser({
-        nombre: form.nombre,
-        apellido: form.apellido,
-        nombreUsuario: form.nombreUsuario,
-        fotoUrl: form.fotoUrl || null,
-      });
-
-      setForm((current) => ({
-        ...current,
-        nombre: updated.nombre ?? current.nombre,
-        apellido: updated.apellido ?? current.apellido,
-        nombreUsuario: updated.nombreUsuario ?? current.nombreUsuario,
-        email: updated.email ?? current.email,
-        fotoUrl: updated.fotoUrl ?? current.fotoUrl,
-      }));
-      setStatusMessage("La información del perfil se actualizó correctamente.");
-      Alert.alert("Perfil actualizado", "La información del perfil se actualizó correctamente.");
-      navigation.navigate("Inicio");
-    } catch (error) {
-      setStatusMessage(error.message || "No se pudieron guardar los cambios.");
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  async function handleSelectPhoto() {
-    setStatusMessage("");
-    try {
-      const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
-        allowsEditing: true,
-        aspect: [1, 1],
-        quality: 0.85,
-      });
-
-      if (result.canceled || !result.assets?.length) {
-        return;
+          setProfile({
+            id: data.id ?? null,
+            nombre: data.nombre ?? "",
+            apellido: data.apellido ?? "",
+            nombreUsuario: data.nombreUsuario ?? "",
+            email: data.email ?? "",
+            fotoUrl: data.fotoUrl ?? "",
+          });
+          setPaises(visitados.paises ?? []);
+          setTrips(Array.isArray(viajes) ? viajes : []);
+        } catch (error) {
+          if (active) {
+            setStatusMessage(error.message || "No se pudo cargar el perfil.");
+          }
+        } finally {
+          if (active) setLoading(false);
+        }
       }
 
-      const asset = result.assets[0];
-      setUploadingPhoto(true);
-      const upload = await uploadProfilePhoto({
-        uri: asset.uri,
-        mimeType: asset.mimeType,
-        fileName: asset.fileName || asset.file?.name || `perfil.${asset.uri.split(".").pop() || "jpg"}`,
-        file: asset.file,
-      });
-
-      setForm((current) => ({
-        ...current,
-        fotoUrl: upload.fotoUrl,
-      }));
-      setStatusMessage(upload.message || "Foto de perfil actualizada correctamente.");
-    } catch (error) {
-      setStatusMessage(error.message || "No se pudo actualizar la foto de perfil.");
-    } finally {
-      setUploadingPhoto(false);
-    }
-  }
-
-  const fieldShellStyle = useMemo(
-    () => [styles.formShell, isDesktop && styles.formShellDesktop],
-    [isDesktop]
+      loadData();
+      return () => {
+        active = false;
+      };
+    }, [])
   );
+
+  const nombreCompleto = `${profile.nombre} ${profile.apellido}`.trim();
+  const cardStyle = [styles.card, isDesktop && styles.cardDesktop];
+
+  const proximoViaje = useMemo(() => calcularProximoViaje(trips), [trips]);
+
+  const aniosDisponibles = useMemo(() => {
+    const anios = new Set();
+    for (const viaje of trips) {
+      if (viaje.startDate) {
+        anios.add(new Date(`${viaje.startDate}T00:00:00`).getFullYear());
+      }
+    }
+    return Array.from(anios).sort((a, b) => b - a);
+  }, [trips]);
+
+  const estadisticasAnio = useMemo(
+    () => calcularEstadisticas(trips, profile.id, selectedYear),
+    [trips, profile.id, selectedYear]
+  );
+
+  const destinoLabel = proximoViaje?.destinations?.length
+    ? proximoViaje.destinations.map((destino) => destino.name).join(" · ")
+    : proximoViaje?.title;
 
   return (
     <ScreenContainer>
-      <KeyboardAvoidingView
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
-        style={styles.flex}
-      >
-        <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-          <View style={fieldShellStyle}>
-            <Text style={styles.eyebrow}>Perfil</Text>
-            <Text style={styles.title}>Gestiona tu cuenta</Text>
-            <Text style={styles.copy}>
-              Actualiza tus datos personales y tu foto para mantener el perfil al día.
-            </Text>
-
-            <View style={styles.avatarSection}>
-              <Avatar imageUrl={form.fotoUrl} name={`${form.nombre} ${form.apellido}`} size={92} />
-              <PrimaryButton
-                icon="image"
-                iconPosition="left"
-                label={uploadingPhoto ? "Subiendo foto..." : "Cambiar foto"}
-                loading={uploadingPhoto}
-                onPress={handleSelectPhoto}
-                style={styles.photoButton}
-                variant="secondary"
-              />
+      <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+        <View style={cardStyle}>
+          {loading ? (
+            <View style={styles.loadingBlock}>
+              <ActivityIndicator color={colors.primary} size="large" />
             </View>
-
-            <View style={styles.formGrid}>
-              <View style={styles.fieldBlock}>
-                <Text style={styles.label}>Nombre</Text>
-                <TextInput
-                  onChangeText={(value) => updateField("nombre", value)}
-                  placeholder="Nombre"
-                  placeholderTextColor={colors.textMuted}
-                  style={[styles.input, errors.nombre && styles.inputError]}
-                  value={form.nombre}
+          ) : (
+            <>
+              <View style={styles.topRow}>
+                <View style={styles.headerRow}>
+                  <Avatar imageUrl={profile.fotoUrl} name={nombreCompleto || "?"} size={72} />
+                  <View style={styles.headerText}>
+                    <Text style={styles.name} numberOfLines={1}>
+                      {nombreCompleto || "Sin nombre"}
+                    </Text>
+                    {profile.nombreUsuario ? (
+                      <Text style={styles.username}>@{profile.nombreUsuario}</Text>
+                    ) : null}
+                  </View>
+                </View>
+                <PrimaryButton
+                  icon="gear"
+                  label=""
+                  onPress={() => navigation.navigate("EditarPerfil")}
+                  style={styles.settingsButton}
+                  variant="secondary"
                 />
-                {errors.nombre ? <Text style={styles.errorText}>{errors.nombre}</Text> : null}
               </View>
 
-              <View style={styles.fieldBlock}>
-                <Text style={styles.label}>Apellido</Text>
-                <TextInput
-                  onChangeText={(value) => updateField("apellido", value)}
-                  placeholder="Apellido"
-                  placeholderTextColor={colors.textMuted}
-                  style={[styles.input, errors.apellido && styles.inputError]}
-                  value={form.apellido}
-                />
-                {errors.apellido ? <Text style={styles.errorText}>{errors.apellido}</Text> : null}
+              <View style={styles.sectionBlock}>
+                <Text style={styles.sectionLabel}>Próximo viaje</Text>
+                {proximoViaje ? (
+                  <Pressable
+                    onPress={() =>
+                      navigation.navigate("TripDetail", {
+                        tripId: proximoViaje.id,
+                        trip: proximoViaje,
+                      })
+                    }
+                    style={({ pressed }) => [
+                      styles.nextTripCard,
+                      pressed && styles.nextTripCardPressed,
+                    ]}
+                  >
+                    {proximoViaje.image ? (
+                      <Image source={{ uri: proximoViaje.image }} style={styles.nextTripImage} />
+                    ) : (
+                      <View style={[styles.nextTripImage, styles.nextTripImageFallback]}>
+                        <Text style={styles.nextTripImageFallbackText}>✈️</Text>
+                      </View>
+                    )}
+                    <View style={styles.nextTripInfo}>
+                      <Text style={styles.nextTripTitle} numberOfLines={1}>
+                        {proximoViaje.title}
+                      </Text>
+                      {destinoLabel ? (
+                        <Text style={styles.nextTripDestino} numberOfLines={1}>
+                          {destinoLabel}
+                        </Text>
+                      ) : null}
+                      <Text style={styles.nextTripFechas}>
+                        {formatFechaCorta(proximoViaje.startDate)} - {formatFechaCorta(proximoViaje.endDate)}
+                      </Text>
+                    </View>
+                  </Pressable>
+                ) : (
+                  <Text style={styles.emptyText}>
+                    Todavía no tenés un próximo viaje planeado.
+                  </Text>
+                )}
               </View>
 
-              <View style={styles.fieldBlock}>
-                <Text style={styles.label}>Nombre de usuario</Text>
-                <TextInput
-                  autoCapitalize="none"
-                  onChangeText={(value) => updateField("nombreUsuario", value)}
-                  placeholder="Nombre de usuario"
-                  placeholderTextColor={colors.textMuted}
-                  style={[styles.input, errors.nombreUsuario && styles.inputError]}
-                  value={form.nombreUsuario}
-                />
-                {errors.nombreUsuario ? <Text style={styles.errorText}>{errors.nombreUsuario}</Text> : null}
+              <View style={styles.sectionBlock}>
+                <Text style={styles.sectionLabel}>Pasaporte</Text>
+                {paises.length > 0 ? (
+                  <View style={styles.passportContainer}>
+                    <View style={styles.passportGrid}>
+                      {paises.map((pais) => {
+                        const flagUrl = flagImageUrlFor(pais);
+                        return (
+                          <View key={pais} style={styles.stamp}>
+                            {flagUrl ? (
+                              <Image source={{ uri: flagUrl }} style={styles.stampFlagImage} />
+                            ) : (
+                              <Text style={styles.stampFlagFallback}>🌍</Text>
+                            )}
+                            <Text style={styles.stampLabel} numberOfLines={1}>
+                              {pais}
+                            </Text>
+                          </View>
+                        );
+                      })}
+                    </View>
+                  </View>
+                ) : (
+                  <View style={styles.passportContainer}>
+                    <Text style={styles.emptyText}>
+                      Todavía no completaste ningún viaje. ¡Tu primer país visitado va a aparecer acá!
+                    </Text>
+                  </View>
+                )}
               </View>
 
-              <View style={styles.fieldBlock}>
-                <Text style={styles.label}>Correo electrónico</Text>
-                <TextInput
-                  editable={false}
-                  selectTextOnFocus={false}
-                  style={[styles.input, styles.inputReadonly]}
-                  value={form.email}
-                />
-                <Text style={styles.helperText}>Este dato es solo de lectura.</Text>
-              </View>
-            </View>
+              {trips.length > 0 ? (
+                <View style={styles.sectionBlock}>
+                  <Text style={styles.sectionLabel}>Estadísticas por año</Text>
 
-            {statusMessage ? (
-              <Text style={styles.statusText}>{statusMessage}</Text>
-            ) : null}
+                  <ScrollView
+                    horizontal
+                    showsHorizontalScrollIndicator={false}
+                    contentContainerStyle={styles.yearPillsRow}
+                  >
+                    <Pressable
+                      onPress={() => setSelectedYear(null)}
+                      style={[styles.yearPill, selectedYear === null && styles.yearPillActive]}
+                    >
+                      <Text
+                        style={[
+                          styles.yearPillText,
+                          selectedYear === null && styles.yearPillTextActive,
+                        ]}
+                      >
+                        Todos
+                      </Text>
+                    </Pressable>
+                    {aniosDisponibles.map((anio) => (
+                      <Pressable
+                        key={anio}
+                        onPress={() => setSelectedYear(anio)}
+                        style={[styles.yearPill, selectedYear === anio && styles.yearPillActive]}
+                      >
+                        <Text
+                          style={[
+                            styles.yearPillText,
+                            selectedYear === anio && styles.yearPillTextActive,
+                          ]}
+                        >
+                          {anio}
+                        </Text>
+                      </Pressable>
+                    ))}
+                  </ScrollView>
 
-            <PrimaryButton
-              icon="floppy-disk"
-              label="Guardar cambios"
-              loading={saving || loading}
-              onPress={handleSave}
-              style={styles.saveButton}
-            />
-          </View>
-        </ScrollView>
-      </KeyboardAvoidingView>
+                  <View style={styles.yearStatsRow}>
+                    <View style={styles.yearStatCard}>
+                      <Text style={styles.yearStatIcon}>🧳</Text>
+                      <Text style={styles.yearStatValue}>{estadisticasAnio.totalViajes}</Text>
+                      <Text style={styles.yearStatLabel}>Viajes</Text>
+                    </View>
+                    <View style={styles.yearStatCard}>
+                      <Text style={styles.yearStatIcon}>🌍</Text>
+                      <Text style={styles.yearStatValue}>{estadisticasAnio.totalPaises}</Text>
+                      <Text style={styles.yearStatLabel}>Países</Text>
+                    </View>
+                    <View style={styles.yearStatCard}>
+                      <Text style={styles.yearStatIcon}>👥</Text>
+                      <Text style={styles.yearStatValue}>{estadisticasAnio.totalAmigos}</Text>
+                      <Text style={styles.yearStatLabel}>Amigos</Text>
+                    </View>
+                  </View>
+                </View>
+              ) : null}
+
+              {statusMessage ? <Text style={styles.statusText}>{statusMessage}</Text> : null}
+            </>
+          )}
+        </View>
+      </ScrollView>
     </ScreenContainer>
   );
 }
 
 const styles = StyleSheet.create({
-  flex: {
-    flex: 1,
-  },
   scrollContent: {
     paddingBottom: spacing.xxxl,
   },
-  formShell: {
+  card: {
     ...surfaces.card,
     marginTop: spacing.lg,
     padding: spacing.lg,
     gap: spacing.md,
   },
-  formShellDesktop: {
-    maxWidth: 720,
+  cardDesktop: {
+    maxWidth: 480,
     alignSelf: "center",
     width: "100%",
   },
-  eyebrow: {
-    ...textStyles.sectionLabel,
-    color: "#8b6c37",
-    fontSize: 13,
+  loadingBlock: {
+    paddingVertical: spacing.xxxl,
+    alignItems: "center",
   },
-  title: {
-    ...textStyles.tripTitle,
-    color: colors.primary,
-    fontSize: 30,
+  topRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
   },
-  copy: {
-    ...textStyles.body,
-    color: colors.textSecondary,
-  },
-  avatarSection: {
-    marginTop: spacing.sm,
+  headerRow: {
+    flex: 1,
+    flexDirection: "row",
     alignItems: "center",
     gap: spacing.md,
   },
-  photoButton: {
-    minWidth: 190,
+  headerText: {
+    flex: 1,
+    gap: 2,
   },
-  formGrid: {
-    gap: spacing.md,
-  },
-  fieldBlock: {
-    gap: spacing.xs,
-  },
-  label: {
-    ...textStyles.label,
+  name: {
+    ...textStyles.tripTitle,
     color: colors.primary,
+    fontSize: 22,
   },
-  input: {
-    ...surfaces.input,
+  username: {
     ...textStyles.body,
-    color: colors.textPrimary,
-    minHeight: 56,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-  },
-  inputReadonly: {
-    backgroundColor: colors.surfaceAlt,
     color: colors.textSecondary,
   },
-  inputError: {
-    borderColor: colors.danger,
+  settingsButton: {
+    alignSelf: "flex-start",
   },
-  helperText: {
+  sectionBlock: {
+    gap: spacing.sm,
+  },
+  sectionLabel: {
+    ...textStyles.sectionLabel,
+    color: colors.textMuted,
+    fontSize: 12,
+    letterSpacing: 0.5,
+    textTransform: "uppercase",
+  },
+  nextTripCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.md,
+    borderRadius: radii.md ?? 16,
+    borderWidth: 1,
+    borderColor: colors.surfaceAlt,
+    padding: spacing.sm,
+  },
+  nextTripCardPressed: {
+    opacity: 0.75,
+  },
+  nextTripImage: {
+    width: 64,
+    height: 64,
+    borderRadius: radii.sm ?? 12,
+  },
+  nextTripImageFallback: {
+    backgroundColor: colors.surfaceAlt,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  nextTripImageFallbackText: {
+    fontSize: 24,
+  },
+  nextTripInfo: {
+    flex: 1,
+    gap: 2,
+  },
+  nextTripTitle: {
+    ...textStyles.body,
+    color: colors.primary,
+    fontWeight: "700",
+  },
+  nextTripDestino: {
+    ...textStyles.meta,
+    color: colors.textSecondary,
+  },
+  nextTripFechas: {
     ...textStyles.meta,
     color: colors.textMuted,
   },
-  errorText: {
+  passportContainer: {
+    backgroundColor: colors.surfaceAlt,
+    borderRadius: radii.md ?? 16,
+    padding: spacing.sm,
+  },
+  passportGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: spacing.sm,
+  },
+  stamp: {
+    width: 84,
+    alignItems: "center",
+    gap: 4,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.xs,
+    borderRadius: radii.sm ?? 12,
+    backgroundColor: colors.surface ?? "#fff",
+  },
+  stampFlagImage: {
+    width: 40,
+    height: 28,
+    borderRadius: 4,
+    borderWidth: 1,
+    borderColor: colors.surfaceAlt,
+  },
+  stampFlagFallback: {
+    fontSize: 24,
+  },
+  stampLabel: {
     ...textStyles.meta,
-    color: colors.danger,
+    color: colors.textPrimary,
+    textAlign: "center",
+  },
+  yearPillsRow: {
+    flexDirection: "row",
+    gap: spacing.xs,
+    paddingBottom: 2,
+  },
+  yearPill: {
+    paddingVertical: 6,
+    paddingHorizontal: 14,
+    borderRadius: radii.pill ?? 999,
+    borderWidth: 1,
+    borderColor: colors.surfaceAlt,
+  },
+  yearPillActive: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
+  },
+  yearPillText: {
+    ...textStyles.meta,
+    color: colors.textSecondary,
+    fontWeight: "600",
+  },
+  yearPillTextActive: {
+    color: colors.surface ?? "#fff",
+  },
+  yearStatsRow: {
+    flexDirection: "row",
+    gap: spacing.sm,
+  },
+  yearStatCard: {
+    flex: 1,
+    alignItems: "center",
+    gap: 4,
+    paddingVertical: spacing.md,
+    borderRadius: radii.md ?? 16,
+    backgroundColor: colors.surfaceAlt,
+  },
+  yearStatIcon: {
+    fontSize: 20,
+  },
+  yearStatValue: {
+    ...textStyles.tripTitle,
+    color: colors.primary,
+    fontSize: 20,
+  },
+  yearStatLabel: {
+    ...textStyles.meta,
+    color: colors.textMuted,
+  },
+  emptyText: {
+    ...textStyles.meta,
+    color: colors.textMuted,
   },
   statusText: {
     ...textStyles.body,
-    color: colors.primary,
-    marginTop: spacing.xs,
-  },
-  saveButton: {
-    marginTop: spacing.sm,
+    color: colors.danger,
   },
 });

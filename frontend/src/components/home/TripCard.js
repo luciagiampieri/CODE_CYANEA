@@ -45,13 +45,7 @@ export default function TripCard({ trip, onPress, compact = false }) {
           <View style={styles.imageOverlay}>
             <View style={styles.topRow}>
               <View />
-              <StatusPill
-                style={styles.statusPill}
-                textStyle={styles.statusText}
-                tone={statusKey === "activo" ? "activo" : "planificando"}
-              >
-                {statusLabel}
-              </StatusPill>
+              <StatusPill tone={statusKey ?? "planificando"}>{statusLabel}</StatusPill>
             </View>
 
             <View style={styles.heroCopy}>
@@ -134,12 +128,6 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "flex-start",
-  },
-  statusPill: {
-    backgroundColor: "#d8ffd6",
-  },
-  statusText: {
-    color: "#2b7d36",
   },
   heroCopy: {
     paddingTop: spacing.xxxl,

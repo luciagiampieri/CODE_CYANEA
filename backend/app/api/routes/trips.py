@@ -56,6 +56,14 @@ from app.services.notifications.invitation_email_sender import (
 from app.services.destination_search import build_destination_image_url, search_destinations
 from app.services.place_search import get_place_photo_uri
 from app.services.trip_access import get_trip_with_relations, require_trip_access
+from app.models.ruta_diaria import RutaDiaria
+from app.services.route_generation import (
+    RutaProviderError,
+    RutaValidationError,
+    generar_ruta_diaria,
+    sincronizar_ruta_tras_cambio_actividad,
+)
+from app.schemas.trip import RutaDiariaRead, RutaGeneradaResponse, ActividadExcluidaRead
 
 
 router = APIRouter()
@@ -142,6 +150,32 @@ def _build_actividad_read(actividad: ActividadItinerario) -> ActividadRead:
         Icono=actividad.Icono,
     )
 
+async def _sincronizar_y_notificar_ruta(db: Session, dia: DiaCronograma, trip_id: int) -> None:
+    """Tras crear/editar/eliminar una actividad, regenera o elimina la ruta
+    del día (si ya existía una) y avisa por WebSocket a todos los conectados.
+    No hace nada si el día nunca tuvo una ruta generada (CA3/CA6)."""
+    resultado_ruta = await sincronizar_ruta_tras_cambio_actividad(db, dia)
+    if resultado_ruta is None:
+        return
+
+    if resultado_ruta["tipo"] == "ruta_actualizada":
+        ruta_read = RutaDiariaRead.model_validate(resultado_ruta["ruta"])
+        await manager.broadcast(trip_id, {
+            "tipo": "ruta_actualizada",
+            "idDiaCronograma": dia.IdDiaCronograma,
+            "ruta": ruta_read.model_dump(by_alias=True),
+            "actividadesExcluidas": [
+                {"idActividad": a.IdActividad, "nombre": a.Nombre}
+                for a in resultado_ruta["actividadesExcluidas"]
+            ],
+        })
+    elif resultado_ruta["tipo"] == "ruta_eliminada":
+        await manager.broadcast(trip_id, {
+            "tipo": "ruta_eliminada",
+            "idDiaCronograma": dia.IdDiaCronograma,
+        })
+
+
 def _build_trip_detail(viaje: Viaje) -> TripDetailRead:
     participantes_visibles = [
         participacion
@@ -189,6 +223,7 @@ def _build_trip_detail(viaje: Viaje) -> TripDetailRead:
                     _build_actividad_read(actividad)
                     for actividad in (dia.Actividades or [])
                 ],
+                Ruta=dia.Ruta,
             )
             for dia in (viaje.Cronograma or [])
         ],
@@ -672,6 +707,8 @@ async def create_activity(
         "actividad": resultado.model_dump(by_alias=True),
     })
 
+    await _sincronizar_y_notificar_ruta(db, dia, trip_id)
+
     return resultado
 
 @router.put(
@@ -752,6 +789,8 @@ async def update_activity(
         },
     )
 
+    await _sincronizar_y_notificar_ruta(db, dia, trip_id)
+
     return resultado
 
 
@@ -797,7 +836,54 @@ async def delete_activity(
         "idActividad": activity_id,
     })
 
+    await _sincronizar_y_notificar_ruta(db, dia, trip_id)
+
     return TripMutationResponse(message="La actividad ha sido eliminada correctamente.")
+
+
+@router.post(
+    "/{trip_id}/days/{day_id}/route",
+    response_model=RutaGeneradaResponse,
+)
+async def generate_route(
+    trip_id: int,
+    day_id: int,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> RutaGeneradaResponse:
+    viaje = require_trip_access(get_trip_with_relations(db, trip_id), current_user)
+
+    dia = db.scalar(
+        select(DiaCronograma).where(
+            DiaCronograma.IdDiaCronograma == day_id,
+            DiaCronograma.IdViaje == viaje.IdViaje,
+        )
+    )
+    if dia is None:
+        raise HTTPException(status_code=404, detail="El día del cronograma no existe en este viaje.")
+
+    try:
+        ruta, excluidas = await generar_ruta_diaria(db, dia)
+    except RutaValidationError as exc:
+        raise HTTPException(status_code=422, detail=exc.message) from exc
+    except RutaProviderError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    resultado = RutaGeneradaResponse(
+        message="La ruta se generó correctamente.",
+        ruta=RutaDiariaRead.model_validate(ruta),
+        actividadesExcluidas=[
+            ActividadExcluidaRead(idActividad=a.IdActividad, nombre=a.Nombre) for a in excluidas
+        ],
+    )
+
+    await manager.broadcast(trip_id, {
+        "tipo": "ruta_generada",
+        "idDiaCronograma": dia.IdDiaCronograma,
+        "ruta": resultado.ruta.model_dump(by_alias=True),
+    })
+
+    return resultado
 
 
 @router.post("/{trip_id}/participants", response_model=TripMutationResponse, status_code=status.HTTP_201_CREATED)
