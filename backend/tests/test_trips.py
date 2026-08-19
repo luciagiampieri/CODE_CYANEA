@@ -1,5 +1,8 @@
 from datetime import date as date_type, datetime, timedelta
 
+import pytest
+
+from app.api.routes import trips as trips_module
 from app.core.security import hash_password, create_access_token
 from app.models.estado_invitacion import EstadoInvitacion
 from app.models.estado_participacion import EstadoParticipacion
@@ -81,6 +84,14 @@ def test_create_trip_rejects_empty_destinations(client, master_data, auth_header
 def test_get_trip_detail_not_found(client, master_data, auth_headers):
     response = client.get("/api/v1/trips/9999", headers=auth_headers)
     assert response.status_code == 404
+
+
+def test_generate_route_returns_503_when_feature_unavailable(client, auth_headers):
+    if trips_module.ROUTE_GENERATION_AVAILABLE:
+        pytest.skip("La generación de rutas está disponible en este entorno")
+
+    response = client.post("/api/v1/trips/1/days/1/route", headers=auth_headers)
+    assert response.status_code == 503
 
 
 def test_update_trip_success(client, auth_headers, viaje_con_admin):
