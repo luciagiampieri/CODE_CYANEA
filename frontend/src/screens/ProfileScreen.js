@@ -207,7 +207,7 @@ export default function ProfileScreen({ navigation }) {
                 <PrimaryButton
                   icon="gear"
                   label=""
-                  onPress={() => navigation.navigate("EditarPerfil")}
+                  onPress={() => navigation.navigate("Configuracion")}
                   style={styles.settingsButton}
                   variant="secondary"
                 />

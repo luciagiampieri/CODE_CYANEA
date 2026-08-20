@@ -23,6 +23,7 @@
     "expo-sqlite": "~56.0.5",
     "expo-status-bar": "~56.0.4",
     "expo-web-browser": "~56.0.5",
+    "jest-expo": "~56.0.5",
     "react": "19.2.3",
     "react-dom": "19.2.3",
     "react-native": "0.85.3",
@@ -36,10 +37,18 @@
     "android": "cross-env EXPO_NO_METRO_WORKSPACE_ROOT=1 expo start --android",
     "ios": "cross-env EXPO_NO_METRO_WORKSPACE_ROOT=1 expo start --ios",
     "web": "cross-env EXPO_NO_METRO_WORKSPACE_ROOT=1 expo start --web --port 8081",
-    "web:clear": "cross-env EXPO_NO_METRO_WORKSPACE_ROOT=1 expo start --web --port 8081 --clear"
+    "web:clear": "cross-env EXPO_NO_METRO_WORKSPACE_ROOT=1 expo start --web --port 8081 --clear",
+    "test": "jest"
   },
   "private": true,
   "devDependencies": {
-    "cross-env": "^10.1.0"
+    "@testing-library/react-native": "^14.0.1",
+    "@types/jest": "^30.0.0",
+    "@types/react": "~19.2.14",
+    "cross-env": "^10.1.0",
+    "typescript": "~6.0.3"
+  },
+  "jest": {
+    "preset": "jest-expo"
   }
 }
