@@ -613,7 +613,7 @@ export default function ExplorePlacesScreen({ navigation, route }) {
           <Text style={styles.heroEyebrow}>Exploración visual del viaje</Text>
           <Text style={styles.heroTitle}>Destinos de interés</Text>
           <Text style={styles.heroCopy}>
-            Busca lugares con Google Places, guárdalos en el viaje y llévalos directo al itinerario.
+            Busca lugares para conocer, guárdalos en el viaje y llévalos directo al itinerario.
           </Text>
         </View>
 
@@ -727,7 +727,7 @@ export default function ExplorePlacesScreen({ navigation, route }) {
                   Toca un marcador para revisar su detalle, guardarlo o sumarlo al itinerario.
                 </Text>
                 <PrimaryButton
-                  icon="stars"
+                  icon="location-dot"
                   iconPosition="left"
                   label={popularContext ? `Ver imperdibles de ${popularContext}` : "Ver lugares recomendados"}
                   onPress={() => setShowPopularPanel(true)}

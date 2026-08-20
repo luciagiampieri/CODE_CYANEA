@@ -17,6 +17,7 @@ import {
 } from "react-native";
 
 import ScreenContainer from "../components/layout/ScreenContainer";
+import MapCanvas from "../components/map/MapCanvas";
 import ParticipantSearch from "../components/trip/ParticipantSearch";
 import ParticipantList from "../components/trip/ParticipantList";
 import ResultadosVotacion from "../components/trip/ResultadosVotacion";
@@ -51,10 +52,11 @@ import {
 } from "../database/gastosLocal";
 
 import AddActivityScreen from "./AddActivityScreen";
-import { createActivity, deleteActivity } from "../services/api";
+import { createActivity, deleteActivity, generateTripRoute } from "../services/api";
 import useItinerarioViewPreference from "../hooks/useItinerarioViewPreference";
 import ItinerarioViewToggle from "../components/trip/ItinerarioViewToggle";
 import ItinerarioCalendarView from "../components/trip/ItinerarioCalendarView";
+import { buildRouteMarkers } from "../utils/routeMarkers";
 
 
 const tabs = [
@@ -105,6 +107,17 @@ function formatHeroDate(trip) {
     timeZone: "UTC",
   });
   return `${formatter.format(start)} · ${formatter.format(end)}`;
+}
+
+function normalizeRuta(raw) {
+  if (!raw) return null;
+  return {
+    id: raw.idRutaDiaria ?? raw.IdRutaDiaria,
+    distanciaMetros: raw.distanciaMetros ?? raw.DistanciaMetros ?? 0,
+    duracionSegundos: raw.duracionSegundos ?? raw.DuracionSegundos ?? 0,
+    idsActividadesOrdenadas: raw.idsActividadesOrdenadas ?? raw.IdsActividadesOrdenadas ?? [],
+    polilineaCodificada: raw.polilineaCodificada ?? raw.PolilineaCodificada ?? null,
+  };
 }
 
 function formatDayDate(dateString) {
@@ -183,8 +196,6 @@ export default function TripDetailScreen({ navigation, route }) {
   const [cancelandoId, setCancelandoId] = useState(null);
   const [votosSeleccionados, setVotosSeleccionados] = useState({});
   const [resultadosPorVotacion, setResultadosPorVotacion] = useState({});
-  // Una votación cancelada sin ningún voto registrado no aporta nada: se oculta de la lista.
-  // Mientras el resultado todavía no cargó, se muestra igual para no ocultar de más.
   const votacionesVisibles = useMemo(
     () =>
       votacionesActivas.filter((v) => {
@@ -461,6 +472,15 @@ export default function TripDetailScreen({ navigation, route }) {
             loadVotaciones();
             return;
           }
+          if (mensaje.tipo === "ruta_eliminada"){
+            setActivityFeedback({
+              success: false,
+              message:
+                "La ruta automática de ese día se eliminó porque quedaron menos de dos actividades con ubicación cargada.",
+            });
+            loadTripDetail();
+            return;
+          }
           loadTripDetail();
         } catch (error) {
           console.error("Error procesando mensaje WebSocket:", error);
@@ -552,6 +572,7 @@ export default function TripDetailScreen({ navigation, route }) {
         dayDateText: formatDayDate(fechaRaw),
         dayDateTextCorta: formatDayDateCorta(fechaRaw),
         actividades,
+        ruta: normalizeRuta(day.ruta ?? day.Ruta ?? null),
       };
     });
   }, [trip?.cronograma, trip?.startDate, trip?.endDate]);
@@ -771,6 +792,38 @@ export default function TripDetailScreen({ navigation, route }) {
 
   const [activityToDelete, setActivityToDelete] = useState(null);
   const [activityFeedback, setActivityFeedback] = useState(null);
+  const [generandoRutaDayId, setGenerandoRutaDayId] = useState(null);
+  const [diaConMapaVisible, setDiaConMapaVisible] = useState(null);
+
+  async function handleGenerarRuta(dayId) {
+    if (!trip?.id || generandoRutaDayId) return;
+
+    setGenerandoRutaDayId(dayId);
+    try {
+      const resultado = await generateTripRoute(trip.id, dayId);
+      await loadTripDetail();
+
+      const excluidas = resultado.actividadesExcluidas ?? [];
+      setActivityFeedback({
+        success: true,
+        message: excluidas.length
+          ? `${resultado.message} Quedaron afuera por no tener ubicación cargada: ${excluidas
+              .map((a) => a.nombre)
+              .join(", ")}.`
+          : resultado.message,
+      });
+    } catch (error) {
+      console.error("Error al generar la ruta:", error);
+      setActivityFeedback({
+        success: false,
+        message:
+          (error && error.message) ||
+          "No se pudo generar la ruta para este día. Revisá la consola del navegador para más detalles.",
+      });
+    } finally {
+      setGenerandoRutaDayId(null);
+    }
+  }
 
   function handleDeleteActivity(dayId, activityId, activityTitle) {
     setActivityToDelete({ dayId, activityId, title: activityTitle });
@@ -951,7 +1004,7 @@ export default function TripDetailScreen({ navigation, route }) {
           {activeTab === "itinerario" && itinerarioView === "timeline" ? (
             itinerarioDias.length > 0 ? (
               itinerarioDias.map((day) => {
-                const { dayId, dayIndex, dayDateText, actividades } = day;
+                const { dayId, dayIndex, dayDateText, actividades, ruta } = day;
                 const isExpanded = expandedDayId === dayId;
 
                 return (
@@ -1043,6 +1096,93 @@ export default function TripDetailScreen({ navigation, route }) {
                           <FontAwesome6 color={colors.primary} name="plus" size={12} />
                           <Text style={styles.addActivityText}>Agregar actividad</Text>
                         </Pressable>
+
+                        {(() => {
+                          const actividadesConUbicacion = actividades.filter(
+                            (item) => item.idLugarInteres || item.lugarInteres
+                          );
+                          const puedeGenerarRuta = actividadesConUbicacion.length >= 2;
+                          const generando = generandoRutaDayId === dayId;
+                          const routeMarkers = buildRouteMarkers(actividades, ruta);
+
+                          return (
+                            <View style={styles.routeSection}>
+                              {ruta ? (
+                                <View style={styles.routeSummaryRow}>
+                                  <View style={styles.routeSummary}>
+                                    <FontAwesome6 color={colors.primary} name="route" size={13} />
+                                    <Text style={styles.routeSummaryText}>
+                                      {(ruta.distanciaMetros / 1000).toFixed(1)} km ·{" "}
+                                      {Math.round(ruta.duracionSegundos / 60)} min
+                                    </Text>
+                                  </View>
+                                  {ruta.polilineaCodificada ? (
+                                    <Pressable
+                                      onPress={() =>
+                                        setDiaConMapaVisible((current) =>
+                                          current === dayId ? null : dayId
+                                        )
+                                      }
+                                      style={styles.routeMapToggle}
+                                    >
+                                      <FontAwesome6
+                                        color={colors.primary}
+                                        name={diaConMapaVisible === dayId ? "chevron-up" : "map-location-dot"}
+                                        size={12}
+                                      />
+                                      <Text style={styles.routeMapToggleText}>
+                                        {diaConMapaVisible === dayId ? "Ocultar mapa" : "Ver mapa"}
+                                      </Text>
+                                    </Pressable>
+                                  ) : null}
+                                </View>
+                              ) : null}
+
+                              {ruta && diaConMapaVisible === dayId ? (
+                                <View style={styles.routeMapWrap}>
+                                  <MapCanvas
+                                    initialCenter={
+                                      routeMarkers[0]
+                                        ? { lat: routeMarkers[0].lat, lng: routeMarkers[0].lng }
+                                        : undefined
+                                    }
+                                    markers={routeMarkers}
+                                    routePolyline={ruta.polilineaCodificada}
+                                  />
+                                </View>
+                              ) : null}
+
+                              {puedeGenerarRuta ? (
+                                <Pressable
+                                  disabled={generando}
+                                  onPress={() => handleGenerarRuta(dayId)}
+                                  style={[
+                                    styles.addActivityButton,
+                                    generando && styles.addActivityButtonDisabled,
+                                  ]}
+                                >
+                                  {generando ? (
+                                    <ActivityIndicator color={colors.primary} size="small" />
+                                  ) : (
+                                    <FontAwesome6 color={colors.primary} name="route" size={12} />
+                                  )}
+                                  <Text style={styles.addActivityText}>
+                                    {generando
+                                      ? "Generando ruta..."
+                                      : ruta
+                                      ? "Regenerar ruta"
+                                      : "Generar ruta"}
+                                  </Text>
+                                </Pressable>
+                              ) : (
+                                <Text style={styles.routeHint}>
+                                  Agregá al menos 2 actividades con ubicación para generar una ruta
+                                  automática.
+                                </Text>
+                              )}
+                            </View>
+                          );
+                        })()}
                       </View>
                     ) : null}
                   </View>
@@ -1059,6 +1199,8 @@ export default function TripDetailScreen({ navigation, route }) {
           {activeTab === "itinerario" && itinerarioView === "calendario" ? (
             <ItinerarioCalendarView
               dias={itinerarioDias}
+              generandoRutaDayId={generandoRutaDayId}
+              onGenerarRuta={handleGenerarRuta}
               onAddActivity={(day) =>
                 setActivityModalDay({
                   id: day.dayId,
@@ -1759,7 +1901,7 @@ export default function TripDetailScreen({ navigation, route }) {
         onRequestClose={() => setActivityFeedback(null)}
       >
         <Pressable style={styles.modalOverlay} onPress={() => setActivityFeedback(null)}>
-          <View style={styles.modalContent}>
+          <Pressable style={styles.modalContent} onPress={(event) => event.stopPropagation()}>
             <View style={styles.modalIconContainer}>
               <FontAwesome6
                 name={activityFeedback?.success ? "circle-check" : "circle-exclamation"}
@@ -1771,7 +1913,14 @@ export default function TripDetailScreen({ navigation, route }) {
               {activityFeedback?.success ? "Listo" : "Error"}
             </Text>
             <Text style={styles.modalMessage}>{activityFeedback?.message}</Text>
-          </View>
+
+            <Pressable
+              style={styles.activityEditOkButton}
+              onPress={() => setActivityFeedback(null)}
+            >
+              <Text style={styles.activityEditOkButtonText}>Cerrar</Text>
+            </Pressable>
+          </Pressable>
         </Pressable>
       </Modal>
 
@@ -2024,6 +2173,52 @@ const styles = StyleSheet.create({
     ...textStyles.bodyStrong,
     color: colors.primary,
     fontSize: 13,
+  },
+  addActivityButtonDisabled: {
+    opacity: 0.6,
+  },
+  routeSection: {
+    marginTop: spacing.sm,
+    gap: spacing.xs,
+  },
+  routeSummaryRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: spacing.sm,
+    flexWrap: "wrap",
+  },
+  routeSummary: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.xs,
+    backgroundColor: colors.surfaceAlt,
+    borderRadius: radii.pill ?? 999,
+    paddingVertical: 6,
+    paddingHorizontal: spacing.sm,
+    alignSelf: "flex-start",
+  },
+  routeSummaryText: {
+    ...textStyles.meta,
+    color: colors.primary,
+    fontWeight: "600",
+  },
+  routeMapToggle: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.xxs,
+  },
+  routeMapToggleText: {
+    ...textStyles.meta,
+    color: colors.primary,
+    fontWeight: "600",
+  },
+  routeMapWrap: {
+    marginTop: spacing.xs,
+  },
+  routeHint: {
+    ...textStyles.meta,
+    color: colors.textMuted,
   },
   sectionStack: {
     gap: spacing.md,

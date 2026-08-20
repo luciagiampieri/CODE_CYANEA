@@ -6,7 +6,9 @@ from app.models.actividad_itinerario import ActividadItinerario
 from app.models.dia_cronograma import DiaCronograma
 from app.models.lugar_interes import LugarInteres
 from app.models.lugar_interes_viaje import LugarInteresViaje
+from app.models.ruta_diaria import RutaDiaria
 from app.services import place_search as places_service
+from app.services import route_generation as route_generation_module
 from app.services.place_search import (
     PlaceDetailsResult,
     PlaceReviewResult,
@@ -340,6 +342,92 @@ def test_schedule_trip_place_rechaza_horario_invalido(client, db_session, auth_h
 
     assert response.status_code == 422
     assert response.json()["detail"] == "La hora de fin debe ser posterior a la hora de inicio"
+
+
+def test_schedule_trip_place_sincroniza_ruta_existente(
+    client, db_session, auth_headers, usuario_activo, viaje_con_admin, monkeypatch
+):
+    """El endpoint de agendar un lugar guardado (POST .../schedule) debe
+    disparar la misma sincronización de ruta que create_activity en
+    trips.py: si ya había una ruta generada para el día, se regenera para
+    incluir la nueva actividad (CA4)."""
+    viaje, _ = viaje_con_admin
+    monkeypatch.setattr(places_module.manager, "broadcast", _broadcast_noop)
+
+    async def fake_directions(actividades):
+        cantidad_legs = max(len(actividades) - 1, 1)
+        return {
+            "status": "OK",
+            "routes": [
+                {
+                    "overview_polyline": {"points": "fake_polyline_places"},
+                    "legs": [
+                        {"distance": {"value": 500}, "duration": {"value": 300}}
+                        for _ in range(cantidad_legs)
+                    ],
+                }
+            ],
+        }
+
+    monkeypatch.setattr(route_generation_module, "_consultar_google_directions", fake_directions)
+
+    _, lugar_viaje_a = _crear_lugar_guardado(
+        db_session, viaje, usuario_activo, google_place_id="google:lugar-a"
+    )
+    _, lugar_viaje_b = _crear_lugar_guardado(
+        db_session, viaje, usuario_activo, google_place_id="google:lugar-b"
+    )
+
+    for lugar_viaje, nombre, hora_inicio, hora_fin in (
+        (lugar_viaje_a, "Actividad A", "09:00", "10:00"),
+        (lugar_viaje_b, "Actividad B", "11:00", "12:00"),
+    ):
+        respuesta = client.post(
+            f"/api/v1/trips/{viaje.IdViaje}/places/{lugar_viaje.IdLugarInteresViaje}/schedule",
+            json={
+                "dayIndex": 1,
+                "nombre": nombre,
+                "horaInicio": hora_inicio,
+                "horaFin": hora_fin,
+                "icono": "location-dot",
+            },
+            headers=auth_headers,
+        )
+        assert respuesta.status_code == 201
+
+    dia = db_session.query(DiaCronograma).filter_by(IdViaje=viaje.IdViaje, IndiceDia=1).first()
+    assert dia is not None
+
+    ruta_generada = client.post(
+        f"/api/v1/trips/{viaje.IdViaje}/days/{dia.IdDiaCronograma}/route",
+        headers=auth_headers,
+    )
+    assert ruta_generada.status_code == 200
+    assert len(ruta_generada.json()["ruta"]["IdsActividadesOrdenadas"]) == 2
+
+    # Con la ruta ya generada, agendamos una tercera actividad con
+    # ubicación para el mismo día: la ruta se tiene que regenerar sola.
+    _, lugar_viaje_c = _crear_lugar_guardado(
+        db_session, viaje, usuario_activo, google_place_id="google:lugar-c"
+    )
+    respuesta_c = client.post(
+        f"/api/v1/trips/{viaje.IdViaje}/places/{lugar_viaje_c.IdLugarInteresViaje}/schedule",
+        json={
+            "dayIndex": 1,
+            "nombre": "Actividad C",
+            "horaInicio": "13:00",
+            "horaFin": "14:00",
+            "icono": "location-dot",
+        },
+        headers=auth_headers,
+    )
+    assert respuesta_c.status_code == 201
+
+    ruta_actualizada = (
+        db_session.query(RutaDiaria).filter_by(IdDiaCronograma=dia.IdDiaCronograma).first()
+    )
+    assert ruta_actualizada is not None
+    assert len(ruta_actualizada.IdsActividadesOrdenadas) == 3
 
 
 def test_is_place_allowed_rechaza_ubicacion_fuera_del_destino():
