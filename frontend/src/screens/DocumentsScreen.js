@@ -26,6 +26,8 @@ import {
     getDocumentCategories,
     getTripDocuments,
     uploadTripDocument,
+    downloadTripDocument,
+    deleteTripDocument,
 } from "../services/api";
 
 import { colors, radii, spacing, surfaces, textStyles } from "../theme/tokens";
@@ -47,6 +49,21 @@ function mostrarAlertaConfirmacion(titulo, mensaje, onAceptar) {
     }
 }
 
+// A diferencia de mostrarAlertaConfirmacion, esta SÍ ofrece la opción de
+// cancelar (AC2/caso de prueba "cancelar la eliminación" de US51).
+function confirmarEliminacion(titulo, mensaje, onConfirmar) {
+    if (Platform.OS === "web") {
+        if (window.confirm(mensaje)) {
+            onConfirmar();
+        }
+    } else {
+        Alert.alert(titulo, mensaje, [
+            { text: "Cancelar", style: "cancel" },
+            { text: "Eliminar", style: "destructive", onPress: onConfirmar },
+        ]);
+    }
+}
+
 export default function DocumentsScreen({ route, navigation }) {
     const { tripId } = route.params;
 
@@ -62,6 +79,8 @@ export default function DocumentsScreen({ route, navigation }) {
     const [errorDocumentos, setErrorDocumentos] = useState("");
 
     const [modalCategoriaVisible, setModalCategoriaVisible] = useState(false);
+    const [descargandoId, setDescargandoId] = useState(null);
+    const [eliminandoId, setEliminandoId] = useState(null);
 
     const [archivo, setArchivo] = useState(null);
     const [nombreDocumento, setNombreDocumento] = useState("");
@@ -100,6 +119,57 @@ export default function DocumentsScreen({ route, navigation }) {
                 "No se pudo abrir el documento. Intentá nuevamente."
             );
         }
+    }
+
+    // US 41 - Descargar documento.
+    async function handleDescargar(documento) {
+        try {
+            setDescargandoId(documento.IdDocumento);
+            await downloadTripDocument(tripId, documento.IdDocumento, documento.NombreArchivo);
+            mostrarAlertaConfirmacion(
+                "Descarga completa",
+                Platform.OS === "web"
+                    ? "El documento se descargó correctamente."
+                    : "El documento se guardó en tu dispositivo."
+            );
+        } catch (error) {
+            console.log("⚠️ Error al descargar el documento:", error);
+            mostrarAlertaConfirmacion(
+                "Error",
+                error?.message || "No se pudo descargar el documento. Intentá nuevamente."
+            );
+        } finally {
+            setDescargandoId(null);
+        }
+    }
+
+    // US 51 - Eliminar documento del repositorio.
+    function handleEliminar(documento) {
+        confirmarEliminacion(
+            "Eliminar documento",
+            `¿Seguro que querés eliminar "${documento.NombreArchivo}"? Esta acción no se puede deshacer.`,
+            async () => {
+                try {
+                    setEliminandoId(documento.IdDocumento);
+                    await deleteTripDocument(tripId, documento.IdDocumento);
+                    setDocumentos((prev) =>
+                        prev.filter((d) => d.IdDocumento !== documento.IdDocumento)
+                    );
+                    mostrarAlertaConfirmacion(
+                        "Documento eliminado",
+                        "El documento se eliminó correctamente."
+                    );
+                } catch (error) {
+                    console.log("⚠️ Error al eliminar el documento:", error);
+                    mostrarAlertaConfirmacion(
+                        "Error",
+                        error?.message || "No se pudo eliminar el documento. Intentá nuevamente."
+                    );
+                } finally {
+                    setEliminandoId(null);
+                }
+            }
+        );
     }
 
     useEffect(() => {
@@ -295,27 +365,73 @@ export default function DocumentsScreen({ route, navigation }) {
                                 </Text>
                             ) : (
                                 <View style={styles.documentList}>
-                                    {documentos.map((documento) => (
-                                        <Pressable
-                                            key={documento.IdDocumento}
-                                            style={styles.documentRow}
-                                            onPress={() => abrirDocumento(documento.UrlArchivo)}
-                                        >
-                                            <FontAwesome6
-                                                name="file-lines"
-                                                size={18}
-                                                color={colors.primary}
-                                                style={{ marginRight: 12 }}
-                                            />
-                                            <View style={{ flex: 1 }}>
-                                                <Text style={styles.fileName}>{documento.NombreArchivo}</Text>
-                                                <Text style={styles.fileSize}>
-                                                    {documento.NombreCategoria} · Subido por {documento.NombreUsuarioSubida}
-                                                </Text>
+                                    {documentos.map((documento) => {
+                                        const descargandoEste = descargandoId === documento.IdDocumento;
+                                        const eliminandoEste = eliminandoId === documento.IdDocumento;
+
+                                        return (
+                                            <View key={documento.IdDocumento} style={styles.documentRow}>
+                                                <Pressable
+                                                    style={styles.documentRowMain}
+                                                    onPress={() => abrirDocumento(documento.UrlArchivo)}
+                                                >
+                                                    <FontAwesome6
+                                                        name="file-lines"
+                                                        size={18}
+                                                        color={colors.primary}
+                                                        style={{ marginRight: 12 }}
+                                                    />
+                                                    <View style={{ flex: 1 }}>
+                                                        <Text style={styles.fileName}>{documento.NombreArchivo}</Text>
+                                                        <Text style={styles.fileSize}>
+                                                            {documento.NombreCategoria} · Subido por {documento.NombreUsuarioSubida}
+                                                        </Text>
+                                                    </View>
+                                                </Pressable>
+
+                                                <View style={styles.documentRowActions}>
+                                                    <Pressable
+                                                        onPress={() => handleDescargar(documento)}
+                                                        disabled={descargandoEste}
+                                                        hitSlop={10}
+                                                        style={styles.documentActionButton}
+                                                    >
+                                                        {descargandoEste ? (
+                                                            <ActivityIndicator size="small" color={colors.primary} />
+                                                        ) : (
+                                                            <FontAwesome6
+                                                                name="download"
+                                                                size={15}
+                                                                color={colors.primary}
+                                                            />
+                                                        )}
+                                                    </Pressable>
+
+                                                    {documento.EsPropio ? (
+                                                        <Pressable
+                                                            onPress={() => handleEliminar(documento)}
+                                                            disabled={eliminandoEste}
+                                                            hitSlop={10}
+                                                            style={styles.documentActionButton}
+                                                        >
+                                                            {eliminandoEste ? (
+                                                                <ActivityIndicator
+                                                                    size="small"
+                                                                    color={colors.danger || "#dc2626"}
+                                                                />
+                                                            ) : (
+                                                                <FontAwesome6
+                                                                    name="trash"
+                                                                    size={15}
+                                                                    color={colors.danger || "#dc2626"}
+                                                                />
+                                                            )}
+                                                        </Pressable>
+                                                    ) : null}
+                                                </View>
                                             </View>
-                                            <FontAwesome6 name="up-right-from-square" size={14} color={colors.textSecondary} />
-                                        </Pressable>
-                                    ))}
+                                        );
+                                    })}
                                 </View>
                             )}
                         </View>
@@ -586,6 +702,23 @@ const styles = StyleSheet.create({
         backgroundColor: colors.surfaceMuted || colors.surface,
         paddingHorizontal: spacing.md,
         paddingVertical: spacing.md,
+    },
+    documentRowMain: {
+        flex: 1,
+        flexDirection: "row",
+        alignItems: "center",
+    },
+    documentRowActions: {
+        flexDirection: "row",
+        alignItems: "center",
+        gap: spacing.sm,
+        marginLeft: spacing.sm,
+    },
+    documentActionButton: {
+        width: 32,
+        height: 32,
+        alignItems: "center",
+        justifyContent: "center",
     },
     cardTitle: {
         ...textStyles.tripTitle,

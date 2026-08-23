@@ -48,3 +48,18 @@ def subir_foto_perfil(archivo: UploadFile, user_id: int) -> str:
 
 def obtener_url_publica(ruta_archivo: str) -> str:
     return supabase.storage.from_(settings.supabase_bucket).get_public_url(ruta_archivo)
+
+
+def descargar_documento(ruta_archivo: str) -> bytes:
+    """Descarga el contenido binario de un documento desde el bucket.
+
+    Se usa desde el backend (en vez de redirigir a la URL pública) para
+    poder validar que quien pide el archivo es realmente un integrante
+    del viaje antes de entregar los bytes (AC3 de "Descargar documento").
+    """
+    return supabase.storage.from_(settings.supabase_bucket).download(ruta_archivo)
+
+
+def eliminar_documento(ruta_archivo: str) -> None:
+    """Elimina un documento del bucket de Supabase Storage."""
+    supabase.storage.from_(settings.supabase_bucket).remove([ruta_archivo])

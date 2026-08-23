@@ -1,4 +1,7 @@
-from fastapi import APIRouter, Depends, UploadFile, File, Form, HTTPException
+import mimetypes
+from urllib.parse import quote
+
+from fastapi import APIRouter, Depends, UploadFile, File, Form, HTTPException, Response
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 from pathlib import Path
@@ -17,7 +20,12 @@ from app.models import (
 )
 from app.schemas.documento_viaje import DocumentoViajeRead
 
-from app.services.supabase.storage import subir_documento, obtener_url_publica
+from app.services.supabase.storage import (
+    subir_documento,
+    obtener_url_publica,
+    descargar_documento,
+    eliminar_documento,
+)
 from app.services.websocket_manager import manager
 
 router = APIRouter()
@@ -56,7 +64,9 @@ def _verificar_participante_aceptado(
         )
 
 
-def _serializar_documento(documento: DocumentoViaje) -> DocumentoViajeRead:
+def _serializar_documento(
+    documento: DocumentoViaje, current_user_id: int
+) -> DocumentoViajeRead:
     return DocumentoViajeRead(
         IdDocumento=documento.IdDocumento,
         IdViaje=documento.IdViaje,
@@ -67,7 +77,22 @@ def _serializar_documento(documento: DocumentoViaje) -> DocumentoViajeRead:
         FechaSubida=documento.FechaSubida,
         NombreCategoria=documento.CategoriaDocumentoRelacion.Nombre,
         NombreUsuarioSubida=f"{documento.UsuarioSubida.Nombre} {documento.UsuarioSubida.Apellido}",
+        EsPropio=documento.IdUsuarioSubida == current_user_id,
     )
+
+
+def _obtener_documento_del_viaje(
+    db: Session, trip_id: int, document_id: int
+) -> DocumentoViaje:
+    documento = db.get(DocumentoViaje, document_id)
+
+    if not documento or documento.IdViaje != trip_id:
+        raise HTTPException(
+            status_code=404,
+            detail="El documento no existe."
+        )
+
+    return documento
 
 @router.get("/documents/categories")
 def obtener_categorias_documentos(db: Session = Depends(get_db)):
@@ -219,4 +244,98 @@ def listar_documentos_viaje(
         .all()
     )
 
-    return [_serializar_documento(documento) for documento in documentos]
+    return [
+        _serializar_documento(documento, current_user.IdUsuario)
+        for documento in documentos
+    ]
+
+
+@router.get("/{trip_id}/documents/{document_id}/download")
+def descargar_documento_viaje(
+    trip_id: int,
+    document_id: int,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+):
+    """AC1/AC2/AC4: descarga el documento conservando su formato original.
+
+    AC3: se valida explícitamente la pertenencia al viaje en el backend
+    (en vez de simplemente entregar la URL pública del bucket), para que
+    un usuario que no integra el viaje no pueda descargar el documento
+    aunque conozca su identificador.
+    """
+    viaje = db.get(Viaje, trip_id)
+
+    if not viaje:
+        raise HTTPException(
+            status_code=404,
+            detail="Viaje no encontrado"
+        )
+
+    _verificar_participante_aceptado(db, trip_id, current_user)
+
+    documento = _obtener_documento_del_viaje(db, trip_id, document_id)
+
+    try:
+        contenido = descargar_documento(documento.UrlArchivo)
+    except Exception:
+        raise HTTPException(
+            status_code=404,
+            detail="El documento ya no está disponible para descargar."
+        )
+
+    tipo_contenido, _ = mimetypes.guess_type(documento.NombreArchivo)
+    nombre_codificado = quote(documento.NombreArchivo)
+
+    return Response(
+        content=contenido,
+        media_type=tipo_contenido or "application/octet-stream",
+        headers={
+            "Content-Disposition": (
+                f'attachment; filename="{documento.NombreArchivo}"; '
+                f"filename*=UTF-8''{nombre_codificado}"
+            )
+        },
+    )
+
+
+@router.delete("/{trip_id}/documents/{document_id}")
+def eliminar_documento_viaje(
+    trip_id: int,
+    document_id: int,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+):
+    """AC1: solo quien subió el documento puede eliminarlo.
+    AC3/AC4/AC5 (pruebas): tras eliminarlo, no debe poder visualizarse ni
+    descargarse (se logra al borrar tanto el registro como el archivo).
+    """
+    viaje = db.get(Viaje, trip_id)
+
+    if not viaje:
+        raise HTTPException(
+            status_code=404,
+            detail="Viaje no encontrado"
+        )
+
+    _verificar_participante_aceptado(db, trip_id, current_user)
+
+    documento = _obtener_documento_del_viaje(db, trip_id, document_id)
+
+    if documento.IdUsuarioSubida != current_user.IdUsuario:
+        raise HTTPException(
+            status_code=403,
+            detail="Solo quien subió el documento puede eliminarlo."
+        )
+
+    try:
+        eliminar_documento(documento.UrlArchivo)
+    except Exception:
+        # No bloqueamos la eliminación del registro si el archivo ya no
+        # está en el storage (por ejemplo, borrado manualmente antes).
+        pass
+
+    db.delete(documento)
+    db.commit()
+
+    return {"message": "Documento eliminado correctamente."}
