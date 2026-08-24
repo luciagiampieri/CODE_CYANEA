@@ -21,6 +21,7 @@ import GuardarInformacionScreen from "../screens/GuardarInformacionScreen";
 import ExplorePlacesScreen from "../screens/ExplorePlacesScreen";
 import EditProfileScreen from "../screens/EditProfileScreen";
 import SettingsScreen from "../screens/SettingScreen";
+import EditDocumentScreen from "../screens/EditDocumentScreen";
 
 const Stack = createNativeStackNavigator();
 
@@ -135,6 +136,15 @@ export default function AppNavigator() {
           <Stack.Screen
             name="Documents"
             component={DocumentsScreen}
+            options={{
+              headerShown: false,
+              gestureEnabled: true,
+              animation: "slide_from_right",
+            }}
+          />
+          <Stack.Screen
+            name="EditDocument"
+            component={EditDocumentScreen}
             options={{
               headerShown: false,
               gestureEnabled: true,

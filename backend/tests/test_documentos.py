@@ -5,6 +5,7 @@ from app.models import (
     DocumentoViaje,
     CategoriaDocumento,
     Usuario,
+    ParticipanteViaje,
 )
 
 from app.core.security import create_access_token
@@ -22,16 +23,55 @@ def categoria_documento(db_session):
     return categoria
 
 
+@pytest.fixture()
+def documento_existente(
+    db_session,
+    viaje_con_admin,
+    categoria_documento,
+):
+    viaje, admin = viaje_con_admin
+
+    documento = DocumentoViaje(
+        IdViaje=viaje.IdViaje,
+        IdCategoriaDocumento=categoria_documento.IdCategoriaDocumento,
+        IdUsuarioSubida=admin.IdUsuario,
+        NombreArchivo="Pasaje Mendoza.pdf",
+        UrlArchivo=(
+f"viajes/{viaje.IdViaje}/"
+            "Pasajes/Pasaje Mendoza.pdf"
+        ),
+    )
+
+    db_session.add(documento)
+    db_session.commit()
+    db_session.refresh(documento)
+
+    return documento
+
+
 @pytest.fixture(autouse=True)
 def mock_storage(monkeypatch):
     monkeypatch.setattr(
         "app.api.routes.documentos.subir_documento",
         lambda archivo, ruta: ruta
     )
+
     monkeypatch.setattr(
         "app.api.routes.documentos.obtener_url_publica",
         lambda ruta: f"https://fake-public-url/{ruta}"
     )
+
+    eliminados = []
+
+    def mock_eliminar(ruta):
+        eliminados.append(ruta)
+
+    monkeypatch.setattr(
+        "app.api.routes.documentos.eliminar_documento_storage",
+        mock_eliminar
+    )
+
+    return eliminados
 
     
 def test_subir_documento_correctamente(
@@ -528,3 +568,263 @@ def test_listar_documentos_viaje_no_existe(
 
     assert response.status_code == 404
     assert response.json()["detail"] == "Viaje no encontrado"
+
+
+def test_reemplazar_documento_correctamente(
+    client,
+    auth_headers,
+    viaje_con_admin,
+    documento_existente,
+    db_session,
+):
+    viaje, _ = viaje_con_admin
+
+    response = client.put(
+        f"/api/v1/trips/{viaje.IdViaje}/documents/{documento_existente.IdDocumento}",
+        headers=auth_headers,
+        files={
+            "archivo": (
+                "nuevo_pasaje.pdf",
+                io.BytesIO(b"nuevo contenido"),
+                "application/pdf",
+            )
+        },
+    )
+
+    assert response.status_code == 200
+
+    data = response.json()
+
+    assert data["message"] == "Documento actualizado correctamente."
+    assert data["IdDocumento"] == documento_existente.IdDocumento
+
+    db_session.refresh(documento_existente)
+
+    assert documento_existente.NombreArchivo == "Pasaje Mendoza.pdf"
+
+
+def test_otro_usuario_no_puede_reemplazar_documento(
+    client,
+    db_session,
+    viaje_con_admin,
+    documento_existente,
+):
+    viaje, admin = viaje_con_admin
+
+    otro_usuario = Usuario(
+        Nombre="Pedro",
+        Apellido="Test",
+        NombreUsuario="pedro_reemplazo",
+        Email="pedro_reemplazo@test.com",
+        HashedPassword="hashed",
+        Activo=True,
+        EmailConfirmado=True,
+    )
+
+    db_session.add(otro_usuario)
+    db_session.commit()
+    db_session.refresh(otro_usuario)
+
+    participante = ParticipanteViaje(
+        IdViaje=viaje.IdViaje,
+        IdUsuario=otro_usuario.IdUsuario,
+        IdRolParticipante=2,       # participante
+        IdEstadoParticipacion=2,   # aceptado
+        InvitadoPor=admin.IdUsuario,
+    )
+
+    db_session.add(participante)
+    db_session.commit()
+
+    token = create_access_token(
+        {
+            "sub": otro_usuario.Email,
+            "user_id": otro_usuario.IdUsuario,
+        }
+    )
+
+    headers = {
+        "Authorization": f"Bearer {token}"
+    }
+
+    response = client.put(
+        f"/api/v1/trips/{viaje.IdViaje}/documents/"
+        f"{documento_existente.IdDocumento}",
+        headers=headers,
+        files={
+            "archivo": (
+                "nuevo.pdf",
+                io.BytesIO(b"nuevo contenido"),
+                "application/pdf",
+            )
+        },
+    )
+
+    assert response.status_code == 403
+
+    assert response.json()["detail"] == (
+        "Solo el usuario que cargó el documento puede modificarlo."
+    )
+
+
+def test_reemplazar_documento_formato_no_soportado(
+    client,
+    auth_headers,
+    viaje_con_admin,
+    documento_existente,
+):
+    viaje, _ = viaje_con_admin
+
+    response = client.put(
+        f"/api/v1/trips/{viaje.IdViaje}/documents/{documento_existente.IdDocumento}",
+        headers=auth_headers,
+        files={
+            "archivo": (
+                "archivo.exe",
+                io.BytesIO(b"contenido prohibido"),
+                "application/octet-stream",
+            )
+        },
+    )
+
+    assert response.status_code == 400
+
+    assert response.json()["detail"] == (
+        "Tipo de archivo no permitido. "
+        "Solo se permiten PDF, JPG, JPEG y PNG."
+    )
+
+
+def test_reemplazar_documento_conserva_nombre_y_categoria(
+    client,
+    auth_headers,
+    viaje_con_admin,
+    documento_existente,
+    categoria_documento,
+    db_session,
+):
+    viaje, _ = viaje_con_admin
+
+    nombre_original = documento_existente.NombreArchivo
+    categoria_original = documento_existente.IdCategoriaDocumento
+
+    response = client.put(
+        f"/api/v1/trips/{viaje.IdViaje}/documents/{documento_existente.IdDocumento}",
+        headers=auth_headers,
+        files={
+            "archivo": (
+                "nuevo_archivo.pdf",
+                io.BytesIO(b"nuevo contenido"),
+                "application/pdf",
+            )
+        },
+    )
+
+    assert response.status_code == 200
+
+    db_session.refresh(documento_existente)
+
+    assert documento_existente.NombreArchivo == nombre_original
+
+    assert documento_existente.IdCategoriaDocumento == categoria_original
+
+
+def test_reemplazar_documento_elimina_archivo_anterior(
+    client,
+    auth_headers,
+    viaje_con_admin,
+    documento_existente,
+    mock_storage,
+):
+    viaje, _ = viaje_con_admin
+
+    ruta_original = documento_existente.UrlArchivo
+
+    response = client.put(
+        f"/api/v1/trips/{viaje.IdViaje}/documents/{documento_existente.IdDocumento}",
+        headers=auth_headers,
+        files={
+            "archivo": (
+                "nuevo.pdf",
+                io.BytesIO(b"nuevo contenido"),
+                "application/pdf",
+            )
+        },
+    )
+
+    assert response.status_code == 200
+
+    assert ruta_original in mock_storage
+
+
+def test_reemplazar_documento_muestra_mensaje_confirmacion(
+    client,
+    auth_headers,
+    viaje_con_admin,
+    documento_existente,
+):
+    viaje, _ = viaje_con_admin
+
+    response = client.put(
+        f"/api/v1/trips/{viaje.IdViaje}/documents/{documento_existente.IdDocumento}",
+        headers=auth_headers,
+        files={
+            "archivo": (
+                "nuevo.pdf",
+                io.BytesIO(b"nuevo contenido"),
+                "application/pdf",
+            )
+        },
+    )
+
+    assert response.status_code == 200
+
+    assert response.json()["message"] == (
+        "Documento actualizado correctamente."
+    )
+
+
+def test_reemplazar_documento_permite_modificar_nombre_y_categoria(
+    client,
+    auth_headers,
+    viaje_con_admin,
+    documento_existente,
+    db_session,
+):
+    viaje, _ = viaje_con_admin
+
+    nueva_categoria = CategoriaDocumento(
+        Nombre="Reservas"
+    )
+
+    db_session.add(nueva_categoria)
+    db_session.commit()
+    db_session.refresh(nueva_categoria)
+
+    response = client.put(
+        f"/api/v1/trips/{viaje.IdViaje}/documents/"
+        f"{documento_existente.IdDocumento}",
+        headers=auth_headers,
+        files={
+            "archivo": (
+                "reserva.pdf",
+                io.BytesIO(b"nuevo contenido"),
+                "application/pdf",
+            )
+        },
+        data={
+            "NombreArchivo": "Reserva Hotel",
+            "IdCategoriaDocumento": (
+                nueva_categoria.IdCategoriaDocumento
+            ),
+        },
+    )
+
+    assert response.status_code == 200
+
+    db_session.refresh(documento_existente)
+
+    assert documento_existente.NombreArchivo == "Reserva Hotel.pdf"
+    assert documento_existente.IdCategoriaDocumento == (
+        nueva_categoria.IdCategoriaDocumento
+    )

@@ -789,3 +789,108 @@ export async function deleteRepositorioItem(tripId, itemId) {
   });
   return parseResponse(response, "No se pudo eliminar la información");
 }
+
+export async function updateTripDocument(
+  tripId,
+  documentId,
+  archivo,
+  idCategoriaDocumento,
+  nombreArchivo
+) {
+  const token = await getStoredToken();
+  const fileType = archivo ? (archivo.mimeType || archivo.type || "application/octet-stream") : null;
+
+  if (Platform.OS === "web") {
+    const formData = new FormData();
+
+    if (archivo) {
+      const safeName = nombreArchivo || archivo.name || "documento.pdf";
+      if (archivo.file instanceof Blob || archivo.file instanceof File) {
+        formData.append("archivo", archivo.file, safeName);
+      } else if (archivo.uri && archivo.uri.startsWith("blob:")) {
+        const response = await fetch(archivo.uri);
+        const blob = await response.blob();
+        formData.append("archivo", blob, safeName);
+      } else {
+        formData.append("archivo", archivo, safeName);
+      }
+    }
+
+    if (idCategoriaDocumento !== null && idCategoriaDocumento !== undefined) {
+      formData.append("IdCategoriaDocumento", String(idCategoriaDocumento));
+    }
+    if (nombreArchivo) {
+      formData.append("NombreArchivo", nombreArchivo);
+    }
+
+    const response = await fetch(`${API_BASE_URL}/trips/${tripId}/documents/${documentId}`, {
+      method: "PUT",
+      headers: { Authorization: `Bearer ${token}` },
+      body: formData,
+    });
+
+    return parseResponse(response, "No se pudo actualizar el documento");
+  } else {
+    // Entorno Mobile (Android / iOS con expo-file-system)
+    const formData = new FormData();
+
+    if (archivo && archivo.uri) {
+      // Si se proporciona un nuevo archivo físico
+      const file = new File(archivo.uri);
+      const safeName = nombreArchivo || archivo.name || "documento.pdf";
+      
+      // Adjuntamos mediante multipart utilizando el objeto File de expo
+      const result = await file.upload(
+        `${API_BASE_URL}/trips/${tripId}/documents/${documentId}`,
+        {
+          httpMethod: "PUT",
+          uploadType: UploadType.MULTIPART,
+          fieldName: "archivo",
+          mimeType: fileType,
+          parameters: {
+            ...(idCategoriaDocumento !== null && idCategoriaDocumento !== undefined && { IdCategoriaDocumento: String(idCategoriaDocumento) }),
+            ...(nombreArchivo && { NombreArchivo: nombreArchivo }),
+          },
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        }
+      );
+
+      if (result.status < 200 || result.status >= 300) {
+        let mensaje = "No se pudo actualizar el documento";
+        try {
+          const parsed = JSON.parse(result.body);
+          mensaje = parsed.detail || parsed.message || mensaje;
+        } catch (e) {}
+        throw new Error(mensaje);
+      }
+
+      try {
+        return JSON.parse(result.body);
+      } catch (e) {
+        return result.body;
+      }
+    } else {
+      // Si NO se reemplaza el archivo físico, mandamos una petición HTTP normal con JSON o FormData sin archivo
+      const payload = {};
+      if (idCategoriaDocumento !== null && idCategoriaDocumento !== undefined) {
+        payload.IdCategoriaDocumento = Number(idCategoriaDocumento);
+      }
+      if (nombreArchivo) {
+        payload.NombreArchivo = nombreArchivo;
+      }
+
+      const response = await fetch(`${API_BASE_URL}/trips/${tripId}/documents/${documentId}`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify(payload),
+      });
+
+      return parseResponse(response, "No se pudo actualizar el documento");
+    }
+  }
+}

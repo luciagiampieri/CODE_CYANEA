@@ -92,6 +92,17 @@ class ConnectionManager:
 
             for clave in claves_a_liberar:
                 self._ediciones_activas.pop(clave, None)
+
+    async def broadcast_to_trip(self, trip_id: int, evento: dict) -> None:
+        
+        conexiones = list(self._conexiones_por_viaje.get(trip_id, ()))
+        payload = json.dumps(evento, default=str)
+        for conexion in conexiones:
+            try:
+                await conexion.send_text(payload)
+            except Exception:
+                logger.exception("No se pudo enviar evento WS al viaje, se descarta la conexión")
+                self.disconnect(trip_id, conexion)
     
 
 manager = ConnectionManager()

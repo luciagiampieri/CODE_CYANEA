@@ -17,7 +17,7 @@ from app.models import (
 )
 from app.schemas.documento_viaje import DocumentoViajeRead
 
-from app.services.supabase.storage import subir_documento, obtener_url_publica
+from app.services.supabase.storage import eliminar_documento_storage, subir_documento, obtener_url_publica
 from app.services.websocket_manager import manager
 
 router = APIRouter()
@@ -190,6 +190,11 @@ async def subir_documento_viaje(
 
     db.refresh(documento)
 
+    await manager.broadcast_to_trip(
+        trip_id,
+        {"tipo": "documento_actualizado"}
+    )
+
     return {
         "message": "Documento subido correctamente",
         "IdDocumento": documento.IdDocumento
@@ -220,3 +225,126 @@ def listar_documentos_viaje(
     )
 
     return [_serializar_documento(documento) for documento in documentos]
+
+
+@router.put("/{trip_id}/documents/{document_id}")
+async def editar_o_reemplazar_documento_viaje(
+    trip_id: int,
+    document_id: int,
+    archivo: UploadFile | None = File(None),
+    IdCategoriaDocumento: int | None = Form(None),
+    NombreArchivo: str | None = Form(None),
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+):
+    viaje = db.get(Viaje, trip_id)
+    if not viaje:
+        raise HTTPException(
+            status_code=404,
+            detail="Viaje no encontrado"
+        )
+
+    _verificar_participante_aceptado(db, trip_id, current_user)
+
+    documento = db.get(DocumentoViaje, document_id)
+    if not documento or documento.IdViaje != trip_id:
+        raise HTTPException(
+            status_code=404,
+            detail="Documento no encontrado."
+        )
+
+    if documento.IdUsuarioSubida != current_user.IdUsuario:
+        raise HTTPException(
+            status_code=403,
+            detail="Solo el usuario que cargó el documento puede modificarlo."
+        )
+
+    if IdCategoriaDocumento is not None:
+        categoria = db.get(CategoriaDocumento, IdCategoriaDocumento)
+        if not categoria:
+            raise HTTPException(
+                status_code=404,
+                detail="Categoría de documento no encontrada"
+            )
+        documento.IdCategoriaDocumento = IdCategoriaDocumento
+    
+    categoria_actual = db.get(CategoriaDocumento, documento.IdCategoriaDocumento)
+
+    if NombreArchivo is not None:
+        nombre_limpio = NombreArchivo.strip()
+        if not nombre_limpio:
+            raise HTTPException(
+                status_code=400,
+                detail="El nombre del documento no puede estar vacío."
+            )
+        extension_actual = Path(documento.NombreArchivo).suffix
+        if not Path(nombre_limpio).suffix:
+            nombre_limpio = f"{nombre_limpio}{extension_actual}"
+        documento.NombreArchivo = nombre_limpio
+
+    if archivo is not None and archivo.filename:
+        extensiones_permitidas = {".pdf", ".jpg", ".jpeg", ".png"}
+        nueva_extension = Path(archivo.filename).suffix.lower()
+
+        if nueva_extension not in extensiones_permitidas:
+            raise HTTPException(
+                status_code=400,
+                detail="Tipo de archivo no permitido. Solo se permiten PDF, JPG, JPEG y PNG."
+            )
+        
+        ruta_archivo_vieja = documento.UrlArchivo
+        print("👉 RUTA VIEJA A ELIMINAR:", repr(ruta_archivo_vieja))
+
+        stem_nombre_actual = Path(documento.NombreArchivo).stem
+        documento.NombreArchivo = f"{stem_nombre_actual}{nueva_extension}"
+
+        ruta_archivo = (
+            f"viajes/{trip_id}/"
+            f"{categoria_actual.Nombre}/"
+            f"{documento.NombreArchivo}"
+        )
+
+        if ruta_archivo_vieja:
+            try:
+                eliminar_documento_storage(ruta_archivo_vieja)
+                print("Archivo viejo eliminado con éxito de Supabase")
+            except Exception as e:
+                print("ERROR CRÍTICO AL ELIMINAR EN SUPABASE:", e)
+                
+        url_archivo = subir_documento(archivo, ruta_archivo)
+        documento.UrlArchivo = url_archivo
+   
+    duplicado = db.scalar(
+        select(DocumentoViaje).where(
+            DocumentoViaje.IdViaje == trip_id,
+            DocumentoViaje.NombreArchivo == documento.NombreArchivo,
+            DocumentoViaje.IdDocumento != document_id
+        )
+    )
+    if duplicado:
+        raise HTTPException(
+            status_code=409,
+            detail="Ya existe otro documento con ese nombre en este viaje."
+        )
+
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail="Error de integridad al actualizar el documento."
+        )
+
+    db.refresh(documento)
+
+    await manager.broadcast_to_trip(
+        trip_id,
+        {"tipo": "documento_actualizado"}
+    )
+
+    return {
+        "message": "Documento actualizado correctamente.",
+        "IdDocumento": documento.IdDocumento,
+        "item": _serializar_documento(documento)
+    }

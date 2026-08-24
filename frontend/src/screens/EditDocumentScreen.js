@@ -23,7 +23,7 @@ import PrimaryButton from "../components/ui/PrimaryButton";
 
 import {
     getDocumentCategories,
-    uploadTripDocument,
+    updateTripDocument,
 } from "../services/api";
 
 import { colors, radii, spacing, surfaces, textStyles } from "../theme/tokens";
@@ -41,20 +41,28 @@ function mostrarAlertaConfirmacion(titulo, mensaje, onAceptar) {
     }
 }
 
-export default function DocumentsScreen({ route, navigation }) {
-    const { tripId } = route.params;
+export default function EditDocumentScreen({ route, navigation }) {
+    const { tripId, documento } = route.params;
 
     const [loading, setLoading] = useState(true);
     const [loadError, setLoadError] = useState("");
     const [saving, setSaving] = useState(false);
 
     const [categorias, setCategorias] = useState([]);
-    const [idCategoria, setIdCategoria] = useState(null);
+    const [idCategoria, setIdCategoria] = useState(documento?.IdCategoriaDocumento || null);
     const [modalCategoriaVisible, setModalCategoriaVisible] = useState(false);
 
-    const [archivo, setArchivo] = useState(null);
-    const [nombreDocumento, setNombreDocumento] = useState("");
-    const [extensionArchivo, setExtensionArchivo] = useState("");
+    // Archivo físico opcional (si el usuario decide reemplazarlo)
+    const [archivoNuevo, setArchivoNuevo] = useState(null);
+
+    // Extraer nombre base y extensión limpia del documento existente
+    const nombreOriginal = documento?.NombreArchivo || "";
+    const puntoIndex = nombreOriginal.lastIndexOf(".");
+    const extInicial = puntoIndex !== -1 ? nombreOriginal.substring(puntoIndex + 1) : "";
+    const nombreBaseInicial = puntoIndex !== -1 ? nombreOriginal.substring(0, puntoIndex) : nombreOriginal;
+
+    const [nombreDocumento, setNombreDocumento] = useState(nombreBaseInicial);
+    const [extensionArchivo, setExtensionArchivo] = useState(extInicial);
 
     const [errores, setErrores] = useState({});
 
@@ -80,7 +88,7 @@ export default function DocumentsScreen({ route, navigation }) {
             }
         }
         cargarCategorias();
-    }, [tripId]);
+    }, []);
 
     function limpiarError(campo) {
         setErrores((current) => {
@@ -91,7 +99,7 @@ export default function DocumentsScreen({ route, navigation }) {
         });
     }
 
-    async function seleccionarArchivo() {
+    async function seleccionarNuevoArchivo() {
         try {
             const result = await DocumentPicker.getDocumentAsync({
                 type: ["application/pdf", "image/jpeg", "image/png"],
@@ -100,21 +108,25 @@ export default function DocumentsScreen({ route, navigation }) {
             });
 
             if (!result.canceled) {
-                const documento = result.assets[0];
+                const doc = result.assets[0];
+                const ext = doc.name.includes(".") ? doc.name.split(".").pop() : "";
 
-                const extension = documento.name.includes(".")
-                    ? documento.name.split(".").pop()
-                    : "";
-                const nombreSinExtension = documento.name.replace(/\.[^/.]+$/, "");
+                const extensionesPermitidas = ["pdf", "jpg", "jpeg", "png"];
 
-                setArchivo(documento);
-                setExtensionArchivo(extension);
-                setNombreDocumento(nombreSinExtension);
+                if (!extensionesPermitidas.includes(ext)) {
+                    mostrarAlertaConfirmacion(
+                        "Archivo inválido",
+                        "Solo se permiten archivos PDF, JPG, JPEG o PNG."
+                    );
+                    return;
+                }
 
+                setArchivoNuevo(doc);
+                setExtensionArchivo(ext); // Actualiza la extensión si sube otro tipo de archivo
                 limpiarError("archivo");
             }
         } catch (error) {
-            console.log("⚠️ Error al seleccionar el archivo:", error);
+            console.log("⚠️ Error al seleccionar el nuevo archivo:", error);
             mostrarAlertaConfirmacion(
                 "Error",
                 "No se pudo seleccionar el archivo. Intentá nuevamente."
@@ -122,18 +134,16 @@ export default function DocumentsScreen({ route, navigation }) {
         }
     }
 
-    function eliminarArchivo() {
-        setArchivo(null);
-        setNombreDocumento("");
-        setExtensionArchivo("");
+    function eliminarNuevoArchivo() {
+        setArchivoNuevo(null);
+        // Restauramos la extensión original del documento por seguridad si cancela el reemplazo
+        const extOriginal = puntoIndex !== -1 ? nombreOriginal.substring(puntoIndex + 1) : "";
+        setExtensionArchivo(extOriginal);
     }
 
-    async function handleSubir() {
+    async function handleActualizar() {
         const nuevosErrores = {};
 
-        if (!archivo) {
-            nuevosErrores.archivo = "Seleccioná un documento";
-        }
         if (!nombreDocumento.trim()) {
             nuevosErrores.nombre = "El nombre del documento es obligatorio";
         }
@@ -151,17 +161,23 @@ export default function DocumentsScreen({ route, navigation }) {
             setSaving(true);
 
             const nombreFinal = extensionArchivo
-                ? `${nombreDocumento}.${extensionArchivo}`
-                : nombreDocumento;
+                ? `${nombreDocumento.trim()}.${extensionArchivo}`
+                : nombreDocumento.trim();
 
-            await uploadTripDocument(tripId, archivo, idCategoria, nombreFinal);
+            // Llamamos al servicio PUT que creamos en api.js
+            await updateTripDocument(
+                tripId,
+                documento.IdDocumento,
+                archivoNuevo, // Si es null, el backend mantiene el archivo anterior
+                idCategoria,
+                nombreFinal
+            );
 
-            mostrarAlertaConfirmacion("Éxito", "Documento subido correctamente.", () =>
+            mostrarAlertaConfirmacion("Éxito", "Documento actualizado correctamente.", () =>
                 navigation.goBack()
             );
         } catch (error) {
-            console.log("ERROR uploadTripDocument:", error);
-
+            console.log("ERROR updateTripDocument:", error);
             const mensajeError = (error?.message || "").toLowerCase();
             const esNombreDuplicado =
                 mensajeError.includes("duplicate") ||
@@ -170,11 +186,11 @@ export default function DocumentsScreen({ route, navigation }) {
                 mensajeError.includes("23505");
 
             if (esNombreDuplicado) {
-                setErrores({ nombre: "Ya existe un documento con ese nombre. Elegí otro." });
+                setErrores({ nombre: "Ya existe otro documento con ese nombre en este viaje." });
             } else {
                 mostrarAlertaConfirmacion(
                     "Error",
-                    error?.message || "No se pudo subir el documento."
+                    error?.message || "No se pudo actualizar el documento."
                 );
             }
         } finally {
@@ -218,7 +234,6 @@ export default function DocumentsScreen({ route, navigation }) {
                     contentContainerStyle={styles.scrollContent}
                     showsVerticalScrollIndicator={false}
                     keyboardShouldPersistTaps="always"
-                    keyboardDismissMode="none"
                 >
                     <View style={styles.hero}>
                         <View style={styles.heroTopRow}>
@@ -227,52 +242,47 @@ export default function DocumentsScreen({ route, navigation }) {
                         </View>
 
                         <Text style={styles.heroEyebrow}>Documentación del viaje</Text>
-                        <Text style={styles.heroTitle}>Subir documento</Text>
+                        <Text style={styles.heroTitle}>Editar documento</Text>
                         <Text style={styles.heroCopy}>
-                            Adjuntá archivos importantes para este viaje.
+                            Modificá el nombre, la categoría o reemplazá el archivo adjunto.
                         </Text>
                     </View>
 
                     <View style={styles.body}>
-                        {/* Se removió la tarjeta de listado de documentos anteriores, quedando solo el formulario de carga */}
-                        <View style={styles.card}>
+                        <View style={[styles.card, { marginTop: spacing.lg }]}>
                             <Text style={styles.cardTitle}>Información del documento</Text>
 
                             <View style={styles.field}>
-                                <Text style={styles.fieldLabel}>Documento del viaje</Text>
+                                <Text style={styles.fieldLabel}>Archivo</Text>
 
-                                {!archivo ? (
+                                {!archivoNuevo ? (
                                     <Pressable
-                                        style={[
-                                            styles.uploadBox,
-                                            errores.archivo && styles.inputError,
-                                        ]}
-                                        onPress={seleccionarArchivo}
+                                        style={styles.fileCardActive}
+                                        onPress={seleccionarNuevoArchivo}
                                     >
-                                        <FontAwesome6
-                                            name="cloud-arrow-up"
-                                            size={40}
-                                            color={colors.primary}
-                                        />
-                                        <Text style={styles.uploadTitle}>Seleccionar archivo</Text>
-                                        <Text style={styles.uploadDescription}>
-                                            PDF, JPG, JPEG o PNG
-                                        </Text>
+                                        <FontAwesome6 name="file-lines" size={20} color={colors.primary} />
+                                        <View style={{ flex: 1, marginLeft: 10 }}>
+                                            <Text style={styles.fileName} numberOfLines={1}>
+                                                {documento.NombreArchivo}
+                                            </Text>
+                                            <Text style={styles.fileSize}>
+                                                Archivo actual (Tocá para reemplazarlo)
+                                            </Text>
+                                        </View>
+                                        <FontAwesome6 name="arrows-rotate" size={14} color={colors.primary} />
                                     </Pressable>
                                 ) : (
                                     <View style={styles.fileCard}>
                                         <FontAwesome6 name="file" size={22} color={colors.primary} />
-
                                         <View style={{ flex: 1, marginLeft: 10 }}>
                                             <Text style={styles.fileName} numberOfLines={1}>
-                                                {archivo.name}
+                                                {archivoNuevo.name}
                                             </Text>
                                             <Text style={styles.fileSize}>
-                                                {archivo.size ? `${(archivo.size / 1024).toFixed(1)} KB` : ""}
+                                                Nuevo archivo seleccionado ({archivoNuevo.size ? `${(archivoNuevo.size / 1024).toFixed(1)} KB` : ""})
                                             </Text>
                                         </View>
-
-                                        <Pressable onPress={eliminarArchivo} hitSlop={15}>
+                                        <Pressable onPress={eliminarNuevoArchivo} hitSlop={15}>
                                             <FontAwesome6
                                                 name="trash"
                                                 size={16}
@@ -281,9 +291,6 @@ export default function DocumentsScreen({ route, navigation }) {
                                         </Pressable>
                                     </View>
                                 )}
-                                {errores.archivo ? (
-                                    <Text style={styles.fieldError}>{errores.archivo}</Text>
-                                ) : null}
                             </View>
 
                             <View style={styles.field}>
@@ -303,7 +310,7 @@ export default function DocumentsScreen({ route, navigation }) {
                                             setNombreDocumento(text);
                                             limpiarError("nombre");
                                         }}
-                                        placeholder="Ej: Seguro médico"
+                                        placeholder="Nombre del documento"
                                         placeholderTextColor={colors.textMuted}
                                     />
                                     {extensionArchivo ? (
@@ -357,9 +364,9 @@ export default function DocumentsScreen({ route, navigation }) {
 
                         <View style={styles.actions}>
                             <PrimaryButton
-                                label={saving ? "Subiendo..." : "Subir documento"}
+                                label={saving ? "Guardando..." : "Guardar cambios"}
                                 loading={saving}
-                                onPress={handleSubir}
+                                onPress={handleActualizar}
                                 style={styles.actionPrimary}
                             />
                             <PrimaryButton
@@ -525,26 +532,6 @@ const styles = StyleSheet.create({
         ...textStyles.bodyStrong,
         color: colors.textMuted,
     },
-    uploadBox: {
-        minHeight: 170,
-        borderWidth: 1,
-        borderColor: colors.border,
-        borderStyle: "dashed",
-        borderRadius: radii.md,
-        backgroundColor: colors.surface,
-        alignItems: "center",
-        justifyContent: "center",
-    },
-    uploadTitle: {
-        ...textStyles.bodyStrong,
-        color: colors.primary,
-        marginTop: spacing.sm,
-    },
-    uploadDescription: {
-        ...textStyles.meta,
-        color: colors.textSecondary,
-        marginTop: spacing.xs,
-    },
     fileCard: {
         flexDirection: "row",
         alignItems: "center",
@@ -552,6 +539,16 @@ const styles = StyleSheet.create({
         borderColor: colors.border,
         borderRadius: radii.md,
         backgroundColor: colors.surface,
+        paddingHorizontal: spacing.md,
+        paddingVertical: spacing.md,
+    },
+    fileCardActive: {
+        flexDirection: "row",
+        alignItems: "center",
+        borderWidth: 1,
+        borderColor: colors.primary,
+        borderRadius: radii.md,
+        backgroundColor: colors.surfaceAlt || "#f0f4f8",
         paddingHorizontal: spacing.md,
         paddingVertical: spacing.md,
     },

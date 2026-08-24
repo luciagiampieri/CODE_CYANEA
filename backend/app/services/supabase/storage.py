@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from pathlib import Path
+import textwrap
 import unicodedata
 
 from fastapi import UploadFile
@@ -48,3 +49,19 @@ def subir_foto_perfil(archivo: UploadFile, user_id: int) -> str:
 
 def obtener_url_publica(ruta_archivo: str) -> str:
     return supabase.storage.from_(settings.supabase_bucket).get_public_url(ruta_archivo)
+
+
+def eliminar_documento_storage(ruta_archivo: str) -> None:
+
+    if not ruta_archivo:
+        return
+    
+    try:
+        ruta_limpia = ruta_archivo.strip("/")
+
+        if "object/public/" in ruta_limpia:
+            ruta_limpia = ruta_limpia.split("trip-documents/")[1]
+        
+        supabase.storage.from_("trip-documents").remove([ruta_limpia])
+    except Exception as e:
+        print(f"Error al eliminar documento en Supabase Storage: {e}")

@@ -451,6 +451,11 @@ export default function TripDetailScreen({ navigation, route }) {
           const mensaje = JSON.parse(event.data);
           console.log("Mensaje WebSocket recibido:", mensaje);
 
+          if (mensaje.tipo === "documento_actualizado") {
+            loadDocumentos();
+            return;
+          }
+
           if (mensaje.tipo === "edicion_rechazada"){
             console.log("Edición rechazada:", mensaje.mensaje);
 
@@ -1379,12 +1384,12 @@ export default function TripDetailScreen({ navigation, route }) {
               ) : (
                 <View style={{ gap: spacing.sm, marginTop: spacing.sm }}>
                   {documentos.map((documento) => (
-                    <Pressable
+                    <View
                       key={documento.IdDocumento}
-                      onPress={() => abrirDocumento(documento.UrlArchivo)}
                       style={{
                         flexDirection: "row",
                         alignItems: "center",
+                        justifyContent: "space-between",
                         borderWidth: 1,
                         borderColor: colors.border,
                         borderRadius: radii.md,
@@ -1392,15 +1397,46 @@ export default function TripDetailScreen({ navigation, route }) {
                         gap: spacing.sm,
                       }}
                     >
-                      <FontAwesome6 name="file-lines" size={18} color={colors.primary} />
-                      <View style={{ flex: 1 }}>
-                        <Text style={styles.sectionCopy}>{documento.NombreArchivo}</Text>
-                        <Text style={[styles.sectionCopy, { fontSize: 12, opacity: 0.7 }]}>
-                          {documento.NombreCategoria} · Subido por {documento.NombreUsuarioSubida}
-                        </Text>
-                      </View>
-                      <FontAwesome6 name="up-right-from-square" size={14} color={colors.textSecondary} />
-                    </Pressable>
+                      {/* Parte Izquierda: Clickeable para abrir el documento */}
+                      <Pressable
+                        onPress={() => abrirDocumento(documento.UrlArchivo)}
+                        style={{
+                          flex: 1,
+                          flexDirection: "row",
+                          alignItems: "center",
+                          gap: spacing.sm,
+                        }}
+                      >
+                        <FontAwesome6 name="file-lines" size={18} color={colors.primary} />
+                        <View style={{ flex: 1 }}>
+                          <Text style={styles.sectionCopy}>{documento.NombreArchivo}</Text>
+                          <Text style={[styles.sectionCopy, { fontSize: 12, opacity: 0.7 }]}>
+                            {documento.NombreCategoria} · Subido por {documento.NombreUsuarioSubida}
+                          </Text>
+                        </View>
+                        <FontAwesome6 name="up-right-from-square" size={14} color={colors.textSecondary} />
+                      </Pressable>
+
+                      {/* Parte Derecha: Únicamente el botón del lápiz para editar (solo si es propio) */}
+                      {documento.IdUsuarioSubida === currentUser?.id ? (
+                        <Pressable
+                          onPress={() =>
+                            navigation.navigate("EditDocument", { 
+                              tripId: trip.id,
+                              documento: documento,
+                            })
+                          }
+                          style={{
+                            borderRadius: 18,
+                            alignItems: "center",
+                            justifyContent: "center",
+                          }}
+                          hitSlop={8}
+                        >
+                          <FontAwesome6 name="pen" size={13} color={colors.primary} />
+                        </Pressable>
+                      ) : null}
+                    </View>
                   ))}
                 </View>
               )}
@@ -1512,7 +1548,7 @@ export default function TripDetailScreen({ navigation, route }) {
                                 }
                                 style={{ flexDirection: "row", alignItems: "center", gap: 4 }}
                               >
-                                <FontAwesome6 name="pen" size={12} color={colors.textSecondary} />
+                                <FontAwesome6 name="pen" size={13} color={colors.textSecondary} />
                                 <Text style={{ fontSize: 12, color: colors.textSecondary, fontWeight: "600" }}>Editar</Text>
                               </Pressable>
 
