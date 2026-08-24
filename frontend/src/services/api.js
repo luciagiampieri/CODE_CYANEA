@@ -1,5 +1,5 @@
 ﻿import { Platform } from "react-native";
-import { File, UploadType } from "expo-file-system";
+import { Directory, File, Paths, UploadType } from "expo-file-system";
 
 const AUTH_TOKEN_KEY = "auth_token";
 
@@ -749,6 +749,72 @@ export async function getTripDocuments(tripId) {
   });
 
   return parseResponse(response, "No se pudieron cargar los documentos del viaje");
+}
+
+// US 41 - Descargar documento.
+// El backend valida que quien pide el archivo sea integrante del viaje
+// (AC3), por eso siempre se pide con el token de autenticación en vez de
+// usar directamente la URL pública del bucket.
+export async function downloadTripDocument(tripId, documentId, nombreArchivo) {
+  const token = await getStoredToken();
+  const downloadUrl = `${API_BASE_URL}/trips/${tripId}/documents/${documentId}/download`;
+
+  if (Platform.OS === "web") {
+    const response = await fetch(downloadUrl, {
+      method: "GET",
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    if (!response.ok) {
+      return parseResponse(response, "No se pudo descargar el documento");
+    }
+
+    const blob = await response.blob();
+    const objectUrl = URL.createObjectURL(blob);
+
+    const link = window.document.createElement("a");
+    link.href = objectUrl;
+    link.download = nombreArchivo || `documento-${documentId}`;
+    window.document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(objectUrl);
+
+    return { uri: objectUrl, nombre: nombreArchivo };
+  }
+
+  const carpetaDestino = new Directory(Paths.document, "documentos-viaje");
+  if (!carpetaDestino.exists) {
+    carpetaDestino.create();
+  }
+
+  const archivoDestino = new File(
+    carpetaDestino,
+    nombreArchivo || `documento-${documentId}`
+  );
+
+  try {
+    return await File.downloadFileAsync(downloadUrl, archivoDestino, {
+      headers: { Authorization: `Bearer ${token}` },
+      idempotent: true,
+    });
+  } catch (error) {
+    throw new Error(
+      error?.message || "No se pudo descargar el documento a tu dispositivo"
+    );
+  }
+}
+
+// US 51 - Eliminar documento del repositorio.
+export async function deleteTripDocument(tripId, documentId) {
+  const response = await fetch(
+    `${API_BASE_URL}/trips/${tripId}/documents/${documentId}`,
+    {
+      method: "DELETE",
+      headers: await authHeaders(),
+    }
+  );
+  return parseResponse(response, "No se pudo eliminar el documento");
 }
 
 export async function getRepositorioItems(tripId) {

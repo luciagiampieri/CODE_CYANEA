@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class CategoriasDocumentosRead(BaseModel):
@@ -28,6 +28,10 @@ class DocumentoViajeRead(BaseModel):
 
     NombreCategoria: str
     NombreUsuarioSubida: str
+    EsPropio: bool = Field(
+        ...,
+        description="Si el documento fue subido por el usuario que consulta (habilita eliminarlo)."
+    )
 
     model_config = {
         "from_attributes": True

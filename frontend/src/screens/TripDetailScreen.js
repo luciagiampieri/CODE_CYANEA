@@ -45,7 +45,15 @@ import {
 } from "../services/api";
 import { colors, radii, spacing, surfaces, textStyles } from "../theme/tokens";
 
-import { getTripParticipants, getExpenseCategories, getTripDocuments, getRepositorioItems, deleteRepositorioItem } from "../services/api";
+import {
+  getTripParticipants,
+  getExpenseCategories,
+  getTripDocuments,
+  downloadTripDocument,
+  deleteTripDocument,
+  getRepositorioItems,
+  deleteRepositorioItem,
+} from "../services/api";
 import {
   guardarParticipantesEnCache,
   guardarCategoriasEnCache,
@@ -227,6 +235,8 @@ export default function TripDetailScreen({ navigation, route }) {
   const [loadingRepositorio, setLoadingRepositorio] = useState(false);
   const [repositorioError, setRepositorioError] = useState("");
   const [eliminandoItemId, setEliminandoItemId] = useState(null);
+  const [descargandoDocId, setDescargandoDocId] = useState(null);
+  const [eliminandoDocId, setEliminandoDocId] = useState(null);
   const [updatingTransferId, setUpdatingTransferId] = useState(null);
   const socketRef = useRef(null);
   const pendingEditRef = useRef(null);
@@ -411,6 +421,48 @@ export default function TripDetailScreen({ navigation, route }) {
     } catch (error) {
       Alert.alert("Error", "No se pudo abrir el documento. Intentá nuevamente.");
     }
+  }
+
+  // US 41 - Descargar documento.
+  async function handleDescargarDocumento(documento) {
+    try {
+      setDescargandoDocId(documento.IdDocumento);
+      await downloadTripDocument(trip.id, documento.IdDocumento, documento.NombreArchivo);
+      avisar(
+        "Descarga completa",
+        Platform.OS === "web"
+          ? "El documento se descargó correctamente."
+          : "El documento se guardó en tu dispositivo."
+      );
+    } catch (error) {
+      avisar("Error", error.message || "No se pudo descargar el documento. Intentá nuevamente.");
+    } finally {
+      setDescargandoDocId(null);
+    }
+  }
+
+  // US 51 - Eliminar documento del repositorio.
+  async function eliminarDocumento(documento) {
+    const ejecutar = async () => {
+      try {
+        setEliminandoDocId(documento.IdDocumento);
+        await deleteTripDocument(trip.id, documento.IdDocumento);
+        setDocumentos((prev) =>
+          prev.filter((d) => d.IdDocumento !== documento.IdDocumento)
+        );
+        avisar("Documento eliminado", "El documento se eliminó correctamente.");
+      } catch (error) {
+        avisar("No se pudo eliminar", error.message || "Ocurrió un error al eliminar el documento.");
+      } finally {
+        setEliminandoDocId(null);
+      }
+    };
+
+    confirmar(
+      "Eliminar documento",
+      `¿Seguro que querés eliminar "${documento.NombreArchivo}"? Esta acción no se puede deshacer.`,
+      ejecutar
+    );
   }
 
   useEffect(() => {
@@ -1383,61 +1435,103 @@ export default function TripDetailScreen({ navigation, route }) {
                 </Text>
               ) : (
                 <View style={{ gap: spacing.sm, marginTop: spacing.sm }}>
-                  {documentos.map((documento) => (
-                    <View
-                      key={documento.IdDocumento}
-                      style={{
-                        flexDirection: "row",
-                        alignItems: "center",
-                        justifyContent: "space-between",
-                        borderWidth: 1,
-                        borderColor: colors.border,
-                        borderRadius: radii.md,
-                        padding: spacing.md,
-                        gap: spacing.sm,
-                      }}
-                    >
-                      {/* Parte Izquierda: Clickeable para abrir el documento */}
-                      <Pressable
-                        onPress={() => abrirDocumento(documento.UrlArchivo)}
+
+                  {documentos.map((documento) => {
+                    const descargandoEsteDoc = descargandoDocId === documento.IdDocumento;
+                    const eliminandoEsteDoc = eliminandoDocId === documento.IdDocumento;
+
+                    return (
+                      <View
+                        key={documento.IdDocumento}
                         style={{
-                          flex: 1,
-                          flexDirection: "row",
-                          alignItems: "center",
-                          gap: spacing.sm,
+                          borderWidth: 1,
+                          borderColor: colors.border,
+                          borderRadius: radii.md,
+                          padding: spacing.md,
+                          gap: 6,
                         }}
                       >
-                        <FontAwesome6 name="file-lines" size={18} color={colors.primary} />
-                        <View style={{ flex: 1 }}>
-                          <Text style={styles.sectionCopy}>{documento.NombreArchivo}</Text>
-                          <Text style={[styles.sectionCopy, { fontSize: 12, opacity: 0.7 }]}>
-                            {documento.NombreCategoria} · Subido por {documento.NombreUsuarioSubida}
-                          </Text>
-                        </View>
-                        <FontAwesome6 name="up-right-from-square" size={14} color={colors.textSecondary} />
-                      </Pressable>
-
-                      {/* Parte Derecha: Únicamente el botón del lápiz para editar (solo si es propio) */}
-                      {documento.IdUsuarioSubida === currentUser?.id ? (
                         <Pressable
-                          onPress={() =>
-                            navigation.navigate("EditDocument", { 
-                              tripId: trip.id,
-                              documento: documento,
-                            })
-                          }
+                          onPress={() => abrirDocumento(documento.UrlArchivo)}
                           style={{
-                            borderRadius: 18,
+                            flexDirection: "row",
                             alignItems: "center",
-                            justifyContent: "center",
+                            gap: spacing.sm,
                           }}
-                          hitSlop={8}
                         >
-                          <FontAwesome6 name="pen" size={13} color={colors.primary} />
+                          <FontAwesome6 name="file-lines" size={18} color={colors.primary} />
+                          <View style={{ flex: 1 }}>
+                            <Text style={styles.sectionCopy}>{documento.NombreArchivo}</Text>
+                            <Text style={[styles.sectionCopy, { fontSize: 12, opacity: 0.7 }]}>
+                              {documento.NombreCategoria} · Subido por {documento.NombreUsuarioSubida}
+                            </Text>
+                          </View>
+                          <FontAwesome6 name="up-right-from-square" size={14} color={colors.textSecondary} />
                         </Pressable>
-                      ) : null}
-                    </View>
-                  ))}
+
+                        <View style={{ flexDirection: "row", gap: spacing.md, marginTop: 6 }}>
+                          <Pressable
+                            onPress={() => handleDescargarDocumento(documento)}
+                            disabled={descargandoEsteDoc}
+                            style={{ flexDirection: "row", alignItems: "center", gap: 4, opacity: descargandoEsteDoc ? 0.6 : 1 }}
+                          >
+                            {descargandoEsteDoc ? (
+                              <ActivityIndicator size="small" color={colors.textSecondary} />
+                            ) : (
+                              <FontAwesome6 name="download" size={12} color={colors.textSecondary} />
+                            )}
+                            <Text style={{ fontSize: 12, color: colors.textSecondary, fontWeight: "600" }}>
+                              {descargandoEsteDoc ? "Descargando..." : "Descargar"}
+                            </Text>
+                          </Pressable>
+
+                          {documento.IdUsuarioSubida === currentUser?.id ? (
+                            <Pressable
+                              onPress={() =>
+                                navigation.navigate("EditDocument", { 
+                                  tripId: trip.id,
+                                  documento,
+                                })
+                              }
+                              style={{
+                                flexDirection: "row",
+                                alignItems: "center",
+                                gap: 4,
+                              }}
+                            >
+                              <FontAwesome6 name="pen" size={13} color={colors.textSecondary} />
+                              <Text
+                                style={{
+                                  fontSize: 12,
+                                  color: colors.textSecondary,
+                                  fontWeight: "600",
+                                }}
+                              >
+                                Editar
+                              </Text>
+                            </Pressable>
+                          ) : null}
+
+                          {documento.EsPropio ? (
+                            <Pressable
+                              onPress={() => eliminarDocumento(documento)}
+                              disabled={eliminandoEsteDoc}
+                              style={{ flexDirection: "row", alignItems: "center", gap: 4, opacity: eliminandoEsteDoc ? 0.6 : 1 }}
+                            >
+                              {eliminandoEsteDoc ? (
+                                <ActivityIndicator size="small" color={colors.danger} />
+                              ) : (
+                                <FontAwesome6 name="trash" size={12} color={colors.danger} />
+                              )}
+                              <Text style={{ fontSize: 12, color: colors.danger, fontWeight: "600" }}>
+                                {eliminandoEsteDoc ? "Eliminando..." : "Eliminar"}
+                              </Text>
+                            </Pressable>
+                          ) : null}
+                        </View>
+                      </View>
+                    );
+                  })}
                 </View>
               )}
 
