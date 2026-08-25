@@ -15,7 +15,7 @@ class Usuario(Base):
     Apellido: Mapped[str] = mapped_column(String(100), nullable=False)
     NombreUsuario: Mapped[str] = mapped_column(String(50), nullable=False, unique=True)
     HashedPassword: Mapped[str] = mapped_column("HashedPassword", String(255), nullable=False)
-    GoogleSub: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    GoogleSub: Mapped[str | None] = mapped_column(String(255), nullable=True, unique=True)
     FacebookId: Mapped[str | None] = mapped_column(String(255), nullable=True)
     ProveedorAutenticacion: Mapped[str] = mapped_column(
         String(30), nullable=False, default="local", server_default="local"

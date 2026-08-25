@@ -23,6 +23,7 @@ from app.models.liquidacion_viaje import LiquidacionViaje
 from app.models.lugar_interes import LugarInteres
 from app.models.lugar_interes_viaje import LugarInteresViaje
 from app.models.transferencia_liquidacion import TransferenciaLiquidacion
+from app.models.ruta_diaria import RutaDiaria
 
 __all__ = [
     "Base",
@@ -50,4 +51,5 @@ __all__ = [
     "LugarInteres",
     "LugarInteresViaje",
     "TransferenciaLiquidacion",
+    "RutaDiaria",
 ]

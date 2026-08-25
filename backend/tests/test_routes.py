@@ -10,7 +10,7 @@ from app.services import route_generation as route_generation_module
 from tests.test_trips import _crear_usuario, _token_de
 
 
-async def _fake_directions_ok(actividades):
+async def _fake_directions_ok(actividades, modo=None):
     """Simula una respuesta OK de Google Directions: una leg por cada tramo
     entre actividades consecutivas."""
     cantidad_legs = max(len(actividades) - 1, 1)
@@ -28,7 +28,7 @@ async def _fake_directions_ok(actividades):
     }
 
 
-async def _fake_directions_zero_results(actividades):
+async def _fake_directions_zero_results(actividades, modo=None):
     raise route_generation_module.RutaProviderError(
         "No se pudo calcular la ruta entre las actividades seleccionadas. Detalle: ZERO_RESULTS"
     )

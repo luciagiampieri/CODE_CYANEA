@@ -354,7 +354,7 @@ def test_schedule_trip_place_sincroniza_ruta_existente(
     viaje, _ = viaje_con_admin
     monkeypatch.setattr(places_module.manager, "broadcast", _broadcast_noop)
 
-    async def fake_directions(actividades):
+    async def fake_directions(actividades, modo=None):
         cantidad_legs = max(len(actividades) - 1, 1)
         return {
             "status": "OK",

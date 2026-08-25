@@ -1,6 +1,6 @@
 from datetime import datetime, time
 
-from sqlalchemy import CheckConstraint, DateTime, ForeignKey, String, Text, Time, func
+from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Index, String, Text, Time, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.session import Base
@@ -10,6 +10,7 @@ class ActividadItinerario(Base):
     __tablename__ = "ActividadesItinerario"
     __table_args__ = (
         CheckConstraint('"HoraFin" > "HoraInicio"', name="CK_ActividadesItinerario_Horarios"),
+        Index("IX_ActividadesItinerario_IdDiaCronograma", "IdDiaCronograma"),
     )
 
     IdActividad: Mapped[int] = mapped_column(primary_key=True)
