@@ -53,18 +53,14 @@ export default function SettingsScreen({ navigation }) {
         <View style={cardStyle}>
           {/* Header con botón para volver */}
           <View style={styles.header}>
-            <Pressable
+            <PrimaryButton
+              icon="arrow-left"
+              label=""
               onPress={() => navigation.goBack()}
-              style={({ pressed }) => [
-                styles.backButton,
-                pressed && styles.backButtonPressed,
-              ]}
-              hitSlop={12}
-            >
-              <FontAwesome6 name="arrow-left" size={18} color={colors.primary} />
-            </Pressable>
+              style={styles.topBackButton}
+              variant="secondary"
+            />
             <Text style={styles.title}>Configuración</Text>
-            <View style={{ width: 36 }} />
           </View>
 
           {/* SECCIÓN 1: CUENTA Y PERFIL */}
@@ -235,25 +231,22 @@ const styles = StyleSheet.create({
     width: "100%",
   },
   header: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-  },
-  backButton: {
-    width: 36,
-    height: 36,
-    borderRadius: radii.pill,
-    backgroundColor: colors.surfaceAlt,
-    alignItems: "center",
+    position: "relative",
+    minHeight: 44,
     justifyContent: "center",
+    alignItems: "center",
   },
-  backButtonPressed: {
-    opacity: 0.7,
+  topBackButton: {
+    position: "absolute",
+    left: 0,
+    top: 0,
+    zIndex: 1,
   },
   title: {
     ...textStyles.tripTitle,
     color: colors.primary,
-    fontSize: 20,
+    fontSize: 30,
+    textAlign: "center",
   },
   section: {
     gap: spacing.xs,

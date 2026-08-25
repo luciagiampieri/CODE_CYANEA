@@ -366,6 +366,7 @@ export default function CreateTripScreen({ navigation }) {
                       placeholderTextColor={colors.textMuted}
                       style={styles.input}
                     />
+                    {errors.destinations ? <Text style={styles.fieldError}>{errors.destinations}</Text> : null}
 
                     {destinationOptions.length > 0 && (
                       <View style={styles.destinationResults}>

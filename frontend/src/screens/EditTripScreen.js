@@ -335,7 +335,7 @@ export default function EditTripScreen({ navigation, route }) {
                         <Text style={styles.destinationCountry}>{d.country}</Text>
                       </View>
 
-                      <Pressable onPress={() => removeDestination(d)} hitSlop={15}>
+                      <Pressable onPress={() => removeDestination(d)} hitSlop={15} testID={`edit-trip-remove-destination-${index}`}>
                         <FontAwesome6 name="xmark" size={14} color={colors.danger || "#FF3B30"} />
                       </Pressable>
                     </View>

@@ -127,8 +127,8 @@ export default function RegisterScreen({ navigation }) {
 
             <View style={styles.form}>
               <View style={styles.row}>
-                <Field label="Nombre" value={form.nombre} onChangeText={(value) => setField("nombre", value)} error={errors.nombre} />
-                <Field label="Apellido" value={form.apellido} onChangeText={(value) => setField("apellido", value)} error={errors.apellido} />
+                <Field label="Nombre" value={form.nombre} onChangeText={(value) => setField("nombre", value)} error={errors.nombre} testID="register-nombre-input" />
+                <Field label="Apellido" value={form.apellido} onChangeText={(value) => setField("apellido", value)} error={errors.apellido} testID="register-apellido-input" />
               </View>
 
               <Field
@@ -137,6 +137,7 @@ export default function RegisterScreen({ navigation }) {
                 value={form.nombreUsuario}
                 onChangeText={(value) => setField("nombreUsuario", value)}
                 error={errors.nombreUsuario}
+                testID="register-usuario-input"
               />
 
               <Field
@@ -146,6 +147,7 @@ export default function RegisterScreen({ navigation }) {
                 value={form.email}
                 onChangeText={(value) => setField("email", value)}
                 error={errors.email}
+                testID="register-email-input"
               />
 
               <Field
@@ -157,6 +159,7 @@ export default function RegisterScreen({ navigation }) {
                 rightIcon={showPassword ? "eye-slash" : "eye"}
                 onPressRightIcon={() => setShowPassword((current) => !current)}
                 error={errors.password}
+                testID="register-password-input"
               />
 
               <Field
@@ -168,6 +171,7 @@ export default function RegisterScreen({ navigation }) {
                 rightIcon={showConfirm ? "eye-slash" : "eye"}
                 onPressRightIcon={() => setShowConfirm((current) => !current)}
                 error={errors.confirmarPassword}
+                testID="register-confirmar-password-input"
               />
 
               <Text style={styles.hint}>
@@ -176,6 +180,7 @@ export default function RegisterScreen({ navigation }) {
 
               <View style={styles.termsRow}>
                 <Switch
+                  testID="register-terminos-switch"
                   trackColor={{ true: colors.primary, false: colors.borderStrong }}
                   thumbColor={form.aceptaTerminos ? colors.accent : colors.surface}
                   value={form.aceptaTerminos}
@@ -196,7 +201,7 @@ export default function RegisterScreen({ navigation }) {
                 </View>
               ) : null}
 
-              <Pressable disabled={loading} onPress={handleSubmit} style={({ pressed }) => [styles.submitButton, pressed && styles.buttonPressed, loading && styles.buttonDisabled]}>
+              <Pressable disabled={loading} onPress={handleSubmit} style={({ pressed }) => [styles.submitButton, pressed && styles.buttonPressed, loading && styles.buttonDisabled]} testID="register-submit-button">
                 {loading ? (
                   <ActivityIndicator color={colors.textInverse} />
                 ) : (

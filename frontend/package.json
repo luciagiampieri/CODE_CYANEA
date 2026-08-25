@@ -38,7 +38,10 @@
     "ios": "cross-env EXPO_NO_METRO_WORKSPACE_ROOT=1 expo start --ios",
     "web": "cross-env EXPO_NO_METRO_WORKSPACE_ROOT=1 expo start --web --port 8081",
     "web:clear": "cross-env EXPO_NO_METRO_WORKSPACE_ROOT=1 expo start --web --port 8081 --clear",
-    "test": "jest"
+    "test": "jest",
+    "test:watch": "jest --watch",
+    "test:coverage": "jest --coverage",
+    "test:slow": "jest --runInBand"
   },
   "private": true,
   "devDependencies": {
@@ -49,6 +52,16 @@
     "typescript": "~6.0.3"
   },
   "jest": {
-    "preset": "jest-expo"
+    "preset": "jest-expo",
+    "testTimeout": 20000,
+    "collectCoverageFrom": [
+      "src/**/*.js",
+      "!src/tests/**"
+    ],
+    "coverageThreshold": {
+      "global": {
+        "statements": 18
+      }
+    }
   }
 }

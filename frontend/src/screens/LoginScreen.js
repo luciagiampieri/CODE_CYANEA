@@ -288,6 +288,7 @@ export default function LoginScreen({ navigation }) {
                 keyboardType="email-address"
                 label="Correo electrónico"
                 onChangeText={setEmail}
+                testID="login-email-input"
                 value={email}
               />
 
@@ -298,6 +299,7 @@ export default function LoginScreen({ navigation }) {
                 rightIcon={showPassword ? "eye-slash" : "eye"}
                 onPressRightIcon={() => setShowPassword((current) => !current)}
                 secureTextEntry={!showPassword}
+                testID="login-password-input"
                 value={password}
               />
 
