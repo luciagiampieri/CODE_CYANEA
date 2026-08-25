@@ -143,14 +143,19 @@ export async function getTrips() {
 export async function getTripDetail(tripId) {
   const response = await fetch(`${API_BASE_URL}/trips/${tripId}`, {
     headers: await authHeaders(),
+    cache: "no-store",
   });
   return parseResponse(response, "No se pudo obtener el detalle del viaje");
 }
 
-export async function generateTripRoute(tripId, dayId) {
+export async function generateTripRoute(tripId, dayId, modo = "walking") {
   const response = await fetch(`${API_BASE_URL}/trips/${tripId}/days/${dayId}/route`, {
     method: "POST",
-    headers: await authHeaders(),
+    headers: {
+      "Content-Type": "application/json",
+      ...(await authHeaders()),
+    },
+    body: JSON.stringify({ modo }),
   });
   return parseResponse(response, "No se pudo generar la ruta");
 }

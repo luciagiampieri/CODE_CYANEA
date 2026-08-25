@@ -16,7 +16,44 @@ logger = logging.getLogger(__name__)
 MINIMO_ACTIVIDADES_CON_UBICACION = 2
 MAXIMO_ACTIVIDADES_CON_UBICACION = 25
 GOOGLE_DIRECTIONS_URL = "https://maps.googleapis.com/maps/api/directions/json"
-DIRECTIONS_MODE = "driving" 
+
+MODOS_VALIDOS = {"walking", "driving", "bicycling", "transit"}
+MODO_POR_DEFECTO = "walking"
+
+MODO_LABEL = {
+    "walking": "caminando",
+    "driving": "en auto",
+    "bicycling": "en bici",
+    "transit": "en transporte público",
+}
+
+# Traducción de los estados de Google Directions a mensajes claros para el usuario.
+# https://developers.google.com/maps/documentation/directions/get-directions#DirectionsStatus
+MENSAJES_ESTADO_GOOGLE = {
+    "ZERO_RESULTS": (
+        "No encontramos una ruta {modo} entre esas actividades. Puede que estén muy "
+        "lejos entre sí para ese medio de transporte, o que no haya una conexión directa. "
+        "Probá con otro modo de viaje (por ejemplo, auto)."
+    ),
+    "OVER_QUERY_LIMIT": (
+        "El servicio de rutas está recibiendo demasiadas solicitudes en este momento. "
+        "Esperá unos segundos y volvé a intentarlo."
+    ),
+    "REQUEST_DENIED": (
+        "El servicio de rutas rechazó la solicitud. Si el problema persiste, contactá al soporte."
+    ),
+    "INVALID_REQUEST": (
+        "No se pudo armar la solicitud de ruta con las ubicaciones cargadas. Revisá que "
+        "las actividades tengan una ubicación válida."
+    ),
+    "MAX_WAYPOINTS_EXCEEDED": (
+        "Hay demasiadas actividades con ubicación en este día para calcular una ruta. "
+        "Quitá algunas y volvé a intentarlo."
+    ),
+    "UNKNOWN_ERROR": (
+        "Hubo un problema temporal del lado de Google Maps. Intentá nuevamente en unos minutos."
+    ),
+}
 
 
 class RutaValidationError(Exception):
@@ -30,6 +67,10 @@ class RutaValidationError(Exception):
 
 class RutaProviderError(Exception):
     """Error al consultar el proveedor externo (Google Directions)."""
+
+
+class RutaModoInvalidoError(Exception):
+    """El modo de viaje solicitado no es válido."""
 
 
 def _resolver_lugar(actividad: ActividadItinerario):
@@ -55,7 +96,18 @@ def _actividades_con_y_sin_ubicacion(
     return con_ubicacion, sin_ubicacion
 
 
-async def _consultar_google_directions(actividades: list[ActividadItinerario]) -> dict:
+def _mensaje_amigable_para_estado(estado: str, modo: str, mensaje_google: str | None) -> str:
+    plantilla = MENSAJES_ESTADO_GOOGLE.get(estado)
+    if plantilla is not None:
+        return plantilla.format(modo=MODO_LABEL.get(modo, modo))
+
+    detalle = mensaje_google or estado
+    return f"No se pudo calcular la ruta entre las actividades seleccionadas. Detalle: {detalle}"
+
+
+async def _consultar_google_directions(
+    actividades: list[ActividadItinerario], modo: str
+) -> dict:
     origen = _resolver_lugar(actividades[0])
     destino = _resolver_lugar(actividades[-1])
     intermedias = actividades[1:-1]
@@ -63,7 +115,7 @@ async def _consultar_google_directions(actividades: list[ActividadItinerario]) -
     params = {
         "origin": f"{origen.Lat},{origen.Lng}",
         "destination": f"{destino.Lat},{destino.Lng}",
-        "mode": DIRECTIONS_MODE,
+        "mode": modo,
         "key": settings.google_maps_api_key,
     }
 
@@ -86,17 +138,15 @@ async def _consultar_google_directions(actividades: list[ActividadItinerario]) -
     estado = data.get("status")
 
     if estado != "OK":
-        mensaje_google = data.get("error_message", estado)
-        logger.warning("Google Directions devolvió estado no-OK: %s (%s)", estado, mensaje_google)
-        raise RutaProviderError(
-            f"No se pudo calcular la ruta entre las actividades seleccionadas. Detalle: {mensaje_google}"
-        )
+        mensaje_google = data.get("error_message")
+        logger.warning("Google Directions devolvió estado no-OK: %s (%s)", estado, mensaje_google or estado)
+        raise RutaProviderError(_mensaje_amigable_para_estado(estado, modo, mensaje_google))
 
     return data
 
 
 async def generar_ruta_diaria(
-    db: Session, dia: DiaCronograma
+    db: Session, dia: DiaCronograma, modo: str | None = None
 ) -> tuple[RutaDiaria, list[ActividadItinerario]]:
 
     con_ubicacion, sin_ubicacion = _actividades_con_y_sin_ubicacion(dia)
@@ -114,16 +164,29 @@ async def generar_ruta_diaria(
             "sacale la ubicación a las que menos importe incluir en la ruta.",
         )
 
-    data = await _consultar_google_directions(con_ubicacion)
-    ruta_google = data["routes"][0]
-
     ruta = db.scalar(
         select(RutaDiaria).where(RutaDiaria.IdDiaCronograma == dia.IdDiaCronograma)
     )
+
+    if modo is not None:
+        if modo not in MODOS_VALIDOS:
+            raise RutaModoInvalidoError(
+                f"Modo de viaje inválido: {modo}. Opciones: {', '.join(sorted(MODOS_VALIDOS))}."
+            )
+        modo_a_usar = modo
+    elif ruta is not None:
+        modo_a_usar = ruta.Modo
+    else:
+        modo_a_usar = MODO_POR_DEFECTO
+
+    data = await _consultar_google_directions(con_ubicacion, modo_a_usar)
+    ruta_google = data["routes"][0]
+
     if ruta is None:
         ruta = RutaDiaria(IdDiaCronograma=dia.IdDiaCronograma)
         db.add(ruta)
 
+    ruta.Modo = modo_a_usar
     ruta.PolilineaCodificada = ruta_google["overview_polyline"]["points"]
     ruta.DistanciaMetros = sum(leg["distance"]["value"] for leg in ruta_google["legs"])
     ruta.DuracionSegundos = sum(leg["duration"]["value"] for leg in ruta_google["legs"])

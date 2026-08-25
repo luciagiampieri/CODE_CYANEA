@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import DateTime, Float, ForeignKey, Integer, JSON, func
+from sqlalchemy import DateTime, Float, ForeignKey, Integer, JSON, String, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.session import Base
@@ -19,6 +19,10 @@ class RutaDiaria(Base):
         unique=True,
         nullable=False,
     )
+    Modo: Mapped[str] = mapped_column(
+        String(20), nullable=False, server_default="walking"
+    )
+
     PolilineaCodificada: Mapped[str] = mapped_column(nullable=False)
     DistanciaMetros: Mapped[int] = mapped_column(Integer, nullable=False)
     DuracionSegundos: Mapped[int] = mapped_column(Integer, nullable=False)

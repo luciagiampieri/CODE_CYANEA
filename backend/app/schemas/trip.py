@@ -80,6 +80,7 @@ class ActividadUpdate(BaseModel):
 class RutaDiariaRead(BaseModel):
     idRutaDiaria: int = Field(..., alias="IdRutaDiaria")
     idDiaCronograma: int = Field(..., alias="IdDiaCronograma")
+    modo: str = Field(..., alias="Modo")
     polilineaCodificada: str = Field(..., alias="PolilineaCodificada")
     distanciaMetros: int = Field(..., alias="DistanciaMetros")
     duracionSegundos: int = Field(..., alias="DuracionSegundos")
@@ -100,6 +101,20 @@ class RutaGeneradaResponse(BaseModel):
     message: str
     ruta: RutaDiariaRead
     actividadesExcluidas: list[ActividadExcluidaRead] = Field(default_factory=list)
+
+
+class RutaGenerarRequest(BaseModel):
+    modo: str = Field(default="walking")
+
+    @field_validator("modo")
+    @classmethod
+    def validar_modo(cls, value: str) -> str:
+        modos_validos = {"walking", "driving", "bicycling", "transit"}
+        if value not in modos_validos:
+            raise ValueError(
+                f"Modo de viaje inválido: {value}. Opciones: {', '.join(sorted(modos_validos))}."
+            )
+        return value
 
 
 class DiaCronogramaRead(BaseModel):

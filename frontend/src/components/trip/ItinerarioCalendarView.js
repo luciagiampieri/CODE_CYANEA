@@ -11,6 +11,11 @@ import { buildRouteMarkers } from "../../utils/routeMarkers";
 const ANCHO_MINIMO_COLUMNA = 240;
 const MAXIMO_COLUMNAS = 4;
 
+const MODOS_RUTA = [
+  { valor: "walking", label: "Caminando", icono: "person-walking" },
+  { valor: "driving", label: "Auto", icono: "car" },
+  { valor: "bicycling", label: "Bici", icono: "person-biking" },
+];
 
 export default function ItinerarioCalendarView({
   dias,
@@ -22,6 +27,11 @@ export default function ItinerarioCalendarView({
 }) {
   const { width } = useResponsive();
   const [diaConMapaVisible, setDiaConMapaVisible] = useState(null);
+  const [modoTransporteDayId, setModoTransporteDayId] = useState({});
+
+  function resolverModoDelDia(dayId, ruta) {
+    return modoTransporteDayId[dayId] ?? ruta?.modo ?? "walking";
+  }
 
   const columnas = useMemo(() => {
     const anchoDisponible = Math.max(width - spacing.lg * 2, ANCHO_MINIMO_COLUMNA);
@@ -135,6 +145,7 @@ export default function ItinerarioCalendarView({
                   const generando = generandoRutaDayId === dia.dayId;
                   const routeMarkers = buildRouteMarkers(dia.actividades, dia.ruta);
                   const mapaVisible = diaConMapaVisible === dia.dayId;
+                  const modoSeleccionado = resolverModoDelDia(dia.dayId, dia.ruta);
 
                   return (
                     <View style={styles.routeSection}>
@@ -184,20 +195,52 @@ export default function ItinerarioCalendarView({
                       ) : null}
 
                       {puedeGenerarRuta ? (
-                        <Pressable
-                          disabled={generando}
-                          onPress={() => onGenerarRuta?.(dia.dayId)}
-                          style={[styles.agregarBoton, generando && styles.agregarBotonDisabled]}
-                        >
-                          {generando ? (
-                            <ActivityIndicator color={colors.primary} size="small" />
-                          ) : (
-                            <FontAwesome6 color={colors.primary} name="route" size={11} />
-                          )}
-                          <Text style={styles.agregarTexto}>
-                            {generando ? "Generando..." : dia.ruta ? "Regenerar ruta" : "Generar ruta"}
-                          </Text>
-                        </Pressable>
+                        <>
+                          <View style={styles.modoTransporteWrap}>
+                            {MODOS_RUTA.map((modo) => {
+                              const active = modo.valor === modoSeleccionado;
+                              return (
+                                <Pressable
+                                  key={modo.valor}
+                                  disabled={generando}
+                                  onPress={() =>
+                                    setModoTransporteDayId((current) => ({
+                                      ...current,
+                                      [dia.dayId]: modo.valor,
+                                    }))
+                                  }
+                                  style={[styles.modoChip, active && styles.modoChipActive]}
+                                >
+                                  <FontAwesome6
+                                    color={active ? colors.textInverse : colors.primary}
+                                    name={modo.icono}
+                                    size={10}
+                                  />
+                                  <Text
+                                    style={[styles.modoChipText, active && styles.modoChipTextActive]}
+                                  >
+                                    {modo.label}
+                                  </Text>
+                                </Pressable>
+                              );
+                            })}
+                          </View>
+
+                          <Pressable
+                            disabled={generando}
+                            onPress={() => onGenerarRuta?.(dia.dayId, modoSeleccionado)}
+                            style={[styles.agregarBoton, generando && styles.agregarBotonDisabled]}
+                          >
+                            {generando ? (
+                              <ActivityIndicator color={colors.primary} size="small" />
+                            ) : (
+                              <FontAwesome6 color={colors.primary} name="route" size={11} />
+                            )}
+                            <Text style={styles.agregarTexto}>
+                              {generando ? "Generando..." : dia.ruta ? "Regenerar ruta" : "Generar ruta"}
+                            </Text>
+                          </Pressable>
+                        </>
                       ) : (
                         <Text style={styles.routeHint}>
                           Agregá 2+ actividades con ubicación para generar una ruta.
@@ -373,6 +416,35 @@ const styles = StyleSheet.create({
         ...textStyles.meta,
         color: colors.textMuted,
         fontSize: 11,
+    },
+    modoTransporteWrap: {
+        flexDirection: "row",
+        gap: 4,
+        marginTop: spacing.xxs,
+    },
+    modoChip: {
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 3,
+        borderWidth: 1,
+        borderColor: colors.border,
+        borderRadius: radii.pill ?? 999,
+        backgroundColor: colors.surface,
+        paddingHorizontal: 6,
+        paddingVertical: 3,
+    },
+    modoChipActive: {
+        backgroundColor: colors.primary,
+        borderColor: colors.primary,
+    },
+    modoChipText: {
+        ...textStyles.meta,
+        color: colors.primary,
+        fontSize: 10,
+        fontWeight: "600",
+    },
+    modoChipTextActive: {
+        color: colors.textInverse,
     },
     sectionCard: {
         ...surfaces.card,

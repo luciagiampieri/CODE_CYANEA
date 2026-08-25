@@ -121,6 +121,7 @@ function normalizeRuta(raw) {
   if (!raw) return null;
   return {
     id: raw.idRutaDiaria ?? raw.IdRutaDiaria,
+    modo: raw.modo ?? raw.Modo ?? "walking",
     distanciaMetros: raw.distanciaMetros ?? raw.DistanciaMetros ?? 0,
     duracionSegundos: raw.duracionSegundos ?? raw.DuracionSegundos ?? 0,
     idsActividadesOrdenadas: raw.idsActividadesOrdenadas ?? raw.IdsActividadesOrdenadas ?? [],
@@ -315,7 +316,7 @@ export default function TripDetailScreen({ navigation, route }) {
     if (!initialTrip?.id) {
       setLoading(false);
       setLoadError("No se pudo resolver el viaje.");
-      return;
+      return false;
     }
 
     try {
@@ -326,8 +327,10 @@ export default function TripDetailScreen({ navigation, route }) {
         ...normalizeTrip(detail),
         image: current?.image ?? initialTrip.image,
       }));
+      return true;
     } catch (error) {
       setLoadError(error.message || "No se pudo cargar el detalle del viaje.");
+      return false;
     } finally {
       setLoading(false);
     }
@@ -849,16 +852,37 @@ export default function TripDetailScreen({ navigation, route }) {
 
   const [activityToDelete, setActivityToDelete] = useState(null);
   const [activityFeedback, setActivityFeedback] = useState(null);
+  const [displayedFeedback, setDisplayedFeedback] = useState(null);
   const [generandoRutaDayId, setGenerandoRutaDayId] = useState(null);
   const [diaConMapaVisible, setDiaConMapaVisible] = useState(null);
+  const [modoTransporteDayId, setModoTransporteDayId] = useState({});
 
-  async function handleGenerarRuta(dayId) {
+  const MODOS_RUTA = [
+    { valor: "walking", label: "Caminando", icono: "person-walking" },
+    { valor: "driving", label: "Auto", icono: "car" },
+    { valor: "bicycling", label: "Bici", icono: "person-biking" },
+  ];
+
+  function resolverModoDelDia(dayId, ruta) {
+    return modoTransporteDayId[dayId] ?? ruta?.modo ?? "walking";
+  }
+
+  async function handleGenerarRuta(dayId, modo) {
     if (!trip?.id || generandoRutaDayId) return;
 
     setGenerandoRutaDayId(dayId);
     try {
-      const resultado = await generateTripRoute(trip.id, dayId);
-      await loadTripDetail();
+      const resultado = await generateTripRoute(trip.id, dayId, modo);
+      const recargaOk = await loadTripDetail();
+
+      if (!recargaOk) {
+        setActivityFeedback({
+          success: false,
+          message:
+            "La ruta se generó, pero no pudimos actualizar la vista. Recargá la pantalla para verla.",
+        });
+        return;
+      }
 
       const excluidas = resultado.actividadesExcluidas ?? [];
       setActivityFeedback({
@@ -909,6 +933,7 @@ export default function TripDetailScreen({ navigation, route }) {
 
   useEffect(() => {
     if (!activityFeedback) return;
+    setDisplayedFeedback(activityFeedback);
     const timeout = setTimeout(() => setActivityFeedback(null), 2500);
     return () => clearTimeout(timeout);
   }, [activityFeedback]);
@@ -1161,6 +1186,7 @@ export default function TripDetailScreen({ navigation, route }) {
                           const puedeGenerarRuta = actividadesConUbicacion.length >= 2;
                           const generando = generandoRutaDayId === dayId;
                           const routeMarkers = buildRouteMarkers(actividades, ruta);
+                          const modoSeleccionado = resolverModoDelDia(dayId, ruta);
 
                           return (
                             <View style={styles.routeSection}>
@@ -1210,27 +1236,62 @@ export default function TripDetailScreen({ navigation, route }) {
                               ) : null}
 
                               {puedeGenerarRuta ? (
-                                <Pressable
-                                  disabled={generando}
-                                  onPress={() => handleGenerarRuta(dayId)}
-                                  style={[
-                                    styles.addActivityButton,
-                                    generando && styles.addActivityButtonDisabled,
-                                  ]}
-                                >
-                                  {generando ? (
-                                    <ActivityIndicator color={colors.primary} size="small" />
-                                  ) : (
-                                    <FontAwesome6 color={colors.primary} name="route" size={12} />
-                                  )}
-                                  <Text style={styles.addActivityText}>
-                                    {generando
-                                      ? "Generando ruta..."
-                                      : ruta
-                                      ? "Regenerar ruta"
-                                      : "Generar ruta"}
-                                  </Text>
-                                </Pressable>
+                                <>
+                                  <View style={styles.modoTransporteWrap}>
+                                    {MODOS_RUTA.map((modo) => {
+                                      const active = modo.valor === modoSeleccionado;
+                                      return (
+                                        <Pressable
+                                          key={modo.valor}
+                                          disabled={generando}
+                                          onPress={() =>
+                                            setModoTransporteDayId((current) => ({
+                                              ...current,
+                                              [dayId]: modo.valor,
+                                            }))
+                                          }
+                                          style={[styles.modoChip, active && styles.modoChipActive]}
+                                        >
+                                          <FontAwesome6
+                                            color={active ? colors.textInverse : colors.primary}
+                                            name={modo.icono}
+                                            size={12}
+                                          />
+                                          <Text
+                                            style={[
+                                              styles.modoChipText,
+                                              active && styles.modoChipTextActive,
+                                            ]}
+                                          >
+                                            {modo.label}
+                                          </Text>
+                                        </Pressable>
+                                      );
+                                    })}
+                                  </View>
+
+                                  <Pressable
+                                    disabled={generando}
+                                    onPress={() => handleGenerarRuta(dayId, modoSeleccionado)}
+                                    style={[
+                                      styles.addActivityButton,
+                                      generando && styles.addActivityButtonDisabled,
+                                    ]}
+                                  >
+                                    {generando ? (
+                                      <ActivityIndicator color={colors.primary} size="small" />
+                                    ) : (
+                                      <FontAwesome6 color={colors.primary} name="route" size={12} />
+                                    )}
+                                    <Text style={styles.addActivityText}>
+                                      {generando
+                                        ? "Generando ruta..."
+                                        : ruta
+                                        ? "Regenerar ruta"
+                                        : "Generar ruta"}
+                                    </Text>
+                                  </Pressable>
+                                </>
                               ) : (
                                 <Text style={styles.routeHint}>
                                   Agregá al menos 2 actividades con ubicación para generar una ruta
@@ -2034,15 +2095,15 @@ export default function TripDetailScreen({ navigation, route }) {
           <Pressable style={styles.modalContent} onPress={(event) => event.stopPropagation()}>
             <View style={styles.modalIconContainer}>
               <FontAwesome6
-                name={activityFeedback?.success ? "circle-check" : "circle-exclamation"}
+                name={displayedFeedback?.success ? "circle-check" : "circle-exclamation"}
                 size={22}
-                color={activityFeedback?.success ? colors.primary : (colors.danger || "#ef4444")}
+                color={displayedFeedback?.success ? colors.primary : (colors.danger || "#ef4444")}
               />
             </View>
             <Text style={styles.modalTitle}>
-              {activityFeedback?.success ? "Listo" : "Error"}
+              {displayedFeedback?.success ? "Listo" : "Error"}
             </Text>
-            <Text style={styles.modalMessage}>{activityFeedback?.message}</Text>
+            <Text style={styles.modalMessage}>{displayedFeedback?.message}</Text>
 
             <Pressable
               style={styles.activityEditOkButton}
@@ -2349,6 +2410,34 @@ const styles = StyleSheet.create({
   routeHint: {
     ...textStyles.meta,
     color: colors.textMuted,
+  },
+  modoTransporteWrap: {
+    flexDirection: "row",
+    gap: spacing.xs,
+    marginTop: spacing.xs,
+  },
+  modoChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.xxs,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radii.pill ?? 999,
+    backgroundColor: colors.surface,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 6,
+  },
+  modoChipActive: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
+  },
+  modoChipText: {
+    ...textStyles.meta,
+    color: colors.primary,
+    fontWeight: "600",
+  },
+  modoChipTextActive: {
+    color: colors.textInverse,
   },
   sectionStack: {
     gap: spacing.md,
