@@ -12,7 +12,6 @@ import {
     FlatList,
     Platform,
     KeyboardAvoidingView,
-    Linking
 } from "react-native";
 
 import * as DocumentPicker from "expo-document-picker";
@@ -24,10 +23,7 @@ import PrimaryButton from "../components/ui/PrimaryButton";
 
 import {
     getDocumentCategories,
-    getTripDocuments,
     uploadTripDocument,
-    downloadTripDocument,
-    deleteTripDocument,
 } from "../services/api";
 
 import { colors, radii, spacing, surfaces, textStyles } from "../theme/tokens";
@@ -45,21 +41,6 @@ function mostrarAlertaConfirmacion(titulo, mensaje, onAceptar) {
     }
 }
 
-// A diferencia de mostrarAlertaConfirmacion, esta SÍ ofrece la opción de
-// cancelar (AC2/caso de prueba "cancelar la eliminación" de US51).
-function confirmarEliminacion(titulo, mensaje, onConfirmar) {
-    if (Platform.OS === "web") {
-        if (window.confirm(mensaje)) {
-            onConfirmar();
-        }
-    } else {
-        Alert.alert(titulo, mensaje, [
-            { text: "Cancelar", style: "cancel" },
-            { text: "Eliminar", style: "destructive", onPress: onConfirmar },
-        ]);
-    }
-}
-
 export default function DocumentsScreen({ route, navigation }) {
     const { tripId } = route.params;
 
@@ -70,11 +51,6 @@ export default function DocumentsScreen({ route, navigation }) {
     const [categorias, setCategorias] = useState([]);
     const [idCategoria, setIdCategoria] = useState(null);
     const [modalCategoriaVisible, setModalCategoriaVisible] = useState(false);
-    const [descargandoId, setDescargandoId] = useState(null);
-    const [eliminandoId, setEliminandoId] = useState(null);
-    const [documentos, setDocumentos] = useState([]);
-    const [loadingDocumentos, setLoadingDocumentos] = useState(true);
-    const [errorDocumentos, setErrorDocumentos] = useState("");
 
     const [archivo, setArchivo] = useState(null);
     const [nombreDocumento, setNombreDocumento] = useState("");
@@ -85,86 +61,6 @@ export default function DocumentsScreen({ route, navigation }) {
     const categoriaSeleccionada = categorias.find(
         (c) => c.IdCategoriaDocumento === idCategoria
     );
-
-    async function cargarDocumentos() {
-        try {
-            setLoadingDocumentos(true);
-            setErrorDocumentos("");
-            const data = await getTripDocuments(tripId);
-            setDocumentos(data);
-        } catch (error) {
-            console.log("📡 No se pudieron cargar los documentos del viaje:", error);
-            setErrorDocumentos(
-                error?.message ||
-                    "No se pudieron cargar los documentos. Intentá nuevamente más tarde."
-            );
-        } finally {
-            setLoadingDocumentos(false);
-        }
-    }
-
-    async function abrirDocumento(url) {
-        try {
-            await Linking.openURL(url);
-        } catch (error) {
-            console.log("⚠️ Error al abrir el documento:", error);
-            mostrarAlertaConfirmacion(
-                "Error",
-                "No se pudo abrir el documento. Intentá nuevamente."
-            );
-        }
-    }
-
-    // US 41 - Descargar documento.
-    async function handleDescargar(documento) {
-        try {
-            setDescargandoId(documento.IdDocumento);
-            await downloadTripDocument(tripId, documento.IdDocumento, documento.NombreArchivo);
-            mostrarAlertaConfirmacion(
-                "Descarga completa",
-                Platform.OS === "web"
-                    ? "El documento se descargó correctamente."
-                    : "El documento se guardó en tu dispositivo."
-            );
-        } catch (error) {
-            console.log("⚠️ Error al descargar el documento:", error);
-            mostrarAlertaConfirmacion(
-                "Error",
-                error?.message || "No se pudo descargar el documento. Intentá nuevamente."
-            );
-        } finally {
-            setDescargandoId(null);
-        }
-    }
-
-    // US 51 - Eliminar documento del repositorio.
-    function handleEliminar(documento) {
-        confirmarEliminacion(
-            "Eliminar documento",
-            `¿Seguro que querés eliminar "${documento.NombreArchivo}"? Esta acción no se puede deshacer.`,
-            async () => {
-                try {
-                    setEliminandoId(documento.IdDocumento);
-                    await deleteTripDocument(tripId, documento.IdDocumento);
-                    setDocumentos((prev) =>
-                        prev.filter((d) => d.IdDocumento !== documento.IdDocumento)
-                    );
-                    mostrarAlertaConfirmacion(
-                        "Documento eliminado",
-                        "El documento se eliminó correctamente."
-                    );
-                } catch (error) {
-                    console.log("⚠️ Error al eliminar el documento:", error);
-                    mostrarAlertaConfirmacion(
-                        "Error",
-                        error?.message || "No se pudo eliminar el documento. Intentá nuevamente."
-                    );
-                } finally {
-                    setEliminandoId(null);
-                }
-            }
-        );
-    }
 
     useEffect(() => {
         async function cargarCategorias() {
@@ -184,10 +80,6 @@ export default function DocumentsScreen({ route, navigation }) {
             }
         }
         cargarCategorias();
-    }, [tripId]);
-
-    useEffect(() => {
-        cargarDocumentos();
     }, [tripId]);
 
     function limpiarError(campo) {
@@ -342,96 +234,8 @@ export default function DocumentsScreen({ route, navigation }) {
                     </View>
 
                     <View style={styles.body}>
-                        {/* Se removió la tarjeta de listado de documentos anteriores, quedando solo el formulario de carga */}
+                        {/* Formulario de carga limpio sin listado previo */}
                         <View style={styles.card}>
-
-                            <Text style={styles.cardTitle}>Documentos del viaje</Text>
-
-                            {loadingDocumentos ? (
-                                <View style={styles.centeredInline}>
-                                    <ActivityIndicator size="small" color={colors.primary} />
-                                </View>
-                            ) : errorDocumentos ? (
-                                <Text style={styles.fieldError}>{errorDocumentos}</Text>
-                            ) : documentos.length === 0 ? (
-                                <Text style={styles.emptyText}>
-                                    Todavía no se subió ningún documento a este viaje.
-                                </Text>
-                            ) : (
-                                <View style={styles.documentList}>
-                                    {documentos.map((documento) => {
-                                        const descargandoEste = descargandoId === documento.IdDocumento;
-                                        const eliminandoEste = eliminandoId === documento.IdDocumento;
-
-                                        return (
-                                            <View key={documento.IdDocumento} style={styles.documentRow}>
-                                                <Pressable
-                                                    style={styles.documentRowMain}
-                                                    onPress={() => abrirDocumento(documento.UrlArchivo)}
-                                                >
-                                                    <FontAwesome6
-                                                        name="file-lines"
-                                                        size={18}
-                                                        color={colors.primary}
-                                                        style={{ marginRight: 12 }}
-                                                    />
-                                                    <View style={{ flex: 1 }}>
-                                                        <Text style={styles.fileName}>{documento.NombreArchivo}</Text>
-                                                        <Text style={styles.fileSize}>
-                                                            {documento.NombreCategoria} · Subido por {documento.NombreUsuarioSubida}
-                                                        </Text>
-                                                    </View>
-                                                </Pressable>
-
-                                                <View style={styles.documentRowActions}>
-                                                    <Pressable
-                                                        onPress={() => handleDescargar(documento)}
-                                                        disabled={descargandoEste}
-                                                        hitSlop={10}
-                                                        style={styles.documentActionButton}
-                                                    >
-                                                        {descargandoEste ? (
-                                                            <ActivityIndicator size="small" color={colors.primary} />
-                                                        ) : (
-                                                            <FontAwesome6
-                                                                name="download"
-                                                                size={15}
-                                                                color={colors.primary}
-                                                            />
-                                                        )}
-                                                    </Pressable>
-
-                                                    {documento.EsPropio ? (
-                                                        <Pressable
-                                                            onPress={() => handleEliminar(documento)}
-                                                            disabled={eliminandoEste}
-                                                            hitSlop={10}
-                                                            style={styles.documentActionButton}
-                                                        >
-                                                            {eliminandoEste ? (
-                                                                <ActivityIndicator
-                                                                    size="small"
-                                                                    color={colors.danger || "#dc2626"}
-                                                                />
-                                                            ) : (
-                                                                <FontAwesome6
-                                                                    name="trash"
-                                                                    size={15}
-                                                                    color={colors.danger || "#dc2626"}
-                                                                />
-                                                            )}
-                                                        </Pressable>
-                                                    ) : null}
-                                                </View>
-                                            </View>
-                                        );
-                                    })}
-                                </View>
-                            )}
-                        </View>
-
-                        <View style={[styles.card, { marginTop: spacing.lg }]}>
-
                             <Text style={styles.cardTitle}>Información del documento</Text>
 
                             <View style={styles.field}>
@@ -679,41 +483,6 @@ const styles = StyleSheet.create({
         ...surfaces.card,
         padding: spacing.lg,
         gap: spacing.md,
-    },
-    centeredInline: {
-        alignItems: "center",
-        justifyContent: "center",
-        paddingVertical: spacing.md,
-    },
-    documentList: {
-        gap: spacing.sm,
-    },
-    documentRow: {
-        flexDirection: "row",
-        alignItems: "center",
-        borderWidth: 1,
-        borderColor: colors.border,
-        borderRadius: radii.md,
-        backgroundColor: colors.surfaceMuted || colors.surface,
-        paddingHorizontal: spacing.md,
-        paddingVertical: spacing.md,
-    },
-    documentRowMain: {
-        flex: 1,
-        flexDirection: "row",
-        alignItems: "center",
-    },
-    documentRowActions: {
-        flexDirection: "row",
-        alignItems: "center",
-        gap: spacing.sm,
-        marginLeft: spacing.sm,
-    },
-    documentActionButton: {
-        width: 32,
-        height: 32,
-        alignItems: "center",
-        justifyContent: "center",
     },
     cardTitle: {
         ...textStyles.tripTitle,
