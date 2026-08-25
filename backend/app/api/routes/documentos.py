@@ -434,7 +434,7 @@ def descargar_documento_viaje(
 
 
 @router.delete("/{trip_id}/documents/{document_id}")
-def eliminar_documento_viaje(
+async def eliminar_documento_viaje(
     trip_id: int,
     document_id: int,
     db: Session = Depends(get_db),
@@ -471,6 +471,11 @@ def eliminar_documento_viaje(
 
     db.delete(documento)
     db.commit()
+
+    await manager.broadcast_to_trip(
+            trip_id,
+            {"tipo": "documento_actualizado"}
+        )
 
     return {"message": "Documento eliminado correctamente."}
 
