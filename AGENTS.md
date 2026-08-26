@@ -311,6 +311,10 @@ Orden actual:
 - el ranking de atracciones populares en exploracion se calcula dinamicamente desde Google Places segun el centro visible del mapa
 - el ranking de atracciones populares en exploracion debe presentarse en un panel lateral o modal dedicado, no intercalado en el flujo principal de seleccion y guardado de lugares
 - los componentes del feature de mapa viven en `frontend/src/components/map/`
+- la HU 23 de visualizacion de recorridos se considera cerrada cuando:
+  - la ruta generada puede abrirse en un mapa interactivo desde el dia correspondiente del itinerario
+  - si no existe una ruta generada para ese dia, no debe mostrarse el mapa ni el CTA de visualizacion
+  - en ausencia de ruta, la UI debe mostrar un mensaje informativo explicito indicando que todavia no hay un recorrido disponible y, cuando corresponda, que primero se debe generar la ruta o completar actividades con ubicacion
 - el flujo vigente del feature es:
   - buscar lugar con Google Places
   - al seleccionar un lugar, consultar Place Details para cargar rating y reseñas on-demand

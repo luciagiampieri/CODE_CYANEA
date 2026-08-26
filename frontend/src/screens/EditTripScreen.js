@@ -612,6 +612,9 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
     borderRadius: radii.md,
     backgroundColor: colors.surface,
+    position: "relative",
+    zIndex: 30,
+    elevation: 10,
   },
   destinationItem: {
     paddingHorizontal: 14,
@@ -632,6 +635,9 @@ const styles = StyleSheet.create({
     maxHeight: 170,
     marginTop: spacing.sm,
   },
+  selectedDestinationsContainer: {
+    zIndex: 1,
+  },
   destinationCurrencyRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -648,7 +654,11 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: colors.primary,
   },
-  destinationSection: { marginTop: spacing.lg },
+  destinationSection: {
+    marginTop: spacing.lg,
+    position: "relative",
+    zIndex: 20,
+  },
   submitMessage: {
     ...textStyles.bodyStrong,
     marginTop: spacing.lg,

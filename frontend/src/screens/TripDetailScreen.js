@@ -863,6 +863,14 @@ export default function TripDetailScreen({ navigation, route }) {
     { valor: "bicycling", label: "Bici", icono: "person-biking" },
   ];
 
+  function getRouteAvailabilityMessage(puedeGenerarRuta) {
+    if (puedeGenerarRuta) {
+      return "Todavia no hay una ruta generada para este dia. Generala para visualizar el recorrido en el mapa.";
+    }
+
+    return "Todavia no hay una ruta generada para este dia. Agrega al menos 2 actividades con ubicacion para poder visualizar el recorrido en el mapa.";
+  }
+
   function resolverModoDelDia(dayId, ruta) {
     return modoTransporteDayId[dayId] ?? ruta?.modo ?? "walking";
   }
@@ -1233,6 +1241,12 @@ export default function TripDetailScreen({ navigation, route }) {
                                     routePolyline={ruta.polilineaCodificada}
                                   />
                                 </View>
+                              ) : null}
+
+                              {!ruta ? (
+                                <Text style={styles.routeHint}>
+                                  {getRouteAvailabilityMessage(puedeGenerarRuta)}
+                                </Text>
                               ) : null}
 
                               {puedeGenerarRuta ? (

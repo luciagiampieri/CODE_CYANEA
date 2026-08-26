@@ -8,6 +8,17 @@ import httpx
 from app.core.config import settings
 
 GOOGLE_PLACES_TEXT_SEARCH_URL = "https://places.googleapis.com/v1/places:searchText"
+STRICT_DESTINATION_TYPES = {"locality"}
+FALLBACK_DESTINATION_TYPES = {
+    "locality",
+    "administrative_area_level_1",
+    "administrative_area_level_2",
+    "country",
+    "postal_town",
+    "sublocality",
+    "colloquial_area",
+    "natural_feature",
+}
 
 
 @dataclass
@@ -29,7 +40,7 @@ def build_destination_image_url(place_id: str | None) -> str | None:
 
 async def search_destinations(query: str, limit: int = 5) -> list[DestinationSearchResult]:
     if not settings.google_maps_api_key:
-        raise ValueError("GOOGLE_MAPS_API_KEY no está configurada")
+        raise ValueError("GOOGLE_MAPS_API_KEY no esta configurada")
 
     headers = {
         "Content-Type": "application/json",
@@ -45,14 +56,42 @@ async def search_destinations(query: str, limit: int = 5) -> list[DestinationSea
             "places.addressComponents"
         ),
     }
+    query_text = query.strip()
     payload = {
-        "textQuery": query.strip(),
+        "textQuery": query_text,
         "languageCode": "es",
         "maxResultCount": limit,
         "includedType": "locality",
         "rankPreference": "RELEVANCE",
     }
 
+    data = await _google_places_text_search(headers=headers, payload=payload)
+    strict_results = _parse_google_results(
+        data.get("places", []),
+        limit=limit,
+        allowed_types=STRICT_DESTINATION_TYPES,
+    )
+    if strict_results:
+        return strict_results
+
+    fallback_payload = {
+        "textQuery": query_text,
+        "languageCode": "es",
+        "maxResultCount": limit,
+        "rankPreference": "RELEVANCE",
+    }
+    fallback_data = await _google_places_text_search(
+        headers=headers,
+        payload=fallback_payload,
+    )
+    return _parse_google_results(
+        fallback_data.get("places", []),
+        limit=limit,
+        allowed_types=FALLBACK_DESTINATION_TYPES,
+    )
+
+
+async def _google_places_text_search(*, headers: dict[str, str], payload: dict) -> dict:
     async with httpx.AsyncClient(timeout=12.0, verify=False) as client:
         response = await client.post(
             GOOGLE_PLACES_TEXT_SEARCH_URL,
@@ -60,12 +99,14 @@ async def search_destinations(query: str, limit: int = 5) -> list[DestinationSea
             json=payload,
         )
         response.raise_for_status()
-        data = response.json()
-
-    return _parse_google_results(data.get("places", []), limit=limit)
+        return response.json()
 
 
-def _parse_google_results(results: list[dict], limit: int) -> list[DestinationSearchResult]:
+def _parse_google_results(
+    results: list[dict],
+    limit: int,
+    allowed_types: set[str],
+) -> list[DestinationSearchResult]:
     parsed: list[DestinationSearchResult] = []
     seen: set[tuple[str, str]] = set()
 
@@ -73,7 +114,7 @@ def _parse_google_results(results: list[dict], limit: int) -> list[DestinationSe
         name = item.get("displayName", {}).get("text") or "Destino desconocido"
 
         types = item.get("types", [])
-        if "locality" not in types:
+        if not any(place_type in allowed_types for place_type in types):
             continue
 
         address = item.get("formattedAddress") or name
@@ -82,14 +123,9 @@ def _parse_google_results(results: list[dict], limit: int) -> list[DestinationSe
         province_state = None
 
         for component in item.get("addressComponents", []):
-            types = component.get("types", [])
-
-            if "administrative_area_level_1" in types:
-
-                province_state = (
-                    component.get("longText")
-                    or component.get("shortText")
-                )
+            component_types = component.get("types", [])
+            if "administrative_area_level_1" in component_types:
+                province_state = component.get("longText") or component.get("shortText")
                 break
 
         location = item.get("location", {})

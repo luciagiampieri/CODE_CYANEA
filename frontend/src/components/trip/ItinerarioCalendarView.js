@@ -17,6 +17,14 @@ const MODOS_RUTA = [
   { valor: "bicycling", label: "Bici", icono: "person-biking" },
 ];
 
+function getRouteAvailabilityMessage(puedeGenerarRuta) {
+  if (puedeGenerarRuta) {
+    return "Todavia no hay una ruta generada para este dia. Generala para visualizar el recorrido en el mapa.";
+  }
+
+  return "Todavia no hay una ruta generada para este dia. Agrega 2 o mas actividades con ubicacion para poder visualizar el recorrido en el mapa.";
+}
+
 export default function ItinerarioCalendarView({
   dias,
   onEditActivity,
@@ -46,7 +54,7 @@ export default function ItinerarioCalendarView({
       <View style={styles.sectionCard}>
         <Text style={styles.sectionHeading}>Fechas sin definir</Text>
         <Text style={styles.sectionCopy}>
-          Establecé las fechas de ida y vuelta para estructurar el cronograma.
+          Establece las fechas de ida y vuelta para estructurar el cronograma.
         </Text>
       </View>
     );
@@ -71,7 +79,7 @@ export default function ItinerarioCalendarView({
                   <Text numberOfLines={1} style={styles.celdaTitulo}>
                     {dia.dayDateTextCorta || dia.dayDateText}
                   </Text>
-                  <Text style={styles.celdaSubtitulo}>Día {dia.dayIndex}</Text>
+                  <Text style={styles.celdaSubtitulo}>Dia {dia.dayIndex}</Text>
                 </View>
               </View>
 
@@ -194,6 +202,12 @@ export default function ItinerarioCalendarView({
                         </View>
                       ) : null}
 
+                      {!dia.ruta ? (
+                        <Text style={styles.routeHint}>
+                          {getRouteAvailabilityMessage(puedeGenerarRuta)}
+                        </Text>
+                      ) : null}
+
                       {puedeGenerarRuta ? (
                         <>
                           <View style={styles.modoTransporteWrap}>
@@ -241,11 +255,7 @@ export default function ItinerarioCalendarView({
                             </Text>
                           </Pressable>
                         </>
-                      ) : (
-                        <Text style={styles.routeHint}>
-                          Agregá 2+ actividades con ubicación para generar una ruta.
-                        </Text>
-                      )}
+                      ) : null}
                     </View>
                   );
                 })()}
@@ -258,206 +268,205 @@ export default function ItinerarioCalendarView({
   );
 }
 
-
 const styles = StyleSheet.create({
-    grid: {
-        flexDirection: "row",
-        flexWrap: "wrap",
-    },
-    celdaWrap: {
-        padding: spacing.xs,
-    },
-    celda: {
-        ...surfaces.card,
-        padding: spacing.md,
-        flex: 1,
-    },
-    celdaHeader: {
-        flexDirection: "row",
-        alignItems: "center",
-        gap: spacing.sm,
-        borderBottomWidth: 1,
-        borderBottomColor: colors.border,
-        paddingBottom: spacing.sm,
-        marginBottom: spacing.sm,
-    },
-    celdaIndice: {
-        width: 28,
-        height: 28,
-        borderRadius: 14,
-        alignItems: "center",
-        justifyContent: "center",
-        backgroundColor: colors.surfaceAlt,
-    },
-    celdaIndiceTexto: {
-        ...textStyles.bodyStrong,
-        color: colors.primary,
-        fontSize: 13,
-    },
-    celdaTituloWrap: {
-        flex: 1,
-    },
-    celdaTitulo: {
-        ...textStyles.bodyStrong,
-        color: colors.primary,
-        fontSize: 14,
-    },
-    celdaSubtitulo: {
-        ...textStyles.meta,
-        color: colors.textSecondary,
-        fontSize: 11,
-    },
-    celdaAgenda: {
-        gap: spacing.xs,
-    },
-    actividad: {
-        backgroundColor: colors.surfaceMuted,
-        borderRadius: radii.sm,
-        borderLeftWidth: 3,
-        borderLeftColor: colors.primary,
-        padding: spacing.xs,
-    },
-    actividadSolapada: {
-        borderLeftColor: colors.warning,
-        backgroundColor: colors.warningSurface,
-    },
-    actividadHeaderRow: {
-        flexDirection: "row",
-        alignItems: "center",
-        gap: 6,
-    },
-    actividadHora: {
-        ...textStyles.meta,
-        color: colors.textSecondary,
-        fontSize: 11,
-    },
-    actividadTitulo: {
-        ...textStyles.bodyStrong,
-        color: colors.primary,
-        fontSize: 13,
-        marginTop: 2,
-    },
-    actividadSolapadaTexto: {
-        ...textStyles.meta,
-        color: colors.warning,
-        fontSize: 10,
-        marginTop: 2,
-    },
-    actividadAcciones: {
-        flexDirection: "row",
-        justifyContent: "flex-end",
-        gap: spacing.sm,
-        marginTop: spacing.xxs,
-    },
-    actividadAccionBoton: {
-        padding: 2,
-    },
-    sinActividades: {
-        ...textStyles.meta,
-        color: colors.textMuted,
-        fontSize: 12,
-    },
-    agregarBoton: {
-        flexDirection: "row",
-        alignItems: "center",
-        gap: 4,
-        alignSelf: "flex-start",
-        marginTop: spacing.xxs,
-    },
-    agregarTexto: {
-        ...textStyles.bodyStrong,
-        color: colors.primary,
-        fontSize: 12,
-    },
-    agregarBotonDisabled: {
-        opacity: 0.6,
-    },
-    routeSection: {
-        marginTop: spacing.xs,
-        gap: spacing.xxs,
-    },
-    routeSummaryRow: {
-        flexDirection: "row",
-        alignItems: "center",
-        justifyContent: "space-between",
-        gap: spacing.xs,
-        flexWrap: "wrap",
-    },
-    routeSummary: {
-        flexDirection: "row",
-        alignItems: "center",
-        gap: 4,
-        backgroundColor: colors.surfaceAlt,
-        borderRadius: radii.pill ?? 999,
-        paddingVertical: 4,
-        paddingHorizontal: spacing.xs,
-    },
-    routeSummaryText: {
-        ...textStyles.meta,
-        color: colors.primary,
-        fontSize: 11,
-        fontWeight: "600",
-    },
-    routeMapToggle: {
-        flexDirection: "row",
-        alignItems: "center",
-        gap: 4,
-    },
-    routeMapToggleText: {
-        ...textStyles.meta,
-        color: colors.primary,
-        fontSize: 11,
-        fontWeight: "600",
-    },
-    routeMapWrap: {
-        marginTop: spacing.xxs,
-    },
-    routeHint: {
-        ...textStyles.meta,
-        color: colors.textMuted,
-        fontSize: 11,
-    },
-    modoTransporteWrap: {
-        flexDirection: "row",
-        gap: 4,
-        marginTop: spacing.xxs,
-    },
-    modoChip: {
-        flexDirection: "row",
-        alignItems: "center",
-        gap: 3,
-        borderWidth: 1,
-        borderColor: colors.border,
-        borderRadius: radii.pill ?? 999,
-        backgroundColor: colors.surface,
-        paddingHorizontal: 6,
-        paddingVertical: 3,
-    },
-    modoChipActive: {
-        backgroundColor: colors.primary,
-        borderColor: colors.primary,
-    },
-    modoChipText: {
-        ...textStyles.meta,
-        color: colors.primary,
-        fontSize: 10,
-        fontWeight: "600",
-    },
-    modoChipTextActive: {
-        color: colors.textInverse,
-    },
-    sectionCard: {
-        ...surfaces.card,
-        padding: spacing.lg,
-    },
-    sectionHeading: {
-        ...textStyles.tripTitle,
-        color: colors.primary,
-        fontSize: 22,
-    },
-    sectionCopy: {
-        ...textStyles.body,
-        color: colors.textSecondary,
-        marginTop: spacing.sm,
-    },
+  grid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+  },
+  celdaWrap: {
+    padding: spacing.xs,
+  },
+  celda: {
+    ...surfaces.card,
+    padding: spacing.md,
+    flex: 1,
+  },
+  celdaHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+    paddingBottom: spacing.sm,
+    marginBottom: spacing.sm,
+  },
+  celdaIndice: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.surfaceAlt,
+  },
+  celdaIndiceTexto: {
+    ...textStyles.bodyStrong,
+    color: colors.primary,
+    fontSize: 13,
+  },
+  celdaTituloWrap: {
+    flex: 1,
+  },
+  celdaTitulo: {
+    ...textStyles.bodyStrong,
+    color: colors.primary,
+    fontSize: 14,
+  },
+  celdaSubtitulo: {
+    ...textStyles.meta,
+    color: colors.textSecondary,
+    fontSize: 11,
+  },
+  celdaAgenda: {
+    gap: spacing.xs,
+  },
+  actividad: {
+    backgroundColor: colors.surfaceMuted,
+    borderRadius: radii.sm,
+    borderLeftWidth: 3,
+    borderLeftColor: colors.primary,
+    padding: spacing.xs,
+  },
+  actividadSolapada: {
+    borderLeftColor: colors.warning,
+    backgroundColor: colors.warningSurface,
+  },
+  actividadHeaderRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  actividadHora: {
+    ...textStyles.meta,
+    color: colors.textSecondary,
+    fontSize: 11,
+  },
+  actividadTitulo: {
+    ...textStyles.bodyStrong,
+    color: colors.primary,
+    fontSize: 13,
+    marginTop: 2,
+  },
+  actividadSolapadaTexto: {
+    ...textStyles.meta,
+    color: colors.warning,
+    fontSize: 10,
+    marginTop: 2,
+  },
+  actividadAcciones: {
+    flexDirection: "row",
+    justifyContent: "flex-end",
+    gap: spacing.sm,
+    marginTop: spacing.xxs,
+  },
+  actividadAccionBoton: {
+    padding: 2,
+  },
+  sinActividades: {
+    ...textStyles.meta,
+    color: colors.textMuted,
+    fontSize: 12,
+  },
+  agregarBoton: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    alignSelf: "flex-start",
+    marginTop: spacing.xxs,
+  },
+  agregarTexto: {
+    ...textStyles.bodyStrong,
+    color: colors.primary,
+    fontSize: 12,
+  },
+  agregarBotonDisabled: {
+    opacity: 0.6,
+  },
+  routeSection: {
+    marginTop: spacing.xs,
+    gap: spacing.xxs,
+  },
+  routeSummaryRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: spacing.xs,
+    flexWrap: "wrap",
+  },
+  routeSummary: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    backgroundColor: colors.surfaceAlt,
+    borderRadius: radii.pill ?? 999,
+    paddingVertical: 4,
+    paddingHorizontal: spacing.xs,
+  },
+  routeSummaryText: {
+    ...textStyles.meta,
+    color: colors.primary,
+    fontSize: 11,
+    fontWeight: "600",
+  },
+  routeMapToggle: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+  },
+  routeMapToggleText: {
+    ...textStyles.meta,
+    color: colors.primary,
+    fontSize: 11,
+    fontWeight: "600",
+  },
+  routeMapWrap: {
+    marginTop: spacing.xxs,
+  },
+  routeHint: {
+    ...textStyles.meta,
+    color: colors.textMuted,
+    fontSize: 11,
+  },
+  modoTransporteWrap: {
+    flexDirection: "row",
+    gap: 4,
+    marginTop: spacing.xxs,
+  },
+  modoChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 3,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radii.pill ?? 999,
+    backgroundColor: colors.surface,
+    paddingHorizontal: 6,
+    paddingVertical: 3,
+  },
+  modoChipActive: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
+  },
+  modoChipText: {
+    ...textStyles.meta,
+    color: colors.primary,
+    fontSize: 10,
+    fontWeight: "600",
+  },
+  modoChipTextActive: {
+    color: colors.textInverse,
+  },
+  sectionCard: {
+    ...surfaces.card,
+    padding: spacing.lg,
+  },
+  sectionHeading: {
+    ...textStyles.tripTitle,
+    color: colors.primary,
+    fontSize: 22,
+  },
+  sectionCopy: {
+    ...textStyles.body,
+    color: colors.textSecondary,
+    marginTop: spacing.sm,
+  },
 });

@@ -125,7 +125,7 @@ async def _consultar_google_directions(
         )
 
     try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
+        async with httpx.AsyncClient(timeout=10.0, verify=False) as client:
             response = await client.get(GOOGLE_DIRECTIONS_URL, params=params)
             response.raise_for_status()
     except httpx.HTTPError as exc:
