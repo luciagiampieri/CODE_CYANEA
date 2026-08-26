@@ -21,6 +21,7 @@ import MapCanvas from "../components/map/MapCanvas";
 import ParticipantSearch from "../components/trip/ParticipantSearch";
 import ParticipantList from "../components/trip/ParticipantList";
 import ResultadosVotacion from "../components/trip/ResultadosVotacion";
+import DocumentosPorCategoria, { ID_TODAS } from "../components/trip/DocumentsByCategory";
 import AvatarStack from "../components/ui/AvatarStack";
 import IconCircleButton from "../components/ui/IconCircleButton";
 import PrimaryButton from "../components/ui/PrimaryButton";
@@ -232,6 +233,7 @@ export default function TripDetailScreen({ navigation, route }) {
   const [documentos, setDocumentos] = useState([]);
   const [loadingDocumentos, setLoadingDocumentos] = useState(false);
   const [documentosError, setDocumentosError] = useState("");
+  const [categoriaDocFiltro, setCategoriaDocFiltro] = useState(ID_TODAS);
   const [repositorioItems, setRepositorioItems] = useState([]);
   const [loadingRepositorio, setLoadingRepositorio] = useState(false);
   const [repositorioError, setRepositorioError] = useState("");
@@ -426,7 +428,7 @@ export default function TripDetailScreen({ navigation, route }) {
     }
   }
 
-  // US 41 - Descargar documento.
+
   async function handleDescargarDocumento(documento) {
     try {
       setDescargandoDocId(documento.IdDocumento);
@@ -444,29 +446,41 @@ export default function TripDetailScreen({ navigation, route }) {
     }
   }
 
-  // US 51 - Eliminar documento del repositorio.
-  async function eliminarDocumento(documento) {
-    const ejecutar = async () => {
-      try {
-        setEliminandoDocId(documento.IdDocumento);
-        await deleteTripDocument(trip.id, documento.IdDocumento);
-        setDocumentos((prev) =>
-          prev.filter((d) => d.IdDocumento !== documento.IdDocumento)
-        );
-        avisar("Documento eliminado", "El documento se eliminó correctamente.");
-      } catch (error) {
-        avisar("No se pudo eliminar", error.message || "Ocurrió un error al eliminar el documento.");
-      } finally {
-        setEliminandoDocId(null);
-      }
-    };
 
-    confirmar(
-      "Eliminar documento",
-      `¿Seguro que querés eliminar "${documento.NombreArchivo}"? Esta acción no se puede deshacer.`,
-      ejecutar
-    );
-  }
+  async function eliminarDocumento(documento) {
+      const ejecutar = async () => {
+        try {
+          setEliminandoDocId(documento.IdDocumento);
+          await deleteTripDocument(trip.id, documento.IdDocumento);
+
+          setDocumentos((prev) => {
+            const nuevosDocs = prev.filter((d) => d.IdDocumento !== documento.IdDocumento);
+            const quedanEnCategoria = nuevosDocs.some(
+              (d) => d.IdCategoriaDocumento === documento.IdCategoriaDocumento
+            );
+            setTimeout(() => {
+              if (quedanEnCategoria) {
+                avisar("Documento eliminado", "El documento se eliminó correctamente.");
+              } else {
+                avisar("Documento eliminado", "Documento eliminado. La categoría quedó sin documentos y ya no se mostrará.");
+                setCategoriaDocFiltro(ID_TODAS);
+              }
+            }, 150);
+            return nuevosDocs;
+          });
+        } catch (error) {
+          avisar("No se pudo eliminar", error.message || "Ocurrió un error al eliminar el documento.");
+        } finally {
+          setEliminandoDocId(null);
+        }
+      };
+
+      confirmar(
+        "Eliminar documento",
+        `¿Seguro que querés eliminar "${documento.NombreArchivo}"? Esta acción no se puede deshacer.`,
+        ejecutar
+      );
+    }
 
   useEffect(() => {
     loadTripDetail();
@@ -1499,114 +1513,28 @@ export default function TripDetailScreen({ navigation, route }) {
             <>
             <View style={styles.sectionCard}>
               <Text style={styles.sectionHeading}>Documentos</Text>
-
               {loadingDocumentos ? (
                 <ActivityIndicator color={colors.primary} style={{ marginTop: spacing.md }} />
               ) : documentosError ? (
                 <Text style={styles.settlementError}>{documentosError}</Text>
-              ) : documentos.length === 0 ? (
-                <Text style={styles.sectionCopy}>
-                  Reservas, vouchers y archivos del viaje aparecerán aquí.
-                </Text>
               ) : (
-                <View style={{ gap: spacing.sm, marginTop: spacing.sm }}>
-
-                  {documentos.map((documento) => {
-                    const descargandoEsteDoc = descargandoDocId === documento.IdDocumento;
-                    const eliminandoEsteDoc = eliminandoDocId === documento.IdDocumento;
-
-                    return (
-                      <View
-                        key={documento.IdDocumento}
-                        style={{
-                          borderWidth: 1,
-                          borderColor: colors.border,
-                          borderRadius: radii.md,
-                          padding: spacing.md,
-                          gap: 6,
-                        }}
-                      >
-                        <Pressable
-                          onPress={() => abrirDocumento(documento.UrlArchivo)}
-                          style={{
-                            flexDirection: "row",
-                            alignItems: "center",
-                            gap: spacing.sm,
-                          }}
-                        >
-                          <FontAwesome6 name="file-lines" size={18} color={colors.primary} />
-                          <View style={{ flex: 1 }}>
-                            <Text style={styles.sectionCopy}>{documento.NombreArchivo}</Text>
-                            <Text style={[styles.sectionCopy, { fontSize: 12, opacity: 0.7 }]}>
-                              {documento.NombreCategoria} · Subido por {documento.NombreUsuarioSubida}
-                            </Text>
-                          </View>
-                          <FontAwesome6 name="up-right-from-square" size={14} color={colors.textSecondary} />
-                        </Pressable>
-
-                        <View style={{ flexDirection: "row", gap: spacing.md, marginTop: 6 }}>
-                          <Pressable
-                            onPress={() => handleDescargarDocumento(documento)}
-                            disabled={descargandoEsteDoc}
-                            style={{ flexDirection: "row", alignItems: "center", gap: 4, opacity: descargandoEsteDoc ? 0.6 : 1 }}
-                          >
-                            {descargandoEsteDoc ? (
-                              <ActivityIndicator size="small" color={colors.textSecondary} />
-                            ) : (
-                              <FontAwesome6 name="download" size={12} color={colors.textSecondary} />
-                            )}
-                            <Text style={{ fontSize: 12, color: colors.textSecondary, fontWeight: "600" }}>
-                              {descargandoEsteDoc ? "Descargando..." : "Descargar"}
-                            </Text>
-                          </Pressable>
-
-                          {documento.IdUsuarioSubida === currentUser?.id ? (
-                            <Pressable
-                              onPress={() =>
-                                navigation.navigate("EditDocument", { 
-                                  tripId: trip.id,
-                                  documento,
-                                })
-                              }
-                              style={{
-                                flexDirection: "row",
-                                alignItems: "center",
-                                gap: 4,
-                              }}
-                            >
-                              <FontAwesome6 name="pen" size={13} color={colors.textSecondary} />
-                              <Text
-                                style={{
-                                  fontSize: 12,
-                                  color: colors.textSecondary,
-                                  fontWeight: "600",
-                                }}
-                              >
-                                Editar
-                              </Text>
-                            </Pressable>
-                          ) : null}
-
-                          {documento.EsPropio ? (
-                            <Pressable
-                              onPress={() => eliminarDocumento(documento)}
-                              disabled={eliminandoEsteDoc}
-                              style={{ flexDirection: "row", alignItems: "center", gap: 4, opacity: eliminandoEsteDoc ? 0.6 : 1 }}
-                            >
-                              {eliminandoEsteDoc ? (
-                                <ActivityIndicator size="small" color={colors.danger} />
-                              ) : (
-                                <FontAwesome6 name="trash" size={12} color={colors.danger} />
-                              )}
-                              <Text style={{ fontSize: 12, color: colors.danger, fontWeight: "600" }}>
-                                {eliminandoEsteDoc ? "Eliminando..." : "Eliminar"}
-                              </Text>
-                            </Pressable>
-                          ) : null}
-                        </View>
-                      </View>
-                    );
-                  })}
+                <View style={{ marginTop: spacing.sm }}>
+                  <DocumentosPorCategoria
+                    documentos={documentos}
+                    categoriaFiltro={categoriaDocFiltro}
+                    onCategoriaChange={setCategoriaDocFiltro}
+                    onAbrir={(documento) => abrirDocumento(documento.UrlArchivo)}
+                    onDescargar={handleDescargarDocumento}
+                    onEditar={(documento) =>
+                      navigation.navigate("EditDocument", {
+                        tripId: trip.id,
+                        documento,
+                      })
+                    }
+                    onEliminar={eliminarDocumento}
+                    descargandoDocId={descargandoDocId}
+                    eliminandoDocId={eliminandoDocId}
+                  />
                 </View>
               )}
 
