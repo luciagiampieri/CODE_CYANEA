@@ -272,7 +272,11 @@ export default function DocumentsScreen({ route, navigation }) {
                                             </Text>
                                         </View>
 
-                                        <Pressable onPress={eliminarArchivo} hitSlop={15}>
+                                        <Pressable
+                                            onPress={eliminarArchivo}
+                                            hitSlop={15}
+                                            testID="documentos-eliminar-archivo"
+                                        >
                                             <FontAwesome6
                                                 name="trash"
                                                 size={16}

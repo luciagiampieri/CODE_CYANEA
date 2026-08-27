@@ -5,18 +5,27 @@ Este documento son las reglas que seguimos para escribir y mantener tests en
 otro, sino que **la cobertura solo pueda subir, nunca bajar**, y que cada test
 nuevo aporte confianza real (no un test que "pasa" pero no prueba nada).
 
-Estado de partida (24/08/2026): ~4.5% de statements cubiertos. El piso de
-cobertura en `package.json` arranca ahí a propósito — ver "Regla del piso
-creciente" más abajo. Al sumar los tests de `AddGastoScreen` subió a ~7.3%.
+Estado de partida (24/08/2026): ~4.5% de statements cubiertos. Última
+actualización de este documento (27/08/2026): ~30% de statements, con
+`components/ui`, `components/home`, `hooks/` y buena parte de
+`components/trip` ya al 100%. Ver el detalle en la sección 6.
+
+⚠️ **El % exacto puede haber cambiado desde que se escribió esto.** No lo
+tomes como verdad absoluta — corré `npm run test:coverage` y confiá en eso.
+Este documento describe patrones y decisiones, no un número fijo.
 
 ## Stack
 
 - Runner: `jest` con preset `jest-expo`
-- Render/interacción: `@testing-library/react-native`
+- Render/interacción: `@testing-library/react-native` v14
 - Comandos:
   - `npm test` — corre toda la suite
+  - `npm test -- NombreDelArchivo` — corre solo los archivos que matcheen ese nombre
+  - `npm test -- NombreDelArchivo -t "parte del nombre del test"` — corre un test puntual
   - `npm run test:watch` — modo watch mientras desarrollás
   - `npm run test:coverage` — corre con reporte de cobertura y aplica el piso
+  - `npm run test:slow` (`--runInBand`) — corre todo en serie; usalo si `npm test`
+    te da resultados que no logras reproducir aislando el archivo (ver punto 9)
 
 ## 1. Dónde va cada test
 
@@ -71,26 +80,43 @@ fijas, tomadas de `EditDocumentScreen.test.js` y `logout.test.js`:
      generateTripRoute: jest.fn(),
    }));
    ```
-2. **Cómo elegir un input cuando no hay `placeholder` ni label accesible.**
-   Esta versión de `@testing-library/react-native` (v14) **no tiene**
-   `UNSAFE_getByType`/`UNSAFE_root` — no sirven como escape hatch. Orden de
-   preferencia para targetear un campo:
+2. **`render()` y `renderHook()` de RTL son async en este proyecto.** Siempre
+   `await render(...)` / `await renderHook(...)`. Si te olvidás el `await`,
+   el objeto devuelto no tiene ninguna de las queries (`getByText` etc.
+   directamente no existen) y el error es confuso ("`getByText` is not a
+   function"). Es la causa #1 de tests que fallan raro al copiar un patrón
+   viejo.
+3. **Cómo elegir un input cuando no hay `placeholder` ni label accesible.**
+   Esta versión de RTL (v14) **no tiene** `UNSAFE_getByType` / `UNSAFE_root`
+   / `UNSAFE_getByProps` — ninguna sirve como escape hatch, ni para inputs ni
+   para otros componentes (p. ej. una `<Image>` sin testID). Orden de
+   preferencia para targetear un elemento:
    1. `getByPlaceholderText(...)` si el input tiene placeholder (caso
       `AddGastoScreen`).
    2. `getByTestId(...)` si no lo tiene. Agregá el `testID` directo en el
-      JSX de la pantalla (sin tocar el componente reutilizable, si es que
-      ya reenvía props extra al `TextInput`, como pasa con `Field` en
-      `LoginScreen`). Convención de nombre: `"<pantalla>-<campo>-input"`,
-      ej. `testID="login-email-input"`.
+      JSX de la pantalla/componente (sin tocar el componente reutilizable, si
+      es que ya reenvía props extra al `TextInput`, como pasa con `Field` en
+      `LoginScreen`). Convención de nombre: `"<pantalla>-<campo>-input"` para
+      inputs, `"<pantalla>-<acción>-<id>"` para botones repetidos dentro de
+      un `.map` (ej. `testID="votacion-quitar-propuesta-${index}"`,
+      `testID="participant-remove-${participant.key}"`).
    3. Si ninguna de las dos aplica, es momento de agregarle
       `accessibilityLabel` al input y usar `getByLabelText(...)` — mejora
       la pantalla para lectores de pantalla de paso.
+   4. **Caso especial: verificar que se usó una `<Image>` sin testID
+      disponible** (p. ej. `uploadProfilePhoto`, `Avatar`). Sin
+      `UNSAFE_getByProps`, la forma de chequearlo es con `toJSON()`:
+      ```js
+      const { toJSON, queryByText } = await render(<Avatar imageUrl="..." />);
+      expect(queryByText("LG")).toBeNull(); // no cayó al fallback de iniciales
+      expect(JSON.stringify(toJSON())).toContain("https://.../foto.jpg");
+      ```
 
    Para un `Switch` (no tiene texto ni placeholder): siempre `testID`, y
    para togglearlo se usa `fireEvent(elemento, "valueChange", true)` en vez
    de `fireEvent.press` (el evento que expone `Switch` es `onValueChange`,
    no `onPress`). Ver `RegisterScreen.test.js` (`toggleTerminos`).
-3. **Si una pantalla usa `@expo/vector-icons` (o cualquier componente que
+4. **Si una pantalla usa `@expo/vector-icons` (o cualquier componente que
    haga `setState` async al montarse), no alcanza con `fireEvent.press(...)`
    seguido de `waitFor(...)`.** En este proyecto ese combo puede quedar en
    un estado donde el update nunca se aplica (ni con `waitFor` esperando).
@@ -105,19 +131,39 @@ fijas, tomadas de `EditDocumentScreen.test.js` y `logout.test.js`:
      fireEvent.press(getByText("Guardar"));
    });
    ```
-4. **Mockeá los componentes de layout/UI pesados** que no son objeto del
+5. **Mockeá los componentes de layout/UI pesados** que no son objeto del
    test (`ScreenContainer`, botones custom) devolviendo una versión mínima
    con `testID`, para poder interactuar sin renderizar todo su árbol real.
-5. **Nunca uses `setTimeout`/sleeps para esperar un efecto.** Usá siempre
+6. **Nunca uses `setTimeout`/sleeps para esperar un efecto.** Usá siempre
    `waitFor(() => expect(...))` de RTL. Un test que espera con timers fijos
    es un test flaky en potencia.
-6. **Ojo con textos duplicados por componentes compartidos.** `AuthSwitch`
-   se usa tanto en `LoginScreen` como en `RegisterScreen` y tiene una tab
-   que dice "Crear cuenta" — si el botón de submit de `RegisterScreen`
-   también dice "Crear cuenta", `getByText("Crear cuenta")` tira "Found
-   multiple elements". La salida más simple: `testID` en el botón que te
-   interesa (`register-submit-button`) en vez de pelear con el texto.
-7. **Para pantallas con selector de fecha nativo
+7. **Ojo con textos duplicados.** Pasa seguido cuando un texto se repite
+   entre el título/hero de la pantalla y el label de un botón (ej. "Subir
+   documento" en `DocumentsScreen`, "Agregar actividad" en
+   `AddActivityScreen`) o entre componentes compartidos (`AuthSwitch` en
+   `LoginScreen`/`RegisterScreen`). `getByText(...)` tira "Found multiple
+   elements" en esos casos. Dos salidas, según el caso:
+   - Si podés targetear el elemento puntual: `testID` (ej.
+     `register-submit-button`).
+   - Si vas a repetir esta ambigüedad en varios tests del mismo archivo (ej.
+     un botón de submit cuyo label coincide con el título): escribí un
+     helper `pressSubmit` que tome el **último** match con `getAllByText`,
+     ya que el botón se renderiza después del título en el árbol:
+     ```js
+     async function pressSubmit(utils, texto) {
+       await act(async () => {
+         const matches = utils.getAllByText(texto);
+         fireEvent.press(matches[matches.length - 1]);
+       });
+     }
+     ```
+   - Si el texto de un mensaje de error coincide *exactamente* con un
+     placeholder visual (ej. "Seleccioná una categoría" en
+     `DocumentsScreen`, que es placeholder del selector Y el texto del
+     `<Text>` de error), no pelees por desambiguar: usá
+     `getAllByText(...)` y afirmá la longitud (`toHaveLength(2)`). Confirma
+     que el error efectivamente se está mostrando además del placeholder.
+8. **Para pantallas con selector de fecha nativo
    (`@react-native-community/datetimepicker`)**: no intentes interactuar
    con el picker real (depende de módulos nativos). Mockealo con un
    componente simple que dispare `onChange` con una fecha fija al
@@ -138,7 +184,15 @@ fijas, tomadas de `EditDocumentScreen.test.js` y `logout.test.js`:
    Si hay dos campos de fecha vacíos a la vez, van a colisionar en el texto
    del botón ("Seleccionar fecha" x2) — usá `getAllByText(...)[0]` para el
    primero en vez de `getByText`.
-8. Cubrí, como mínimo, para cada pantalla con lógica no trivial:
+
+   **Alternativa más simple cuando el picker no es lo que estás probando**:
+   varias pantallas (`AddActivityScreen`, por ejemplo) renderizan los campos
+   de hora/fecha como un `<TextInput>` normal en `Platform.OS === "web"` y
+   como `<Pressable>` + picker nativo en el resto. Si lo que te importa es
+   la *validación* (formato, orden de fechas) y no el picker en sí, forzar
+   `Platform.OS = "web"` en el `beforeEach` te deja escribir el valor
+   directo con `fireEvent.changeText` y te ahorrás mockear el picker.
+9. Cubrí, como mínimo, para cada pantalla con lógica no trivial:
    - el camino feliz (render inicial + acción exitosa)
    - al menos un camino de error (la pantalla debe mostrar el mensaje, no
      solo no explotar)
@@ -151,21 +205,29 @@ fijas, tomadas de `EditDocumentScreen.test.js` y `logout.test.js`:
 - No dejar un `console.error` de React (`act(...)`) sin resolver — es señal
   de un `setState` fuera de `waitFor`, y tarde o temprano hace flaky el test.
   *(Ya hay uno así en `EditDocumentScreen.test.js` — está en el backlog,
-  ver más abajo).*
+  ver sección 8).*
 - No agregar `it.skip` a un test que falla "para arreglarlo después". Si no
   se puede arreglar ya, se borra o se abre una tarea puntual para eso.
+- No escribir 60 tests casi idénticos para 60 funciones con el mismo
+  patrón (ver sección 6, nota sobre `services/api.js`). Si vas a testear
+  varias funciones que solo difieren en URL/método/body, un
+  `describe.each` con una tabla de casos da la misma cobertura con una
+  fracción del código, y agregar un caso nuevo es una línea en un array.
 
 ## 4. Regla del piso creciente (coverage ratchet)
 
-En `package.json` hay un `coverageThreshold.global.statements` que hoy vale
-`4` (el baseline actual). Regla del equipo:
+En `package.json` hay un `coverageThreshold.global.statements`. Regla del
+equipo:
 
 > **Cada vez que una US toque una pantalla o util nuevo y le sume test,
 > subí el número del piso al valor real que reporta `npm run test:coverage`
 > (redondeando hacia abajo).** Nunca lo bajes. Así el CI evita que la
 > cobertura retroceda sin que nadie tenga que discutirlo a mano.
 
-No es una meta de "% total" fija — es un candado de un solo sentido.
+No es una meta de "% total" fija — es un candado de un solo sentido. El
+valor concreto fue subiendo varias veces en lo que va del proyecto (4 → 18
+→ 19 → 26 → 29 → 30...); no lo copies de este documento, mirá el número real
+en tu `package.json` y en la salida de `test:coverage`.
 
 ## 5. Definition of Done, agregado
 
@@ -181,54 +243,91 @@ Para toda US nueva que toque frontend:
 
 ## 6. Backlog de deuda técnica (priorizado)
 
-No es necesario testear todo esto ya — es el orden sugerido para ir
-sumando, de mayor a menor impacto/riesgo:
-
-**Prioridad alta (dinero, autenticación, alta de datos):**
-- ~~`AddGastoScreen` — carga y cálculo de gastos compartidos~~ ✅ hecho
-  (`AddGastoScreen.test.js`: carga inicial, validaciones, alta exitosa,
-  fallback offline al fallar el guardado, y sin conexión + sin caché al
-  cargar)
-- ~~`LoginScreen` / `RegisterScreen` — si se rompen, nadie entra a la app~~
-  ✅ ambos hechos. `RegisterScreen.test.js`: render, validación completa en
-  vacío, formato de email, complejidad de contraseña, confirmación que no
-  coincide, alta exitosa con navegación, error 422 de email del backend,
-  error genérico del backend, error de red, navegación a login.
-- `CreateTripScreen` / `EditTripScreen` ✅ hechos.
-  `CreateTripScreen.test.js`: carga de admin, validación en vacío, buscar y
-  agregar destino, alta exitosa (con mock de `DateTimePicker`, ver más
-  abajo), error del servidor, cancelar. `EditTripScreen.test.js`: carga de
-  datos existentes, error de carga, bloqueo de "fecha ida" cuando el viaje
-  ya comenzó, validación, guardado exitoso (incluye el `goBack()` diferido
-  900ms), error del servidor.
-
+**Prioridad alta (dinero, autenticación, alta de datos):** ✅ **completa**
+- ~~`AddGastoScreen`~~ ✅ carga inicial, validaciones, alta exitosa, fallback
+  offline al fallar el guardado, sin conexión + sin caché al cargar.
+- ~~`LoginScreen` / `RegisterScreen`~~ ✅ render, validaciones, alta exitosa
+  con navegación, error 422 del backend, error genérico, error de red.
+- ~~`CreateTripScreen` / `EditTripScreen`~~ ✅ (con mock de `DateTimePicker`).
   **Bug real encontrado y corregido por el test**: en `CreateTripScreen.js`,
-  `errors.destinations` se calculaba en `validateForm()` pero nunca se
-  renderizaba en ningún lado — el usuario apretaba "Crear viaje" sin
-  destinos y no pasaba nada, sin ningún mensaje explicando por qué. El test
-  de validación en vacío lo hizo evidente de inmediato. Se agregó el
-  `<Text>{errors.destinations}</Text>` que faltaba (el patrón ya existía en
-  `EditTripScreen.js`, que sí lo tenía bien). Este es exactamente el tipo
-  de cosa que una suite de tests encuentra antes que un usuario real.
+  `errors.destinations` se calculaba pero nunca se renderizaba — el usuario
+  apretaba "Crear viaje" sin destinos y no pasaba nada. Se agregó el
+  `<Text>{errors.destinations}</Text>` que faltaba.
+- ~~`gastosLocal.js` (cola offline)~~ ✅ guardar/leer offline web vs nativo,
+  error de SQLite, sincronización con borrado de cola, corte si falla un
+  gasto, doble sincronización bloqueada, caché de categorías.
+- ~~`AuthContext.js`~~ ✅ 0% → 87%. `useAuth` fuera de provider, sin token,
+  token válido, token rechazado por el backend, error de storage, login,
+  logout. **Ver limitación de import dinámico en sección 9.**
+- ~~`services/api.js`~~ ✅ 2% → ~21%. `parseResponse` a fondo (5 casos),
+  `authHeaders`/token, tabla `describe.each` con 10 endpoints
+  representativos (GET/POST/PUT/DELETE, query encoding), `deleteTrip` (caso
+  especial, no usa `parseResponse`), `uploadProfilePhoto` rama web. **No se
+  testearon los ~50 endpoints restantes uno por uno a propósito — ver
+  sección 3.** Pendiente si hace falta: `uploadTripDocument`,
+  `downloadTripDocument`, `updateTripDocument` (rama nativa con
+  `expo-file-system`).
 
-**Prioridad media (flujos core del producto):**
-- `AddActivityScreen`, `CrearVotacionScreen`, `DocumentsScreen`
-- ~~`gastosLocal.js` (cola offline)~~ ✅ hecho (`gastosLocal.test.js`:
-  guardar/leer offline en web vs nativo, error de SQLite, sincronización
-  exitosa con borrado de cola, corte si falla un gasto, doble
-  sincronización simultánea bloqueada, caché de categorías)
+**Prioridad media (flujos core del producto):** ✅ **completa**
+- ~~`AddActivityScreen`~~ ✅ validaciones (nombre, formato de hora, orden de
+  horas), alta exitosa, error del backend, detección automática de ícono
+  vs. selección manual, precarga en modo edición, búsqueda y selección de
+  ubicación, error de búsqueda.
+- ~~`CrearVotacionScreen`~~ ✅ AC2 (arranca con 2 propuestas), validaciones
+  (nombre, mínimo de propuestas, propuestas repetidas case-insensitive),
+  agregar/quitar propuestas (con el piso de 2), alta exitosa con `Alert` y
+  navegación, error del backend, botón de retroceso.
+- ~~`DocumentsScreen`~~ ✅ error de carga de categorías, validaciones (3
+  campos), selección/reemplazo de archivo, selección de categoría vía
+  modal, alta exitosa con `Alert` de confirmación, error de nombre
+  duplicado (parseo de mensaje del backend), error genérico, cancelar.
 
-**Prioridad baja pero rápida (componentes chicos, buen calentamiento):**
-- `components/ui/*` (Avatar, StatusPill, MetricCard, PrimaryButton,
-  IconCircleButton, AvatarStack, AuthSwitch) — presentacionales, se testean
-  en minutos y ya dan práctica con RTL
-- `hooks/useResponsive`, `hooks/useItinerarioViewPreference`
+**Prioridad baja pero rápida (componentes chicos):** en su mayoría ✅
+- ~~`components/ui/*`~~ ✅ `Avatar`, `AvatarStack`, `StatusPill`,
+  `AuthSwitch` — todos al 100%. (`MetricCard`, `PrimaryButton`,
+  `IconCircleButton` ya estaban cubiertos indirectamente por otras
+  pantallas.)
+- ~~`hooks/useResponsive`, `hooks/useItinerarioViewPreference`~~ ✅ ambos al
+  100%. Ojo con `useItinerarioViewPreference`: guarda el estado en una
+  variable de módulo (no en contexto), así que los tests que lo tocan
+  quedan encadenados a propósito en vez de aislados — ver el archivo de
+  test para el patrón.
+- ~~`components/home/TripCard.js`~~ ✅ 100%.
+- ~~`components/trip/ItinerarioViewToggle.js`~~ ✅ 100%.
+- ~~`components/trip/ResultadosVotacion.js`~~ ✅ 100%.
+- ~~`components/trip/ParticipantList.js`~~ ✅ 100%. Ojo si volvés a tocar
+  este componente: tiene lógica de permisos (`isAdmin` + `role ===
+  "administrador"`) que condiciona si se muestra el botón de quitar — no
+  asumas que siempre está visible.
+- ~~`components/trip/ParticipantSearch.js`~~ ✅ 100%.
+- ~~`components/trip/CurrencySelector.js`~~ ✅ 100%. Tiene estado y filtro
+  propios (busca por nombre O código, case-insensitive) — vale la pena
+  releer el test si cambian el criterio de búsqueda.
 
-**Caso especial — pantallas "god component" (`TripDetailScreen`,
-`ExplorePlacesScreen`):** antes de escribirles un test gigante que mockea 10
-cosas, evaluar extraer la sección puntual que se quiere probar a un
-componente propio (p. ej. una sección de ruta, una sección de gastos). Se
-gana testeabilidad y se mejora el diseño al mismo tiempo.
+**Lo que queda (sin empezar o parcial):**
+- `components/trip/DocumentsByCategory.js` (0%, 356 líneas) —
+  el más grande que queda en `components/trip`.
+- `components/trip/ItinerarioCalendarView.js` (ya ~82%, le faltan pocas
+  líneas para cerrar).
+- `components/map/*` (`MapCanvas.native.js`, `MapCanvas.web.js`,
+  `OfflineMapState.js`, `PlaceDetailSheet.js`, `PlaceScheduleSheet.js`) —
+  todos en 0%. Dependen de `react-native-maps`; mockearlo es su propio
+  trabajo, no lo mezcles con otro test.
+- Pantallas en 0% sin tocar todavía: `HomeScreen`, `ProfileScreen`,
+  `EditProfileScreen`, `InvitationsScreen`, `EmailConfirmadoScreen`,
+  `FacebookRegisterScreen`, `GoogleRegisterScreen`,
+  `GuardarInformacionScreen`, `PlaceholderScreen`,
+  `RegistrationSuccessScreen`.
+- `context/AuthContext.js` — quedó al 87%; el 13% restante son las ramas
+  nativas de `expo-secure-store`, no testeables en este entorno de Jest
+  hoy (ver sección 9).
+
+**Caso especial — pantallas "god component" (`TripDetailScreen`, 2102
+líneas, `ExplorePlacesScreen`, 970 líneas):** antes de escribirles un test
+gigante que mockea 10 cosas, evaluar extraer la sección puntual que se
+quiere probar a un componente propio (p. ej. una sección de ruta, una
+sección de gastos). Se gana testeabilidad y se mejora el diseño al mismo
+tiempo. No las ataquemos como están.
 
 ## 7. Troubleshooting: "me tira timeout / me fallan tests que no toqué" (Windows)
 
@@ -262,8 +361,86 @@ Qué hacer, en orden:
    reproducirse ahí. Si el CI se pone rojo mientras localmente te corre
    bien, es una señal real, no ruido de entorno.
 
+**Nota relacionada, no exclusiva de Windows**: vimos al menos un caso
+(`GastosLocal.test.js`) donde la suite completa en paralelo (`npm test`
+default) daba un falso rojo intermitente que **no se reproducía** corriendo
+ese archivo aislado. Si te pasa algo similar: aislá el archivo primero
+(`npm test -- NombreDelArchivo`) antes de asumir que rompiste algo — si
+aislado pasa, corré `npm run test:slow` para confirmar si es un problema
+real o ruido de paralelismo.
+
 ## 8. Deuda conocida
 
 - `EditDocumentScreen.test.js` tiene un warning intermitente de React
   (`act(...)`) que a veces hace fallar la suite bajo `--coverage`. Causa:
   un `setState` async no envuelto en `waitFor`. Pendiente de arreglo.
+
+## 9. Limitaciones del entorno de testing (leer antes de tocar storage/archivos)
+
+Cosas que **no son bugs de tu test** — son límites de cómo está configurado
+Jest hoy en este proyecto. Si tocás alguno de estos archivos, leé esto
+primero para no perder tiempo:
+
+### `await import(...)` (import dinámico) no funciona en los tests
+
+`AuthContext.js` y `services/api.js` usan `await import("expo-secure-store")`
+para el storage nativo (fuera de `Platform.OS === "web"`). **Jest, tal como
+está configurado hoy (sin `--experimental-vm-modules`), no soporta imports
+dinámicos.** Cualquier `jest.mock("expo-secure-store", ...)` se ignora en
+silencio, la promesa del `import()` rechaza sola, y el código cae siempre al
+`catch` que la rodea. Esto da **falsos positivos**: un test puede "pasar"
+sin que tu mock se haya usado ni una vez.
+
+**Cómo lo esquivamos:** forzar `Platform.OS = "web"` en el `beforeEach` y
+controlar el storage con un `localStorage` global fake (no existe de
+verdad en este entorno, así que se puede reemplazar sin problema):
+
+```js
+let localStorageMock;
+
+beforeEach(() => {
+  Platform.OS = "web";
+  localStorageMock = { getItem: jest.fn(), setItem: jest.fn(), removeItem: jest.fn() };
+  global.localStorage = localStorageMock;
+});
+
+afterEach(() => {
+  delete global.localStorage;
+});
+```
+
+Esto deja sin cobrir a propósito las ramas nativas de `getStoredToken()` (en
+ambos archivos) y de `storage.getItem/setItem/removeItem` en `AuthContext.js`.
+**Si en algún momento quieren cerrar ese hueco**, la solución es agregar
+`babel-plugin-dynamic-import-node` (o equivalente) al `babel.config.js` para
+que Jest transpile el `import()` dinámico a un `require()` síncrono — es un
+cambio de infraestructura, no de tests.
+
+### `Platform.OS` arranca en `"ios"` por defecto en los tests
+
+El preset `jest-expo` no arranca en `"web"` ni en `"android"` — arranca en
+`"ios"`. Importa porque cosas como `API_BASE_URL` en `services/api.js` se
+calculan **una sola vez, al importar el módulo**, usando el `Platform.OS`
+que haya en ese momento. Si tu test cambia `Platform.OS` en un
+`beforeEach`, eso **no** afecta valores ya calculados al importar — solo
+afecta lógica que lee `Platform.OS` en el momento de ejecutarse (como
+`getStoredToken()` o el JSX condicional `Platform.OS === "web" ? ... : ...`).
+
+### `FormData.append` exige un `Blob` real en este entorno
+
+A diferencia de lo que uno podría asumir, el polyfill de `FormData` en este
+entorno de test **valida el tipo** del segundo argumento cuando no es
+string, igual que en un navegador real. Pasar un objeto plano tira
+`TypeError: Failed to execute 'append' on 'FormData': parameter 2 is not of
+type 'Blob'`. Si necesitás testear un flujo que arma un `FormData` con un
+archivo (ver `uploadProfilePhoto` en `api.test.js`), usá un `Blob` real:
+
+```js
+const archivo = {
+  file: new Blob(["fake-image-data"], { type: "image/jpeg" }),
+  fileName: "perfil.jpg",
+};
+```
+
+`Blob` y `FormData` sí están disponibles como globales en este entorno, así
+que esto funciona sin mocks extra.

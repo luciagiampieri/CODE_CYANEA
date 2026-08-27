@@ -54,7 +54,11 @@ export default function ParticipantList({ participants, onRemove, isAdmin }) {
                 </View>
               </View>
               {canRemove ? (
-                <Pressable onPress={() => onRemove(participant)} style={styles.removeAction}>
+                <Pressable
+                  onPress={() => onRemove(participant)}
+                  style={styles.removeAction}
+                  testID={`participant-remove-${participant.key}`}
+                >
                   <FontAwesome6 color={colors.textMuted} name="xmark" size={14} />
                 </Pressable>
               ) : null}
