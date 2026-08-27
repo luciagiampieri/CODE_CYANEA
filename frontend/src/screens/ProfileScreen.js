@@ -257,7 +257,7 @@ export default function ProfileScreen({ navigation }) {
               </View>
 
               <View style={styles.sectionBlock}>
-                <Text style={styles.sectionLabel}>Pasaporte</Text>
+                <Text style={styles.sectionLabel}>Países Visitados</Text>
                 {paises.length > 0 ? (
                   <View style={styles.passportContainer}>
                     <View style={styles.passportGrid}>

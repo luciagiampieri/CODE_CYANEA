@@ -759,8 +759,10 @@ export default function TripDetailScreen({ navigation, route }) {
         kind: "registered",
         id: user.id ?? user.IdUsuario,
         nombreCompleto: nombreCompleto,
+        nombreUsuario: user.nombreUsuario ?? user.NombreUsuario ?? "",
         email: user.email ?? user.Email,
         fotoUrl: user.fotoUrl ?? user.FotoUrl ?? "",
+        role: user.role ?? user.Role ?? "",
       };
     });
 
@@ -801,7 +803,15 @@ export default function TripDetailScreen({ navigation, route }) {
     }
   }
 
-  async function handleRemoveParticipant(participant) {
+  function handleRemoveParticipant(participant) {
+    confirmar(
+      "Expulsar participante",
+      `¿Seguro que querés expulsar a ${participant.nombreCompleto} del viaje?`,
+      () => persistRemoveParticipant(participant)
+    );
+  }
+
+  async function persistRemoveParticipant(participant) {
     if (!trip?.id) return;
     try {
       setMutatingParticipants(true);
@@ -1614,7 +1624,7 @@ export default function TripDetailScreen({ navigation, route }) {
                               </Text>
                             ) : null}
                             <Text style={[styles.sectionCopy, { fontSize: 11, opacity: 0.6, marginTop: 2 }]}>
-                              Agregado por {item.NombreUsuarioCreador}
+                              Subido por {item.NombreUsuarioCreador}
                             </Text>
                           </View>
                         </View>
@@ -1911,7 +1921,7 @@ export default function TripDetailScreen({ navigation, route }) {
                 />
               </View>
               <View style={styles.sectionCard}>
-                <ParticipantList onRemove={handleRemoveParticipant} participants={participantItems} />
+                <ParticipantList onRemove={handleRemoveParticipant} participants={participantItems} isAdmin={isAdmin} />
               </View>
             </View>
           ) : null}
