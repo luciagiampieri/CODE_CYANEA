@@ -1,10 +1,11 @@
 import * as ImagePicker from "expo-image-picker";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useCallback } from "react";
 import { useFocusEffect } from "@react-navigation/native";
 import {
   ActivityIndicator,
   Alert,
   KeyboardAvoidingView,
+  Modal,
   Platform,
   Pressable,
   ScrollView,
@@ -14,11 +15,14 @@ import {
   View,
 } from "react-native";
 
+import { FontAwesome6 } from "@expo/vector-icons";
+
 import ScreenContainer from "../components/layout/ScreenContainer";
 import Avatar from "../components/ui/Avatar";
 import PrimaryButton from "../components/ui/PrimaryButton";
 import useResponsive from "../hooks/useResponsive";
-import { getCurrentUser, updateCurrentUser, uploadProfilePhoto } from "../services/api";
+import { useAuth } from "../context/AuthContext";
+import { getCurrentUser, updateCurrentUser, uploadProfilePhoto, deleteCurrentUser, verifyPassword } from "../services/api";
 import { colors, radii, spacing, surfaces, textStyles } from "../theme/tokens";
 
 const initialForm = {
@@ -27,6 +31,7 @@ const initialForm = {
   nombreUsuario: "",
   email: "",
   fotoUrl: "",
+  proveedorAutenticacion: "",
 };
 
 export default function EditProfileScreen({ navigation }) {
@@ -38,17 +43,25 @@ export default function EditProfileScreen({ navigation }) {
   const [deletingPhoto, setDeletingPhoto] = useState(false);
   const [statusMessage, setStatusMessage] = useState("");
   const { isDesktop } = useResponsive();
+  const { logout } = useAuth();
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [showDeleteConfirmModal, setShowDeleteConfirmModal] = useState(false);
+  const [password, setPassword] = useState("");
+  const [deleteError, setDeleteError] = useState("");
 
   useEffect(() => {
     loadProfile();
   }, []);
 
-  useFocusEffect(() => {
+  useFocusEffect(
+  useCallback(() => {
     setStatusMessage("");
+
     return () => {
       setStatusMessage("");
     };
-  });
+  }, [])
+);
 
   async function loadProfile() {
     setLoading(true);
@@ -61,6 +74,7 @@ export default function EditProfileScreen({ navigation }) {
         nombreUsuario: profile.nombreUsuario ?? "",
         email: profile.email ?? "",
         fotoUrl: profile.fotoUrl ?? "",
+        proveedorAutenticacion: profile.proveedorAutenticacion ?? "",
       });
     } catch (error) {
       setStatusMessage(error.message || "No se pudo cargar el perfil.");
@@ -210,6 +224,62 @@ export default function EditProfileScreen({ navigation }) {
     }
   }
 
+  const handleDeleteAccountPress = () => {
+    setPassword("");
+    setDeleteError("");
+
+    const esOAuth =
+    form?.proveedorAutenticacion === "google" ||
+    form?.proveedorAutenticacion === "facebook";
+
+    if (esOAuth) {
+      // Google/Facebook: no necesita ingresar contraseña
+      setShowDeleteConfirmModal(true);
+    } else {
+      // Usuario local: primero pide contraseña
+      setShowDeleteModal(true);
+    }
+  };
+
+  const handleDeleteAccount = async () => {
+    setDeleteError("");
+
+    if (!password.trim()) {
+      setDeleteError("Debés ingresar tu contraseña.");
+      return;
+    }
+
+    // se verifica que la contraseña sea correcta antes de mostrar el modal de confirmación
+    try {
+      await verifyPassword(password);
+      setShowDeleteConfirmModal(true);
+      setShowDeleteModal(false);
+
+    } catch (error) {
+      setDeleteError(
+        error.message || "No se pudo verificar la contraseña."
+      );
+    }
+  };
+
+  const confirmDeleteAccount = async () => {
+    try {
+      const esOAuth =
+        form?.proveedorAutenticacion === "google" ||
+        form?.proveedorAutenticacion === "facebook";
+
+      await deleteCurrentUser(esOAuth ? null : password);
+
+      setShowDeleteConfirmModal(false);
+      setShowDeleteModal(false);
+
+      await logout();
+    } catch (error) {
+      setShowDeleteConfirmModal(false);
+      setDeleteError("No se pudo eliminar la cuenta.");
+    }
+  };
+
   const fieldShellStyle = useMemo(
     () => [styles.formShell, isDesktop && styles.formShellDesktop],
     [isDesktop]
@@ -334,9 +404,118 @@ export default function EditProfileScreen({ navigation }) {
               onPress={handleSave}
               style={styles.saveButton}
             />
+            {/* ZONA DE PELIGRO: ELIMINAR CUENTA */}
+            <View style={styles.dangerZone}>
+              <Pressable
+                testID="delete-account-button"
+                onPress={handleDeleteAccountPress}
+                style={({ pressed }) => [
+                  styles.deleteAccountButton,
+                  pressed && styles.deleteAccountButtonPressed,
+                ]}
+              >
+                <FontAwesome6 name="trash" size={15} color={colors.danger} />
+                <Text style={styles.deleteAccountText}>Eliminar cuenta</Text>
+              </Pressable>
+            </View>
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
+      {/* Modal para eliminar cuenta */}
+      <Modal visible={showDeleteModal} transparent animationType="fade">
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>Eliminar cuenta</Text>
+            <Text style={styles.modalBody}>
+              Esta acción es permanente. Se eliminará tu cuenta y tus datos personales serán anonimizados.
+            </Text>
+
+            {form?.proveedorAutenticacion === "google" ||
+            form?.proveedorAutenticacion === "facebook" ? (
+              <Text style={styles.modalBody}>
+                No necesitás ingresar una contraseña porque tu cuenta utiliza autenticación con {form.proveedorAutenticacion}.
+              </Text>
+            ) : (
+              <View>
+              <TextInput
+                value={password}
+                onChangeText={(value) => {
+                  setPassword(value);
+                  setDeleteError("");
+                }}
+                placeholder="Contraseña"
+                secureTextEntry
+                style={[
+                  styles.passwordInput,
+                  deleteError && styles.passwordInputError,
+                ]}
+              />
+
+              {deleteError ? (
+                <Text style={styles.deleteErrorText}>{deleteError}</Text>
+              ) : null}
+            </View>
+            )}
+            <View style={styles.modalActions}>
+              <PrimaryButton
+                label="Cancelar"
+                variant="secondary"
+                onPress={() => setShowDeleteModal(false)}
+                style={{ flex: 1 }}
+              />
+              <PrimaryButton
+                label="Eliminar cuenta"
+                testID="confirm-password-delete-button"
+                onPress={handleDeleteAccount}
+                style={{
+                  flex: 1,
+                  backgroundColor: colors.danger,
+                }}
+              />
+            </View>
+          </View>
+        </View>
+      </Modal>
+      <Modal
+        visible={showDeleteConfirmModal}
+        transparent
+        animationType="fade"
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>
+              ¿Eliminar cuenta definitivamente?
+            </Text>
+
+            <Text style={styles.modalBody}>
+              Esta acción es permanente y no se puede deshacer. Tus datos
+              personales serán anonimizados.
+            </Text>
+
+            <View style={styles.modalActions}>
+              <PrimaryButton
+                label="Cancelar"
+                testID="cancel-delete-account-button"
+                variant="secondary"
+                onPress={() => {
+                  setShowDeleteConfirmModal(false);
+                }}
+                style={{ flex: 1 }}
+              />
+
+              <PrimaryButton
+                label="Sí, eliminar"
+                testID="confirm-delete-account-button"
+                onPress={confirmDeleteAccount}
+                style={{
+                  flex: 1,
+                  backgroundColor: colors.danger,
+                }}
+              />
+            </View>
+          </View>
+        </View>
+      </Modal>
     </ScreenContainer>
   );
 }
@@ -451,5 +630,77 @@ const styles = StyleSheet.create({
   },
   saveButton: {
     marginTop: spacing.sm,
+  },
+  dangerZone: {
+    marginTop: spacing.xl,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+    paddingTop: spacing.md,
+  },
+  deleteAccountButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: spacing.sm,
+    padding: spacing.md,
+    borderRadius: radii.md,
+    backgroundColor: colors.dangerSurface,
+    borderWidth: 1,
+    borderColor: "rgba(200, 73, 73, 0.2)",
+  },
+  deleteAccountButtonPressed: {
+    opacity: 0.75,
+  },
+  deleteAccountText: {
+    ...textStyles.button,
+    color: colors.danger,
+    fontSize: 15,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: colors.overlay,
+    alignItems: "center",
+    justifyContent: "center",
+    padding: spacing.md,
+  },
+  modalContent: {
+    ...surfaces.card,
+    padding: spacing.lg,
+    width: "100%",
+    maxWidth: 400,
+    gap: spacing.md,
+  },
+  modalTitle: {
+    ...textStyles.tripTitle,
+    color: colors.primary,
+    fontSize: 18,
+  },
+  modalBody: {
+    ...textStyles.body,
+    color: colors.textSecondary,
+    fontSize: 14,
+  },
+  modalActions: {
+    flexDirection: "row",
+    gap: spacing.sm,
+    marginTop: spacing.xs,
+  },
+  passwordInput: {
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radii.sm,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    color: colors.textPrimary,
+    backgroundColor: colors.surface,
+  },
+  passwordInputError: {
+  borderColor: colors.danger,
+  },
+
+  deleteErrorText: {
+    ...textStyles.meta,
+    color: colors.danger,
+    marginTop: spacing.xs,
   },
 });

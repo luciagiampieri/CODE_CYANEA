@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState} from "react";
 import {
   Alert,
   Modal,
@@ -79,8 +79,7 @@ export default function SettingsScreen({ navigation }) {
                     <FontAwesome6 name="user-pen" size={16} color={colors.primary} />
                   </View>
                   <View>
-                    <Text style={styles.itemTitle}>Editar Perfil</Text>
-                    <Text style={styles.itemSubtitle}>Nombre, usuario y foto</Text>
+                    <Text style={styles.itemTitle}>Cuenta</Text>
                   </View>
                 </View>
                 <FontAwesome6 name="chevron-right" size={14} color={colors.textMuted} />
@@ -402,5 +401,5 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: spacing.sm,
     marginTop: spacing.xs,
-  },
+  }
 });

@@ -236,7 +236,8 @@ def get_trip_participants(
         .join(Usuario, Usuario.IdUsuario == ParticipanteViaje.IdUsuario)
         .where(
             ParticipanteViaje.IdViaje == trip_id,
-            ParticipanteViaje.IdEstadoParticipacion == estado_aceptado.IdEstadoParticipacion
+            ParticipanteViaje.IdEstadoParticipacion == estado_aceptado.IdEstadoParticipacion,
+            Usuario.Activo.is_(True)
         )
     ).all()
 

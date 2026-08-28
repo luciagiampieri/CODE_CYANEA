@@ -546,6 +546,14 @@ export default function TripDetailScreen({ navigation, route }) {
             loadVotaciones();
             return;
           }
+          if (mensaje.tipo === "usuario_anonimizado") {
+
+            loadTripDetail();
+            loadDocumentos();
+            loadVotaciones();
+            loadRepositorio();
+            return;
+          }
           if (mensaje.tipo === "ruta_eliminada"){
             setActivityFeedback({
               success: false,

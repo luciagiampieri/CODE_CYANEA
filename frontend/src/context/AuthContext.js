@@ -36,6 +36,7 @@ const AuthContext = createContext(null);
 export function AuthProvider({ children }) {
   const [token, setToken] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [user, setUser] = useState(null);
 
   useEffect(() => {
     async function loadToken() {
@@ -51,10 +52,12 @@ export function AuthProvider({ children }) {
         setToken(stored);
 
         try {
-          await getCurrentUser(); // valida el token contra backend
+          const currentUser = await getCurrentUser(); // valida el token contra backend
+          setUser(currentUser);
         } catch {
           await storage.removeItem(AUTH_TOKEN_KEY);
           setToken(null);
+          setUser(null);
         }
       } catch {
         setToken(null);
@@ -69,15 +72,19 @@ export function AuthProvider({ children }) {
   const login = useCallback(async (newToken) => {
     await storage.setItem(AUTH_TOKEN_KEY, newToken);
     setToken(newToken);
+
+    const currentUser = await getCurrentUser();
+    setUser(currentUser);
   }, []);
 
   const logout = useCallback(async () => {
     await storage.removeItem(AUTH_TOKEN_KEY);
     setToken(null);
+    setUser(null);
   }, []);
 
   return (
-    <AuthContext.Provider value={{ token, isLoading, login, logout }}>
+    <AuthContext.Provider value={{ token, user, isLoading, login, logout }}>
       {children}
     </AuthContext.Provider>
   );

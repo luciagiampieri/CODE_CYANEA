@@ -325,6 +325,53 @@ export async function getCurrentUser() {
   return parseResponse(response, "No se pudo obtener el usuario actual");
 }
 
+export async function verifyPassword(password) {
+  const response = await fetch(
+    `${API_BASE_URL}/users/me/verify-password`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(await authHeaders()),
+      },
+      body: JSON.stringify({ password }),
+    }
+  );
+
+  return parseResponse(
+    response,
+    "No se pudo verificar la contraseña"
+  );
+}
+
+export async function deleteCurrentUser(password = null) {
+  const headers = await authHeaders();
+
+  const options = {
+    method: "DELETE",
+    headers: {
+      ...headers,
+    },
+  };
+
+  // Solo enviamos contraseña si el usuario la tiene
+  if (password) {
+    options.headers["Content-Type"] = "application/json";
+    options.body = JSON.stringify({ password });
+  }
+
+  const response = await fetch(`${API_BASE_URL}/users/me`, options);
+
+  if (response.status === 204) {
+    return true;
+  }
+
+  return parseResponse(
+    response,
+    "No se pudo eliminar la cuenta"
+  );
+}
+
 export async function getPaisesVisitados() {
   const response = await fetch(`${API_BASE_URL}/users/me/paises-visitados`, {
     headers: await authHeaders(),

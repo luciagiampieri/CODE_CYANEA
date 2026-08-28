@@ -1,10 +1,12 @@
-from datetime import date
+from datetime import date, datetime, timezone
+import secrets
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
 from pydantic import BaseModel
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
+from app.core.security import verify_password, hash_password
 from app.api.deps import get_current_user
 from app.db.session import get_db
 from app.models.destino_viaje import DestinoViaje
@@ -18,8 +20,10 @@ from app.schemas.usuario import (
     UsuarioProfileRead,
     UsuarioProfileUpdate,
     UsuarioRead,
+    UsuarioDeleteRequest
 )
 from app.services.supabase.storage import obtener_url_publica, subir_foto_perfil
+from app.services.websocket_manager import manager
 
 router = APIRouter()
 
@@ -39,12 +43,76 @@ def _serializar_usuario_actual(usuario: Usuario) -> UsuarioProfileRead:
         nombreCompleto=f"{usuario.Nombre} {usuario.Apellido}",
         email=usuario.Email,
         fotoUrl=usuario.FotoUrl,
+        proveedorAutenticacion=usuario.ProveedorAutenticacion,
         consienteNotificacionesEmail=usuario.ConsienteNotificacionesEmail,
         recibeEmailsNuevaVotacion=usuario.RecibeEmailsNuevaVotacion,
         recibeEmailsCambiosViaje=usuario.RecibeEmailsCambiosViaje,
         recibeEmailsRecordatoriosDeuda=usuario.RecibeEmailsRecordatoriosDeuda,
         recibeEmailsRecordatoriosReserva=usuario.RecibeEmailsRecordatoriosReserva,
     )
+
+
+def _anonimizar_usuario(usuario: Usuario) -> None:
+    usuario.Nombre = "Usuario"
+    usuario.Apellido = "Anónimo"
+    usuario.NombreUsuario = f"usuario_anonimo_{usuario.IdUsuario}"
+    usuario.Email = f"usuario_anonimo_{usuario.IdUsuario}@cyanea.local"
+    usuario.FotoUrl = None
+
+    usuario.GoogleSub = None
+    usuario.FacebookId = None
+
+    usuario.HashedPassword = hash_password(secrets.token_urlsafe(24))
+
+    usuario.ConsienteNotificacionesEmail = False
+    usuario.RecibeEmailsNuevaVotacion = False
+    usuario.RecibeEmailsCambiosViaje = False
+    usuario.RecibeEmailsRecordatoriosDeuda = False
+    usuario.RecibeEmailsRecordatoriosReserva = False
+
+    usuario.Activo = False
+    usuario.FechaBaja = datetime.now(timezone.utc)
+
+
+def _reasignar_administracion_viajes(
+    db: Session,
+    usuario: Usuario,
+) -> None:
+    viajes = db.scalars(
+        select(Viaje).where(
+            Viaje.IdAdministrador == usuario.IdUsuario,
+        )
+    ).all()
+
+    for viaje in viajes:
+        
+        if viaje.EstadoViaje.Nombre != "activo":
+            continue
+
+        nuevo_administrador = db.scalar(
+            select(ParticipanteViaje)
+            .join(
+                Usuario,
+                Usuario.IdUsuario == ParticipanteViaje.IdUsuario,
+            )
+            .join(
+                EstadoParticipacion,
+                EstadoParticipacion.IdEstadoParticipacion
+                == ParticipanteViaje.IdEstadoParticipacion,
+            )
+            .where(
+                ParticipanteViaje.IdViaje == viaje.IdViaje,
+                ParticipanteViaje.IdUsuario != usuario.IdUsuario,
+                Usuario.Activo.is_(True),
+                EstadoParticipacion.Nombre == "aceptado",
+            )
+            .order_by(
+                ParticipanteViaje.FechaIncorporacion.asc()
+            )
+        )
+
+        if nuevo_administrador is not None:
+            viaje.IdAdministrador = nuevo_administrador.IdUsuario
 
 
 @router.get("/me", response_model=UsuarioProfileRead)
@@ -185,3 +253,79 @@ def list_users(
         )
         for usuario in usuarios
     ]
+
+
+@router.post("/me/verify-password")
+def verify_current_password(
+    payload: UsuarioDeleteRequest,
+    current_user: Usuario = Depends(get_current_user),
+) -> dict:
+    if current_user.ProveedorAutenticacion != "local":
+        return
+
+    if not payload.password:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Debés ingresar tu contraseña.",
+        )
+
+    if not verify_password(
+        payload.password,
+        current_user.HashedPassword,
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Contraseña incorrecta.",
+        )
+    return {"valid": True}
+
+
+@router.delete("/me", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_me(
+    payload: UsuarioDeleteRequest,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> None:
+
+    viajes_usuario = []
+
+    if current_user.ProveedorAutenticacion == "local":
+        if not payload.password:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Debés ingresar tu contraseña para eliminar la cuenta.",
+            )
+
+        if not verify_password(
+            payload.password,
+            current_user.HashedPassword,
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="La contraseña ingresada es incorrecta.",
+            )
+
+        viajes_usuario = db.scalars(
+            select(ParticipanteViaje.IdViaje)
+            .join(
+                EstadoParticipacion,
+                EstadoParticipacion.IdEstadoParticipacion
+                == ParticipanteViaje.IdEstadoParticipacion,
+            )
+            .where(
+                ParticipanteViaje.IdUsuario == current_user.IdUsuario,
+                EstadoParticipacion.Nombre == "aceptado",
+            )
+        ).all()
+
+    _reasignar_administracion_viajes(db, current_user)
+    _anonimizar_usuario(current_user)
+
+    db.commit()
+
+    for trip_id in viajes_usuario:
+        await manager.broadcast_to_trip(
+            trip_id,
+            {"tipo": "usuario_anonimizado", "usuarioId": current_user.IdUsuario},
+        )
+

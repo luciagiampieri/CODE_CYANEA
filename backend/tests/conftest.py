@@ -131,6 +131,68 @@ def auth_headers(usuario_activo):
 
 
 @pytest.fixture()
+def usuario_google(db_session):
+    usuario = Usuario(
+        Nombre="Google",
+        Apellido="Test",
+        NombreUsuario="google_test",
+        Email="google@test.com",
+        HashedPassword=hash_password("Password123!"),
+        GoogleSub="google-sub-123",
+        ProveedorAutenticacion="google",
+        FotoUrl="https://foto-google.com/foto.jpg",
+        Activo=True,
+        EmailConfirmado=True,
+    )
+    db_session.add(usuario)
+    db_session.commit()
+    db_session.refresh(usuario)
+    return usuario
+
+
+@pytest.fixture()
+def auth_headers_google(usuario_google):
+    token = create_access_token(
+        {
+            "sub": usuario_google.Email,
+            "user_id": usuario_google.IdUsuario,
+        }
+    )
+    return {"Authorization": f"Bearer {token}"}
+
+
+@pytest.fixture()
+def usuario_facebook(db_session):
+    usuario = Usuario(
+        Nombre="Facebook",
+        Apellido="Test",
+        NombreUsuario="facebook_test",
+        Email="facebook@test.com",
+        HashedPassword=hash_password("Password123!"),
+        FacebookId="facebook-id-123",
+        ProveedorAutenticacion="facebook",
+        FotoUrl="https://foto-facebook.com/foto.jpg",
+        Activo=True,
+        EmailConfirmado=True,
+    )
+    db_session.add(usuario)
+    db_session.commit()
+    db_session.refresh(usuario)
+    return usuario
+
+
+@pytest.fixture()
+def auth_headers_facebook(usuario_facebook):
+    token = create_access_token(
+        {
+            "sub": usuario_facebook.Email,
+            "user_id": usuario_facebook.IdUsuario,
+        }
+    )
+    return {"Authorization": f"Bearer {token}"}
+
+
+@pytest.fixture()
 def viaje_con_admin(db_session, master_data, usuario_activo):
     """Viaje donde usuario_activo es admin y ya es participante 'aceptado'."""
     estado_activo = db_session.query(EstadoViaje).filter_by(Nombre="activo").first()

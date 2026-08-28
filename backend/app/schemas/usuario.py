@@ -14,6 +14,7 @@ class UsuarioRead(BaseModel):
 class UsuarioProfileRead(UsuarioRead):
     nombre: str
     apellido: str
+    proveedorAutenticacion: str 
     consienteNotificacionesEmail: bool
     recibeEmailsNuevaVotacion: bool
     recibeEmailsCambiosViaje: bool
@@ -79,3 +80,7 @@ class UsuarioRegister(BaseModel):
 class UsuarioRegisterResponse(BaseModel):
     message: str
     email: str
+
+
+class UsuarioDeleteRequest(BaseModel):
+    password: str | None = None
