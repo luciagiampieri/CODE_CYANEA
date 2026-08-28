@@ -15,6 +15,7 @@ from app.models.estado_viaje import EstadoViaje
 from app.models.participante_viaje import ParticipanteViaje
 from app.models.usuario import Usuario
 from app.models.viaje import Viaje
+from app.models.rol_participante import RolParticipante
 from app.schemas.usuario import (
     UsuarioPhotoUploadResponse,
     UsuarioProfileRead,
@@ -111,8 +112,15 @@ def _reasignar_administracion_viajes(
             )
         )
 
+        rol_administrador = db.scalar(
+            select(RolParticipante).where(
+                RolParticipante.Nombre == "administrador"
+            )
+        )
+
         if nuevo_administrador is not None:
             viaje.IdAdministrador = nuevo_administrador.IdUsuario
+            nuevo_administrador.IdRolParticipante = rol_administrador.IdRolParticipante
 
 
 @router.get("/me", response_model=UsuarioProfileRead)
@@ -305,18 +313,18 @@ async def delete_me(
                 detail="La contraseña ingresada es incorrecta.",
             )
 
-        viajes_usuario = db.scalars(
-            select(ParticipanteViaje.IdViaje)
-            .join(
-                EstadoParticipacion,
-                EstadoParticipacion.IdEstadoParticipacion
-                == ParticipanteViaje.IdEstadoParticipacion,
-            )
-            .where(
-                ParticipanteViaje.IdUsuario == current_user.IdUsuario,
-                EstadoParticipacion.Nombre == "aceptado",
-            )
-        ).all()
+    viajes_usuario = db.scalars(
+        select(ParticipanteViaje.IdViaje)
+        .join(
+            EstadoParticipacion,
+            EstadoParticipacion.IdEstadoParticipacion
+            == ParticipanteViaje.IdEstadoParticipacion,
+        )
+        .where(
+            ParticipanteViaje.IdUsuario == current_user.IdUsuario,
+            EstadoParticipacion.Nombre == "aceptado",
+        )
+    ).all()
 
     _reasignar_administracion_viajes(db, current_user)
     _anonimizar_usuario(current_user)

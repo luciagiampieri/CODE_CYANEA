@@ -228,7 +228,9 @@ def _build_trip_detail(viaje: Viaje) -> TripDetailRead:
     participantes_visibles = [
         participacion
         for participacion in viaje.Participantes
-        if participacion.EstadoParticipacion.Nombre in {"aceptado", "invitado"}
+        if (
+            participacion.Usuario.Activo 
+            and participacion.EstadoParticipacion.Nombre in {"aceptado", "invitado"})
     ]
     participantes_visibles.sort(
         key=lambda item: (

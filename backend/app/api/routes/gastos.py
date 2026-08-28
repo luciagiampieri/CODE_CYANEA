@@ -23,6 +23,45 @@ from app.services.liquidacion_service import rebuild_settlement_plan
 
 router = APIRouter()
 
+def _validar_participantes_activos(
+    db: Session,
+    viaje_id: int,
+    participantes_ids: list[int],
+) -> None:
+
+    if not participantes_ids:
+        return
+
+    participantes_validos = (
+        db.query(ParticipanteViaje.IdParticipanteViaje)
+        .join(
+            Usuario,
+            Usuario.IdUsuario == ParticipanteViaje.IdUsuario,
+        )
+        .join(
+            EstadoParticipacion,
+            EstadoParticipacion.IdEstadoParticipacion
+            == ParticipanteViaje.IdEstadoParticipacion,
+        )
+        .filter(
+            ParticipanteViaje.IdViaje == viaje_id,
+            ParticipanteViaje.IdParticipanteViaje.in_(participantes_ids),
+            Usuario.Activo.is_(True),
+            EstadoParticipacion.Nombre == "aceptado",
+        )
+        .all()
+    )
+
+    ids_validos = {id_part for (id_part,) in participantes_validos}
+
+    ids_invalidos = set(participantes_ids) - ids_validos
+
+    if ids_invalidos:
+        raise HTTPException(
+            status_code=400,
+            detail="Uno o más participantes no están activos o no pertenecen al viaje.",
+        )
+
 @router.post("/")
 def create_gasto(data: GastoCreate, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)):
 
@@ -81,15 +120,24 @@ def create_gasto(data: GastoCreate, db: Session = Depends(get_db), current_user:
 
             participantes = (
                 db.query(ParticipanteViaje)
+                .join(
+                    Usuario,
+                    Usuario.IdUsuario == ParticipanteViaje.IdUsuario
+                )
                 .filter(
                     ParticipanteViaje.IdViaje == data.IdViaje,
-                    ParticipanteViaje.IdEstadoParticipacion == estado_aceptado.IdEstadoParticipacion
+                    ParticipanteViaje.IdEstadoParticipacion == estado_aceptado.IdEstadoParticipacion,
+                    Usuario.Activo.is_(True)
+
                 )
                 .all()
             )
             participantes_ids = [p.IdParticipanteViaje for p in participantes]
         else:
+            
             participantes_ids = data.IdParticipantes
+
+            _validar_participantes_activos(db, data.IdViaje, participantes_ids)
             
             if len(participantes_ids) < 2:
                 raise HTTPException(
@@ -135,6 +183,8 @@ def create_gasto(data: GastoCreate, db: Session = Depends(get_db), current_user:
             participantes_ids.append(item.IdParticipanteViaje)
             monto_por_participante[item.IdParticipanteViaje] = monto_asignado
             total_asignado += monto_asignado
+
+        _validar_participantes_activos(db, data.IdViaje, participantes_ids)
         
         if abs(total_asignado - data.Monto) > 0.01:
             raise HTTPException(
