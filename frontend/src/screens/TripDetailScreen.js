@@ -25,6 +25,7 @@ import DocumentosPorCategoria, { ID_TODAS } from "../components/trip/DocumentsBy
 import AvatarStack from "../components/ui/AvatarStack";
 import IconCircleButton from "../components/ui/IconCircleButton";
 import PrimaryButton from "../components/ui/PrimaryButton";
+import StatusPill from "../components/ui/StatusPill";
 import {
   addTripParticipant,
   emitirVoto,
@@ -159,6 +160,25 @@ function formatDayDateCorta(dateString) {
 
   return formattedDate.replace(/(\p{L})\p{L}*/gu, (word) => word.charAt(0).toLocaleUpperCase("es-AR") + word.slice(1).toLocaleLowerCase("es-AR"));
 }
+
+function formatFechaHoraCierre(dateString) {
+  if (!dateString) return "";
+  const date = new Date(dateString);
+  if (Number.isNaN(date.getTime())) return "";
+
+  return new Intl.DateTimeFormat("es-AR", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(date);
+}
+const ESTADO_VOTACION_LABEL = {
+  abierta: "Activa",
+  cerrada: "Cerrada",
+  cancelada: "Cancelada",
+};
 
 function avisar(titulo, mensaje) {
   if (Platform.OS === "web") {
@@ -1753,6 +1773,9 @@ export default function TripDetailScreen({ navigation, route }) {
                 const cancelandoEstaVotacion = cancelandoId === votacion.IdVotacion;
                 const esCreador = currentUser && String(currentUser.id) === String(votacion.IdCreador);
                 const puedeCancelar = esCreador && !finalizada;
+                const estadoVotacion = votacion.Estado || (finalizada ? "cerrada" : "abierta");
+                const estadoLabel = ESTADO_VOTACION_LABEL[estadoVotacion] || estadoVotacion;
+                const fechaCierreTexto = formatFechaHoraCierre(votacion.FechaCierre);
 
                 const togglePropuesta = (idPropuesta, tipo) => {
                   setVotosSeleccionados(prev => {
@@ -1817,12 +1840,30 @@ export default function TripDetailScreen({ navigation, route }) {
                   <View key={votacion.IdVotacion} style={styles.sectionCard}>
                     <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                       <Text style={[styles.sectionHeading, { fontSize: 18, flex: 1 }]}>{votacion.Titulo}</Text>
-                      <View style={{ backgroundColor: votacion.Tipo === 'opcion_unica' ? '#e0f2fe' : '#f3e8ff', padding: 6, borderRadius: 6 }}>
-                        <Text style={{ fontSize: 10, fontWeight: '700', color: votacion.Tipo === 'opcion_unica' ? '#0369a1' : '#6b21a8' }}>
-                          {votacion.Tipo === 'opcion_unica' ? 'ÚNICA' : 'MÚLTIPLE'}
-                        </Text>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                        <StatusPill 
+                          tone={estadoVotacion}
+                          style={{ paddingHorizontal: 6, paddingVertical: 6, borderRadius: 6 }}
+                          textStyle={{ fontSize: 10, textTransform: 'uppercase' }}
+                        >
+                          {estadoLabel}
+                        </StatusPill>
+                        <View style={{ backgroundColor: votacion.Tipo === 'opcion_unica' ? '#e0f2fe' : '#f3e8ff', padding: 6, borderRadius: 6 }}>
+                          <Text style={{ fontSize: 10, fontWeight: '700', color: votacion.Tipo === 'opcion_unica' ? '#0369a1' : '#6b21a8' }}>
+                            {votacion.Tipo === 'opcion_unica' ? 'ÚNICA' : 'MÚLTIPLE'}
+                          </Text>
+                        </View>
                       </View>
                     </View>
+
+                    {estadoVotacion === "abierta" && fechaCierreTexto ? (
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 6 }}>
+                        <FontAwesome6 name="clock" size={11} color={colors.textSecondary} />
+                        <Text style={{ color: colors.textSecondary, fontSize: 12, fontWeight: '600' }}>
+                          Cierra: {fechaCierreTexto}
+                        </Text>
+                      </View>
+                    ) : null}
 
                     <View style={{ marginTop: 15, gap: 10 }}>
                       {mostrarResultados ? (
