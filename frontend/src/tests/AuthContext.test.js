@@ -37,7 +37,7 @@ function TestConsumer() {
 let localStorageMock;
 
 beforeEach(() => {
-  jest.clearAllMocks();
+  jest.resetAllMocks();
   Platform.OS = "web";
   localStorageMock = {
     getItem: jest.fn(),
