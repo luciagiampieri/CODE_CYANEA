@@ -134,7 +134,9 @@ export default function HomeScreen({ navigation }) {
         <View style={styles.header}>
           <View style={styles.topRow}>
             <View>
-              <Text style={styles.greeting}>Hola, {currentUser?.nombreCompleto} 👋</Text>
+              <Text style={styles.greeting}>
+                Hola, {currentUser?.nombre || currentUser?.nombreCompleto?.split(" ")[0]}!
+              </Text>
               <Text style={styles.heading}>Mis Viajes</Text>
             </View>
 

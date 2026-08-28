@@ -478,3 +478,34 @@ def test_remove_external_invitation_requires_email(client, usuario_activo, auth_
         headers=auth_headers,
     )
     assert response.status_code == 400
+
+
+def test_get_trip_detail_rechaza_no_miembro(client, db_session, master_data, viaje_con_admin):
+    """US69 - CA4: solo los participantes del viaje pueden acceder al listado/detalle."""
+    viaje, _ = viaje_con_admin
+    ajeno = _crear_usuario(db_session, "ajeno_al_viaje")
+
+    response = client.get(f"/api/v1/trips/{viaje.IdViaje}", headers=_token_de(ajeno))
+    assert response.status_code == 403
+
+
+def test_get_trip_detail_incluye_nombre_usuario_y_rol_por_participante(
+    client, db_session, auth_headers, usuario_activo, viaje_con_admin
+):
+    """US69 - CA2/CA3: cada participante debe traer nombreUsuario, y el admin debe ser
+    identificable a través del campo role (usado por el frontend para el badge de admin)."""
+    viaje, _ = viaje_con_admin
+    invitado = _crear_usuario(db_session, "otro_participante")
+    _agregar_participante(db_session, viaje, invitado, estado_nombre="aceptado", rol_nombre="participante")
+
+    response = client.get(f"/api/v1/trips/{viaje.IdViaje}", headers=auth_headers)
+    assert response.status_code == 200
+    body = response.json()
+
+    admin_data = next(p for p in body["participants"] if p["id"] == usuario_activo.IdUsuario)
+    assert admin_data["nombreUsuario"] == "ana_test"
+    assert admin_data["role"] == "administrador"
+
+    invitado_data = next(p for p in body["participants"] if p["id"] == invitado.IdUsuario)
+    assert invitado_data["nombreUsuario"] == "otro_participante"
+    assert invitado_data["role"] == "participante"

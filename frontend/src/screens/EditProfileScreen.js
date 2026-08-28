@@ -609,7 +609,7 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.sm,
   },
   inputReadonly: {
-    backgroundColor: colors.surfaceAlt,
+    backgroundColor: "#fff",
     color: colors.textSecondary,
   },
   inputError: {

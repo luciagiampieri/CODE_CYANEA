@@ -124,7 +124,11 @@ export default function CrearVotacionScreen({ route, navigation }) {
     return (
         <ScrollView style={styles.container} contentContainerStyle={styles.content}>
             <View style={styles.header}>
-                <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
+                <TouchableOpacity
+                    style={styles.backButton}
+                    onPress={() => navigation.goBack()}
+                    testID="votacion-back-button"
+                >
                     <FontAwesome6 name="arrow-left" size={18} color={colors.primary} />
                 </TouchableOpacity>
                 <Text style={styles.title}>Nueva votación</Text>
@@ -232,7 +236,6 @@ export default function CrearVotacionScreen({ route, navigation }) {
             )}
             {errores.fechaCierre && <Text style={styles.error}>{errores.fechaCierre}</Text>}
 
-            {/* 4. PROPUESTAS (AC2) */}
             <View style={styles.propuestasHeader}>
                 <Text style={styles.label}>Propuestas</Text>
                 <TouchableOpacity style={styles.addChip} onPress={agregarPropuesta}>
@@ -258,6 +261,7 @@ export default function CrearVotacionScreen({ route, navigation }) {
                         style={[styles.removeButton, propuestas.length <= 2 && styles.removeButtonDisabled]}
                         onPress={() => quitarPropuesta(index)}
                         disabled={propuestas.length <= 2}
+                        testID={`votacion-quitar-propuesta-${index}`}
                     >
                         <FontAwesome6
                             name="trash"
