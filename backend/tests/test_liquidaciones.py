@@ -78,6 +78,13 @@ def test_genera_plan_liquidacion_con_multiples_deudas(
     assert {item["NombreDeudor"] for item in data["Transferencias"]} == {"Bruno Test", "Carla Test"}
     assert {Decimal(item["Monto"]) for item in data["Transferencias"]} == {Decimal("30.00")}
     assert all(item["NombreAcreedor"] == "Ana Test" for item in data["Transferencias"])
+    assert Decimal(data["TotalGastosViaje"]) == Decimal("90.00")
+
+    resumen = {item["NombreCompleto"]: item for item in data["ResumenParticipantes"]}
+    assert Decimal(resumen["Ana Test"]["TotalPagado"]) == Decimal("90.00")
+    assert Decimal(resumen["Ana Test"]["GastoIndividual"]) == Decimal("30.00")
+    assert Decimal(resumen["Bruno Test"]["GastoIndividual"]) == Decimal("30.00")
+    assert Decimal(resumen["Carla Test"]["GastoIndividual"]) == Decimal("30.00")
 
 
 def test_plan_liquidacion_minimiza_transferencias(
@@ -191,6 +198,60 @@ def test_recalcula_liquidacion_automaticamente_al_registrar_gasto(
 
     segunda = client.get(f"/api/v1/trips/{viaje.IdViaje}/settlement", headers=auth_headers).json()
     assert segunda["Version"] == 2
+    assert Decimal(segunda["TotalGastosViaje"]) == Decimal("60.00")
+
+    resumen = {item["NombreCompleto"]: item for item in segunda["ResumenParticipantes"]}
+    assert Decimal(resumen["Ana Test"]["TotalPagado"]) == Decimal("40.00")
+    assert Decimal(resumen["Ana Test"]["GastoIndividual"]) == Decimal("30.00")
+    assert Decimal(resumen["Bruno Test"]["TotalPagado"]) == Decimal("20.00")
+    assert Decimal(resumen["Bruno Test"]["GastoIndividual"]) == Decimal("30.00")
+
+
+def test_liquidacion_refleja_division_personalizada_en_resumen_individual(
+    client,
+    db_session,
+    auth_headers,
+    viaje_con_admin,
+    categoria_gasto,
+):
+    viaje, admin_participante = viaje_con_admin
+    bruno = _crear_participante_aceptado(db_session, viaje, "Bruno")
+
+    _crear_gasto(
+        client,
+        auth_headers,
+        {
+            "IdViaje": viaje.IdViaje,
+            "Nombre": "Excursion",
+            "Monto": "90.00",
+            "IdCategoria": categoria_gasto.IdCategoria,
+            "FechaGasto": str(date.today()),
+            "EsCompartido": True,
+            "DividirEntreTodos": False,
+            "TipoDivision": "personalizada",
+            "IdPagador": bruno.IdParticipanteViaje,
+            "DetalleMontosPersonalizados": [
+                {
+                    "IdParticipanteViaje": admin_participante.IdParticipanteViaje,
+                    "MontoAsignado": "30.00",
+                },
+                {
+                    "IdParticipanteViaje": bruno.IdParticipanteViaje,
+                    "MontoAsignado": "60.00",
+                },
+            ],
+        },
+    )
+
+    data = client.get(f"/api/v1/trips/{viaje.IdViaje}/settlement", headers=auth_headers).json()
+
+    assert Decimal(data["TotalGastosViaje"]) == Decimal("90.00")
+    resumen = {item["NombreCompleto"]: item for item in data["ResumenParticipantes"]}
+    assert Decimal(resumen["Ana Test"]["GastoIndividual"]) == Decimal("30.00")
+    assert Decimal(resumen["Ana Test"]["BalanceOriginal"]) == Decimal("-30.00")
+    assert Decimal(resumen["Bruno Test"]["TotalPagado"]) == Decimal("90.00")
+    assert Decimal(resumen["Bruno Test"]["GastoIndividual"]) == Decimal("60.00")
+    assert Decimal(resumen["Bruno Test"]["BalanceOriginal"]) == Decimal("30.00")
 
 
 def test_marcar_transferencia_realizada_actualiza_balance_pendiente(

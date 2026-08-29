@@ -264,6 +264,7 @@ Reglas vigentes para la HU de balance y liquidacion:
 - cuando cambian los gastos del viaje se invalida la liquidacion activa anterior y se genera una nueva version
 - marcar una transferencia como realizada solo cambia su estado dentro de la liquidacion activa; no modifica los gastos base
 - la UI de esta HU se muestra dentro del tab `Gastos` del detalle del viaje, no en una pantalla paralela
+- el contrato `GET /trips/{trip_id}/settlement` concentra el resumen financiero del viaje para la solapa `Gastos`, incluyendo total gastado del viaje, gasto individual asignado por participante, total pagado por participante y saldo neto/pendiente
 
 ## Integraciones externas
 

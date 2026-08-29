@@ -10,6 +10,8 @@ class LiquidacionParticipanteResumen(BaseModel):
     NombreCompleto: str
     NombreUsuario: str | None = None
     FotoUrl: str | None = None
+    TotalPagado: Decimal
+    GastoIndividual: Decimal
     BalanceOriginal: Decimal
     BalancePendiente: Decimal
 
@@ -30,6 +32,7 @@ class LiquidacionViajeRead(BaseModel):
     IdViaje: int
     Version: int
     Moneda: str
+    TotalGastosViaje: Decimal
     TieneDesbalances: bool
     ResumenParticipantes: list[LiquidacionParticipanteResumen]
     Transferencias: list[TransferenciaLiquidacionRead]

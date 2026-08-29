@@ -1,7 +1,8 @@
 import { FontAwesome6 } from "@expo/vector-icons";
 import * as Clipboard from "expo-clipboard";
 import { LinearGradient } from "expo-linear-gradient";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useFocusEffect } from "@react-navigation/native";
 import {
   ActivityIndicator,
   Alert,
@@ -24,6 +25,7 @@ import ResultadosVotacion from "../components/trip/ResultadosVotacion";
 import DocumentosPorCategoria, { ID_TODAS } from "../components/trip/DocumentsByCategory";
 import AvatarStack from "../components/ui/AvatarStack";
 import IconCircleButton from "../components/ui/IconCircleButton";
+import MetricCard from "../components/ui/MetricCard";
 import PrimaryButton from "../components/ui/PrimaryButton";
 import StatusPill from "../components/ui/StatusPill";
 import {
@@ -64,6 +66,7 @@ import {
 import AddActivityScreen from "./AddActivityScreen";
 import { createActivity, deleteActivity, generateTripRoute } from "../services/api";
 import useItinerarioViewPreference from "../hooks/useItinerarioViewPreference";
+import useResponsive from "../hooks/useResponsive";
 import ItinerarioViewToggle from "../components/trip/ItinerarioViewToggle";
 import ItinerarioCalendarView from "../components/trip/ItinerarioCalendarView";
 import { buildRouteMarkers } from "../utils/routeMarkers";
@@ -216,6 +219,8 @@ function formatMoney(amount, currency) {
 
 export default function TripDetailScreen({ navigation, route }) {
   const initialTrip = normalizeTrip(route.params?.trip);
+  const { width, isTablet } = useResponsive();
+  const isNarrowMobile = !isTablet && width < 430;
   const [trip, setTrip] = useState(initialTrip);
   const [activeTab, setActiveTab] = useState("itinerario");
   const [expandedDayId, setExpandedDayId] = useState(initialTrip?.cronograma[0]?.IdDiaCronograma ?? initialTrip?.cronograma[0]?.id ?? null);
@@ -334,7 +339,16 @@ export default function TripDetailScreen({ navigation, route }) {
     });
   }, [votacionesActivas]);
 
-  async function loadTripDetail() {
+  const pendingTransfers = useMemo(
+    () => settlement?.Transferencias?.filter((item) => item.Estado === "pendiente") ?? [],
+    [settlement]
+  );
+  const totalPendienteLiquidacion = useMemo(
+    () => pendingTransfers.reduce((acc, item) => acc + Number(item.Monto ?? 0), 0),
+    [pendingTransfers]
+  );
+
+  const loadTripDetail = useCallback(async () => {
     if (!initialTrip?.id) {
       setLoading(false);
       setLoadError("No se pudo resolver el viaje.");
@@ -356,9 +370,9 @@ export default function TripDetailScreen({ navigation, route }) {
     } finally {
       setLoading(false);
     }
-  }
+  }, [initialTrip?.id, initialTrip?.image]);
 
-  async function loadSettlement() {
+  const loadSettlement = useCallback(async () => {
     if (!initialTrip?.id) {
       return;
     }
@@ -373,7 +387,7 @@ export default function TripDetailScreen({ navigation, route }) {
     } finally {
       setLoadingSettlement(false);
     }
-  }
+  }, [initialTrip?.id]);
 
   async function loadDocumentos() {
     if (!initialTrip?.id) {
@@ -504,13 +518,22 @@ export default function TripDetailScreen({ navigation, route }) {
 
   useEffect(() => {
     loadTripDetail();
-  }, [initialTrip?.id]);
+  }, [loadTripDetail]);
 
   useEffect(() => {
     if (activeTab === "gastos") {
       loadSettlement();
     }
-  }, [activeTab, initialTrip?.id]);
+  }, [activeTab, loadSettlement]);
+
+  useFocusEffect(
+    useCallback(() => {
+      loadTripDetail();
+      if (activeTab === "gastos") {
+        loadSettlement();
+      }
+    }, [activeTab, loadSettlement, loadTripDetail])
+  );
 
   useEffect(() => {
     if (activeTab === "docs") {
@@ -1448,6 +1471,36 @@ export default function TripDetailScreen({ navigation, route }) {
 
               <View style={styles.sectionCard}>
                 <View style={styles.settlementHeaderRow}>
+                  <Text style={styles.sectionHeading}>Resumen financiero</Text>
+                  {loadingSettlement ? <ActivityIndicator color={colors.primary} /> : null}
+                </View>
+                <Text style={styles.sectionCopy}>
+                  El estado de cuenta se recalcula con cada gasto nuevo y refleja tanto lo pagado como el gasto individual asignado.
+                </Text>
+                <View style={[styles.metricsRow, isNarrowMobile ? styles.metricsRowCompact : null]}>
+                  <MetricCard
+                    label="Total gastado"
+                    style={isNarrowMobile ? styles.metricCardHalf : null}
+                    valueStyle={isNarrowMobile ? styles.metricValueCompact : null}
+                    value={formatMoney(settlement?.TotalGastosViaje ?? 0, settlement?.Moneda ?? trip.currency)}
+                  />
+                  <MetricCard
+                    label="Por saldar"
+                    style={isNarrowMobile ? styles.metricCardHalf : null}
+                    valueStyle={isNarrowMobile ? styles.metricValueCompact : null}
+                    value={formatMoney(totalPendienteLiquidacion, settlement?.Moneda ?? trip.currency)}
+                  />
+                  <MetricCard
+                    label="Participantes"
+                    style={isNarrowMobile ? styles.metricCardFull : null}
+                    valueStyle={isNarrowMobile ? styles.metricValueCompact : null}
+                    value={String(settlement?.ResumenParticipantes?.length ?? 0)}
+                  />
+                </View>
+              </View>
+
+              <View style={styles.sectionCard}>
+                <View style={styles.settlementHeaderRow}>
                   <Text style={styles.sectionHeading}>Resumen por participante</Text>
                   {loadingSettlement ? <ActivityIndicator color={colors.primary} /> : null}
                 </View>
@@ -1462,7 +1515,11 @@ export default function TripDetailScreen({ navigation, route }) {
                           <View style={styles.settlementPerson}>
                             <Text style={styles.settlementPersonName}>{item.NombreCompleto}</Text>
                             <Text style={styles.settlementPersonMeta}>
-                              Balance original: {formatMoney(item.BalanceOriginal, settlement.Moneda)}
+                              Pagó: {formatMoney(item.TotalPagado, settlement.Moneda)} · Gasto individual:{" "}
+                              {formatMoney(item.GastoIndividual, settlement.Moneda)}
+                            </Text>
+                            <Text style={styles.settlementPersonMeta}>
+                              Saldo neto: {formatMoney(item.BalanceOriginal, settlement.Moneda)}
                             </Text>
                           </View>
                           <View style={styles.settlementRight}>
@@ -2446,6 +2503,25 @@ const styles = StyleSheet.create({
   sectionCard: {
     ...surfaces.card,
     padding: spacing.lg,
+  },
+  metricsRow: {
+    flexDirection: "row",
+    gap: spacing.sm,
+    marginTop: spacing.md,
+  },
+  metricsRowCompact: {
+    flexWrap: "wrap",
+  },
+  metricCardHalf: {
+    flexBasis: "48%",
+    minWidth: 0,
+  },
+  metricCardFull: {
+    flexBasis: "100%",
+    minWidth: 0,
+  },
+  metricValueCompact: {
+    fontSize: 18,
   },
   sectionHeading: {
     ...textStyles.tripTitle,

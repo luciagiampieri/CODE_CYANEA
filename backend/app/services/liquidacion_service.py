@@ -115,6 +115,66 @@ def _apply_realized_transfers(
     return adjusted
 
 
+def _calcular_resumen_gastos_participantes(
+    db: Session,
+    trip_id: int,
+    participantes: list[ParticipanteViaje],
+) -> tuple[Decimal, dict[int, Decimal], dict[int, Decimal]]:
+    total_gastos_viaje = _round_money(
+        Decimal(
+            db.scalar(
+                select(func.coalesce(func.sum(Gasto.Monto), 0)).where(Gasto.IdViaje == trip_id)
+            )
+            or 0
+        )
+    )
+    total_pagado = {participante.IdParticipanteViaje: DECIMAL_ZERO for participante in participantes}
+    gasto_individual = {participante.IdParticipanteViaje: DECIMAL_ZERO for participante in participantes}
+
+    if not participantes:
+        return total_gastos_viaje, total_pagado, gasto_individual
+
+    estado_aceptado = _get_estado_aceptado(db)
+
+    pagos = db.execute(
+        select(Gasto.IdPagador, func.coalesce(func.sum(Gasto.Monto), 0))
+        .join(
+            ParticipanteViaje,
+            ParticipanteViaje.IdParticipanteViaje == Gasto.IdPagador,
+        )
+        .where(
+            Gasto.IdViaje == trip_id,
+            ParticipanteViaje.IdEstadoParticipacion == estado_aceptado.IdEstadoParticipacion,
+        )
+        .group_by(Gasto.IdPagador)
+    ).all()
+    for participante_id, monto in pagos:
+        if participante_id in total_pagado:
+            total_pagado[participante_id] = _round_money(Decimal(monto))
+
+    consumos = db.execute(
+        select(
+            ParticipantesGastos.IdParticipanteViaje,
+            func.coalesce(func.sum(ParticipantesGastos.MontoAsignado), 0),
+        )
+        .join(Gasto, Gasto.IdGasto == ParticipantesGastos.IdGasto)
+        .join(
+            ParticipanteViaje,
+            ParticipanteViaje.IdParticipanteViaje == ParticipantesGastos.IdParticipanteViaje,
+        )
+        .where(
+            Gasto.IdViaje == trip_id,
+            ParticipanteViaje.IdEstadoParticipacion == estado_aceptado.IdEstadoParticipacion,
+        )
+        .group_by(ParticipantesGastos.IdParticipanteViaje)
+    ).all()
+    for participante_id, monto in consumos:
+        if participante_id in gasto_individual:
+            gasto_individual[participante_id] = _round_money(Decimal(monto))
+
+    return total_gastos_viaje, total_pagado, gasto_individual
+
+
 def get_trip_accepted_participants(db: Session, trip_id: int) -> list[ParticipanteViaje]:
     estado_aceptado = _get_estado_aceptado(db)
     return list(
@@ -312,6 +372,11 @@ def marcar_transferencia_realizada(
 def build_settlement_response(db: Session, trip_id: int, liquidacion: LiquidacionViaje | None = None) -> LiquidacionViajeRead:
     liquidacion = liquidacion or get_or_create_active_settlement(db, trip_id)
     viaje, participantes, balances = calcular_balances_participantes(db, trip_id)
+    total_gastos_viaje, total_pagado, gasto_individual = _calcular_resumen_gastos_participantes(
+        db,
+        trip_id,
+        participantes,
+    )
 
     pendientes_por_participante = {participante.IdParticipanteViaje: DECIMAL_ZERO for participante in participantes}
     transferencias = []
@@ -354,6 +419,12 @@ def build_settlement_response(db: Session, trip_id: int, liquidacion: Liquidacio
                 NombreCompleto=f"{usuario.Nombre} {usuario.Apellido}".strip() if usuario else "Participante",
                 NombreUsuario=usuario.NombreUsuario if usuario else None,
                 FotoUrl=usuario.FotoUrl if usuario else None,
+                TotalPagado=_round_money(
+                    total_pagado.get(participante.IdParticipanteViaje, DECIMAL_ZERO)
+                ),
+                GastoIndividual=_round_money(
+                    gasto_individual.get(participante.IdParticipanteViaje, DECIMAL_ZERO)
+                ),
                 BalanceOriginal=_round_money(balances.get(participante.IdParticipanteViaje, DECIMAL_ZERO)),
                 BalancePendiente=_round_money(
                     pendientes_por_participante.get(participante.IdParticipanteViaje, DECIMAL_ZERO)
@@ -367,6 +438,7 @@ def build_settlement_response(db: Session, trip_id: int, liquidacion: Liquidacio
         IdViaje=trip_id,
         Version=liquidacion.Version,
         Moneda=viaje.Moneda,
+        TotalGastosViaje=total_gastos_viaje,
         TieneDesbalances=any(item.Monto > DECIMAL_ZERO for item in transferencias if item.Estado == "pendiente"),
         ResumenParticipantes=resumen,
         Transferencias=transferencias,
