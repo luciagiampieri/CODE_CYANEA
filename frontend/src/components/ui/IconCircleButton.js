@@ -10,31 +10,44 @@ export default function IconCircleButton({
   tone = "light",
   iconSize = 16,
   style,
+  testID,
+  accessibilityLabel,
+  ...rest
 }) {
   const isLight = tone === "light";
+  const isPrimary = tone === "primary";
+
+  const backgroundColor = isPrimary
+    ? colors.primary
+    : isLight
+    ? colors.iconSurface
+    : colors.surface;
+
+  const iconColor = isPrimary || isLight ? colors.textInverse : colors.primary;
 
   return (
     <Pressable
       accessibilityRole="button"
+      accessibilityLabel={accessibilityLabel}
+      testID={testID}
       onPress={onPress}
+      {...rest}
       style={({ pressed }) => [
         styles.base,
         {
           width: size,
           height: size,
           borderRadius: size / 2,
-          backgroundColor: isLight ? colors.iconSurface : colors.surface,
+          backgroundColor,
         },
-        isLight ? styles.lightTone : styles.solidTone,
+        isLight && styles.lightTone,
+        !isLight && !isPrimary && styles.solidTone,
+        isPrimary && styles.primaryTone,
         pressed && styles.pressed,
         style,
       ]}
     >
-      <FontAwesome6
-        color={isLight ? colors.textInverse : colors.primary}
-        name={icon}
-        size={iconSize}
-      />
+      <FontAwesome6 color={iconColor} name={icon} size={iconSize} />
     </Pressable>
   );
 }
@@ -50,6 +63,9 @@ const styles = StyleSheet.create({
     borderColor: "rgba(255,255,255,0.14)",
   },
   solidTone: {
+    ...shadows.card,
+  },
+  primaryTone: {
     ...shadows.card,
   },
   pressed: {

@@ -19,6 +19,7 @@ import { FontAwesome6 } from "@expo/vector-icons";
 
 import ScreenContainer from "../components/layout/ScreenContainer";
 import Avatar from "../components/ui/Avatar";
+import IconCircleButton from "../components/ui/IconCircleButton";
 import PrimaryButton from "../components/ui/PrimaryButton";
 import useResponsive from "../hooks/useResponsive";
 import { useAuth } from "../context/AuthContext";
@@ -286,29 +287,23 @@ export default function EditProfileScreen({ navigation }) {
   );
 
   return (
-    <ScreenContainer>
+    <ScreenContainer fullWidth padded={false}>
       <KeyboardAvoidingView
         behavior={Platform.OS === "ios" ? "padding" : undefined}
         style={styles.flex}
       >
         <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-          <View style={fieldShellStyle}>
-            <View style={styles.topBackButtonWrap}>
-              <PrimaryButton
-                icon="arrow-left"
-                label=""
-                onPress={() => navigation.goBack()}
-                style={styles.topBackButton}
-                variant="secondary"
-              />
+          <View style={styles.hero}>
+            <View style={styles.heroTopRow}>
+              <IconCircleButton icon="arrow-left" onPress={() => navigation.goBack()} tone="light" />
             </View>
-
-            <Text style={styles.eyebrow}>Gestionar perfil</Text>
-            <Text style={styles.title}>Edita tu cuenta</Text>
+            <Text style={styles.title}>Editar perfil</Text>
             <Text style={styles.copy}>
               Actualiza tus datos personales y tu foto para mantener el perfil al día.
             </Text>
+          </View>
 
+          <View style={fieldShellStyle}>
             <View style={styles.avatarSection}>
               <View style={styles.avatarWrapper}>
                 <Avatar imageUrl={form.fotoUrl} name={`${form.nombre} ${form.apellido}`} size={92} />
@@ -349,7 +344,7 @@ export default function EditProfileScreen({ navigation }) {
                 <TextInput
                   onChangeText={(value) => updateField("nombre", value)}
                   placeholder="Nombre"
-                  placeholderTextColor={colors.textMuted}
+                  placeholderTextColor="#00000059"
                   style={[styles.input, errors.nombre && styles.inputError]}
                   value={form.nombre}
                 />
@@ -361,7 +356,7 @@ export default function EditProfileScreen({ navigation }) {
                 <TextInput
                   onChangeText={(value) => updateField("apellido", value)}
                   placeholder="Apellido"
-                  placeholderTextColor={colors.textMuted}
+                  placeholderTextColor="#00000059"
                   style={[styles.input, errors.apellido && styles.inputError]}
                   value={form.apellido}
                 />
@@ -374,7 +369,7 @@ export default function EditProfileScreen({ navigation }) {
                   autoCapitalize="none"
                   onChangeText={(value) => updateField("nombreUsuario", value)}
                   placeholder="Nombre de usuario"
-                  placeholderTextColor={colors.textMuted}
+                  placeholderTextColor="#00000059"
                   style={[styles.input, errors.nombreUsuario && styles.inputError]}
                   value={form.nombreUsuario}
                 />
@@ -527,10 +522,23 @@ const styles = StyleSheet.create({
   scrollContent: {
     paddingBottom: spacing.xxxl,
   },
+  hero: {
+    backgroundColor: colors.primary,
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.sm,
+    paddingBottom: spacing.xl,
+    borderBottomLeftRadius: 32,
+    borderBottomRightRadius: 32,
+    alignItems: "center",
+  },
+  heroTopRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    alignSelf: "flex-start",
+  },
   formShell: {
-    ...surfaces.card,
-    marginTop: spacing.lg,
-    padding: spacing.lg,
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.lg,
     gap: spacing.md,
   },
   formShellDesktop: {
@@ -538,22 +546,18 @@ const styles = StyleSheet.create({
     alignSelf: "center",
     width: "100%",
   },
-  topBackButton: {
-    alignSelf: "flex-start",
-  },
-  eyebrow: {
-    ...textStyles.sectionLabel,
-    color: "#8b6c37",
-    fontSize: 13,
-  },
   title: {
     ...textStyles.tripTitle,
-    color: colors.primary,
-    fontSize: 30,
+    color: colors.textInverse,
+    fontSize: 26,
+    marginTop: spacing.xs,
+    textAlign: "center",
   },
   copy: {
     ...textStyles.body,
-    color: colors.textSecondary,
+    color: "rgba(255,255,255,0.8)",
+    marginTop: spacing.xs,
+    textAlign: "center",
   },
   avatarSection: {
     marginTop: spacing.sm,
@@ -610,7 +614,7 @@ const styles = StyleSheet.create({
   },
   inputReadonly: {
     backgroundColor: "#fff",
-    color: colors.textSecondary,
+    color: "#a9a9a9",
   },
   inputError: {
     borderColor: colors.danger,
@@ -644,9 +648,9 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
     padding: spacing.md,
     borderRadius: radii.md,
-    backgroundColor: colors.dangerSurface,
+    backgroundColor: colors.background,
     borderWidth: 1,
-    borderColor: "rgba(200, 73, 73, 0.2)",
+    borderColor: colors.danger,
   },
   deleteAccountButtonPressed: {
     opacity: 0.75,

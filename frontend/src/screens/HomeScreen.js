@@ -99,7 +99,17 @@ export default function HomeScreen({ navigation }) {
   }, []);
 
   const decoratedTrips = useMemo(
-    () => trips.map((trip) => normalizeTrip(trip)),
+    () => {
+      const now = new Date();
+      return trips
+        .filter((trip) => {
+          const endDateStr = trip.endDate || trip.FechaFin;
+          if (!endDateStr) return true;
+          const endDate = new Date(endDateStr);
+          return endDate >= now;
+        })
+        .map((trip) => normalizeTrip(trip));
+    },
     [trips]
   );
 
@@ -134,14 +144,18 @@ export default function HomeScreen({ navigation }) {
         <View style={styles.header}>
           <View style={styles.topRow}>
             <View>
-              <Text style={styles.greeting}>
-                Hola, {currentUser?.nombre || currentUser?.nombreCompleto?.split(" ")[0]}!
+              <Text style={styles.greeting}>Bienvenida de vuelta,</Text>
+              <Text style={styles.heading}>
+                {currentUser?.nombre || currentUser?.nombreCompleto?.split(" ")[0] || "Viajera"} ✈︎
               </Text>
-              <Text style={styles.heading}>Mis Viajes</Text>
             </View>
 
             <View style={styles.headerActions}>
-              <IconCircleButton icon="bell" onPress={() => navigation.navigate("Invitaciones")} />
+              <IconCircleButton
+                icon="bell"
+                tone="primary"
+                onPress={() => navigation.navigate("Invitaciones")}
+              />
             </View>
           </View>
         </View>
@@ -199,10 +213,10 @@ const styles = StyleSheet.create({
     paddingBottom: 148,
   },
   header: {
-    backgroundColor: colors.primarySoft,
+    backgroundColor: colors.background,
     paddingHorizontal: spacing.lg,
     paddingTop: spacing.xl,
-    paddingBottom: spacing.xl,
+    paddingBottom: spacing.md,
   },
   topRow: {
     flexDirection: "row",
@@ -211,12 +225,12 @@ const styles = StyleSheet.create({
   },
   greeting: {
     ...textStyles.meta,
-    color: "#c4d0ee",
+    color: colors.textMuted,
     fontSize: 16,
   },
   heading: {
     ...textStyles.screenTitle,
-    color: colors.textInverse,
+    color: colors.primary,
     marginTop: spacing.xxs,
   },
   headerActions: {
@@ -243,7 +257,7 @@ const styles = StyleSheet.create({
   },
   sectionTitle: {
     ...textStyles.sectionLabel,
-    color: "#8b6c37",
+    color: colors.textMuted,
     fontSize: 13,
   },
   sectionAction: {

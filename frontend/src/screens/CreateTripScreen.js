@@ -309,11 +309,8 @@ export default function CreateTripScreen({ navigation }) {
          keyboardDismissMode="none">
           <View style={styles.hero}>
             <View style={styles.heroTopRow}>
-              <IconCircleButton icon="arrow-left" onPress={() => navigation.goBack()} />
-              <View />
+              <IconCircleButton icon="arrow-left" onPress={() => navigation.goBack()} tone="light" />
             </View>
-
-            <Text style={styles.heroEyebrow}>Planificación colaborativa</Text>
             <Text style={styles.heroTitle}>Nuevo Viaje</Text>
             <Text style={styles.heroCopy}>Organizá tu próxima aventura en equipo.</Text>
           </View>
@@ -651,30 +648,31 @@ const styles = StyleSheet.create({
     paddingBottom: 140,
   },
   hero: {
-    backgroundColor: colors.primarySoft,
+    backgroundColor: colors.primary,
     paddingHorizontal: spacing.lg,
-    paddingTop: spacing.lg,
+    paddingTop: spacing.sm,
     paddingBottom: spacing.xl,
+    borderBottomLeftRadius: 32,
+    borderBottomRightRadius: 32,
+    alignItems: "center",
   },
   heroTopRow: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
-  },
-  heroEyebrow: {
-    ...textStyles.meta,
-    color: "#dbe6fb",
-    marginTop: spacing.lg,
+    alignSelf: "flex-start",
   },
   heroTitle: {
-    ...textStyles.screenTitle,
+    ...textStyles.tripTitle,
     color: colors.textInverse,
+    fontSize: 26,
     marginTop: spacing.xs,
+    textAlign: "center",
   },
   heroCopy: {
     ...textStyles.body,
-    color: "#edf2ff",
+    color: "rgba(255,255,255,0.8)",
     marginTop: spacing.xs,
+    textAlign: "center",
   },
   body: {
     backgroundColor: colors.background,
@@ -691,7 +689,7 @@ const styles = StyleSheet.create({
   },
   sectionLabel: {
     ...textStyles.sectionLabel,
-    color: "#8b6c37",
+    color: colors.textMuted,
     fontSize: 13,
   },
   sectionTitle: {

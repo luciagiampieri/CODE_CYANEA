@@ -6,13 +6,14 @@ const toneMap = {
   conectada: { backgroundColor: colors.successSurface, color: colors.success },
   cargando: { backgroundColor: colors.surfaceAlt, color: colors.textSecondary },
   "sin-conexion": { backgroundColor: colors.dangerSurface, color: colors.danger },
-  activo: { backgroundColor: "#d7fad8", color: colors.success },
+  activo: { backgroundColor: "#dcf3dd", color: colors.success },
   finalizado: { backgroundColor: colors.surfaceAlt, color: colors.textSecondary },
   planificando: { backgroundColor: colors.warningSurface, color: colors.warning },
+  proximo: { backgroundColor: colors.primary, color: colors.background },
   pendiente: { backgroundColor: colors.warningSurface, color: colors.warning },
   note: { backgroundColor: colors.accentMuted, color: colors.primary },
-  abierta: { backgroundColor: "#d7fad8", color: colors.success },
-  cerrada: { backgroundColor: colors.surfaceAlt, color: colors.textSecondary },
+  abierta: { backgroundColor: "#dcf3dd", color: colors.success },
+  cerrada: { backgroundColor: "#ffe8ec", color: colors.danger },
   cancelada: { backgroundColor: colors.dangerSurface, color: colors.danger },
 };
 

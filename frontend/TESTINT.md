@@ -273,7 +273,7 @@ Para toda US nueva que toque frontend:
   horas), alta exitosa, error del backend, detección automática de ícono
   vs. selección manual, precarga en modo edición, búsqueda y selección de
   ubicación, error de búsqueda.
-- ~~`CrearVotacionScreen`~~ ✅ AC2 (arranca con 2 propuestas), validaciones
+- ~~`CreateVotationScreen`~~ ✅ AC2 (arranca con 2 propuestas), validaciones
   (nombre, mínimo de propuestas, propuestas repetidas case-insensitive),
   agregar/quitar propuestas (con el piso de 2), alta exitosa con `Alert` y
   navegación, error del backend, botón de retroceso.
@@ -316,7 +316,7 @@ Para toda US nueva que toque frontend:
 - Pantallas en 0% sin tocar todavía: `HomeScreen`, `ProfileScreen`,
   `EditProfileScreen`, `InvitationsScreen`, `EmailConfirmadoScreen`,
   `FacebookRegisterScreen`, `GoogleRegisterScreen`,
-  `GuardarInformacionScreen`, `PlaceholderScreen`,
+  `InformationScreen`, `PlaceholderScreen`,
   `RegistrationSuccessScreen`.
 - `context/AuthContext.js` — quedó al 87%; el 13% restante son las ramas
   nativas de `expo-secure-store`, no testeables en este entorno de Jest

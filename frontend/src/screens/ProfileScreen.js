@@ -12,10 +12,11 @@ import {
 
 import ScreenContainer from "../components/layout/ScreenContainer";
 import Avatar from "../components/ui/Avatar";
-import PrimaryButton from "../components/ui/PrimaryButton";
+import IconCircleButton from "../components/ui/IconCircleButton";
 import useResponsive from "../hooks/useResponsive";
 import { getCurrentUser, getPaisesVisitados, getTrips } from "../services/api";
 import { colors, radii, spacing, surfaces, textStyles } from "../theme/tokens";
+import { FontAwesome6 } from "@expo/vector-icons";
 
 const initialProfile = {
   id: null,
@@ -183,7 +184,7 @@ export default function ProfileScreen({ navigation }) {
     : proximoViaje?.title;
 
   return (
-    <ScreenContainer>
+    <ScreenContainer fullWidth padded={false}>
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
         <View style={cardStyle}>
           {loading ? (
@@ -204,12 +205,11 @@ export default function ProfileScreen({ navigation }) {
                     ) : null}
                   </View>
                 </View>
-                <PrimaryButton
+                <IconCircleButton
                   icon="gear"
-                  label=""
                   onPress={() => navigation.navigate("Configuracion")}
                   style={styles.settingsButton}
-                  variant="secondary"
+                  tone="surface"
                 />
               </View>
 
@@ -232,7 +232,7 @@ export default function ProfileScreen({ navigation }) {
                       <Image source={{ uri: proximoViaje.image }} style={styles.nextTripImage} />
                     ) : (
                       <View style={[styles.nextTripImage, styles.nextTripImageFallback]}>
-                        <Text style={styles.nextTripImageFallbackText}>✈️</Text>
+                        <FontAwesome6 name="plane" size={22} color={colors.primary} />
                       </View>
                     )}
                     <View style={styles.nextTripInfo}>
@@ -268,7 +268,7 @@ export default function ProfileScreen({ navigation }) {
                             {flagUrl ? (
                               <Image source={{ uri: flagUrl }} style={styles.stampFlagImage} />
                             ) : (
-                              <Text style={styles.stampFlagFallback}>🌍</Text>
+                              <FontAwesome6 name="earth-americas" size={22} color={colors.primary} />
                             )}
                             <Text style={styles.stampLabel} numberOfLines={1}>
                               {pais}
@@ -329,17 +329,17 @@ export default function ProfileScreen({ navigation }) {
 
                   <View style={styles.yearStatsRow}>
                     <View style={styles.yearStatCard}>
-                      <Text style={styles.yearStatIcon}>🧳</Text>
+                      <FontAwesome6 name="suitcase-rolling" size={18} color={colors.primary} />
                       <Text style={styles.yearStatValue}>{estadisticasAnio.totalViajes}</Text>
                       <Text style={styles.yearStatLabel}>Viajes</Text>
                     </View>
                     <View style={styles.yearStatCard}>
-                      <Text style={styles.yearStatIcon}>🌍</Text>
+                      <FontAwesome6 name="earth-americas" size={18} color={colors.primary} />
                       <Text style={styles.yearStatValue}>{estadisticasAnio.totalPaises}</Text>
                       <Text style={styles.yearStatLabel}>Países</Text>
                     </View>
                     <View style={styles.yearStatCard}>
-                      <Text style={styles.yearStatIcon}>👥</Text>
+                      <FontAwesome6 name="user-group" size={18} color={colors.primary} />
                       <Text style={styles.yearStatValue}>{estadisticasAnio.totalAmigos}</Text>
                       <Text style={styles.yearStatLabel}>Amigos</Text>
                     </View>
@@ -361,10 +361,9 @@ const styles = StyleSheet.create({
     paddingBottom: spacing.xxxl,
   },
   card: {
-    ...surfaces.card,
-    marginTop: spacing.lg,
-    padding: spacing.lg,
-    gap: spacing.md,
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.xl,
+    gap: spacing.lg,
   },
   cardDesktop: {
     maxWidth: 480,
@@ -410,15 +409,12 @@ const styles = StyleSheet.create({
     color: colors.textMuted,
     fontSize: 12,
     letterSpacing: 0.5,
-    textTransform: "uppercase",
   },
   nextTripCard: {
+    ...surfaces.card,
     flexDirection: "row",
     alignItems: "center",
     gap: spacing.md,
-    borderRadius: radii.md ?? 16,
-    borderWidth: 1,
-    borderColor: colors.surfaceAlt,
     padding: spacing.sm,
   },
   nextTripCardPressed: {
@@ -433,9 +429,6 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surfaceAlt,
     alignItems: "center",
     justifyContent: "center",
-  },
-  nextTripImageFallbackText: {
-    fontSize: 24,
   },
   nextTripInfo: {
     flex: 1,
@@ -455,8 +448,10 @@ const styles = StyleSheet.create({
     color: colors.textMuted,
   },
   passportContainer: {
-    backgroundColor: colors.surfaceAlt,
+    backgroundColor: colors.surface,
     borderRadius: radii.md ?? 16,
+    borderWidth: 1,
+    borderColor: colors.border,
     padding: spacing.sm,
   },
   passportGrid: {
@@ -471,7 +466,7 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.sm,
     paddingHorizontal: spacing.xs,
     borderRadius: radii.sm ?? 12,
-    backgroundColor: colors.surface ?? "#fff",
+    backgroundColor: colors.background ?? "#fff",
   },
   stampFlagImage: {
     width: 40,
@@ -479,9 +474,6 @@ const styles = StyleSheet.create({
     borderRadius: 4,
     borderWidth: 1,
     borderColor: colors.surfaceAlt,
-  },
-  stampFlagFallback: {
-    fontSize: 24,
   },
   stampLabel: {
     ...textStyles.meta,
@@ -498,7 +490,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     borderRadius: radii.pill ?? 999,
     borderWidth: 1,
-    borderColor: colors.surfaceAlt,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
   },
   yearPillActive: {
     backgroundColor: colors.primary,
@@ -522,10 +515,9 @@ const styles = StyleSheet.create({
     gap: 4,
     paddingVertical: spacing.md,
     borderRadius: radii.md ?? 16,
-    backgroundColor: colors.surfaceAlt,
-  },
-  yearStatIcon: {
-    fontSize: 20,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
   },
   yearStatValue: {
     ...textStyles.tripTitle,
@@ -534,7 +526,7 @@ const styles = StyleSheet.create({
   },
   yearStatLabel: {
     ...textStyles.meta,
-    color: colors.textMuted,
+    color: colors.primary,
   },
   emptyText: {
     ...textStyles.meta,

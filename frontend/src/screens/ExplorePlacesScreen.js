@@ -18,6 +18,7 @@ import MapCanvas from "../components/map/MapCanvas";
 import OfflineMapState from "../components/map/OfflineMapState";
 import PlaceDetailSheet from "../components/map/PlaceDetailSheet";
 import PlaceScheduleSheet from "../components/map/PlaceScheduleSheet";
+import IconCircleButton from "../components/ui/IconCircleButton";
 import MetricCard from "../components/ui/MetricCard";
 import PrimaryButton from "../components/ui/PrimaryButton";
 import {
@@ -605,12 +606,13 @@ export default function ExplorePlacesScreen({ navigation, route }) {
     <ScreenContainer fullWidth padded={false}>
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
         <View style={styles.hero}>
-          <View style={styles.heroTop}>
-            <Pressable onPress={() => navigation.goBack()} style={styles.heroBack}>
-              <FontAwesome6 color={colors.textInverse} name="arrow-left" size={16} />
-            </Pressable>
+          <View style={styles.heroTopRow}>
+            <IconCircleButton
+              icon="arrow-left"
+              onPress={() => navigation.goBack()}
+              tone="light"
+            />
           </View>
-          <Text style={styles.heroEyebrow}>Exploración visual del viaje</Text>
           <Text style={styles.heroTitle}>Destinos de interés</Text>
           <Text style={styles.heroCopy}>
             Busca lugares para conocer, guárdalos en el viaje y llévalos directo al itinerario.
@@ -647,7 +649,7 @@ export default function ExplorePlacesScreen({ navigation, route }) {
                     onChangeText={setSearchQuery}
                     onSubmitEditing={handleSearch}
                     placeholder="Ej: Catedral de Palma, playa, museo..."
-                    placeholderTextColor={colors.textMuted}
+                    placeholderTextColor="#00000059"
                     style={styles.searchInput}
                     value={searchQuery}
                   />
@@ -972,40 +974,31 @@ const styles = StyleSheet.create({
     paddingBottom: 120,
   },
   hero: {
-    backgroundColor: colors.primarySoft,
+    backgroundColor: colors.primary,
     paddingHorizontal: spacing.lg,
-    paddingTop: spacing.lg,
+    paddingTop: spacing.sm,
     paddingBottom: spacing.xl,
+    borderBottomLeftRadius: 32,
+    borderBottomRightRadius: 32,
+    alignItems: "center",
   },
-  heroTop: {
+  heroTopRow: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
-  },
-  heroBack: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: colors.iconSurface,
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.14)",
-  },
-  heroEyebrow: {
-    ...textStyles.meta,
-    color: "#dbe6fb",
-    marginTop: spacing.lg,
+    alignSelf: "flex-start",
   },
   heroTitle: {
-    ...textStyles.screenTitle,
+    ...textStyles.tripTitle,
     color: colors.textInverse,
+    fontSize: 26,
     marginTop: spacing.xs,
+    textAlign: "center",
   },
   heroCopy: {
     ...textStyles.body,
-    color: "#edf2ff",
+    color: "rgba(255,255,255,0.8)",
     marginTop: spacing.xs,
+    textAlign: "center",
   },
   body: {
     backgroundColor: colors.background,
@@ -1048,7 +1041,7 @@ const styles = StyleSheet.create({
   },
   sectionLabel: {
     ...textStyles.sectionLabel,
-    color: "#8b6c37",
+    color: colors.textMuted,
   },
   sectionTitle: {
     ...textStyles.tripTitle,

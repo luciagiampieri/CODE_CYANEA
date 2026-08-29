@@ -14,8 +14,10 @@ import {
 import DateTimePicker from "@react-native-community/datetimepicker";
 import { FontAwesome6 } from "@expo/vector-icons";
 
+import ScreenContainer from "../components/layout/ScreenContainer";
+import IconCircleButton from "../components/ui/IconCircleButton";
 import { createVotacion } from "../services/api";
-import { colors, shadows } from "../theme/tokens";
+import { colors, shadows, textStyles } from "../theme/tokens";
 
 function fechaDefault() {
     const d = new Date();
@@ -122,25 +124,28 @@ export default function CrearVotacionScreen({ route, navigation }) {
     }
 
     return (
-        <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-            <View style={styles.header}>
-                <TouchableOpacity
-                    style={styles.backButton}
-                    onPress={() => navigation.goBack()}
-                    testID="votacion-back-button"
-                >
-                    <FontAwesome6 name="arrow-left" size={18} color={colors.primary} />
-                </TouchableOpacity>
-                <Text style={styles.title}>Nueva votación</Text>
-            </View>
+        <ScreenContainer fullWidth padded={false}>
+            <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+                <View style={styles.hero}>
+                    <View style={styles.heroTopRow}>
+                        <IconCircleButton
+                            icon="arrow-left"
+                            onPress={() => navigation.goBack()}
+                            tone="light"
+                            testID="votacion-back-button"
+                        />
+                    </View>
+                    <Text style={styles.heroTitle}>Nueva votación</Text>
+                </View>
 
+            <View style={styles.content}>
             <Text style={styles.label}>Nombre descriptivo</Text>
             <View style={styles.inputBox}>
                 <FontAwesome6 name="pen" size={14} color={colors.textMuted} />
                 <TextInput
                     style={styles.input}
                     placeholder="¿Qué hacemos el segundo día?"
-                    placeholderTextColor="rgba(0, 0, 0, 0.35)"
+                    placeholderTextColor="#00000059"
                     value={titulo}
                     onChangeText={setTitulo}
                     maxLength={150}
@@ -157,7 +162,7 @@ export default function CrearVotacionScreen({ route, navigation }) {
                     <FontAwesome6
                         name="circle-dot"
                         size={14}
-                        color={tipo === "opcion_unica" ? "#fff" : colors.textMuted}
+                        color={tipo === "opcion_unica" ? "#fff" : colors.overlayStrong}
                     />
                     <Text style={[styles.selectorOptionText, tipo === "opcion_unica" && styles.selectorOptionTextActive]}>
                         Opción única
@@ -170,7 +175,7 @@ export default function CrearVotacionScreen({ route, navigation }) {
                     <FontAwesome6
                         name="square-check"
                         size={14}
-                        color={tipo === "opcion_multiple" ? "#fff" : colors.textMuted}
+                        color={tipo === "opcion_multiple" ? "#fff" : colors.overlayStrong}
                     />
                     <Text style={[styles.selectorOptionText, tipo === "opcion_multiple" && styles.selectorOptionTextActive]}>
                         Opción múltiple
@@ -251,7 +256,7 @@ export default function CrearVotacionScreen({ route, navigation }) {
                         <TextInput
                             style={styles.input}
                             placeholder={`Propuesta ${index + 1}`}
-                            placeholderTextColor="rgba(0, 0, 0, 0.35)"
+                            placeholderTextColor="#00000059"
                             value={propuesta}
                             onChangeText={(val) => actualizarPropuesta(index, val)}
                             maxLength={255}
@@ -276,38 +281,37 @@ export default function CrearVotacionScreen({ route, navigation }) {
             <TouchableOpacity style={styles.button} onPress={handleCrear} disabled={saving}>
                 {saving ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonText}>Crear votación</Text>}
             </TouchableOpacity>
+            </View>
         </ScrollView>
+        </ScreenContainer>
     );
 }
 
 const styles = StyleSheet.create({
-    container: { flex: 1, backgroundColor: colors.background },
-    content: { padding: 20, paddingBottom: 40 },
-    header: {
-        height: 50,
+    scrollContent: { paddingBottom: 40 },
+    content: { padding: 20 },
+    hero: {
+        backgroundColor: colors.primary,
+        paddingHorizontal: 20,
+        paddingTop: 12,
+        paddingBottom: 28,
+        borderBottomLeftRadius: 32,
+        borderBottomRightRadius: 32,
+        alignItems: "center",
+    },
+    heroTopRow: {
         flexDirection: "row",
         alignItems: "center",
-        justifyContent: "center",
-        marginBottom: 20,
-        position: "relative",
+        alignSelf: "flex-start",
     },
-    backButton: {
-        position: "absolute",
-        left: 0,
-        width: 42,
-        height: 42,
-        borderRadius: 21,
-        backgroundColor: "#fff",
-        justifyContent: "center",
-        alignItems: "center",
-        ...shadows.card,
-    },
-    title: { fontSize: 28, fontWeight: "800", color: colors.primary, textAlign: "center" },
+    heroTitle: { ...textStyles.tripTitle, fontSize: 26, color: colors.textInverse, textAlign: "center", marginTop: 8 },
     label: { fontWeight: "700", color: colors.primary, marginTop: 14, marginBottom: 8 },
     inputBox: {
         backgroundColor: "#fff",
-        height: 50,
-        borderRadius: 12,
+        height: 54,
+        borderRadius: 14,
+        borderWidth: 1.5,
+        borderColor: "#dfe4ea",
         paddingHorizontal: 15,
         flexDirection: "row",
         alignItems: "center",
@@ -315,11 +319,13 @@ const styles = StyleSheet.create({
         marginBottom: 5,
         ...shadows.card,
     },
-    input: { flex: 1 },
+    input: { flex: 1, fontWeight: "600", fontSize: 15 },
     dateBox: {
         backgroundColor: "#fff",
         padding: 15,
-        borderRadius: 12,
+        borderRadius: 14,
+        borderWidth: 1.5,
+        borderColor: "#dfe4ea",
         flexDirection: "row",
         gap: 10,
         alignItems: "center",
@@ -353,7 +359,7 @@ const styles = StyleSheet.create({
         gap: 8,
     },
     selectorOptionActive: { backgroundColor: colors.primary },
-    selectorOptionText: { fontWeight: "700", color: colors.textMuted, fontSize: 14 },
+    selectorOptionText: { fontWeight: "700", color: colors.overlayStrong, fontSize: 14 },
     selectorOptionTextActive: { color: "#fff" },
     propuestasHeader: {
         flexDirection: "row",

@@ -1848,8 +1848,8 @@ export default function TripDetailScreen({ navigation, route }) {
                         >
                           {estadoLabel}
                         </StatusPill>
-                        <View style={{ backgroundColor: votacion.Tipo === 'opcion_unica' ? '#e0f2fe' : '#f3e8ff', padding: 6, borderRadius: 6 }}>
-                          <Text style={{ fontSize: 10, fontWeight: '700', color: votacion.Tipo === 'opcion_unica' ? '#0369a1' : '#6b21a8' }}>
+                        <View style={{ backgroundColor: votacion.Tipo === 'opcion_unica' ? '#eeede5' : '#efe8ff', padding: 6, borderRadius: 6 }}>
+                          <Text style={{ fontSize: 10, fontWeight: '700', color: votacion.Tipo === 'opcion_unica' ? '#88887e' : '#1b1d89' }}>
                             {votacion.Tipo === 'opcion_unica' ? 'ÚNICA' : 'MÚLTIPLE'}
                           </Text>
                         </View>

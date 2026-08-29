@@ -58,9 +58,8 @@ export default function InvitationsScreen({ navigation }) {
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
         <View style={styles.header}>
           <View style={styles.headerRow}>
-            <IconCircleButton icon="arrow-left" onPress={() => navigation.goBack()} />
+            <IconCircleButton icon="arrow-left" onPress={() => navigation.goBack()} tone="light" />
           </View>
-          <Text style={styles.eyebrow}>Notificaciones</Text>
           <Text style={styles.title}>Invitaciones</Text>
           <Text style={styles.copy}>Gestiona las invitaciones pendientes para sumarte al grupo correcto.</Text>
         </View>
@@ -119,29 +118,30 @@ const styles = StyleSheet.create({
     paddingBottom: 40,
   },
   header: {
-    backgroundColor: colors.primarySoft,
+    backgroundColor: colors.primary,
     paddingHorizontal: spacing.lg,
-    paddingTop: spacing.lg,
+    paddingTop: spacing.sm,
     paddingBottom: spacing.xl,
+    borderBottomLeftRadius: 32,
+    borderBottomRightRadius: 32,
+    alignItems: "center",
   },
   headerRow: {
     flexDirection: "row",
-    justifyContent: "space-between",
-  },
-  eyebrow: {
-    ...textStyles.meta,
-    color: "#dbe6fb",
-    marginTop: spacing.lg,
+    alignSelf: "flex-start",
   },
   title: {
-    ...textStyles.screenTitle,
+    ...textStyles.tripTitle,
     color: colors.textInverse,
+    fontSize: 26,
     marginTop: spacing.xs,
+    textAlign: "center",
   },
   copy: {
     ...textStyles.body,
-    color: "#edf2ff",
+    color: "rgba(255,255,255,0.8)",
     marginTop: spacing.xs,
+    textAlign: "center",
   },
   body: {
     backgroundColor: colors.background,
