@@ -222,6 +222,66 @@ def test_progreso_actualiza_al_emitir_nuevo_voto(client, db_session, auth_header
     assert resultado_asado_final["Porcentaje"] == 50.0
 
 
+def test_progreso_incluye_votantes_por_propuesta(client, auth_headers, viaje_con_admin):
+    viaje, _ = viaje_con_admin
+    crear = client.post("/api/v1/votaciones", json=_payload_votacion(viaje.IdViaje), headers=auth_headers)
+    id_votacion = crear.json()["IdVotacion"]
+    id_asado, id_pizza = (p["IdPropuesta"] for p in crear.json()["Propuestas"])
+
+    client.post(
+        f"/api/v1/votaciones/{id_votacion}/votar",
+        json={"idPropuestas": [id_asado]},
+        headers=auth_headers,
+    )
+
+    response = client.get(f"/api/v1/votaciones/{id_votacion}/progreso", headers=auth_headers)
+    body = response.json()
+
+    resultado_asado = next(r for r in body["Resultados"] if r["IdPropuesta"] == id_asado)
+    resultado_pizza = next(r for r in body["Resultados"] if r["IdPropuesta"] == id_pizza)
+
+    assert len(resultado_asado["Votantes"]) == 1
+    votante = resultado_asado["Votantes"][0]
+    assert votante["NombreCompleto"]
+    assert votante["FechaVoto"] is not None
+    # La propuesta sin votos debe traer la lista vacia, no ausente.
+    assert resultado_pizza["Votantes"] == []
+
+
+def test_resultados_lista_todos_los_votantes_de_cada_propuesta(client, db_session, auth_headers, viaje_con_admin):
+    viaje, _ = viaje_con_admin
+    crear = client.post("/api/v1/votaciones", json=_payload_votacion(viaje.IdViaje), headers=auth_headers)
+    id_votacion = crear.json()["IdVotacion"]
+    id_asado, id_pizza = (p["IdPropuesta"] for p in crear.json()["Propuestas"])
+
+    client.post(
+        f"/api/v1/votaciones/{id_votacion}/votar",
+        json={"idPropuestas": [id_asado]},
+        headers=auth_headers,
+    )
+    _, headers_bob = _crear_usuario_miembro(
+        db_session, viaje, email="bob_votantes@test.com", username="bob_votantes"
+    )
+    client.post(
+        f"/api/v1/votaciones/{id_votacion}/votar",
+        json={"idPropuestas": [id_asado]},
+        headers=headers_bob,
+    )
+
+    _cerrar_votacion(db_session, id_votacion)
+
+    response = client.get(f"/api/v1/votaciones/{id_votacion}/resultados", headers=auth_headers)
+    body = response.json()
+
+    resultado_asado = next(r for r in body["Resultados"] if r["IdPropuesta"] == id_asado)
+    resultado_pizza = next(r for r in body["Resultados"] if r["IdPropuesta"] == id_pizza)
+
+    nombres_asado = {v["NombreCompleto"] for v in resultado_asado["Votantes"]}
+    assert len(resultado_asado["Votantes"]) == 2
+    assert "Bob Test" in nombres_asado
+    assert resultado_pizza["Votantes"] == []
+
+
 def test_cancelar_votacion_activa_siendo_creador(client, auth_headers, viaje_con_admin):
     viaje, _ = viaje_con_admin
     crear = client.post("/api/v1/votaciones", json=_payload_votacion(viaje.IdViaje), headers=auth_headers)

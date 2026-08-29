@@ -82,11 +82,21 @@ class VotacionRead(BaseModel):
         populate_by_name = True
 
 
+class VotanteResultado(BaseModel):
+    IdUsuario: int
+    NombreCompleto: str
+    FotoUrl: str | None = None
+    FechaVoto: datetime | None = None
+
+
 class ResultadoPropuesta(BaseModel):
     IdPropuesta: int
     Texto: str
     Votos: int
     Porcentaje: float
+    Votantes: list[VotanteResultado] = Field(
+        default_factory=list, description="Quien voto esta opcion y cuando (para 'Ver votos')"
+    )
 
 
 class VotacionResultados(BaseModel):

@@ -87,4 +87,83 @@ describe("ResultadosVotacion", () => {
 
     expect(getByText("✓ Tu voto")).toBeTruthy();
   });
+
+  it("muestra el botón 'Ver votos' cuando hay votos registrados", async () => {
+    const { getByText } = await render(<ResultadosVotacion resultados={buildResultados()} />);
+
+    expect(getByText("Ver votos")).toBeTruthy();
+  });
+
+  it("el detalle de votantes no está montado hasta que se toca 'Ver votos'", async () => {
+    const resultados = buildResultados({
+      TotalVotantes: 1,
+      Resultados: [
+        {
+          IdPropuesta: 1,
+          Texto: "Parrilla",
+          Votos: 1,
+          Porcentaje: 100,
+          Votantes: [{ IdUsuario: 10, NombreCompleto: "Ana López", FechaVoto: "2026-08-20T15:30:00Z" }],
+        },
+      ],
+    });
+
+    const { queryByText } = await render(<ResultadosVotacion resultados={resultados} />);
+
+    expect(queryByText("Detalles de la votación")).toBeNull();
+    expect(queryByText("Ana López")).toBeNull();
+  });
+
+  it("al presionar 'Ver votos' muestra quién votó cada propuesta y cuándo", async () => {
+    const resultados = buildResultados({
+      TotalVotantes: 2,
+      Resultados: [
+        {
+          IdPropuesta: 1,
+          Texto: "Parrilla",
+          Votos: 1,
+          Porcentaje: 50,
+          Votantes: [{ IdUsuario: 10, NombreCompleto: "Ana López", FechaVoto: "2026-08-20T15:30:00Z" }],
+        },
+        {
+          IdPropuesta: 2,
+          Texto: "Sushi",
+          Votos: 1,
+          Porcentaje: 50,
+          Votantes: [{ IdUsuario: 11, NombreCompleto: "Bruno Diaz", FechaVoto: "2026-08-20T16:00:00Z" }],
+        },
+      ],
+    });
+
+    const { getByText } = await render(<ResultadosVotacion resultados={resultados} />);
+
+    fireEvent.press(getByText("Ver votos"));
+
+    expect(getByText("Detalles de la votación")).toBeTruthy();
+    expect(getByText("Ana López")).toBeTruthy();
+    expect(getByText("Bruno Diaz")).toBeTruthy();
+  });
+
+  it("muestra 'Nadie votó esta opción todavía' cuando una propuesta no tiene votantes", async () => {
+    const resultados = buildResultados({
+      TotalVotantes: 1,
+      Resultados: [
+        {
+          IdPropuesta: 1,
+          Texto: "Parrilla",
+          Votos: 1,
+          Porcentaje: 100,
+          Votantes: [{ IdUsuario: 10, NombreCompleto: "Ana López", FechaVoto: "2026-08-20T15:30:00Z" }],
+        },
+        { IdPropuesta: 2, Texto: "Sushi", Votos: 0, Porcentaje: 0, Votantes: [] },
+      ],
+    });
+
+    const { getByText } = await render(<ResultadosVotacion resultados={resultados} />);
+
+    fireEvent.press(getByText("Ver votos"));
+
+    expect(getByText("Nadie votó esta opción todavía.")).toBeTruthy();
+  });
+  
 });
