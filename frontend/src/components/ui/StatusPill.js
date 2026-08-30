@@ -13,8 +13,8 @@ const toneMap = {
   pendiente: { backgroundColor: colors.warningSurface, color: colors.warning },
   note: { backgroundColor: colors.accentMuted, color: colors.primary },
   abierta: { backgroundColor: "#dcf3dd", color: colors.success },
-  cerrada: { backgroundColor: "#ffe8ec", color: colors.danger },
-  cancelada: { backgroundColor: colors.dangerSurface, color: colors.danger },
+  cerrada: { backgroundColor: "#eeede5", color: "#55554d" },
+  cancelada: { backgroundColor: "#ffe8ec", color: colors.danger },
 };
 
 export default function StatusPill({ tone = "note", children, style, textStyle }) {

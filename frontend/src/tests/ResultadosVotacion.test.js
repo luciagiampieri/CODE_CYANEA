@@ -1,4 +1,4 @@
-import { render } from "@testing-library/react-native";
+import { render, fireEvent } from "@testing-library/react-native";
 
 import ResultadosVotacion from "../components/trip/ResultadosVotacion";
 
@@ -109,7 +109,7 @@ describe("ResultadosVotacion", () => {
     });
 
     const { queryByText } = await render(<ResultadosVotacion resultados={resultados} />);
-
+    
     expect(queryByText("Detalles de la votación")).toBeNull();
     expect(queryByText("Ana López")).toBeNull();
   });
@@ -135,17 +135,18 @@ describe("ResultadosVotacion", () => {
       ],
     });
 
-    const { getByText } = await render(<ResultadosVotacion resultados={resultados} />);
+    const { getByText, findByText } = await render(<ResultadosVotacion resultados={resultados} />);
 
     fireEvent.press(getByText("Ver votos"));
 
-    expect(getByText("Detalles de la votación")).toBeTruthy();
+    expect(await findByText("Detalles de la votación")).toBeTruthy();
     expect(getByText("Ana López")).toBeTruthy();
     expect(getByText("Bruno Diaz")).toBeTruthy();
   });
 
-  it("muestra 'Nadie votó esta opción todavía' cuando una propuesta no tiene votantes", async () => {
+  it("muestra 'Nadie votó esta opción todavía' cuando una propuesta no tiene votantes y está abierta", async () => {
     const resultados = buildResultados({
+      Estado: "abierta",
       TotalVotantes: 1,
       Resultados: [
         {
@@ -159,11 +160,85 @@ describe("ResultadosVotacion", () => {
       ],
     });
 
-    const { getByText } = await render(<ResultadosVotacion resultados={resultados} />);
+    const { getByText, findByText } = await render(<ResultadosVotacion resultados={resultados} />);
 
     fireEvent.press(getByText("Ver votos"));
 
-    expect(getByText("Nadie votó esta opción todavía.")).toBeTruthy();
+    expect(await findByText("Nadie votó esta opción todavía.")).toBeTruthy();
   });
-  
+
+  it("muestra 'Nadie votó esta opción.' (sin todavía) cuando una propuesta no tiene votantes y no está abierta", async () => {
+    const resultados = buildResultados({
+      Estado: "cerrada",
+      TotalVotantes: 1,
+      Resultados: [
+        {
+          IdPropuesta: 1,
+          Texto: "Parrilla",
+          Votos: 1,
+          Porcentaje: 100,
+          Votantes: [{ IdUsuario: 10, NombreCompleto: "Ana López", FechaVoto: "2026-08-20T15:30:00Z" }],
+        },
+        { IdPropuesta: 2, Texto: "Sushi", Votos: 0, Porcentaje: 0, Votantes: [] },
+      ],
+    });
+
+    const { getByText, findByText } = await render(<ResultadosVotacion resultados={resultados} />);
+
+    fireEvent.press(getByText("Ver votos"));
+
+    expect(await findByText("Nadie votó esta opción.")).toBeTruthy();
+  });
+
+  it("muestra 'X de Y participantes votaron' cuando se pasa totalParticipantes", async () => {
+    const resultados = buildResultados({
+      TotalVotantes: 3,
+      Resultados: [
+        { IdPropuesta: 1, Texto: "Parrilla", Votos: 3, Porcentaje: 100, Votantes: [] },
+      ],
+    });
+
+    const { getByText, findByText } = await render(
+      <ResultadosVotacion resultados={resultados} totalParticipantes={5} />
+    );
+
+    fireEvent.press(getByText("Ver votos"));
+
+    expect(await findByText("3 de 5 participantes votaron")).toBeTruthy();
+  });
+
+  it("usa el texto genérico de respaldo cuando NO se pasa totalParticipantes", async () => {
+    const resultados = buildResultados({
+      TotalVotantes: 1,
+      Resultados: [
+        { IdPropuesta: 1, Texto: "Parrilla", Votos: 1, Porcentaje: 100, Votantes: [] },
+      ],
+    });
+
+    const { getByText, findByText } = await render(<ResultadosVotacion resultados={resultados} />);
+
+    fireEvent.press(getByText("Ver votos"));
+
+    expect(await findByText("1 persona votó")).toBeTruthy();
+  });
+
+  it("muestra las etiquetas de Estado y Tipo dentro del modal 'Ver votos'", async () => {
+    const resultados = buildResultados({
+      Estado: "abierta",
+      Tipo: "opcion_multiple",
+      TotalVotantes: 1,
+      Resultados: [
+        { IdPropuesta: 1, Texto: "Parrilla", Votos: 1, Porcentaje: 100, Votantes: [] },
+      ],
+    });
+
+    const { getByText, findByText } = await render(
+      <ResultadosVotacion resultados={resultados} totalParticipantes={4} />
+    );
+
+    fireEvent.press(getByText("Ver votos"));
+
+    expect(await findByText("Activa")).toBeTruthy();
+    expect(getByText("MÚLTIPLE")).toBeTruthy();
+  });
 });

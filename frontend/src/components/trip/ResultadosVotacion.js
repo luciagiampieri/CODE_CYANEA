@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, Pressable, Modal, ScrollView } from "react-native";
+import { View, Text, StyleSheet, Pressable, Modal, ScrollView, Image } from "react-native";
 import { FontAwesome6 } from "@expo/vector-icons";
 import { colors, radii, spacing, textStyles } from "../../theme/tokens";
+import StatusPill from "../ui/StatusPill";
 
 
 function formatFechaVoto(dateString) {
@@ -19,13 +20,26 @@ function formatFechaVoto(dateString) {
 }
 
 
-export default function ResultadosVotacion({ resultados, mostrarGanador = true }) {
+const ESTADO_VOTACION_LABEL = {
+    abierta: "Activa",
+    cerrada: "Cerrada",
+    cancelada: "Cancelada",
+};
+
+
+export default function ResultadosVotacion({ resultados, mostrarGanador = true, totalParticipantes, titulo}) {
     const [detalleVisible, setDetalleVisible] = useState(false);
     if (!resultados) return null;
 
     const { Resultados, IdPropuestasGanadoras, Empate, TotalVotos, TotalVotantes, MisPropuestas = [] } = resultados;
     const ganadoras = mostrarGanador ? IdPropuestasGanadoras : [];
-
+    const estadoLabel = ESTADO_VOTACION_LABEL[resultados.Estado] || resultados.Estado;
+    const esOpcionUnica = resultados.Tipo === "opcion_unica";
+    const subtitleText =
+        typeof totalParticipantes === "number"
+            ? `${TotalVotantes} de ${totalParticipantes} participantes votaron`
+            : `${TotalVotantes} ${TotalVotantes === 1 ? "persona votó" : "personas votaron"}`;
+    
     if (TotalVotos === 0) {
         return (
             <Text style={{ color: colors.textMuted, fontSize: 13 }}>
@@ -118,10 +132,47 @@ export default function ResultadosVotacion({ resultados, mostrarGanador = true }
                         <View style={styles.modalCard}>
                             <View style={styles.modalHeader}>
                                 <View style={{ flex: 1 }}>
-                                    <Text style={styles.modalTitle}>Detalles de la votación</Text>
-                                    <Text style={styles.modalSubtitle}>
-                                        {TotalVotantes} {TotalVotantes === 1 ? "persona votó" : "personas votaron"}
+                                    <View style={styles.modalTitleRow}>
+                                        <Text style={styles.modalTitle}>Detalles de la votación</Text>
+                                        <View style={styles.modalBadgesRow}>
+                                            {resultados.Estado ? (
+                                                <StatusPill
+                                                    tone={resultados.Estado}
+                                                    style={{ paddingHorizontal: 6, paddingVertical: 6, borderRadius: 6 }}
+                                                    textStyle={{ fontSize: 10, textTransform: "uppercase" }}
+                                                >
+                                                    {estadoLabel}
+                                                </StatusPill>
+                                            ) : null}
+                                            {resultados.Tipo ? (
+                                                <View
+                                                    style={[
+                                                        styles.tipoBadge,
+                                                        { backgroundColor: esOpcionUnica ? "#e0f2fe" : "#f3e8ff" },
+                                                    ]}
+                                                >
+                                                    <Text
+                                                        style={[
+                                                            styles.tipoBadgeText,
+                                                            { color: esOpcionUnica ? "#0369a1" : "#6b21a8" },
+                                                        ]}
+                                                    >
+                                                        {esOpcionUnica ? "ÚNICA" : "MÚLTIPLE"}
+                                                    </Text>
+                                                </View>
+                                            ) : null}
+                                        </View>
+                                    </View>
+
+                                    {titulo ? (
+                                        <Text style={{...textStyles.bodyStrong, fontSize: 16, fontWeight: "700", color: colors.textPrimary, marginTop: 12, marginBottom: 2 }}>
+                                            {titulo}
+                                        </Text>
+                                    ) : null}
+                                    <Text style={[styles.modalSubtitle, { marginTop: titulo ? 0 : 2 }]}>
+                                        {subtitleText}
                                     </Text>
+
                                 </View>
                                 <Pressable onPress={() => setDetalleVisible(false)} hitSlop={8}>
                                     <FontAwesome6 name="xmark" size={18} color={colors.textSecondary} />
@@ -129,25 +180,46 @@ export default function ResultadosVotacion({ resultados, mostrarGanador = true }
                             </View>
 
                             <ScrollView style={{ maxHeight: 420 }} showsVerticalScrollIndicator={false}>
-                                {Resultados.map((r) => (
-                                    <View key={r.IdPropuesta} style={styles.opcionBloque}>
-                                        <View style={styles.opcionHeaderRow}>
-                                            <Text style={styles.opcionTitulo}>{r.Texto}</Text>
-                                            <View style={styles.opcionVotosBadge}>
-                                                <Text style={styles.opcionVotosBadgeText}>
-                                                    {r.Votos} {r.Votos === 1 ? "voto" : "votos"}
-                                                </Text>
+                                {Resultados.map((r) => {
+                                    const esGanadora = ganadoras.includes(r.IdPropuesta);
+                                    
+                                    return (
+                                        <View key={r.IdPropuesta} style={styles.opcionBloque}>
+                                            <View style={styles.opcionHeaderRow}>
+                                                <Text style={styles.opcionTitulo}>{r.Texto}</Text>
+                                                <View 
+                                                    style={[
+                                                        styles.opcionVotosBadge, 
+                                                        { backgroundColor: esGanadora ? (colors.successSurface || "#dcf3dd") : (colors.surfaceAlt || "#f1f5f9") }
+                                                    ]}
+                                                >
+                                                    <Text 
+                                                        style={[
+                                                            styles.opcionVotosBadgeText,
+                                                            { color: esGanadora ? (colors.success || "#16a34a") : (colors.textSecondary || "#475569") }
+                                                        ]}
+                                                    >
+                                                        {r.Votos} {r.Votos === 1 ? "voto" : "votos"}{esGanadora ? " ★" : ""}
+                                                    </Text>
+                                                </View>
                                             </View>
-                                        </View>
- 
+
                                         {r.Votantes && r.Votantes.length > 0 ? (
                                             r.Votantes.map((votante) => (
                                                 <View key={votante.IdUsuario} style={styles.votanteRow}>
                                                     <View style={styles.votanteAvatar}>
-                                                        <Text style={styles.votanteAvatarText}>
-                                                            {votante.NombreCompleto?.charAt(0)?.toUpperCase() || "?"}
-                                                        </Text>
+                                                        {votante.FotoUrl || votante.fotoUrl ? (
+                                                            <Image 
+                                                                source={{ uri: votante.FotoUrl || votante.fotoUrl }} 
+                                                                style={{ width: 28, height: 28, borderRadius: 14 }} 
+                                                            />
+                                                        ) : (
+                                                            <Text style={styles.votanteAvatarText}>
+                                                                {votante.NombreCompleto?.charAt(0)?.toUpperCase() || "?"}
+                                                            </Text>
+                                                        )}
                                                     </View>
+
                                                     <Text style={styles.votanteNombre}>{votante.NombreCompleto}</Text>
                                                     <Text style={styles.votanteFecha}>
                                                         {formatFechaVoto(votante.FechaVoto)}
@@ -155,16 +227,20 @@ export default function ResultadosVotacion({ resultados, mostrarGanador = true }
                                                 </View>
                                             ))
                                         ) : (
-                                            <Text style={styles.sinVotos}>Nadie votó esta opción.</Text>
+                                            <Text style={styles.sinVotos}>
+                                                {resultados.Estado === "abierta" 
+                                                    ? "Nadie votó esta opción todavía." 
+                                                    : "Nadie votó esta opción."}
+                                            </Text>
                                         )}
                                     </View>
-                                ))}
+                                );
+                            })}    
                             </ScrollView>
                         </View>
                     </View>
                 </Modal>
             )}
-
         </View>
     );
 }
@@ -206,6 +282,26 @@ const styles = StyleSheet.create({
         alignItems: "flex-start",
         justifyContent: "space-between",
         marginBottom: spacing.md,
+    },
+    modalTitleRow: {
+        flexDirection: "row",
+        alignItems: "center",
+        flexWrap: "wrap",
+        gap: 10,
+    },
+    modalBadgesRow: {
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 6,
+    },
+    tipoBadge: {
+        paddingHorizontal: 6,
+        paddingVertical: 6,
+        borderRadius: 6,
+    },
+    tipoBadgeText: {
+        fontSize: 10,
+        fontWeight: "700",
     },
     modalTitle: {
         ...textStyles.bodyStrong,
