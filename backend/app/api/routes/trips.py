@@ -27,6 +27,7 @@ from app.models.viaje import Viaje
 from app.models.destino_viaje import DestinoViaje
 from app.models.destino import Destino
 from app.models.lugar_interes import LugarInteres
+from app.models.notificacion import Notificacion
 from app.schemas.trip import (
     ActividadCreate,
     ActividadRead,
@@ -46,6 +47,7 @@ from app.schemas.trip import (
     InvitationResponse,
     DestinationRead,
     DiaCronogramaRead,
+    LeaveTripRequest,
 )
 from app.schemas.place import TripPlaceRead
 
@@ -56,7 +58,7 @@ from app.services.notifications.invitation_email_sender import (
 )
 from app.services.destination_search import build_destination_image_url, search_destinations
 from app.services.place_search import get_place_photo_uri
-from app.services.trip_access import get_trip_with_relations, require_trip_access
+from app.services.trip_access import get_trip_with_relations, require_trip_access, require_trip_edit_access
 
 ROUTE_GENERATION_AVAILABLE = True
 try:
@@ -224,7 +226,31 @@ async def _sincronizar_y_notificar_ruta(db: Session, dia: DiaCronograma, trip_id
         })
 
 
-def _build_trip_detail(viaje: Viaje) -> TripDetailRead:
+def _build_trip_detail(
+        viaje: Viaje,
+        current_user: Usuario | None = None,
+    ) -> TripDetailRead:
+
+    fecha_salida_usuario = None
+    has_left = False
+
+    if current_user is not None:
+        participacion_usuario = next(
+            (
+                participacion
+                for participacion in viaje.Participantes
+                if participacion.IdUsuario == current_user.IdUsuario
+            ),
+             None,
+        )
+    
+        if (
+            participacion_usuario is not None
+            and participacion_usuario.EstadoParticipacion.Nombre == "salio"
+         ):
+            fecha_salida_usuario = participacion_usuario.FechaSalida
+            has_left = True
+
     participantes_visibles = [
         participacion
         for participacion in viaje.Participantes
@@ -272,6 +298,10 @@ def _build_trip_detail(viaje: Viaje) -> TripDetailRead:
                 Actividades=[
                     _build_actividad_read(actividad)
                     for actividad in (dia.Actividades or [])
+                    if (
+                        fecha_salida_usuario is None
+                        or actividad.FechaCreacion <= fecha_salida_usuario
+                    )
                 ],
                 Ruta=RutaDiariaRead.model_validate(dia.Ruta) if getattr(dia, "Ruta", None) else None,
             )
@@ -307,6 +337,7 @@ def _build_trip_detail(viaje: Viaje) -> TripDetailRead:
             for invitacion in invitaciones_visibles
         ],
         invitedEmails=[invitacion.EmailInvitado for invitacion in invitaciones_visibles],
+        hasLeft=has_left 
     )
 
 @router.get("/invitations/pending", response_model=None)
@@ -390,6 +421,7 @@ def respond_to_invitation(
     
     if decision == "aceptar":
         participacion.FechaIncorporacion = ahora
+        participacion.FechaSalida = None
 
     db.commit()
 
@@ -530,7 +562,7 @@ def get_trip_detail(
     current_user: Usuario = Depends(get_current_user),
 ) -> TripDetailRead:
     viaje = require_trip_access(get_trip_with_relations(db, trip_id), current_user)
-    return _build_trip_detail(viaje)
+    return _build_trip_detail(viaje, current_user)
 
 
 @router.put("/{trip_id}", response_model=TripUpdateResponse)
@@ -540,7 +572,7 @@ async def update_trip(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
 ) -> TripUpdateResponse:
-    viaje = require_trip_access(get_trip_with_relations(db, trip_id), current_user)
+    viaje = require_trip_edit_access(get_trip_with_relations(db, trip_id), current_user)
     _require_trip_admin(viaje, current_user)
 
     limite_edicion = _add_one_month(viaje.FechaFin)
@@ -669,7 +701,8 @@ def delete_trip(
             detail="Viaje no encontrado"
         )
 
-    require_trip_access(viaje, current_user)
+    require_trip_edit_access(viaje, current_user)
+    _require_trip_admin(viaje, current_user)
 
     nuevo_estado = db.scalar(
         select(EstadoViaje).where(
@@ -702,7 +735,7 @@ async def create_activity(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
 ) -> ActividadRead:
-    viaje = require_trip_access(get_trip_with_relations(db, trip_id), current_user)
+    viaje = require_trip_edit_access(get_trip_with_relations(db, trip_id), current_user)
 
     dia = db.scalar(
         select(DiaCronograma).where(
@@ -773,7 +806,7 @@ async def update_activity(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
 ) -> ActividadRead:
-    viaje = require_trip_access(get_trip_with_relations(db, trip_id), current_user)
+    viaje = require_trip_edit_access(get_trip_with_relations(db, trip_id), current_user)
 
     dia = db.scalar(
         select(DiaCronograma).where(
@@ -855,7 +888,7 @@ async def delete_activity(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
 ) -> TripMutationResponse:
-    viaje = require_trip_access(get_trip_with_relations(db, trip_id), current_user)
+    viaje = require_trip_edit_access(get_trip_with_relations(db, trip_id), current_user)
 
     dia = db.scalar(
         select(DiaCronograma).where(
@@ -908,7 +941,7 @@ async def generate_route(
             detail="La generación de rutas no está disponible en este entorno.",
         )
 
-    viaje = require_trip_access(get_trip_with_relations(db, trip_id), current_user)
+    viaje = require_trip_edit_access(get_trip_with_relations(db, trip_id), current_user)
 
     dia = db.scalar(
         select(DiaCronograma).where(
@@ -985,13 +1018,21 @@ def add_trip_participant(
             raise HTTPException(status_code=404, detail="Usuario inexistente o inactivo")
 
         existente = db.scalar(
-            select(ParticipanteViaje).where(
+            select(ParticipanteViaje)
+            .join(ParticipanteViaje.EstadoParticipacion)
+            .where(
                 ParticipanteViaje.IdViaje == trip_id,
                 ParticipanteViaje.IdUsuario == payload.userId,
             )
         )
         if existente is not None:
-            raise HTTPException(status_code=409, detail="El usuario ya está agregado al viaje")
+            if existente.EstadoParticipacion.Nombre == "salio":
+                existente.IdEstadoParticipacion = estado_invitado.IdEstadoParticipacion
+                existente.InvitadoPor = current_user.IdUsuario
+                db.commit()
+                return TripMutationResponse(message="Participante reincorporado correctamente")
+            else:
+                raise HTTPException(status_code=409, detail="El usuario ya está agregado al viaje")
 
         invitacion_externa = db.scalar(
             select(InvitacionViaje).where(
@@ -1393,4 +1434,274 @@ async def create_trip(
 
         participants=[admin_data],
         invitedEmails=list(emails_invitados),
+    )
+
+
+@router.post("/{trip_id}/leave", response_model=TripMutationResponse)
+async def leave_trip(
+    trip_id: int,
+    data: LeaveTripRequest,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user)
+) -> TripMutationResponse:
+
+    if not data.confirmar:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Debes confirmar que deseas abandonar el viaje",
+        )
+
+    viaje = db.scalar(
+        select(Viaje).where(Viaje.IdViaje == trip_id)
+    )
+
+    if viaje is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Viaje no encontrado",
+        )
+
+    estado_viaje = db.scalar(
+        select(EstadoViaje).where(
+            EstadoViaje.IdEstadoViaje == viaje.IdEstadoViaje,
+            EstadoViaje.Nombre == "activo",
+            EstadoViaje.Activo.is_(True),
+        )
+    )
+
+    if estado_viaje is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No puedes abandonar un viaje que no está activo",
+        )
+        
+    participacion = db.scalar(
+        select(ParticipanteViaje)
+        .where(
+            ParticipanteViaje.IdViaje == trip_id,
+            ParticipanteViaje.IdUsuario == current_user.IdUsuario,
+        )
+    )
+
+    if participacion is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="No eres participante de este viaje",
+        )
+
+    if participacion.EstadoParticipacion.Nombre != "aceptado":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="No puedes abandonar este viaje porque no tenes una participación activa",
+        )
+
+    es_administrador = viaje.IdAdministrador == current_user.IdUsuario
+
+    otros_participantes = db.scalars(
+        select(ParticipanteViaje)
+        .join(ParticipanteViaje.EstadoParticipacion)
+        .where(
+            ParticipanteViaje.IdViaje == trip_id,
+            ParticipanteViaje.IdUsuario != current_user.IdUsuario,
+            EstadoParticipacion.Nombre == "aceptado",
+            EstadoParticipacion.Activo.is_(True),
+        )
+    ).all()
+
+    # CASO ESPECIAL: el administrador es el único participante
+    if es_administrador and not otros_participantes:
+        estado_salio = db.scalar(
+            select(EstadoParticipacion).where(
+                EstadoParticipacion.Nombre == "salio",
+                EstadoParticipacion.Activo.is_(True)
+            )
+        )
+
+        estado_cancelado = db.scalar(
+            select(EstadoViaje).where(
+                EstadoViaje.Nombre == "cancelado",
+                EstadoViaje.Activo.is_(True)
+            )
+        )
+
+        if estado_salio is None or estado_cancelado is None:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Faltan estados maestros requeridos."
+            )
+
+        # El administrador abandona
+        participacion.IdEstadoParticipacion = estado_salio.IdEstadoParticipacion
+        participacion.FechaSalida = datetime.now()
+
+        # Como no quedan participantes, se cancela el viaje
+        viaje.IdEstadoViaje = estado_cancelado.IdEstadoViaje
+
+        db.commit()
+
+        await manager.broadcast_to_trip(
+            viaje.IdViaje,
+            {
+                "tipo": "trip_updated",
+                "trip_id": viaje.IdViaje,
+                "message": "El viaje fue cancelado porque no quedan participantes.",
+            }
+        )
+
+        return TripMutationResponse(
+            message="Has abandonado el viaje y el viaje fue cancelado correctamente."
+        )
+
+    if not es_administrador and data.nuevoAdministradorId is not None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Solo el administrador puede seleccionar un nuevo administrador.",
+        )
+
+    nuevo_administrador = None
+
+    # CASO 1: El usuario es administrador 
+
+    if es_administrador:
+
+        if data.nuevoAdministradorId is None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Debes seleccionar un nuevo administrador antes de abandonar el viaje.",
+            )
+
+        if data.nuevoAdministradorId == current_user.IdUsuario:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="No puedes asignarte a ti mismo como nuevo administrador.",
+            )
+
+        nuevo_administrador = db.scalar(
+            select(ParticipanteViaje)
+            .join(ParticipanteViaje.EstadoParticipacion)
+            .join(ParticipanteViaje.Usuario)
+            .where(
+                ParticipanteViaje.IdViaje == trip_id,
+                ParticipanteViaje.IdUsuario == data.nuevoAdministradorId, 
+                Usuario.Activo.is_(True),
+                EstadoParticipacion.Nombre == "aceptado",
+                EstadoParticipacion.Activo.is_(True)
+            )
+        )
+
+        if nuevo_administrador is None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="El usuario seleccionado no es un participante activo del viaje.",
+            )
+        
+        nuevo_administrador_usuario = nuevo_administrador.Usuario
+
+    # Buscamos estados y roles maestros necesarios para la operación
+    estado_salio = db.scalar(
+        select(EstadoParticipacion)
+        .where(
+            EstadoParticipacion.Nombre == "salio",
+            EstadoParticipacion.Activo.is_(True)
+        )
+    )
+
+    if estado_salio is None:
+        raise HTTPException(
+           status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+           detail="Falta el estado maestro 'salio' en la base de datos."
+        )
+
+    if es_administrador:
+
+        rol_admin = db.scalar(
+            select(RolParticipante)
+            .where(
+                RolParticipante.Nombre == "administrador",
+                RolParticipante.Activo.is_(True)
+            )
+        )
+
+        if rol_admin is None:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Falta el rol maestro 'administrador' en la base de datos."
+            )
+
+        rol_participante = db.scalar(
+            select(RolParticipante)
+            .where(
+                RolParticipante.Nombre == "participante",
+                RolParticipante.Activo.is_(True)
+            )
+        )
+
+        if rol_participante is None:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Falta el rol maestro 'participante' en la base de datos."
+            )
+
+        viaje.IdAdministrador = nuevo_administrador_usuario.IdUsuario
+        nuevo_administrador.IdRolParticipante = rol_admin.IdRolParticipante
+
+        participacion.IdRolParticipante = rol_participante.IdRolParticipante
+        participacion.IdEstadoParticipacion = estado_salio.IdEstadoParticipacion
+        participacion.FechaSalida = datetime.now()
+
+        notificacion = Notificacion(
+            IdUsuario=nuevo_administrador_usuario.IdUsuario,
+            IdViaje=viaje.IdViaje,
+            Tipo="nuevo_administrador",
+            Titulo="Ahora eres el administrador del viaje",
+            Mensaje=(
+                f"{current_user.Nombre} {current_user.Apellido} "
+                f"te asignó como nuevo administrador del viaje '{viaje.Titulo}'."
+            ),
+        )
+
+        db.add(notificacion)
+        db.commit()
+
+    # CASO 2: El usuario no es administrador
+
+    else:
+        participacion.IdEstadoParticipacion = estado_salio.IdEstadoParticipacion
+        participacion.FechaSalida = datetime.now()
+
+        notificacion = Notificacion(
+            IdUsuario=viaje.IdAdministrador,
+            IdViaje=viaje.IdViaje,
+            Tipo="participante_salio",
+            Titulo="Un participante abandonó el viaje",
+            Mensaje=(
+                f"{current_user.Nombre} {current_user.Apellido} "
+                f"abandonó el viaje '{viaje.Titulo}'."
+            ),
+        )
+
+        db.add(notificacion)
+        db.commit()
+
+    # avisar que un usuario abandono el viaje asi se actualiza la lista de participantes 
+    await manager.broadcast_to_trip(
+        viaje.IdViaje,
+        {
+            "tipo": "usuario_abandono_viaje",
+            "trip_id": viaje.IdViaje,
+            "message": "Un participante abandonó el viaje.",
+        }
+    )
+
+    # avisar al usuario destinario de la notificación que tiene una nueva notificación
+    await manager.broadcast_to_user(
+        notificacion.IdUsuario,
+        {
+            "tipo": "nueva_notificacion",
+            "mensaje": notificacion.Titulo
+        }
+    )
+
+    return TripMutationResponse(
+        message="Has abandonado el viaje correctamente."
     )

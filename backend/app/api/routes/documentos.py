@@ -29,42 +29,9 @@ from app.services.supabase.storage import (
 )
 
 from app.services.websocket_manager import manager
+from app.services.trip_access import get_trip_with_relations, require_trip_access, require_trip_edit_access
 
 router = APIRouter()
-
-
-def _verificar_participante_aceptado(
-    db: Session,
-    trip_id: int,
-    current_user: Usuario,
-) -> None:
-    estado_aceptado = db.scalar(
-        select(EstadoParticipacion).where(
-            EstadoParticipacion.Nombre == "aceptado",
-            EstadoParticipacion.Activo.is_(True)
-        )
-    )
-
-    if not estado_aceptado:
-        raise HTTPException(
-            status_code=500,
-            detail="Estado aceptado no configurado"
-        )
-
-    participante = db.scalar(
-        select(ParticipanteViaje).where(
-            ParticipanteViaje.IdViaje == trip_id,
-            ParticipanteViaje.IdUsuario == current_user.IdUsuario,
-            ParticipanteViaje.IdEstadoParticipacion == estado_aceptado.IdEstadoParticipacion
-        )
-    )
-
-    if not participante:
-        raise HTTPException(
-            status_code=403,
-            detail="No formas parte de este viaje"
-        )
-
 
 def _serializar_documento(
     documento: DocumentoViaje, current_user_id: int
@@ -114,15 +81,10 @@ async def subir_documento_viaje(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
 ):
-    
-    viaje = db.get(Viaje, trip_id)
-
-    if not viaje:
-        raise HTTPException(
-            status_code=404,
-            detail="Viaje no encontrado"
-        )
-
+    viaje = require_trip_edit_access(
+        get_trip_with_relations(db, trip_id),
+        current_user,
+    )
 
     categoria = db.get(
         CategoriaDocumento,
@@ -134,9 +96,6 @@ async def subir_documento_viaje(
             status_code=404,
             detail="Categoría de documento no encontrada"
         )
-
-
-    _verificar_participante_aceptado(db, trip_id, current_user)
 
     extensiones_permitidas = {
     ".pdf",
@@ -234,18 +193,32 @@ def listar_documentos_viaje(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
 ):
-    viaje = db.get(Viaje, trip_id)
+    viaje = require_trip_access(
+        get_trip_with_relations(db, trip_id),
+        current_user,
+    )
 
-    if not viaje:
-        raise HTTPException(
-            status_code=404,
-            detail="Viaje no encontrado"
+    participacion = db.scalar(
+        select(ParticipanteViaje).where(
+            ParticipanteViaje.IdViaje == trip_id,
+            ParticipanteViaje.IdUsuario == current_user.IdUsuario,
+        )
+    )
+
+    consulta = db.query(DocumentoViaje).filter(
+        DocumentoViaje.IdViaje == trip_id
+    )
+
+    if (
+        participacion is not None
+        and participacion.EstadoParticipacion.Nombre == "salio"
+    ):
+        consulta = consulta.filter(
+            DocumentoViaje.FechaSubida <= participacion.FechaSalida
         )
 
-    _verificar_participante_aceptado(db, trip_id, current_user)
-
     documentos = (
-        db.query(DocumentoViaje)
+        consulta
         .filter(DocumentoViaje.IdViaje == trip_id)
         .order_by(DocumentoViaje.FechaSubida.desc())
         .all()
@@ -264,15 +237,10 @@ async def editar_o_reemplazar_documento_viaje(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
 ):
-    viaje = db.get(Viaje, trip_id)
-
-    if not viaje:
-        raise HTTPException(
-            status_code=404,
-            detail="Viaje no encontrado"
-        )
-    
-    _verificar_participante_aceptado(db, trip_id, current_user)
+    viaje = require_trip_edit_access(
+        get_trip_with_relations(db, trip_id),
+        current_user,
+    )
 
     documento = db.get(DocumentoViaje, document_id)
 
@@ -398,17 +366,30 @@ def descargar_documento_viaje(
     un usuario que no integra el viaje no pueda descargar el documento
     aunque conozca su identificador.
     """
-    viaje = db.get(Viaje, trip_id)
-
-    if not viaje:
-        raise HTTPException(
-            status_code=404,
-            detail="Viaje no encontrado"
-        )
-
-    _verificar_participante_aceptado(db, trip_id, current_user)
+    viaje = require_trip_access(
+        get_trip_with_relations(db, trip_id),
+        current_user,
+    )
     
     documento = _obtener_documento_del_viaje(db, trip_id, document_id)
+
+    participacion = db.scalar(
+        select(ParticipanteViaje).where(
+            ParticipanteViaje.IdViaje == trip_id,
+            ParticipanteViaje.IdUsuario == current_user.IdUsuario,
+        )
+    )
+
+    if (
+        participacion is not None
+        and participacion.EstadoParticipacion.Nombre == "salio"
+        and participacion.FechaSalida is not None
+        and documento.FechaSubida > participacion.FechaSalida
+    ):
+        raise HTTPException(
+            status_code=403,
+            detail="No puedes acceder a documentos subidos después de abandonar el viaje.",
+        )
 
     try:
         contenido = descargar_documento(documento.UrlArchivo)
@@ -444,15 +425,10 @@ async def eliminar_documento_viaje(
     AC3/AC4/AC5 (pruebas): tras eliminarlo, no debe poder visualizarse ni
     descargarse (se logra al borrar tanto el registro como el archivo).
     """
-    viaje = db.get(Viaje, trip_id)
-
-    if not viaje:
-        raise HTTPException(
-            status_code=404,
-            detail="Viaje no encontrado"
-        )
-
-    _verificar_participante_aceptado(db, trip_id, current_user)
+    viaje = require_trip_edit_access(
+        get_trip_with_relations(db, trip_id),
+        current_user,
+    )
 
     documento = _obtener_documento_del_viaje(db, trip_id, document_id)
 

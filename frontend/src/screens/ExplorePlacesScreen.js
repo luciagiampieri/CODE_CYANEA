@@ -164,7 +164,10 @@ export default function ExplorePlacesScreen({ navigation, route }) {
       setLoading(true);
       setError("");
       const [tripDetail, tripPlaces] = await Promise.all([getTripDetail(tripId), getTripPlaces(tripId)]);
-      setTrip(tripDetail);
+      setTrip({
+        ...tripDetail,
+        hasLeft: tripDetail.hasLeft ?? tripDetail.HasLeft ?? false,
+      });
       setPlaces(tripPlaces);
     } catch (loadError) {
       setError(loadError.message || "No se pudo cargar la exploración del viaje.");
@@ -616,6 +619,24 @@ export default function ExplorePlacesScreen({ navigation, route }) {
             Busca lugares para conocer, guárdalos en el viaje y llévalos directo al itinerario.
           </Text>
         </View>
+
+        {trip?.hasLeft ? (
+          <View style={styles.readOnlyBanner}>
+            <FontAwesome6
+              name="triangle-exclamation"
+              size={16}
+              color={colors.warning}
+            />
+            <View style={styles.readOnlyBannerContent}>
+              <Text style={styles.readOnlyBannerTitle}>
+                Ya no formás parte de este viaje
+              </Text>
+              <Text style={styles.readOnlyBannerText}>
+                Podés consultar la información del viaje, pero ya no podés realizar modificaciones.
+              </Text>
+            </View>
+          </View>
+        ) : null}
 
         <View style={styles.body}>
           {loading ? (
@@ -1366,5 +1387,43 @@ const styles = StyleSheet.create({
     ...textStyles.meta,
     color: colors.textSecondary,
     marginTop: spacing.xs,
+  },
+  readOnlyBanner: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: spacing.sm,
+    marginHorizontal: spacing.lg,
+    marginTop: spacing.md,
+    padding: spacing.md,
+    borderRadius: radii.md,
+    backgroundColor: colors.warningSurface,
+    borderWidth: 1,
+    borderColor: colors.warning,
+  },
+  readOnlyBannerContent: {
+    flex: 1,
+  },
+  readOnlyBannerTitle: {
+    ...textStyles.bodyStrong,
+    color: colors.primary,
+  },
+  readOnlyBannerText: {
+    ...textStyles.meta,
+    color: colors.textSecondary,
+    marginTop: spacing.xxs,
+  },
+  readOnlyBackButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: spacing.xs,
+    alignSelf: "flex-start",
+    marginTop: spacing.sm,
+    paddingVertical: spacing.xs,
+  },
+  readOnlyBackButtonText: {
+    ...textStyles.bodyStrong,
+    color: colors.primary,
+    fontSize: 13,
   },
 });

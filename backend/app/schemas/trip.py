@@ -1,4 +1,5 @@
 from datetime import date, datetime, time as time_type
+from typing import Optional
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -203,6 +204,7 @@ class TripDetailRead(TripRead):
     participantUserIds: list[int] = Field(default_factory=list)
     externalInvitations: list[TripExternalInvitationRead] = Field(default_factory=list)
     invitedEmails: list[str] = Field(default_factory=list)
+    hasLeft: bool = False
 
 
 class TripParticipantUpsert(BaseModel):
@@ -318,3 +320,8 @@ class TripInvitationRead(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class LeaveTripRequest(BaseModel):
+    confirmar: bool 
+    nuevoAdministradorId: Optional[int] = None

@@ -23,6 +23,8 @@ from app.schemas.votacion import (
     VotacionResultados,
 )
 
+from app.services.trip_access import get_trip_with_relations, require_trip_access, require_trip_edit_access
+
 router = APIRouter()
 
 
@@ -43,18 +45,6 @@ def _estado(votacion: Votacion) -> str:
 def _tipo_str(votacion: Votacion) -> str:
     tipo = votacion.Tipo
     return tipo.value if hasattr(tipo, "value") else str(tipo)
-
-
-def _es_miembro_del_viaje(db: Session, viaje: Viaje, usuario: Usuario) -> bool:
-    if viaje.IdAdministrador == usuario.IdUsuario:
-        return True
-    participacion = db.scalar(
-        select(ParticipanteViaje).where(
-            ParticipanteViaje.IdViaje == viaje.IdViaje,
-            ParticipanteViaje.IdUsuario == usuario.IdUsuario,
-        )
-    )
-    return participacion is not None
 
 
 def _build_votacion_read(
@@ -154,15 +144,11 @@ def crear_votacion(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
 ) -> VotacionRead:
-    viaje = db.get(Viaje, payload.idViaje)
-    if viaje is None:
-        raise HTTPException(status_code=404, detail="El viaje no existe.")
 
-    if not _es_miembro_del_viaje(db, viaje, current_user):
-        raise HTTPException(
-            status_code=403,
-            detail="No formas parte de este viaje.",
-        )
+    viaje = require_trip_edit_access(
+        get_trip_with_relations(db, payload.idViaje),
+        current_user,
+    )
 
     votacion = Votacion(
         IdViaje=payload.idViaje,
@@ -196,17 +182,36 @@ def listar_votaciones(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
 ) -> List[VotacionRead]:
-    viaje = db.get(Viaje, idViaje)
-    if viaje is None:
-        raise HTTPException(status_code=404, detail="El viaje no existe.")
-    if not _es_miembro_del_viaje(db, viaje, current_user):
-        raise HTTPException(status_code=403, detail="No formas parte de este viaje.")
 
-    votaciones = db.scalars(
+    viaje = require_trip_access(
+        get_trip_with_relations(db, idViaje),
+        current_user,
+    )
+
+    participacion = db.scalar(
+        select(ParticipanteViaje).where(
+            ParticipanteViaje.IdViaje == idViaje,
+            ParticipanteViaje.IdUsuario == current_user.IdUsuario,
+        )
+    )
+
+    consulta = (
         select(Votacion)
         .options(selectinload(Votacion.Propuestas))
         .where(Votacion.IdViaje == idViaje)
-        .order_by(Votacion.FechaCreacion.desc())
+    )
+
+    if (
+        participacion is not None
+        and participacion.EstadoParticipacion.Nombre == "salio"
+        and participacion.FechaSalida is not None
+    ):
+        consulta = consulta.where(
+            Votacion.FechaCreacion <= participacion.FechaSalida
+        )
+        
+    votaciones = db.scalars(
+        consulta.order_by(Votacion.FechaCreacion.desc())
     ).all()
 
     return [_build_votacion_read(db, v, current_user.IdUsuario) for v in votaciones]
@@ -226,9 +231,28 @@ def resultados_votacion(
     if votacion is None:
         raise HTTPException(status_code=404, detail="La votación no existe.")
 
-    viaje = db.get(Viaje, votacion.IdViaje)
-    if not _es_miembro_del_viaje(db, viaje, current_user):
-        raise HTTPException(status_code=403, detail="No formas parte de este viaje.")
+    viaje = require_trip_access(
+        get_trip_with_relations(db, votacion.IdViaje),
+        current_user,
+    )
+
+    participacion = db.scalar(
+        select(ParticipanteViaje).where(
+            ParticipanteViaje.IdViaje == votacion.IdViaje,
+            ParticipanteViaje.IdUsuario == current_user.IdUsuario,
+        )
+    )
+
+    if (
+        participacion is not None
+        and participacion.EstadoParticipacion.Nombre == "salio"
+        and participacion.FechaSalida is not None
+        and votacion.FechaCreacion > participacion.FechaSalida
+    ):
+        raise HTTPException(
+            status_code=403,
+            detail="No puedes acceder a esta votación porque fue creada después de abandonar el viaje.",
+        )
 
     if _estado(votacion) not in ("cerrada", "cancelada"):
         raise HTTPException(
@@ -254,9 +278,28 @@ def progreso_votacion(
     if votacion is None:
         raise HTTPException(status_code=404, detail="La votación no existe.")
 
-    viaje = db.get(Viaje, votacion.IdViaje)
-    if not _es_miembro_del_viaje(db, viaje, current_user):
-        raise HTTPException(status_code=403, detail="No formas parte de este viaje.")
+    viaje = require_trip_access(
+        get_trip_with_relations(db, votacion.IdViaje),
+        current_user,
+    )
+
+    participacion = db.scalar(
+        select(ParticipanteViaje).where(
+            ParticipanteViaje.IdViaje == votacion.IdViaje,
+            ParticipanteViaje.IdUsuario == current_user.IdUsuario,
+        )
+    )
+
+    if (
+        participacion is not None
+        and participacion.EstadoParticipacion.Nombre == "salio"
+        and participacion.FechaSalida is not None
+        and votacion.FechaCreacion > participacion.FechaSalida
+    ):
+        raise HTTPException(
+            status_code=403,
+            detail="No puedes acceder a esta votación porque fue creada después de abandonar el viaje.",
+        )
 
     if _estado(votacion) != "abierta":
         raise HTTPException(
@@ -282,6 +325,11 @@ def emitir_voto(
     votacion = db.get(Votacion, id_votacion)
     if not votacion:
         raise HTTPException(status_code=404, detail="La votación no existe.")
+
+    viaje = require_trip_edit_access(
+        get_trip_with_relations(db, votacion.IdViaje),
+        current_user,
+    )
 
     if votacion.FechaCancelacion is not None:
         raise HTTPException(status_code=400, detail="La votación fue cancelada.")
@@ -341,6 +389,11 @@ def cancelar_votacion(
     )
     if votacion is None:
         raise HTTPException(status_code=404, detail="La votación no existe.")
+
+    viaje = require_trip_edit_access(
+        get_trip_with_relations(db, votacion.IdViaje),
+        current_user,
+    )
 
     if votacion.IdCreador != current_user.IdUsuario:
         raise HTTPException(

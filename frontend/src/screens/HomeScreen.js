@@ -13,7 +13,7 @@ import TripCard from "../components/home/TripCard";
 import IconCircleButton from "../components/ui/IconCircleButton";
 import MetricCard from "../components/ui/MetricCard";
 import useResponsive from "../hooks/useResponsive";
-import { getCurrentUser, getTrips } from "../services/api";
+import { getCurrentUser, getTrips, getNotifications, getPendingInvitations, getNotificationsSocketUrl } from "../services/api";
 import {
   colors,
   radii,
@@ -78,7 +78,24 @@ function normalizeTrip(trip) {
 export default function HomeScreen({ navigation }) {
   const [trips, setTrips] = useState([]);
   const [currentUser, setCurrentUser] = useState(null);
+  const [hasUnreadNotifications, setHasUnreadNotifications] = useState(false);
   const { isTablet, isDesktop } = useResponsive();
+
+  const loadUnreadCount = async () => {
+    try {
+      const [notificaciones, invitaciones] = await Promise.all([
+        getNotifications().catch(() => []),
+        getPendingInvitations().catch(() => []),
+      ]);
+
+      const unreadNotifs = notificaciones.some((n) => n.leida === false);
+      const hasInvitations = invitaciones.length > 0;
+
+      setHasUnreadNotifications(unreadNotifs || hasInvitations);
+    } catch {
+      setHasUnreadNotifications(false);
+    }
+  };
 
   useEffect(() => {
     async function loadData() {
@@ -96,7 +113,55 @@ export default function HomeScreen({ navigation }) {
     }
 
     loadData();
+    loadUnreadCount();
+
+    const unsubscribe = navigation.addListener("focus", () => {
+      loadUnreadCount();
+    });
+
+    return unsubscribe;
+  }, [navigation]);
+
+  useEffect(() => {
+    let ws = null;
+    let cancelado = false;
+
+    async function conectarSocketUsuario() {
+      try {
+        const socketUrl = await getNotificationsSocketUrl();
+        if (cancelado) return;
+        
+        ws = new WebSocket(socketUrl);
+
+        ws.onmessage = (event) => {
+          try {
+            const data = JSON.parse(event.data);
+            if (data.tipo === "nueva_notificacion") {
+              loadUnreadCount();
+            }
+          } catch (e) {
+            console.error("Error al parsear mensaje de notificación", e);
+          }
+        };
+
+        ws.onerror = (error) => {
+          console.log("Error en el WebSocket de notificaciones:", error);
+        };
+      } catch (err) {
+        console.log("Error conectando WS de notificaciones:", err);
+      }
+    }
+
+    conectarSocketUsuario();
+
+    return () => {
+      cancelado = true;
+      if (ws) {
+        ws.close();
+      }
+    };
   }, []);
+
 
   const decoratedTrips = useMemo(
     () => trips.map((trip) => normalizeTrip(trip)),
@@ -141,10 +206,13 @@ export default function HomeScreen({ navigation }) {
             </View>
 
             <View style={styles.headerActions}>
-              <IconCircleButton icon="bell" onPress={() => navigation.navigate("Invitaciones")} />
-            </View>
+              <View style={styles.bellContainer}>
+                <IconCircleButton icon="bell" onPress={() => navigation.navigate("Invitaciones")} />
+                {hasUnreadNotifications && <View style={styles.badgeDot} />}
+              </View>
           </View>
         </View>
+      </View>
 
         <View style={styles.body}>
           <View style={styles.metricsRow}>
@@ -306,5 +374,23 @@ const styles = StyleSheet.create({
   },
   fabPressed: {
     transform: [{ scale: 0.97 }],
+  },
+  bellContainer: {
+    width: 44,
+    height: 44,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  badgeDot: {
+    position: "absolute",
+    top: 6,
+    right: 6,
+    width: 11,
+    height: 11,
+    borderRadius: 5.5,
+    backgroundColor: colors.danger || "#ef4444",
+    borderWidth: 2,
+    borderColor: colors.surface,
+    zIndex: 10,
   },
 });

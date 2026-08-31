@@ -29,7 +29,7 @@ from app.schemas.place import (
 from app.schemas.trip import ActividadRead, RutaDiariaRead
 from app.services.place_search import get_place_details, search_popular_places, search_trip_places, get_trip_allowed_regions, search_nearby_places, CATEGORY_TYPE_MAP
 from app.services.route_generation import sincronizar_ruta_tras_cambio_actividad
-from app.services.trip_access import get_trip_with_relations, require_trip_access
+from app.services.trip_access import get_trip_with_relations, require_trip_access, require_trip_edit_access
 
 router = APIRouter()
 
@@ -143,8 +143,9 @@ async def search_places(
     current_user: Usuario = Depends(get_current_user),
 ) -> list[TripPlaceSearchRead]:
 
+    
     viaje = get_trip_with_relations(db, trip_id)
-    require_trip_access(viaje, current_user)
+    require_trip_edit_access(viaje, current_user)
 
     allowed_regions = get_trip_allowed_regions(viaje)
 
@@ -177,7 +178,7 @@ async def popular_places(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
 ) -> PopularTripPlacesResponse:
-    require_trip_access(get_trip_with_relations(db, trip_id), current_user)
+    require_trip_edit_access(get_trip_with_relations(db, trip_id), current_user)
     results = await search_popular_places(lat=lat, lng=lng, limit=limit)
     return PopularTripPlacesResponse(
         contextLabel=results.context_label,
@@ -209,7 +210,7 @@ async def get_place_details_route(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
 ) -> PlaceDetailRead:
-    require_trip_access(get_trip_with_relations(db, trip_id), current_user)
+    require_trip_edit_access(get_trip_with_relations(db, trip_id), current_user)
     details = await get_place_details(placeId.strip())
     return PlaceDetailRead(
         placeId=details.place_id,
@@ -244,7 +245,7 @@ async def nearby_places(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
 ) -> NearbyPlacesResponse:
-    require_trip_access(get_trip_with_relations(db, trip_id), current_user)
+    require_trip_edit_access(get_trip_with_relations(db, trip_id), current_user)
 
     normalized_category = category.strip().lower() if category else None
     if normalized_category and normalized_category not in CATEGORY_TYPE_MAP:
@@ -307,7 +308,7 @@ def create_activity_location(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
 ) -> TripPlaceRead:
-    require_trip_access(get_trip_with_relations(db, trip_id), current_user)
+    require_trip_edit_access(get_trip_with_relations(db, trip_id), current_user)
 
     place = db.scalar(
         select(LugarInteres).where(
@@ -367,7 +368,7 @@ def create_trip_place(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
 ) -> TripPlaceMutationResponse:
-    require_trip_access(get_trip_with_relations(db, trip_id), current_user)
+    require_trip_edit_access(get_trip_with_relations(db, trip_id), current_user)
 
     place = db.scalar(
         select(LugarInteres).where(LugarInteres.GooglePlaceId == payload.placeId.strip())
@@ -437,7 +438,7 @@ async def schedule_trip_place(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
 ) -> ActividadRead:
-    require_trip_access(get_trip_with_relations(db, trip_id), current_user)
+    require_trip_edit_access(get_trip_with_relations(db, trip_id), current_user)
     _ensure_trip_days(db, trip_id)
 
     trip_place = db.scalar(

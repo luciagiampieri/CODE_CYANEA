@@ -103,5 +103,9 @@ class Viaje(Base):
         cascade="all, delete-orphan",
         foreign_keys="LiquidacionViaje.IdViaje",
     )
-    
+    Notificaciones = relationship(
+        "Notificacion",
+        back_populates="Viaje",
+        cascade="all, delete-orphan",
+    )
 

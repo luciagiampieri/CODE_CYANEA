@@ -78,3 +78,8 @@ class Usuario(Base):
         "DocumentoViaje",
         back_populates="UsuarioSubida"
     )
+    Notificaciones = relationship(
+        "Notificacion",
+        back_populates="Usuario",
+        cascade="all, delete-orphan",
+    )

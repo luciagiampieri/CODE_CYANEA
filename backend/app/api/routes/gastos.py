@@ -20,6 +20,7 @@ from app.schemas.gasto import (
 from app.models.gasto import TipoDivisionEnum
 from app.models.viaje import Viaje
 from app.services.liquidacion_service import rebuild_settlement_plan
+from app.services.trip_access import get_trip_with_relations, require_trip_access, require_trip_edit_access
 
 router = APIRouter()
 
@@ -64,6 +65,11 @@ def _validar_participantes_activos(
 
 @router.post("/")
 def create_gasto(data: GastoCreate, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)):
+
+    viaje = require_trip_edit_access(
+        get_trip_with_relations(db, data.IdViaje),
+        current_user,
+    )
 
     fecha_str = str(data.FechaGasto)
     fecha_limpia = fecha_str.split("T")[0]
@@ -255,21 +261,10 @@ def get_trip_participants(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
 ):
-    
-    viaje = db.get(Viaje, trip_id)
-    if viaje is None:
-        raise HTTPException(status_code=404, detail="Viaje no encontrado")
-
-    es_admin = viaje.IdAdministrador == current_user.IdUsuario
-    es_participante = db.scalar(
-        select(ParticipanteViaje).where(
-            ParticipanteViaje.IdViaje == trip_id,
-            ParticipanteViaje.IdUsuario == current_user.IdUsuario,
-        )
-    ) is not None
-
-    if not (es_admin or es_participante):
-        raise HTTPException(status_code=403, detail="No formas parte de este viaje")
+    viaje = require_trip_access(
+        get_trip_with_relations(db, trip_id),
+        current_user,
+    )
 
     estado_aceptado = db.scalar(
         select(EstadoParticipacion).where(

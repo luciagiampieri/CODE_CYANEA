@@ -3,7 +3,6 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user
-from app.api.routes.documentos import _verificar_participante_aceptado
 from app.db.session import get_db
 from app.models import ItemRepositorioViaje, Usuario, Viaje
 from app.schemas.repositorio import (
@@ -12,6 +11,8 @@ from app.schemas.repositorio import (
     ItemRepositorioRead,
     ItemRepositorioUpdate,
 )
+from app.services.trip_access import get_trip_with_relations, require_trip_access, require_trip_edit_access
+from app.models.participante_viaje import ParticipanteViaje
 
 router = APIRouter()
 
@@ -36,6 +37,7 @@ def _serializar_item(item: ItemRepositorioViaje, current_user_id: int) -> ItemRe
 def _obtener_item_visible(
     db: Session, trip_id: int, item_id: int, current_user: Usuario
 ) -> ItemRepositorioViaje:
+    
     item = db.get(ItemRepositorioViaje, item_id)
     if item is None or item.IdViaje != trip_id:
         raise HTTPException(status_code=404, detail="El ítem no existe.")
@@ -57,11 +59,11 @@ def crear_item_repositorio(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
 ) -> ItemRepositorioMutationResponse:
-    viaje = db.get(Viaje, trip_id)
-    if viaje is None:
-        raise HTTPException(status_code=404, detail="Viaje no encontrado")
 
-    _verificar_participante_aceptado(db, trip_id, current_user)
+    viaje = require_trip_edit_access(
+        get_trip_with_relations(db, trip_id),
+        current_user,
+    )
 
     item = ItemRepositorioViaje(
         IdViaje=trip_id,
@@ -88,20 +90,45 @@ def listar_items_repositorio(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
 ) -> list[ItemRepositorioRead]:
-    viaje = db.get(Viaje, trip_id)
-    if viaje is None:
-        raise HTTPException(status_code=404, detail="Viaje no encontrado")
 
-    _verificar_participante_aceptado(db, trip_id, current_user)
+    viaje = require_trip_access(
+            get_trip_with_relations(db, trip_id),
+            current_user,
+        )
 
-    items = db.scalars(
+    participacion = db.scalar(
+        select(ParticipanteViaje)
+        .where(
+            ParticipanteViaje.IdViaje == trip_id,
+            ParticipanteViaje.IdUsuario == current_user.IdUsuario,
+        )
+    )
+
+    consulta = (
         select(ItemRepositorioViaje)
         .where(
             ItemRepositorioViaje.IdViaje == trip_id,
-            (ItemRepositorioViaje.EsPublico.is_(True))
-            | (ItemRepositorioViaje.IdUsuarioCreador == current_user.IdUsuario),
+            (
+                ItemRepositorioViaje.EsPublico.is_(True)
+                | (
+                    ItemRepositorioViaje.IdUsuarioCreador
+                    == current_user.IdUsuario
+                )
+            ),
         )
-        .order_by(ItemRepositorioViaje.FechaCreacion.desc())
+    )
+
+    if (
+        participacion is not None
+        and participacion.EstadoParticipacion.Nombre == "salio"
+        and participacion.FechaSalida is not None
+    ):
+        consulta = consulta.where(
+            ItemRepositorioViaje.FechaCreacion <= participacion.FechaSalida
+        )
+
+    items = db.scalars(
+        consulta.order_by(ItemRepositorioViaje.FechaCreacion.desc())
     ).all()
 
     return [_serializar_item(item, current_user.IdUsuario) for item in items]
@@ -115,11 +142,11 @@ def editar_item_repositorio(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
 ) -> ItemRepositorioMutationResponse:
-    viaje = db.get(Viaje, trip_id)
-    if viaje is None:
-        raise HTTPException(status_code=404, detail="Viaje no encontrado")
 
-    _verificar_participante_aceptado(db, trip_id, current_user)
+    viaje = require_trip_edit_access(
+            get_trip_with_relations(db, trip_id),
+            current_user,
+        )
 
     item = _obtener_item_visible(db, trip_id, item_id, current_user)
 
@@ -151,11 +178,10 @@ def eliminar_item_repositorio(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
 ):
-    viaje = db.get(Viaje, trip_id)
-    if viaje is None:
-        raise HTTPException(status_code=404, detail="Viaje no encontrado")
-
-    _verificar_participante_aceptado(db, trip_id, current_user)
+    viaje = require_trip_edit_access(
+                get_trip_with_relations(db, trip_id),
+                current_user,
+            )
 
     item = _obtener_item_visible(db, trip_id, item_id, current_user)
 

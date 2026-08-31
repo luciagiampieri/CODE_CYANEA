@@ -12,6 +12,7 @@ logger = logging.getLogger(__name__)
 class ConnectionManager:
     def __init__(self) -> None:
         self._conexiones_por_viaje: dict[int, set[WebSocket]] = defaultdict(set)
+        self._conexiones_por_usuario: dict[int, set[WebSocket]] = defaultdict(set)
         self._ediciones_activas: dict[tuple[int, int], int] = {}
         self._lock_ediciones = asyncio.Lock()
 
@@ -103,6 +104,28 @@ class ConnectionManager:
             except Exception:
                 logger.exception("No se pudo enviar evento WS al viaje, se descarta la conexión")
                 self.disconnect(trip_id, conexion)
+
+    async def connect_user(self, user_id: int, websocket: WebSocket):
+        await websocket.accept()
+        if user_id not in self._conexiones_por_usuario:
+            self._conexiones_por_usuario[user_id] = set()
+        self._conexiones_por_usuario[user_id].add(websocket)
+
+    def disconnect_user(self, user_id: int, websocket: WebSocket):
+        if user_id in self._conexiones_por_usuario:
+            self._conexiones_por_usuario[user_id].discard(websocket)
+            if not self._conexiones_por_usuario[user_id]:
+                del self._conexiones_por_usuario[user_id]
+
+    async def broadcast_to_user(self, user_id: int, evento: dict) -> None:
     
+        conexiones = list(self._conexiones_por_usuario.get(user_id, ()))
+        payload = json.dumps(evento, default=str)
+        for conexion in conexiones:
+            try:
+                await conexion.send_text(payload)
+            except Exception:
+                logger.exception("No se pudo enviar evento WS al usuario, se descarta la conexión")
+                self.disconnect_user(user_id, conexion)
 
 manager = ConnectionManager()

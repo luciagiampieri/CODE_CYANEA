@@ -42,6 +42,11 @@ export async function getItinerarySocketUrl(tripId) {
   return `${wsBase}/ws/trips/${tripId}/itinerary?token=${encodeURIComponent(token ?? "")}`;
 }
 
+export async function getNotificationsSocketUrl() {
+  const token = await getStoredToken();
+  const wsBase = resolveWsBaseUrl();
+  return `${wsBase}/api/v1/notificaciones/ws/notifications?token=${encodeURIComponent(token ?? "")}`;
+}
 
 async function authHeaders() {
   const token = await getStoredToken();
@@ -1012,3 +1017,62 @@ export async function updateTripDocument(
     }
   }
 }
+
+export async function leaveTrip(tripId, payload) {
+  const response = await fetch(`${API_BASE_URL}/trips/${tripId}/leave`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(await authHeaders()),
+    },
+    body: JSON.stringify(payload),
+  });
+
+  return parseResponse(
+    response,
+    "No se pudo abandonar el viaje"
+  );
+}
+
+
+export async function getNotifications() {
+  const response = await fetch(`${API_BASE_URL}/notificaciones`, {
+    headers: await authHeaders(),
+  });
+
+  return parseResponse(
+    response,
+    "No se pudieron obtener las notificaciones"
+  );
+}
+
+export async function markNotificationAsRead(notificacionId) {
+  const response = await fetch(
+    `${API_BASE_URL}/notificaciones/${notificacionId}/read`,
+    {
+      method: "PATCH",
+      headers: await authHeaders(),
+    }
+  );
+
+  return parseResponse(
+    response,
+    "No se pudo marcar la notificación como leída"
+  );
+}
+
+export async function markAllNotificationsAsRead() {
+  const response = await fetch(
+    `${API_BASE_URL}/notificaciones/read-all`,
+    {
+      method: "PATCH",
+      headers: await authHeaders(),
+    }
+  );
+
+  return parseResponse(
+    response,
+    "No se pudieron marcar las notificaciones como leídas"
+  );
+}
+

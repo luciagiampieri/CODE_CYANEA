@@ -43,10 +43,6 @@ import {
   rebuildTripSettlement,
   deleteTrip,
   updateActivity,
-} from "../services/api";
-import { colors, radii, spacing, surfaces, textStyles } from "../theme/tokens";
-
-import {
   getTripParticipants,
   getExpenseCategories,
   getTripDocuments,
@@ -54,14 +50,20 @@ import {
   deleteTripDocument,
   getRepositorioItems,
   deleteRepositorioItem,
-} from "../services/api";
+  createActivity,
+  deleteActivity,
+  generateTripRoute,
+  leaveTrip,
+} from "../services/api"
+;
+import { colors, radii, spacing, surfaces, textStyles } from "../theme/tokens";
+
 import {
   guardarParticipantesEnCache,
   guardarCategoriasEnCache,
 } from "../database/gastosLocal";
 
 import AddActivityScreen from "./AddActivityScreen";
-import { createActivity, deleteActivity, generateTripRoute } from "../services/api";
 import useItinerarioViewPreference from "../hooks/useItinerarioViewPreference";
 import ItinerarioViewToggle from "../components/trip/ItinerarioViewToggle";
 import ItinerarioCalendarView from "../components/trip/ItinerarioCalendarView";
@@ -89,6 +91,7 @@ function normalizeTrip(raw) {
     destination: destinationNames,
     description: raw.description ?? raw.Descripcion ?? "",
     status: (raw.status ?? raw.Estado ?? "activo").toLowerCase(),
+    hasLeft: raw.hasLeft ?? raw.HasLeft ?? false,
     currency: raw.currency ?? raw.Moneda ?? "EUR",
     startDate: raw.startDate ?? raw.FechaInicio ?? "",
     endDate: raw.endDate ?? raw.FechaFin ?? "",
@@ -244,6 +247,91 @@ export default function TripDetailScreen({ navigation, route }) {
   const socketRef = useRef(null);
   const pendingEditRef = useRef(null);
   const [itinerarioView, setItinerarioView] = useItinerarioViewPreference();
+
+  const [showLeaveModal, setShowLeaveModal] = useState(false);
+  const [nuevoAdminId, setNuevoAdminId] = useState(null);
+  const [leavingTrip, setLeavingTrip] = useState(false);
+
+  const isUserAdmin = useMemo(() => {
+    if (!currentUser || !trip?.admin) return false;
+    return String(currentUser.id) === String(trip.admin.id);
+  }, [currentUser, trip?.admin]);
+
+  const eligibleNewAdmins = useMemo(() => {
+    if (!trip?.participants || !currentUser) return [];
+
+    return trip.participants.filter(
+      (participant) =>
+        String(participant.id ?? participant.IdUsuario) !==
+        String(currentUser.id)
+    );
+  }, [trip?.participants, currentUser]);
+
+  const handleLeaveTripPress = () => {
+
+    if (trip?.status && trip.status !== "activo") {
+      avisar(
+        "Acción no permitida",
+        "No puedes abandonar un viaje que no está activo."
+      );
+      return;
+    }
+
+    if (isUserAdmin && eligibleNewAdmins.length > 0) {
+      setNuevoAdminId(null);
+      setShowLeaveModal(true);
+      return;
+    }
+
+    confirmar(
+      "Abandonar viaje",
+      "¿Estás seguro de que querés abandonar este viaje?",
+      () => ejecutarSalidaViaje()
+    );
+  };
+
+  const ejecutarSalidaViaje = async (adminId = null) => {
+    const administradorNuevo = adminId || nuevoAdminId;
+
+    if (isUserAdmin && eligibleNewAdmins.length > 0 && !administradorNuevo) {
+      avisar(
+        "Atención",
+        "Debés seleccionar un nuevo administrador antes de abandonar el viaje."
+      );
+      return;
+    }
+
+    try {
+      setLeavingTrip(true);
+
+      const response = await leaveTrip(trip.id, {
+        confirmar: true,
+        nuevoAdministradorId:
+          isUserAdmin && administradorNuevo
+            ? Number(administradorNuevo)
+            : null,
+      });
+
+      setShowLeaveModal(false);
+      setNuevoAdminId(null);
+
+      setTrip((prev) => ({
+      ...prev,
+      hasLeft: true,
+      }));
+
+      avisar("¡Listo!", response?.message || "Has abandonado el viaje correctamente.");
+      loadTripDetail();
+
+    } catch (error) {
+      avisar(
+        "No se pudo abandonar el viaje",
+        error.message || "Ocurrió un problema al intentar abandonar el viaje."
+      );
+    } finally {
+      setLeavingTrip(false);
+    }
+  };
 
   function enviarMensajeWebSocket(mensaje) {
     if (socketRef.current?.readyState === WebSocket.OPEN) {
@@ -552,6 +640,11 @@ export default function TripDetailScreen({ navigation, route }) {
             loadDocumentos();
             loadVotaciones();
             loadRepositorio();
+            loadSettlement();
+            return;
+          }
+          if (mensaje.tipo == "usuario_abandono_viaje"){
+            loadTripDetail();
             return;
           }
           if (mensaje.tipo === "ruta_eliminada"){
@@ -686,7 +779,7 @@ export default function TripDetailScreen({ navigation, route }) {
   }, [navigation, initialTrip?.id]);
 
   useEffect(() => {
-    if (!trip) return;
+    if (!trip || trip?.hasLeft) return;
     const timeoutId = setTimeout(async () => {
       if (!participantSearch.trim()) {
         setUserOptions([]);
@@ -771,6 +864,7 @@ export default function TripDetailScreen({ navigation, route }) {
         email: user.email ?? user.Email,
         fotoUrl: user.fotoUrl ?? user.FotoUrl ?? "",
         role: user.role ?? user.Role ?? "",
+        status: user.status ?? user.Status ?? "aceptado",
       };
     });
 
@@ -786,17 +880,26 @@ export default function TripDetailScreen({ navigation, route }) {
     return [...registered, ...invited];
   }, [trip?.externalInvitations, trip?.participants]);
 
+  const participantesActivos = useMemo(() => {
+    return participantItems.filter(p => p.status === "aceptado" || !p.status);
+  }, [participantItems]);
+
+  const invitadosPendientes = useMemo(() => {
+    return participantItems.filter(p => p.status === "invitado");
+  }, [participantItems]);
+
   function handleAddParticipant(user) {
+    if (trip?.hasLeft) return;
     persistAddParticipant({ userId: user.id });
   }
 
   function handleAddExternalInvite() {
-    if (!canInviteExternal) return;
+    if (trip?.hasLeft || !canInviteExternal) return;
     persistAddParticipant({ email: normalizedSearch });
   }
 
   async function persistAddParticipant(payload) {
-    if (!trip?.id) return;
+    if (!trip?.id || trip?.hasLeft) return;
     try {
       setMutatingParticipants(true);
       setParticipantMessage("");
@@ -812,6 +915,7 @@ export default function TripDetailScreen({ navigation, route }) {
   }
 
   function handleRemoveParticipant(participant) {
+    if (trip?.hasLeft) return;
     confirmar(
       "Expulsar participante",
       `¿Seguro que querés expulsar a ${participant.nombreCompleto} del viaje?`,
@@ -820,7 +924,7 @@ export default function TripDetailScreen({ navigation, route }) {
   }
 
   async function persistRemoveParticipant(participant) {
-    if (!trip?.id) return;
+    if  (trip?.hasLeft || !trip?.id) return;
     try {
       setMutatingParticipants(true);
       setParticipantMessage("");
@@ -838,7 +942,7 @@ export default function TripDetailScreen({ navigation, route }) {
   }
 
   async function handleCreateActivity(payload) {
-    if (!trip?.id || !activityModalDay) return;
+    if (!trip?.id || trip?.hasLeft || !activityModalDay) return;
     
     if (payload.id){
       await updateActivity(
@@ -855,7 +959,7 @@ export default function TripDetailScreen({ navigation, route }) {
   }
 
   async function handleRebuildSettlement() {
-    if (!trip?.id) return;
+    if (!trip?.id || trip?.hasLeft) return;
     try {
       setLoadingSettlement(true);
       setSettlementError("");
@@ -869,7 +973,7 @@ export default function TripDetailScreen({ navigation, route }) {
   }
 
   async function handleMarkTransferPaid(transferId, realizada) {
-    if (!trip?.id) return;
+    if (!trip?.id || trip?.hasLeft) return;
     try {
       setUpdatingTransferId(transferId);
       setSettlementError("");
@@ -908,7 +1012,7 @@ export default function TripDetailScreen({ navigation, route }) {
   }
 
   async function handleGenerarRuta(dayId, modo) {
-    if (!trip?.id || generandoRutaDayId) return;
+    if (!trip?.id || trip?.hasLeft || generandoRutaDayId) return;
 
     setGenerandoRutaDayId(dayId);
     try {
@@ -947,11 +1051,12 @@ export default function TripDetailScreen({ navigation, route }) {
   }
 
   function handleDeleteActivity(dayId, activityId, activityTitle) {
+    if (trip?.hasLeft) return;
     setActivityToDelete({ dayId, activityId, title: activityTitle });
   }
 
   async function handleConfirmDeleteActivity() {
-    if (!trip?.id || !activityToDelete) return;
+    if (!trip?.id || trip?.hasLeft || !activityToDelete) return;
     const { dayId, activityId, title } = activityToDelete;
     setActivityToDelete(null);
 
@@ -979,7 +1084,7 @@ export default function TripDetailScreen({ navigation, route }) {
   }, [activityFeedback]);
 
   async function handleConfirmDelete() {
-    if (!trip?.id) return;
+    if (!trip?.id || trip?.hasLeft) return;
     try {
       setShowDeleteModal(false);
       setLoading(true);
@@ -1043,7 +1148,7 @@ export default function TripDetailScreen({ navigation, route }) {
             <View style={styles.heroActions} pointerEvents="box-none">
               <IconCircleButton icon="arrow-left" onPress={() => navigation.goBack()} />
               <View style={styles.heroActionsRight} pointerEvents="box-none">
-                {isAdmin ? (
+                {isAdmin && !trip?.hasLeft ? (
                   <IconCircleButton
                     icon="pen-to-square"
                     onPress={() => navigation.navigate("EditarViaje", { tripId: trip.id })}
@@ -1053,6 +1158,10 @@ export default function TripDetailScreen({ navigation, route }) {
                 <IconCircleButton 
                   icon="ellipsis-vertical" 
                   onPress={() => {
+                    if (trip?.hasLeft) {
+                      Alert.alert("Modo consulta", "Estás consultando este viaje desde tu historial. No se puede gestionar.");
+                      return;
+                    }
                     if (isAdmin) {
                       setShowOptionsMenu(true); 
                     } else {
@@ -1094,6 +1203,26 @@ export default function TripDetailScreen({ navigation, route }) {
             );
           })}
         </View>
+
+        {trip?.hasLeft ? (
+          <View style={styles.readOnlyBanner}>
+            <FontAwesome6
+              name="triangle-exclamation"
+              size={16}
+              color={colors.warning}
+            />
+
+            <View style={styles.readOnlyBannerContent}>
+              <Text style={styles.readOnlyBannerTitle}>
+                Ya no formás parte de este viaje
+              </Text>
+
+              <Text style={styles.readOnlyBannerText}>
+                Podés consultar la información del viaje, pero ya no podés realizar modificaciones.
+              </Text>
+            </View>
+          </View>
+        ) : null}
 
         <View style={styles.body}>
           {loadError ? (
@@ -1168,56 +1297,62 @@ export default function TripDetailScreen({ navigation, route }) {
                                   <Text style={styles.agendaNote}>{item.note ?? item.Notas}</Text>
                                 ) : null}
                               </View>
-                              <Pressable
-                                hitSlop={8}
-                                onPress={() => {
-                                  const enviado = enviarMensajeWebSocket({
-                                    tipo: "iniciar_edicion",
-                                    idActividad: item.id,
-                                  });
+                              {!trip?.hasLeft ? (
+                                <View style={styles.agendaActions}>
+                                <Pressable
+                                  hitSlop={8}
+                                  onPress={() => {
+                                    const enviado = enviarMensajeWebSocket({
+                                      tipo: "iniciar_edicion",
+                                      idActividad: item.id,
+                                    });
 
-                                  if (!enviado) {
-                                    return;
+                                    if (!enviado) {
+                                      return;
+                                    }
+
+                                    pendingEditRef.current = {
+                                      id: dayId,
+                                      label: `${dayDateText} · Día ${dayIndex}`,
+                                      activity: item,
+                                    };
+                                  }}
+                                  style={styles.agendaActionButton}
+                                >
+                                  <FontAwesome6 color={colors.primary} name="pen" size={13} />
+                                </Pressable>
+
+                                <Pressable
+                                  hitSlop={8}
+                                  onPress={() =>
+                                    handleDeleteActivity(dayId, item.id, item.title ?? item.Titulo)
                                   }
-
-                                  pendingEditRef.current = {
-                                    id: dayId,
-                                    label: `${dayDateText} · Día ${dayIndex}`,
-                                    activity: item,
-                                  };
-                                }}
-                                style={styles.agendaActionButton}
-                              >
-                                <FontAwesome6 color={colors.primary} name="pen" size={13} />
-                              </Pressable>
-
-                              <Pressable
-                                hitSlop={8}
-                                onPress={() =>
-                                  handleDeleteActivity(dayId, item.id, item.title ?? item.Titulo)
-                                }
-                                style={styles.agendaActionButton}
-                              >
-                                <FontAwesome6 color={colors.textMuted} name="trash" size={13} />
-                              </Pressable>
-                            </View>
-                          ))
-                        ) : (
+                                  style={styles.agendaActionButton}
+                                >
+                                  <FontAwesome6 color={colors.textMuted} name="trash" size={13} />
+                                </Pressable>
+                              </View>
+                          ): null}
+                          </View>
+                        ))
+                      ): (
                           <Text style={styles.sectionCopy}>No hay actividades agendadas para este día todavía.</Text>
                         )}
 
-                        <Pressable
-                          onPress={() =>
-                            setActivityModalDay({
-                              id: dayId,
-                              label: `${dayDateText} · Día ${dayIndex}`,
-                            })
-                          }
-                          style={styles.addActivityButton}
-                        >
-                          <FontAwesome6 color={colors.primary} name="plus" size={12} />
-                          <Text style={styles.addActivityText}>Agregar actividad</Text>
-                        </Pressable>
+                        {!trip?.hasLeft ? (
+                          <Pressable
+                            onPress={() =>
+                              setActivityModalDay({
+                                id: dayId,
+                                label: `${dayDateText} · Día ${dayIndex}`,
+                              })
+                            }
+                            style={styles.addActivityButton}
+                          >
+                            <FontAwesome6 color={colors.primary} name="plus" size={12} />
+                            <Text style={styles.addActivityText}>Agregar actividad</Text>
+                          </Pressable>
+                        ) : null}
 
                         {(() => {
                           const actividadesConUbicacion = actividades.filter(
@@ -1281,7 +1416,7 @@ export default function TripDetailScreen({ navigation, route }) {
                                 </Text>
                               ) : null}
 
-                              {puedeGenerarRuta ? (
+                              {puedeGenerarRuta && !trip?.hasLeft ? (
                                 <>
                                   <View style={styles.modoTransporteWrap}>
                                     {MODOS_RUTA.map((modo) => {
@@ -1371,10 +1506,10 @@ export default function TripDetailScreen({ navigation, route }) {
                   label: `${day.dayDateText} · Día ${day.dayIndex}`,
                 })
               }
-              onDeleteActivity={(day, actividad) =>
-                handleDeleteActivity(day.dayId, actividad.id, actividad.title)
+              onDeleteActivity={!trip?.hasLeft ? (day, actividad) => 
+                handleDeleteActivity(day.dayId, actividad.id, actividad.title): undefined
               }
-              onEditActivity={(day, actividad) => {
+              onEditActivity={!trip?.hasLeft ? (day, actividad) => {
                 const enviado = enviarMensajeWebSocket({
                   tipo: "iniciar_edicion",
                   idActividad: actividad.id,
@@ -1389,7 +1524,7 @@ export default function TripDetailScreen({ navigation, route }) {
                   label: `${day.dayDateText} · Día ${day.dayIndex}`,
                   activity: actividad,
                 };
-              }}
+              } : undefined}
             />
           ) : null}
 
@@ -1398,13 +1533,15 @@ export default function TripDetailScreen({ navigation, route }) {
               <View style={styles.sectionCard}>
                 <Text style={styles.sectionHeading}>Gastos del viaje</Text>
                 <Text style={styles.sectionCopy}>Moneda base: {trip.currency}. Puedes cargar nuevos gastos o revisar el balance del grupo.</Text>
-                <PrimaryButton
-                  icon="plus"
-                  iconPosition="left"
-                  label="Agregar gasto"
-                  onPress={() => navigation.navigate("AddGasto", { IdViaje: trip.id, Moneda: trip.currency })}
-                  style={styles.fullButton}
-                />
+                {!trip?.hasLeft ? (
+                  <PrimaryButton
+                    icon="plus"
+                    iconPosition="left"
+                    label="Agregar gasto"
+                    onPress={() => navigation.navigate("AddGasto", { IdViaje: trip.id, Moneda: trip.currency })}
+                    style={styles.fullButton}
+                  />
+                ) : null}
               </View>
 
               <View style={styles.sectionCard}>
@@ -1412,15 +1549,17 @@ export default function TripDetailScreen({ navigation, route }) {
                 <Text style={styles.sectionCopy}>
                   El sistema calcula automáticamente las deudas netas y propone la menor cantidad posible de transferencias.
                 </Text>
-                <PrimaryButton
-                  icon="rotate"
-                  iconPosition="left"
-                  label="Recalcular liquidación"
-                  loading={loadingSettlement}
-                  onPress={handleRebuildSettlement}
-                  style={styles.fullButton}
-                  variant="secondary"
-                />
+                {!trip?.hasLeft ? (
+                  <PrimaryButton
+                    icon="rotate"
+                    iconPosition="left"
+                    label="Recalcular liquidación"
+                    loading={loadingSettlement}
+                    onPress={handleRebuildSettlement}
+                    style={styles.fullButton}
+                    variant="secondary"
+                  />
+                ) : null}
                 {settlementError ? (
                   <Text style={styles.settlementError}>{settlementError}</Text>
                 ) : null}
@@ -1543,30 +1682,32 @@ export default function TripDetailScreen({ navigation, route }) {
                     onCategoriaChange={setCategoriaDocFiltro}
                     onAbrir={(documento) => abrirDocumento(documento.UrlArchivo)}
                     onDescargar={handleDescargarDocumento}
-                    onEditar={(documento) =>
+                    onEditar={!trip?.hasLeft ? (documento) =>
                       navigation.navigate("EditDocument", {
                         tripId: trip.id,
                         documento,
-                      })
+                      }): undefined
                     }
-                    onEliminar={eliminarDocumento}
+                    onEliminar={!trip?.hasLeft ? eliminarDocumento : undefined}
                     descargandoDocId={descargandoDocId}
                     eliminandoDocId={eliminandoDocId}
                   />
                 </View>
               )}
 
-              <PrimaryButton
-                label="Subir documentos"
-                icon="folder-open"
-                iconPosition="left"
-                onPress={() =>
-                  navigation.navigate("Documents", {
-                    tripId: trip.id,
-                  })
-                }
-                style={[styles.fullButton, { marginTop: spacing.md }]}
-              />
+              {!trip?.hasLeft ? (
+                <PrimaryButton
+                  label="Subir documentos"
+                  icon="folder-open"
+                  iconPosition="left"
+                  onPress={() =>
+                    navigation.navigate("Documents", {
+                      tripId: trip.id,
+                    })
+                  }
+                  style={[styles.fullButton, { marginTop: spacing.md }]}
+                />
+              ) : null}
             </View>
 
             <View style={[styles.sectionCard, { marginTop: spacing.md }]}>
@@ -1646,7 +1787,7 @@ export default function TripDetailScreen({ navigation, route }) {
                             <Text style={{ fontSize: 12, color: colors.textSecondary, fontWeight: "600" }}>Copiar</Text>
                           </Pressable>
 
-                          {item.EsPropio ? (
+                          {item.EsPropio && !trip?.hasLeft ? (
                             <>
                               <Pressable
                                 onPress={() =>
@@ -1685,47 +1826,50 @@ export default function TripDetailScreen({ navigation, route }) {
                   })}
                 </View>
               )}
-
-              <PrimaryButton
-                label="Agregar información"
-                icon="plus"
-                iconPosition="left"
-                onPress={() =>
-                  navigation.navigate("GuardarInformacion", {
-                    tripId: trip.id,
-                    onItemGuardado: (nuevoItem) =>
-                      setRepositorioItems((prev) => [nuevoItem, ...prev]),
-                  })
-                }
-                style={[styles.fullButton, { marginTop: spacing.md }]}
-              />
+              {!trip?.hasLeft ? (
+                <PrimaryButton
+                  label="Agregar información"
+                  icon="plus"
+                  iconPosition="left"
+                  onPress={() =>
+                    navigation.navigate("GuardarInformacion", {
+                      tripId: trip.id,
+                      onItemGuardado: (nuevoItem) =>
+                        setRepositorioItems((prev) => [nuevoItem, ...prev]),
+                    })
+                  }
+                  style={[styles.fullButton, { marginTop: spacing.md }]}
+                />
+              ) : null}
             </View>
             </>
           ) : null}
 
           {activeTab === "votar" ? (
             <View style={styles.sectionStack}>
-              <Pressable
-                style={({ pressed }) => ({
-                  flexDirection: "row",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  gap: 8,
-                  backgroundColor: colors.primary,
-                  height: 48,
-                  borderRadius: 12,
-                  marginBottom: 16,
-                  opacity: pressed ? 0.85 : 1,
-                })}
-                onPress={() => navigation.navigate("CrearVotacion", {
-                    IdViaje: trip.id,
-                    onVotacionCreada: (nuevaVotacion) =>
-                        setVotacionesActivas((prev) => [nuevaVotacion, ...prev]),
-                })}
-              >
-                <FontAwesome6 name="plus" size={14} color="#fff" />
-                <Text style={{ color: "#fff", fontWeight: "800" }}>Crear votación</Text>
-              </Pressable>
+              {!trip?.hasLeft ? (
+                <Pressable
+                  style={({ pressed }) => ({
+                    flexDirection: "row",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    gap: 8,
+                    backgroundColor: colors.primary,
+                    height: 48,
+                    borderRadius: 12,
+                    marginBottom: 16,
+                    opacity: pressed ? 0.85 : 1,
+                  })}
+                  onPress={() => navigation.navigate("CrearVotacion", {
+                      IdViaje: trip.id,
+                      onVotacionCreada: (nuevaVotacion) =>
+                          setVotacionesActivas((prev) => [nuevaVotacion, ...prev]),
+                  })}
+                >
+                  <FontAwesome6 name="plus" size={14} color="#fff" />
+                  <Text style={{ color: "#fff", fontWeight: "800" }}>Crear votación</Text>
+                </Pressable>
+              ) : null} 
 
               {loadingVotaciones ? (
                 <ActivityIndicator color={colors.primary} />
@@ -1755,6 +1899,7 @@ export default function TripDetailScreen({ navigation, route }) {
                 const puedeCancelar = esCreador && !finalizada;
 
                 const togglePropuesta = (idPropuesta, tipo) => {
+                  if (trip?.hasLeft) return;
                   setVotosSeleccionados(prev => {
                     const actuales = prev[votacion.IdVotacion] || [];
                     if (tipo === "opcion_unica") {
@@ -1768,6 +1913,7 @@ export default function TripDetailScreen({ navigation, route }) {
                 };
 
                 const registrarVoto = async () => {
+                  if (trip?.hasLeft) return;
                   if (opcionesElegidas.length === 0) {
                     avisar("Atención", "Por favor, seleccioná al menos una opción.");
                     return;
@@ -1879,14 +2025,14 @@ export default function TripDetailScreen({ navigation, route }) {
                         </Text>
                       ) : esCerrada ? null : votacion.YaVoto ? (
                         <Text style={{ color: colors.success, fontWeight: '600', fontSize: 13 }}>✓ Ya registraste tu voto en esta decisión grupal.</Text>
-                      ) : (
+                      ) : !trip?.hasLeft ? (
                         <PrimaryButton
                           label={enviandoEsteVoto ? "Enviando..." : "Confirmar voto"}
                           onPress={registrarVoto}
                           disabled={enviandoEsteVoto}
                           style={{ marginTop: 5 }}
                         />
-                      )}
+                      ) : null}
 
                       {puedeCancelar ? (
                         <Pressable
@@ -1917,20 +2063,63 @@ export default function TripDetailScreen({ navigation, route }) {
 
           {activeTab === "grupo" ? (
             <View style={styles.sectionStack}>
+            {!trip?.hasLeft ? (
+                <View style={styles.sectionCard}>
+                  <ParticipantSearch
+                    canInviteExternal={canInviteExternal}
+                    message={participantMessage}
+                    onInviteExternal={handleAddExternalInvite}
+                    onSearchChange={setParticipantSearch}
+                    onSelectUser={handleAddParticipant}
+                    search={participantSearch}
+                    suggestions={selectableUsers}
+                  />
+                </View>
+              ) : null}
+              
               <View style={styles.sectionCard}>
-                <ParticipantSearch
-                  canInviteExternal={canInviteExternal}
-                  message={participantMessage}
-                  onInviteExternal={handleAddExternalInvite}
-                  onSearchChange={setParticipantSearch}
-                  onSelectUser={handleAddParticipant}
-                  search={participantSearch}
-                  suggestions={selectableUsers}
+                <Text style={styles.sectionHeading}>Participantes</Text>
+                <ParticipantList 
+                  onRemove={!trip?.hasLeft ? handleRemoveParticipant : undefined} 
+                  participants={participantesActivos} 
+                  isAdmin={isAdmin && !trip?.hasLeft} 
                 />
               </View>
-              <View style={styles.sectionCard}>
-                <ParticipantList onRemove={handleRemoveParticipant} participants={participantItems} isAdmin={isAdmin} />
-              </View>
+
+              {/* Sección de Invitaciones Pendientes (Visible si hay alguna) */}
+              {invitadosPendientes.length > 0 ? (
+                <View style={styles.sectionCard}>
+                  <Text style={styles.sectionHeading}>Invitaciones pendientes</Text>
+                  <Text style={styles.sectionCopy}>Usuarios que aún no han respondido a la invitación</Text>
+                  <ParticipantList 
+                    participants={invitadosPendientes} 
+                    isAdmin={isAdmin && !trip?.hasLeft} 
+                  />
+                </View>
+              ) : null}
+            
+              {!trip?.hasLeft ? (
+                <View style={[styles.sectionCard, { marginTop: spacing.md }]}>
+                  <Pressable
+                    onPress={() => {
+                      if (isUserAdmin && eligibleNewAdmins.length > 0) {
+                        setNuevoAdminId(null);
+                        setShowLeaveModal(true); // Abre el modal para elegir sucesor
+                      } else {
+                        // Si es participante común o único administrador, va directo al flujo normal
+                        handleLeaveTripPress();
+                      }
+                    }}
+                    style={({ pressed }) => [
+                      styles.logoutButton, 
+                      pressed && styles.logoutButtonPressed,
+                    ]}
+                  >
+                    <FontAwesome6 name="arrow-right-from-bracket" size={16} color={colors.danger} />
+                    <Text style={styles.logoutText}>Abandonar viaje</Text>
+                  </Pressable>
+                </View>
+              ) : null}
             </View>
           ) : null}
         </View>
@@ -2112,6 +2301,73 @@ export default function TripDetailScreen({ navigation, route }) {
             </Pressable>
           </View>
         </Pressable>
+      </Modal>
+
+      <Modal
+        animationType="fade"
+        transparent={true}
+        visible={showLeaveModal}
+        onRequestClose={() => setShowLeaveModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalIconContainer}>
+              <FontAwesome6 name="user-shield" size={22} color={colors.primary} />
+            </View>
+            <Text style={styles.modalTitle}>Transferir administración</Text>
+            <Text style={styles.modalMessage}>
+              Sos el administrador de este viaje. Antes de abandonarlo, debés designar a otro participante como nuevo administrador:
+            </Text>
+
+            <ScrollView style={{ width: "100%", maxHeight: 150, marginBottom: 15 }}>
+              {eligibleNewAdmins.map((p) => {
+                const pId = p.id ?? p.IdUsuario;
+                const isSelected = Number(nuevoAdminId) === Number(pId);
+                return (
+                  <Pressable
+                    key={pId}
+                    testID={`admin-candidate-${pId}`}
+                    onPress={() => setNuevoAdminId(pId)}
+                    style={{
+                      padding: 10,
+                      marginVertical: 4,
+                      borderRadius: radii.md,
+                      backgroundColor: isSelected ? colors.surfaceAlt : colors.surface,
+                      borderWidth: 1,
+                      borderColor: isSelected ? colors.primary : colors.border,
+                    }}
+                  >
+                    <Text style={{ fontWeight: isSelected ? "bold" : "normal", color: colors.textPrimary }}>
+                      {p.nombreCompleto || p.Nombre || p.email}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
+
+            <View style={styles.modalActions}>
+              <Pressable
+                style={[styles.modalButton, styles.modalButtonCancel]}
+                onPress={() => {
+                  setShowLeaveModal(false);
+                  setNuevoAdminId(null);
+                }
+              }
+              >
+                <Text style={styles.modalButtonTextCancel}>Cancelar</Text>
+              </Pressable>
+              <Pressable
+                style={[styles.modalButton, styles.modalButtonConfirm]}
+                onPress={() => ejecutarSalidaViaje(nuevoAdminId)}
+                disabled={leavingTrip}
+              >
+                <Text style={styles.modalButtonTextConfirm}>
+                  {leavingTrip ? "Saliendo..." : "Confirmar salida"}
+                </Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
       </Modal>
     </ScreenContainer>
   );
@@ -2630,5 +2886,68 @@ activityEditOkButtonText: {
   color: colors.textInverse,
   fontSize: 15,
   fontWeight: "700",
+},
+logoutButton: {
+  flexDirection: "row",
+  alignItems: "center",
+  justifyContent: "center",
+  gap: spacing.sm,
+  paddingVertical: spacing.md,
+  borderRadius: radii.md,
+  borderWidth: 1,
+  borderColor: colors.danger,
+  backgroundColor: colors.surface,
+},
+
+logoutButtonPressed: {
+  opacity: 0.7,
+},
+
+logoutText: {
+  ...textStyles.bodyStrong,
+  color: colors.danger,
+},
+readOnlyBanner: {
+  flexDirection: "row",
+  alignItems: "flex-start",
+  gap: spacing.sm,
+  marginHorizontal: spacing.lg,
+  marginTop: spacing.md,
+  padding: spacing.md,
+  borderRadius: radii.md,
+  backgroundColor: colors.warningSurface,
+  borderWidth: 1,
+  borderColor: colors.warning,
+},
+
+readOnlyBannerContent: {
+  flex: 1,
+},
+
+readOnlyBannerTitle: {
+  ...textStyles.bodyStrong,
+  color: colors.primary,
+},
+
+readOnlyBannerText: {
+  ...textStyles.meta,
+  color: colors.textSecondary,
+  marginTop: spacing.xxs,
+},
+
+readOnlyBackButton: {
+  flexDirection: "row",
+  alignItems: "center",
+  justifyContent: "center",
+  gap: spacing.xs,
+  alignSelf: "flex-start",
+  marginTop: spacing.sm,
+  paddingVertical: spacing.xs,
+},
+
+readOnlyBackButtonText: {
+  ...textStyles.bodyStrong,
+  color: colors.primary,
+  fontSize: 13,
 },
 });

@@ -412,7 +412,7 @@ def test_usuario_no_pertenece_al_viaje_no_puede_subir_documento(
 
     assert response.status_code == 403
     assert response.json()["detail"] == (
-        "No formas parte de este viaje"
+        "No tienes permisos para ver este viaje"
     )
 
 
@@ -553,7 +553,7 @@ def test_listar_documentos_viaje_rechaza_usuario_ajeno(
 
     assert response.status_code == 403
     assert response.json()["detail"] == (
-        "No formas parte de este viaje"
+        "No tienes permisos para ver este viaje"
     )
 
 

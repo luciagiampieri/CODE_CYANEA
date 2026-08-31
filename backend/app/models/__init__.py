@@ -25,6 +25,7 @@ from app.models.lugar_interes_viaje import LugarInteresViaje
 from app.models.item_repositorio import ItemRepositorioViaje
 from app.models.ruta_diaria import RutaDiaria
 from app.models.transferencia_liquidacion import TransferenciaLiquidacion
+from app.models.notificacion import Notificacion
 __all__ = [
     "EstadoInvitacion",
     "EstadoParticipacion",
@@ -51,4 +52,5 @@ __all__ = [
     "ItemRepositorioViaje",
     "RutaDiaria",
     "TransferenciaLiquidacion",
+    "Notificacion",
 ]

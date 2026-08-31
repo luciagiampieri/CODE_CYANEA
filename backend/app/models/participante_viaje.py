@@ -45,6 +45,10 @@ class ParticipanteViaje(Base):
         DateTime(timezone=True),
         nullable=True,
     )
+    FechaSalida: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
     InvitadoPor: Mapped[int | None] = mapped_column(
         ForeignKey("Usuarios.IdUsuario", name="FK_ParticipantesViajes_Usuarios_InvitadoPor"),
         nullable=True,
