@@ -17,13 +17,16 @@ import {
 import DateTimePicker from "@react-native-community/datetimepicker";
 import { FontAwesome6 } from "@expo/vector-icons";
 
+import ScreenContainer from "../components/layout/ScreenContainer";
+import IconCircleButton from "../components/ui/IconCircleButton";
+
 import {
   getExpenseCategories,
   getTripParticipants,
   createExpense,
 } from "../services/api";
 
-import { colors, radii, spacing, shadows } from "../theme/tokens";
+import { colors, radii, spacing, shadows, textStyles } from "../theme/tokens";
 
 import {
   guardarGastoOffline,
@@ -297,28 +300,32 @@ export default function AddGastoScreen({ route, navigation }) {
 
   if (loading) {
     return (
-      <View style={styles.center}>
-        <ActivityIndicator size="large" color={colors.primary} />
-      </View>
+      <ScreenContainer fullWidth padded={false}>
+        <View style={styles.center}>
+          <ActivityIndicator size="large" color={colors.primary} />
+        </View>
+      </ScreenContainer>
     );
   }
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-      <View style={styles.header}>
-        <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
-          <FontAwesome6 name="arrow-left" size={18} color={colors.primary} />
-        </TouchableOpacity>
-        <Text style={styles.title}>Nuevo gasto</Text>
-      </View>
+    <ScreenContainer fullWidth padded={false}>
+      <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+        <View style={styles.hero}>
+          <View style={styles.heroTopRow}>
+            <IconCircleButton icon="arrow-left" onPress={() => navigation.goBack()} tone="light" />
+          </View>
+          <Text style={styles.heroTitle}>Nuevo gasto</Text>
+        </View>
 
+      <View style={styles.content}>
       <Text style={styles.label}>Concepto</Text>
       <View style={styles.inputBox}>
         <FontAwesome6 name="pen" size={14} color={colors.textMuted} />
         <TextInput
           style={styles.input}
           placeholder="Cena"
-          placeholderTextColor="#9ca3af"
+          placeholderTextColor="#00000059"
           value={nombre}
           onChangeText={setNombre}
         />
@@ -331,7 +338,7 @@ export default function AddGastoScreen({ route, navigation }) {
         <TextInput
           style={styles.input}
           placeholder="0"
-          placeholderTextColor="#9ca3af"
+          placeholderTextColor="#00000059"
           keyboardType="numeric"
           value={monto}
           onChangeText={setMonto}
@@ -400,7 +407,6 @@ export default function AddGastoScreen({ route, navigation }) {
       <Text style={styles.label}>Categoría</Text>
       <TouchableOpacity style={styles.dropdownButton} onPress={() => setModalCategoriaVisible(true)}>
         <View style={styles.dropdownLeftContent}>
-          {/* Ícono dinámico según la categoría elegida, o 'tags' por defecto si no hay ninguna */}
           <FontAwesome6
             name={categoriaSeleccionada ? ICONOS_CATEGORIAS[categoriaSeleccionada.Nombre] || "tags" : "tags"}
             size={14}
@@ -421,7 +427,7 @@ export default function AddGastoScreen({ route, navigation }) {
           style={[styles.selectorOption, !esCompartido && styles.selectorOptionActive]}
           onPress={() => setEsCompartido(false)}
         >
-          <FontAwesome6 name="user" size={14} color={!esCompartido ? "#fff" : colors.textMuted} />
+          <FontAwesome6 name="user" size={14} color={!esCompartido ? "#fff" : colors.overlayStrong} />
           <Text style={[styles.selectorOptionText, !esCompartido && styles.selectorOptionTextActive]}>
             Personal
           </Text>
@@ -430,7 +436,7 @@ export default function AddGastoScreen({ route, navigation }) {
           style={[styles.selectorOption, esCompartido && styles.selectorOptionActive]}
           onPress={() => setEsCompartido(true)}
         >
-          <FontAwesome6 name="users" size={14} color={esCompartido ? "#fff" : colors.textMuted} />
+          <FontAwesome6 name="users" size={14} color={esCompartido ? "#fff" : colors.overlayStrong} />
           <Text style={[styles.selectorOptionText, esCompartido && styles.selectorOptionTextActive]}>
             Compartido
           </Text>
@@ -523,7 +529,7 @@ export default function AddGastoScreen({ route, navigation }) {
                     <TextInput
                       style={styles.personalizadoInput}
                       placeholder="0"
-                      placeholderTextColor="#9ca3af"
+                      placeholderTextColor="#00000059"
                       keyboardType="numeric"
                       value={montosPersonalizados[p.IdParticipanteViaje] || ""}
                       onChangeText={(val) => handleMontoPersonalizadoChange(p.IdParticipanteViaje, val)}
@@ -730,48 +736,44 @@ export default function AddGastoScreen({ route, navigation }) {
           </View>
         </View>
       </Modal>
+      </View>
     </ScrollView>
+    </ScreenContainer>
   );
 }
 
 const styles = StyleSheet.create({
-  header: {
-    height: 50,
+  hero: {
+    backgroundColor: colors.primary,
+    paddingHorizontal: 20,
+    paddingTop: 12,
+    paddingBottom: 28,
+    borderBottomLeftRadius: 32,
+    borderBottomRightRadius: 32,
+    alignItems: "center",
+  },
+  heroTopRow: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "center",
-    marginBottom: 20,
-    position: "relative",
+    alignSelf: "flex-start",
   },
-  backButton: {
-    position: "absolute",
-    left: 0,
-    width: 42,
-    height: 42,
-    borderRadius: 21,
-    backgroundColor: "#fff",
-    justifyContent: "center",
-    alignItems: "center",
-    ...shadows.card,
-  },
-  container: {
-    flex: 1,
-    backgroundColor: colors.background,
+  scrollContent: {
+    paddingBottom: 40,
   },
   content: {
     padding: 20,
-    paddingBottom: 40,
   },
   center: {
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
   },
-  title: {
-    fontSize: 28,
-    fontWeight: "800",
-    color: colors.primary,
+  heroTitle: {
+    ...textStyles.tripTitle,
+    fontSize: 26,
+    color: colors.textInverse,
     textAlign: "center",
+    marginTop: 8,
   },
   label: {
     fontWeight: "700",
@@ -781,8 +783,10 @@ const styles = StyleSheet.create({
   },
   inputBox: {
     backgroundColor: "#fff",
-    height: 50,
+    height: 54,
     borderRadius: 12,
+    borderWidth: 1.5,
+    borderColor: "#dfe3ea",
     paddingHorizontal: 15,
     flexDirection: "row",
     alignItems: "center",
@@ -792,6 +796,10 @@ const styles = StyleSheet.create({
   },
   input: {
     flex: 1,
+    fontSize: 15,
+    fontWeight: "600",
+    color: "#111827",
+    paddingVertical: 8,
   },
   currencyCodePrefix: {
     fontSize: 14,
@@ -803,6 +811,8 @@ const styles = StyleSheet.create({
     backgroundColor: "#fff",
     padding: 15,
     borderRadius: 12,
+    borderWidth: 1.5,
+    borderColor: "#dfe3ea",
     flexDirection: "row",
     gap: 10,
     alignItems: "center",
@@ -810,8 +820,10 @@ const styles = StyleSheet.create({
   },
   dropdownButton: {
     backgroundColor: "#fff",
-    height: 50,
+    height: 54,
     borderRadius: 12,
+    borderWidth: 1.5,
+    borderColor: "#dfe3ea",
     paddingHorizontal: 15,
     flexDirection: "row",
     alignItems: "center",
@@ -872,7 +884,7 @@ const styles = StyleSheet.create({
   },
   selectorOptionText: {
     fontWeight: "700",
-    color: colors.textMuted,
+    color: colors.overlayStrong,
     fontSize: 14,
   },
   selectorOptionTextActive: {

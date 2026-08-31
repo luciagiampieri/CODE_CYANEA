@@ -217,6 +217,44 @@ def test_get_pending_invitations_vacio_si_no_hay_invitaciones(client, master_dat
     assert response.json() == []
 
 
+def test_get_pending_invitations_incluye_los_destinos_del_viaje(
+    client, db_session, master_data, auth_headers, usuario_activo
+):
+    """Regresión: el endpoint pasaba `destinations=` a un campo llamado
+    `destination`, así que Pydantic lo ignoraba y la lista viajaba siempre
+    vacía (el frontend mostraba "Destino: " sin nada después)."""
+    from app.models.destino import Destino
+    from app.models.destino_viaje import DestinoViaje
+
+    admin_otro = _crear_usuario(db_session, "admin_destinos")
+    estado_activo = db_session.query(EstadoViaje).filter_by(Nombre="activo").first()
+    viaje = Viaje(
+        Titulo="Viaje con destino", FechaInicio=date_type(2026, 12, 1), FechaFin=date_type(2026, 12, 10),
+        IdEstadoViaje=estado_activo.IdEstadoViaje, Moneda="ARS",
+        IdAdministrador=admin_otro.IdUsuario,
+    )
+    db_session.add(viaje)
+    db_session.flush()
+
+    destino = Destino(Nombre="Bariloche", Pais="Argentina", Lat=-41.15, Lng=-71.31)
+    db_session.add(destino)
+    db_session.flush()
+    db_session.add(DestinoViaje(IdViaje=viaje.IdViaje, IdDestino=destino.IdDestino))
+    db_session.commit()
+
+    _agregar_participante(db_session, viaje, usuario_activo, estado_nombre="invitado")
+
+    response = client.get("/api/v1/trips/invitations/pending", headers=auth_headers)
+    assert response.status_code == 200
+    body = response.json()
+    assert len(body) == 1
+    assert len(body[0]["destinations"]) == 1
+    destino_body = body[0]["destinations"][0]
+    assert destino_body["id"] == destino.IdDestino
+    assert destino_body["name"] == "Bariloche"
+    assert destino_body["country"] == "Argentina"
+
+
 def test_respond_invitation_aceptar_success(client, db_session, master_data, auth_headers, usuario_activo):
     admin_otro = _crear_usuario(db_session, "admin_otro2")
     estado_activo = db_session.query(EstadoViaje).filter_by(Nombre="activo").first()
@@ -411,6 +449,7 @@ def test_add_participant_email_invitacion_pendiente_duplicada(client, auth_heade
 
 
 def test_remove_participant_success(client, db_session, auth_headers, viaje_con_admin):
+    """US 73 / CT1: expulsar siendo administrador confirma la operación (soft-delete)."""
     viaje, _ = viaje_con_admin
     participante = _crear_usuario(db_session, "a_sacar")
     _agregar_participante(db_session, viaje, participante, estado_nombre="aceptado")
@@ -420,13 +459,21 @@ def test_remove_participant_success(client, db_session, auth_headers, viaje_con_
         headers=auth_headers,
     )
     assert response.status_code == 200
+    body = response.json()
+    assert body["message"] == "Participante expulsado correctamente"
+    assert body["advertencia"] is None
 
-    assert db_session.query(ParticipanteViaje).filter_by(
+    # CA7: se conserva la fila de participación (no se borra), solo cambia el estado.
+    participacion = db_session.query(ParticipanteViaje).filter_by(
         IdViaje=viaje.IdViaje, IdUsuario=participante.IdUsuario
-    ).first() is None
+    ).first()
+    assert participacion is not None
+    estado = db_session.get(EstadoParticipacion, participacion.IdEstadoParticipacion)
+    assert estado.Nombre == "expulsado"
 
 
 def test_remove_participant_no_se_puede_sacar_admin(client, usuario_activo, auth_headers, viaje_con_admin):
+    """CT3: el administrador no puede expulsarse a sí mismo."""
     viaje, _ = viaje_con_admin
     response = client.delete(
         f"/api/v1/trips/{viaje.IdViaje}/participants/{usuario_activo.IdUsuario}",
@@ -445,6 +492,7 @@ def test_remove_participant_no_encontrado(client, auth_headers, viaje_con_admin)
 
 
 def test_remove_participant_requires_admin(client, db_session, viaje_con_admin):
+    """CT2: un usuario no administrador no puede expulsar participantes."""
     viaje, _ = viaje_con_admin
     no_admin = _crear_usuario(db_session, "no_admin_del")
     _agregar_participante(db_session, viaje, no_admin, estado_nombre="aceptado")
@@ -454,6 +502,177 @@ def test_remove_participant_requires_admin(client, db_session, viaje_con_admin):
         headers=_token_de(no_admin),
     )
     assert response.status_code == 403
+
+
+def test_remove_participant_ya_expulsado(client, db_session, auth_headers, viaje_con_admin):
+    """No se puede expulsar dos veces al mismo participante."""
+    viaje, _ = viaje_con_admin
+    participante = _crear_usuario(db_session, "doble_expulsion")
+    _agregar_participante(db_session, viaje, participante, estado_nombre="expulsado")
+
+    response = client.delete(
+        f"/api/v1/trips/{viaje.IdViaje}/participants/{participante.IdUsuario}",
+        headers=auth_headers,
+    )
+    assert response.status_code == 409
+
+
+def test_remove_participant_pierde_acceso_inmediatamente(client, db_session, auth_headers, viaje_con_admin):
+    """CT5: un participante expulsado pierde el acceso al viaje de inmediato."""
+    viaje, _ = viaje_con_admin
+    participante = _crear_usuario(db_session, "pierde_acceso")
+    _agregar_participante(db_session, viaje, participante, estado_nombre="aceptado")
+
+    # Antes de la expulsión, el participante puede ver el viaje.
+    previo = client.get(f"/api/v1/trips/{viaje.IdViaje}", headers=_token_de(participante))
+    assert previo.status_code == 200
+
+    client.delete(
+        f"/api/v1/trips/{viaje.IdViaje}/participants/{participante.IdUsuario}",
+        headers=auth_headers,
+    )
+
+    despues = client.get(f"/api/v1/trips/{viaje.IdViaje}", headers=_token_de(participante))
+    assert despues.status_code == 403
+
+
+def test_remove_participant_no_aparece_en_listado(client, db_session, auth_headers, viaje_con_admin):
+    """CA2 (listado): un participante expulsado deja de figurar en el listado del viaje."""
+    viaje, _ = viaje_con_admin
+    participante = _crear_usuario(db_session, "fuera_del_listado")
+    _agregar_participante(db_session, viaje, participante, estado_nombre="aceptado")
+
+    client.delete(
+        f"/api/v1/trips/{viaje.IdViaje}/participants/{participante.IdUsuario}",
+        headers=auth_headers,
+    )
+
+    detalle = client.get(f"/api/v1/trips/{viaje.IdViaje}", headers=auth_headers)
+    assert detalle.status_code == 200
+    ids_listados = [p["id"] for p in detalle.json()["participants"]]
+    assert participante.IdUsuario not in ids_listados
+
+
+def test_remove_participant_conserva_historial_de_gastos(
+    client, db_session, auth_headers, viaje_con_admin, categoria_gasto
+):
+    """CT7: la información histórica (gastos) del participante expulsado se conserva."""
+    from datetime import date
+
+    viaje, admin_participante = viaje_con_admin
+    participante_usuario = _crear_usuario(db_session, "con_historial")
+    participacion = _agregar_participante(
+        db_session, viaje, participante_usuario, estado_nombre="aceptado"
+    )
+
+    gasto_response = client.post(
+        "/api/v1/gastos/",
+        json={
+            "IdViaje": viaje.IdViaje,
+            "Nombre": "Cena grupal",
+            "Monto": "100.00",
+            "IdCategoria": categoria_gasto.IdCategoria,
+            "FechaGasto": str(date.today()),
+            "EsCompartido": True,
+            "DividirEntreTodos": True,
+            "TipoDivision": "igualitaria",
+            "IdPagador": admin_participante.IdParticipanteViaje,
+        },
+        headers=auth_headers,
+    )
+    assert gasto_response.status_code == 200
+
+    response = client.delete(
+        f"/api/v1/trips/{viaje.IdViaje}/participants/{participante_usuario.IdUsuario}",
+        headers=auth_headers,
+    )
+    assert response.status_code == 200
+    # El participante tenía una porción asignada del gasto compartido: se advierte.
+    assert response.json()["advertencia"] is not None
+
+    from app.models.gasto import Gasto
+    from app.models.participantes_gastos import ParticipantesGastos
+
+    assert db_session.query(Gasto).filter_by(IdViaje=viaje.IdViaje).count() == 1
+    assert (
+        db_session.query(ParticipantesGastos)
+        .filter_by(IdParticipanteViaje=participacion.IdParticipanteViaje)
+        .count()
+        == 1
+    )
+
+
+def test_remove_participant_notifica_al_expulsado(
+    client, db_session, auth_headers, viaje_con_admin, monkeypatch
+):
+    """CT6: se notifica al participante expulsado."""
+    viaje, _ = viaje_con_admin
+    participante = _crear_usuario(db_session, "a_notificar")
+    _agregar_participante(db_session, viaje, participante, estado_nombre="aceptado")
+
+    enviados = []
+
+    class _FakeNotificationService:
+        def send_email(self, message):
+            enviados.append(message)
+
+    monkeypatch.setattr(trips_module, "get_notification_service", lambda: _FakeNotificationService())
+
+    response = client.delete(
+        f"/api/v1/trips/{viaje.IdViaje}/participants/{participante.IdUsuario}",
+        headers=auth_headers,
+    )
+    assert response.status_code == 200
+    assert len(enviados) == 1
+    assert enviados[0].recipient.IdUsuario == participante.IdUsuario
+    assert enviados[0].notification_type.value == "participante_expulsado"
+
+
+def test_remove_participant_notificacion_fallida_no_rompe_la_expulsion(
+    client, db_session, auth_headers, viaje_con_admin, monkeypatch
+):
+    """Si el envío de la notificación falla, la expulsión igual se concreta."""
+    viaje, _ = viaje_con_admin
+    participante = _crear_usuario(db_session, "notificacion_rota")
+    _agregar_participante(db_session, viaje, participante, estado_nombre="aceptado")
+
+    class _BrokenNotificationService:
+        def send_email(self, message):
+            raise RuntimeError("smtp caído")
+
+    monkeypatch.setattr(trips_module, "get_notification_service", lambda: _BrokenNotificationService())
+
+    response = client.delete(
+        f"/api/v1/trips/{viaje.IdViaje}/participants/{participante.IdUsuario}",
+        headers=auth_headers,
+    )
+    assert response.status_code == 200
+
+    estado = db_session.query(EstadoParticipacion).filter_by(Nombre="expulsado").first()
+    participacion = db_session.query(ParticipanteViaje).filter_by(
+        IdViaje=viaje.IdViaje, IdUsuario=participante.IdUsuario
+    ).first()
+    assert participacion.IdEstadoParticipacion == estado.IdEstadoParticipacion
+
+
+def test_add_participant_reactiva_a_expulsado(client, db_session, auth_headers, viaje_con_admin):
+    """CA10/CT10: un expulsado solo vuelve a formar parte del viaje si el admin lo reinvita."""
+    viaje, _ = viaje_con_admin
+    participante = _crear_usuario(db_session, "reincorporado")
+    _agregar_participante(db_session, viaje, participante, estado_nombre="expulsado")
+
+    response = client.post(
+        f"/api/v1/trips/{viaje.IdViaje}/participants",
+        json={"userId": participante.IdUsuario},
+        headers=auth_headers,
+    )
+    assert response.status_code == 201
+
+    estado_invitado = db_session.query(EstadoParticipacion).filter_by(Nombre="invitado").first()
+    participacion = db_session.query(ParticipanteViaje).filter_by(
+        IdViaje=viaje.IdViaje, IdUsuario=participante.IdUsuario
+    ).first()
+    assert participacion.IdEstadoParticipacion == estado_invitado.IdEstadoParticipacion
 
 
 def test_remove_external_invitation_success(client, auth_headers, viaje_con_admin):

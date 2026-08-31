@@ -13,15 +13,16 @@ import RegistrationSuccessScreen from "../screens/RegistrationSuccessScreen";
 import TripDetailScreen from "../screens/TripDetailScreen";
 import AddGastoScreen from "../screens/AddGastoScreen";
 import InvitationsScreen from "../screens/InvitationsScreen";
-import CrearVotacionScreen from "../screens/CrearVotacionScreen";
+import CrearVotacionScreen from "../screens/CreateVotationScreen.js";
 import FacebookRegisterScreen from "../screens/FacebookRegisterScreen";
 import GoogleRegisterScreen from "../screens/GoogleRegisterScreen";
 import DocumentsScreen from "../screens/DocumentsScreen";
-import GuardarInformacionScreen from "../screens/GuardarInformacionScreen";
+import GuardarInformacionScreen from "../screens/InformationScreen";
 import ExplorePlacesScreen from "../screens/ExplorePlacesScreen";
 import EditProfileScreen from "../screens/EditProfileScreen";
 import SettingsScreen from "../screens/SettingScreen";
 import EditDocumentScreen from "../screens/EditDocumentScreen";
+import NotificationPreferencesScreen from "../screens/NotificationPreferencesScreen";
 
 const Stack = createNativeStackNavigator();
 
@@ -192,6 +193,14 @@ export default function AppNavigator() {
             component={InvitationsScreen}
             options={{
               title: "Invitaciones",
+              headerShown: false,
+            }}
+          />
+          <Stack.Screen
+            name="PreferenciasNotificaciones"
+            component={NotificationPreferencesScreen}
+            options={{
+              title: "Notificaciones",
               headerShown: false,
             }}
           />

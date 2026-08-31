@@ -237,11 +237,12 @@ export default function EditTripScreen({ navigation, route }) {
         >
           <View style={styles.hero}>
             <View style={styles.heroTopRow}>
-              <IconCircleButton icon="arrow-left" onPress={() => navigation.goBack()} />
-              <View />
+              <IconCircleButton
+                icon="arrow-left"
+                onPress={() => navigation.goBack()}
+                tone="light"
+              />
             </View>
-
-            <Text style={styles.heroEyebrow}>Planificación colaborativa</Text>
             <Text style={styles.heroTitle}>Editar Viaje</Text>
             <Text style={styles.heroCopy}>Modifica los detalles de tu viaje.</Text>
           </View>
@@ -272,7 +273,7 @@ export default function EditTripScreen({ navigation, route }) {
                 <TextInput
                   onChangeText={(text) => handleInputChange("description", text)}
                   placeholder="Contanos de qué se trata este viaje..."
-                  placeholderTextColor={colors.textMuted}
+                  placeholderTextColor="#00000059"
                   style={[styles.input, styles.textArea]}
                   value={form.description}
                   multiline
@@ -287,7 +288,7 @@ export default function EditTripScreen({ navigation, route }) {
                     value={destinationSearch}
                     onChangeText={setDestinationSearch}
                     placeholder="Ej: Córdoba, Bariloche, Chile..."
-                    placeholderTextColor={colors.textMuted}
+                    placeholderTextColor="#00000059"
                   style={styles.input}
                 />
 
@@ -420,7 +421,7 @@ function Field({ label, name, onChange, value, placeholder, error = null }) {
       <TextInput
         onChangeText={(text) => onChange(name, text)}
         placeholder={placeholder}
-        placeholderTextColor={colors.textMuted}
+        placeholderTextColor="#00000059"
         style={[styles.input, error && styles.inputError]}
         value={value}
       />
@@ -505,30 +506,31 @@ const styles = StyleSheet.create({
   },
   scrollContent: { paddingBottom: 140 },
   hero: {
-    backgroundColor: colors.primarySoft,
+    backgroundColor: colors.primary,
     paddingHorizontal: spacing.lg,
     paddingTop: spacing.lg,
     paddingBottom: spacing.xl,
+    borderBottomLeftRadius: 32,
+    borderBottomRightRadius: 32,
+    alignItems: "center",
   },
   heroTopRow: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
-  },
-  heroEyebrow: {
-    ...textStyles.meta,
-    color: "#dbe6fb",
-    marginTop: spacing.lg,
+    alignSelf: "flex-start",
   },
   heroTitle: {
-    ...textStyles.screenTitle,
+    ...textStyles.tripTitle,
     color: colors.textInverse,
+    fontSize: 26,
     marginTop: spacing.xs,
+    textAlign: "center",
   },
   heroCopy: {
     ...textStyles.body,
-    color: "#edf2ff",
+    color: "rgba(255,255,255,0.8)",
     marginTop: spacing.xs,
+    textAlign: "center",
   },
   body: {
     backgroundColor: colors.background,

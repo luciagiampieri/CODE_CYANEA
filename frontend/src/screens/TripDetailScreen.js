@@ -1,7 +1,8 @@
 import { FontAwesome6 } from "@expo/vector-icons";
 import * as Clipboard from "expo-clipboard";
 import { LinearGradient } from "expo-linear-gradient";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useFocusEffect } from "@react-navigation/native";
 import {
   ActivityIndicator,
   Alert,
@@ -24,7 +25,9 @@ import ResultadosVotacion from "../components/trip/ResultadosVotacion";
 import DocumentosPorCategoria, { ID_TODAS } from "../components/trip/DocumentsByCategory";
 import AvatarStack from "../components/ui/AvatarStack";
 import IconCircleButton from "../components/ui/IconCircleButton";
+import MetricCard from "../components/ui/MetricCard";
 import PrimaryButton from "../components/ui/PrimaryButton";
+import StatusPill from "../components/ui/StatusPill";
 import {
   addTripParticipant,
   emitirVoto,
@@ -65,6 +68,7 @@ import {
 
 import AddActivityScreen from "./AddActivityScreen";
 import useItinerarioViewPreference from "../hooks/useItinerarioViewPreference";
+import useResponsive from "../hooks/useResponsive";
 import ItinerarioViewToggle from "../components/trip/ItinerarioViewToggle";
 import ItinerarioCalendarView from "../components/trip/ItinerarioCalendarView";
 import { buildRouteMarkers } from "../utils/routeMarkers";
@@ -163,6 +167,25 @@ function formatDayDateCorta(dateString) {
   return formattedDate.replace(/(\p{L})\p{L}*/gu, (word) => word.charAt(0).toLocaleUpperCase("es-AR") + word.slice(1).toLocaleLowerCase("es-AR"));
 }
 
+function formatFechaHoraCierre(dateString) {
+  if (!dateString) return "";
+  const date = new Date(dateString);
+  if (Number.isNaN(date.getTime())) return "";
+
+  return new Intl.DateTimeFormat("es-AR", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(date);
+}
+const ESTADO_VOTACION_LABEL = {
+  abierta: "Activa",
+  cerrada: "Cerrada",
+  cancelada: "Cancelada",
+};
+
 function avisar(titulo, mensaje) {
   if (Platform.OS === "web") {
     window.alert(mensaje);
@@ -199,6 +222,8 @@ function formatMoney(amount, currency) {
 
 export default function TripDetailScreen({ navigation, route }) {
   const initialTrip = normalizeTrip(route.params?.trip);
+  const { width, isTablet } = useResponsive();
+  const isNarrowMobile = !isTablet && width < 430;
   const [trip, setTrip] = useState(initialTrip);
   const [activeTab, setActiveTab] = useState("itinerario");
   const [expandedDayId, setExpandedDayId] = useState(initialTrip?.cronograma[0]?.IdDiaCronograma ?? initialTrip?.cronograma[0]?.id ?? null);
@@ -402,7 +427,16 @@ export default function TripDetailScreen({ navigation, route }) {
     });
   }, [votacionesActivas]);
 
-  async function loadTripDetail() {
+  const pendingTransfers = useMemo(
+    () => settlement?.Transferencias?.filter((item) => item.Estado === "pendiente") ?? [],
+    [settlement]
+  );
+  const totalPendienteLiquidacion = useMemo(
+    () => pendingTransfers.reduce((acc, item) => acc + Number(item.Monto ?? 0), 0),
+    [pendingTransfers]
+  );
+
+  const loadTripDetail = useCallback(async () => {
     if (!initialTrip?.id) {
       setLoading(false);
       setLoadError("No se pudo resolver el viaje.");
@@ -424,9 +458,9 @@ export default function TripDetailScreen({ navigation, route }) {
     } finally {
       setLoading(false);
     }
-  }
+  }, [initialTrip?.id, initialTrip?.image]);
 
-  async function loadSettlement() {
+  const loadSettlement = useCallback(async () => {
     if (!initialTrip?.id) {
       return;
     }
@@ -441,7 +475,7 @@ export default function TripDetailScreen({ navigation, route }) {
     } finally {
       setLoadingSettlement(false);
     }
-  }
+  }, [initialTrip?.id]);
 
   async function loadDocumentos() {
     if (!initialTrip?.id) {
@@ -570,15 +604,26 @@ export default function TripDetailScreen({ navigation, route }) {
       );
     }
 
-  useEffect(() => {
+  /*useEffect(() => {
     loadTripDetail();
-  }, [initialTrip?.id]);
+  }, [loadTripDetail]);
 
   useEffect(() => {
-    if (activeTab === "gastos") {
+    // Se carga también en "grupo" para poder advertir sobre saldos
+    // pendientes antes de confirmar la expulsión de un participante (US 73).
+    if (activeTab === "gastos" || activeTab === "grupo") {
       loadSettlement();
     }
-  }, [activeTab, initialTrip?.id]);
+  }, [activeTab, loadSettlement]);*/
+
+  useFocusEffect(
+    useCallback(() => {
+      loadTripDetail();
+      if (activeTab === "gastos" || activeTab === "grupo") {
+        loadSettlement();
+      }
+    }, [activeTab, loadSettlement, loadTripDetail])
+  );
 
   useEffect(() => {
     if (activeTab === "docs") {
@@ -770,13 +815,13 @@ export default function TripDetailScreen({ navigation, route }) {
     loadVotaciones();
   }, [trip?.id]);
 
-  useEffect(() => {
+  /*useEffect(() => {
     const unsubscribe = navigation.addListener("focus", () => {
       loadTripDetail();
       loadSettlement();
     });
     return unsubscribe;
-  }, [navigation, initialTrip?.id]);
+  }, [navigation, initialTrip?.id]);*/
 
   useEffect(() => {
     if (!trip || trip?.hasLeft) return;
@@ -916,11 +961,22 @@ export default function TripDetailScreen({ navigation, route }) {
 
   function handleRemoveParticipant(participant) {
     if (trip?.hasLeft) return;
-    confirmar(
-      "Expulsar participante",
-      `¿Seguro que querés expulsar a ${participant.nombreCompleto} del viaje?`,
-      () => persistRemoveParticipant(participant)
-    );
+    
+    let mensaje = `¿Seguro que querés expulsar a ${participant.nombreCompleto} del viaje?`;
+
+    if (participant.kind !== "external") {
+      const resumenParticipante = settlement?.ResumenParticipantes?.find(
+        (item) => item.IdUsuario === participant.id
+      );
+      const saldoPendiente = Number(resumenParticipante?.BalancePendiente ?? 0);
+      if (saldoPendiente !== 0) {
+        mensaje += ` Todavía tiene un saldo pendiente de liquidar de ${formatMoney(
+          Math.abs(saldoPendiente),
+          settlement?.Moneda ?? trip?.currency
+        )}. Su historial de gastos se conservará igual.`;
+      }
+    }
+    confirmar("Expulsar participante", mensaje, () => persistRemoveParticipant(participant));
   }
 
   async function persistRemoveParticipant(participant) {
@@ -930,8 +986,15 @@ export default function TripDetailScreen({ navigation, route }) {
       setParticipantMessage("");
       if (participant.kind === "external") {
         await removeTripExternalInvitation(trip.id, participant.email);
+        avisar("Listo", "Se quitó la invitación externa correctamente.");
       } else {
-        await removeTripParticipant(trip.id, participant.id);
+        const resultado = await removeTripParticipant(trip.id, participant.id);
+        avisar(
+          "Participante expulsado",
+          resultado?.advertencia
+            ? `${resultado.message}. ${resultado.advertencia}`
+            : resultado?.message || "El participante fue expulsado del viaje correctamente."
+        );
       }
       await loadTripDetail();
     } catch (error) {
@@ -1567,6 +1630,36 @@ export default function TripDetailScreen({ navigation, route }) {
 
               <View style={styles.sectionCard}>
                 <View style={styles.settlementHeaderRow}>
+                  <Text style={styles.sectionHeading}>Resumen financiero</Text>
+                  {loadingSettlement ? <ActivityIndicator color={colors.primary} /> : null}
+                </View>
+                <Text style={styles.sectionCopy}>
+                  El estado de cuenta se recalcula con cada gasto nuevo y refleja tanto lo pagado como el gasto individual asignado.
+                </Text>
+                <View style={[styles.metricsRow, isNarrowMobile ? styles.metricsRowCompact : null]}>
+                  <MetricCard
+                    label="Total gastado"
+                    style={isNarrowMobile ? styles.metricCardHalf : null}
+                    valueStyle={isNarrowMobile ? styles.metricValueCompact : null}
+                    value={formatMoney(settlement?.TotalGastosViaje ?? 0, settlement?.Moneda ?? trip.currency)}
+                  />
+                  <MetricCard
+                    label="Por saldar"
+                    style={isNarrowMobile ? styles.metricCardHalf : null}
+                    valueStyle={isNarrowMobile ? styles.metricValueCompact : null}
+                    value={formatMoney(totalPendienteLiquidacion, settlement?.Moneda ?? trip.currency)}
+                  />
+                  <MetricCard
+                    label="Participantes"
+                    style={isNarrowMobile ? styles.metricCardFull : null}
+                    valueStyle={isNarrowMobile ? styles.metricValueCompact : null}
+                    value={String(settlement?.ResumenParticipantes?.length ?? 0)}
+                  />
+                </View>
+              </View>
+
+              <View style={styles.sectionCard}>
+                <View style={styles.settlementHeaderRow}>
                   <Text style={styles.sectionHeading}>Resumen por participante</Text>
                   {loadingSettlement ? <ActivityIndicator color={colors.primary} /> : null}
                 </View>
@@ -1581,7 +1674,11 @@ export default function TripDetailScreen({ navigation, route }) {
                           <View style={styles.settlementPerson}>
                             <Text style={styles.settlementPersonName}>{item.NombreCompleto}</Text>
                             <Text style={styles.settlementPersonMeta}>
-                              Balance original: {formatMoney(item.BalanceOriginal, settlement.Moneda)}
+                              Pagó: {formatMoney(item.TotalPagado, settlement.Moneda)} · Gasto individual:{" "}
+                              {formatMoney(item.GastoIndividual, settlement.Moneda)}
+                            </Text>
+                            <Text style={styles.settlementPersonMeta}>
+                              Saldo neto: {formatMoney(item.BalanceOriginal, settlement.Moneda)}
                             </Text>
                           </View>
                           <View style={styles.settlementRight}>
@@ -1897,6 +1994,9 @@ export default function TripDetailScreen({ navigation, route }) {
                 const cancelandoEstaVotacion = cancelandoId === votacion.IdVotacion;
                 const esCreador = currentUser && String(currentUser.id) === String(votacion.IdCreador);
                 const puedeCancelar = esCreador && !finalizada;
+                const estadoVotacion = votacion.Estado || (finalizada ? "cerrada" : "abierta");
+                const estadoLabel = ESTADO_VOTACION_LABEL[estadoVotacion] || estadoVotacion;
+                const fechaCierreTexto = formatFechaHoraCierre(votacion.FechaCierre);
 
                 const togglePropuesta = (idPropuesta, tipo) => {
                   if (trip?.hasLeft) return;
@@ -1963,12 +2063,30 @@ export default function TripDetailScreen({ navigation, route }) {
                   <View key={votacion.IdVotacion} style={styles.sectionCard}>
                     <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                       <Text style={[styles.sectionHeading, { fontSize: 18, flex: 1 }]}>{votacion.Titulo}</Text>
-                      <View style={{ backgroundColor: votacion.Tipo === 'opcion_unica' ? '#e0f2fe' : '#f3e8ff', padding: 6, borderRadius: 6 }}>
-                        <Text style={{ fontSize: 10, fontWeight: '700', color: votacion.Tipo === 'opcion_unica' ? '#0369a1' : '#6b21a8' }}>
-                          {votacion.Tipo === 'opcion_unica' ? 'ÚNICA' : 'MÚLTIPLE'}
-                        </Text>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                        <StatusPill 
+                          tone={estadoVotacion}
+                          style={{ paddingHorizontal: 6, paddingVertical: 6, borderRadius: 6 }}
+                          textStyle={{ fontSize: 10, textTransform: 'uppercase' }}
+                        >
+                          {estadoLabel}
+                        </StatusPill>
+                        <View style={{ backgroundColor: votacion.Tipo === 'opcion_unica' ? '#e0f2fe' : '#efe8ff', padding: 6, borderRadius: 6 }}>
+                          <Text style={{ fontSize: 10, fontWeight: '700', color: votacion.Tipo === 'opcion_unica' ? '#0369a1' : '#6b21a8' }}>
+                            {votacion.Tipo === 'opcion_unica' ? 'ÚNICA' : 'MÚLTIPLE'}
+                          </Text>
+                        </View>
                       </View>
                     </View>
+
+                    {estadoVotacion === "abierta" && fechaCierreTexto ? (
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 6 }}>
+                        <FontAwesome6 name="clock" size={11} color={colors.textSecondary} />
+                        <Text style={{ color: colors.textSecondary, fontSize: 12, fontWeight: '600' }}>
+                          Cierra: {fechaCierreTexto}
+                        </Text>
+                      </View>
+                    ) : null}
 
                     <View style={{ marginTop: 15, gap: 10 }}>
                       {mostrarResultados ? (
@@ -1984,7 +2102,7 @@ export default function TripDetailScreen({ navigation, route }) {
                               </Text>
                             );
                           }
-                          return <ResultadosVotacion resultados={resultado} mostrarGanador={esCerrada} />;
+                          return <ResultadosVotacion resultados={resultado} mostrarGanador={esCerrada} totalParticipantes={participantItems.length} titulo={votacion.Titulo}/>;
                         })()
                       ) : (
                         votacion.Propuestas.map((propuesta) => {
@@ -2661,6 +2779,25 @@ const styles = StyleSheet.create({
   sectionCard: {
     ...surfaces.card,
     padding: spacing.lg,
+  },
+  metricsRow: {
+    flexDirection: "row",
+    gap: spacing.sm,
+    marginTop: spacing.md,
+  },
+  metricsRowCompact: {
+    flexWrap: "wrap",
+  },
+  metricCardHalf: {
+    flexBasis: "48%",
+    minWidth: 0,
+  },
+  metricCardFull: {
+    flexBasis: "100%",
+    minWidth: 0,
+  },
+  metricValueCompact: {
+    fontSize: 18,
   },
   sectionHeading: {
     ...textStyles.tripTitle,

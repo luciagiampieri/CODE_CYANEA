@@ -17,13 +17,13 @@ export default function ParticipantSearch({
     <View style={styles.container}>
       <Text style={styles.label}>Participantes</Text>
       <View style={styles.inputShell}>
-        <FontAwesome6 color={colors.textMuted} name="magnifying-glass" size={14} style={styles.leadingIcon} />
+        <FontAwesome6 color={colors.overlayStrong} name="magnifying-glass" size={14} style={styles.leadingIcon} />
         <TextInput
           autoCapitalize="none"
           autoCorrect={false}
           onChangeText={onSearchChange}
           placeholder="Busca por nombre o correo"
-          placeholderTextColor={colors.textMuted}
+          placeholderTextColor={colors.overlayStrong}
           style={styles.input}
           value={search}
         />

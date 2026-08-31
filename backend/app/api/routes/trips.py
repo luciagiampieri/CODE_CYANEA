@@ -56,9 +56,15 @@ from app.services.notifications.invitation_email_sender import (
     InvitationEmailPayload,
     InvitationEmailSender,
 )
+from app.services.notifications import (
+    NotificationMessage,
+    NotificationType,
+    get_notification_service,
+)
 from app.services.destination_search import build_destination_image_url, search_destinations
 from app.services.place_search import get_place_photo_uri
 from app.services.trip_access import get_trip_with_relations, require_trip_access, require_trip_edit_access
+from app.services.liquidacion_service import calcular_balances_participantes
 
 ROUTE_GENERATION_AVAILABLE = True
 try:
@@ -1026,9 +1032,11 @@ def add_trip_participant(
             )
         )
         if existente is not None:
-            if existente.EstadoParticipacion.Nombre == "salio":
+
+            if existente.EstadoParticipacion.Nombre in {"expulsado", "salio"}:
                 existente.IdEstadoParticipacion = estado_invitado.IdEstadoParticipacion
                 existente.InvitadoPor = current_user.IdUsuario
+                existente.IdRolParticipante = rol_participante.IdRolParticipante
                 db.commit()
                 return TripMutationResponse(message="Participante reincorporado correctamente")
             else:
@@ -1075,6 +1083,12 @@ def add_trip_participant(
             )
         )
         if existente is not None:
+            if existente.EstadoParticipacion.Nombre == "expulsado":
+                existente.IdEstadoParticipacion = estado_invitado.IdEstadoParticipacion
+                existente.IdRolParticipante = rol_participante.IdRolParticipante
+                existente.InvitadoPor = current_user.IdUsuario
+                db.commit()
+                return TripMutationResponse(message="Participante vuelto a invitar correctamente")
             raise HTTPException(status_code=409, detail="El usuario ya está agregado al viaje")
 
         db.add(
@@ -1143,11 +1157,23 @@ def remove_trip_participant(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
 ) -> TripMutationResponse:
+    """Expulsa a un participante del viaje.
+
+    Es un soft-delete: la participación queda marcada con el estado
+    'expulsado' en lugar de borrarse, para conservar la información
+    histórica que haya generado (gastos, actividades, votos). El fix de
+    acceso (que el expulsado pierda el acceso de inmediato) vive en
+    `require_trip_access`, que ya no considera participaciones en estado
+    'expulsado' como acceso válido.
+    """
     viaje = require_trip_access(get_trip_with_relations(db, trip_id), current_user)
     _require_trip_admin(viaje, current_user)
 
     if user_id == viaje.IdAdministrador:
-        raise HTTPException(status_code=400, detail="No se puede quitar al administrador del viaje")
+        raise HTTPException(
+            status_code=400,
+            detail="El administrador no puede expulsarse a sí mismo del viaje",
+        )
 
     participacion = db.scalar(
         select(ParticipanteViaje).where(
@@ -1158,9 +1184,68 @@ def remove_trip_participant(
     if participacion is None:
         raise HTTPException(status_code=404, detail="Participante no encontrado en este viaje")
 
-    db.delete(participacion)
+    if participacion.EstadoParticipacion.Nombre == "expulsado":
+        raise HTTPException(status_code=409, detail="El participante ya fue expulsado del viaje")
+
+    if participacion.EstadoParticipacion.Nombre not in {"aceptado", "invitado"}:
+        raise HTTPException(
+            status_code=409,
+            detail="El participante no se encuentra activo en este viaje",
+        )
+
+    estado_expulsado = db.scalar(
+        select(EstadoParticipacion).where(
+            EstadoParticipacion.Nombre == "expulsado",
+            EstadoParticipacion.Activo.is_(True),
+        )
+    )
+    if estado_expulsado is None:
+        raise HTTPException(status_code=500, detail="Faltan datos maestros requeridos")
+
+    # Advertencia: si el participante tiene saldo pendiente de liquidar,
+    # se informa antes de confirmar la operación (el balance nunca se
+    # persiste, se recalcula siempre desde Gastos/ParticipantesGastos).
+    advertencia = None
+    _, _, balances = calcular_balances_participantes(db, trip_id)
+    saldo = balances.get(participacion.IdParticipanteViaje)
+    if saldo is not None and saldo != 0:
+        advertencia = (
+            "Este participante tiene un saldo pendiente de liquidar en el viaje. "
+            "Su historial de gastos se conserva igualmente."
+        )
+
+    usuario_expulsado = participacion.Usuario
+    participacion.IdEstadoParticipacion = estado_expulsado.IdEstadoParticipacion
     db.commit()
-    return TripMutationResponse(message="Participante eliminado correctamente")
+
+    try:
+        get_notification_service().send_email(
+            NotificationMessage(
+                notification_type=NotificationType.PARTICIPANTE_EXPULSADO,
+                recipient=usuario_expulsado,
+                subject=f"Ya no formás parte de {viaje.Titulo} en Cyanea",
+                template_name="participant_removed_notification.html",
+                text_template_name="participant_removed_notification.txt",
+                context={
+                    "recipient_name": usuario_expulsado.Nombre,
+                    "trip_title": viaje.Titulo,
+                    "trip_destination": ", ".join(
+                        f"{d.Destino.Nombre}, {d.Destino.Pais}" for d in viaje.Destinos
+                    ),
+                    "admin_name": f"{current_user.Nombre} {current_user.Apellido}",
+                },
+            )
+        )
+    except Exception:
+        logger.exception(
+            "No se pudo notificar la expulsion del participante",
+            extra={"user_id": usuario_expulsado.IdUsuario, "trip_id": viaje.IdViaje},
+        )
+
+    return TripMutationResponse(
+        message="Participante expulsado correctamente",
+        advertencia=advertencia,
+    )
 
 
 @router.delete("/{trip_id}/external-invitations", response_model=TripMutationResponse)

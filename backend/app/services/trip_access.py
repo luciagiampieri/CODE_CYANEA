@@ -10,6 +10,9 @@ from app.models.usuario import Usuario
 from app.models.viaje import Viaje
  
  
+ESTADOS_PARTICIPACION_CON_ACCESO = {"aceptado", "invitado", "salio"}
+
+
 def get_trip_with_relations(db: Session, trip_id: int) -> Viaje | None:
     return db.scalar(
         select(Viaje)
@@ -51,7 +54,7 @@ def require_trip_access(viaje: Viaje | None, current_user: Usuario) -> Viaje:
         viaje.IdAdministrador == current_user.IdUsuario
         or (
             participacion is not None
-            and participacion.EstadoParticipacion.Nombre in {"aceptado", "salio"}
+            and participacion.EstadoParticipacion.Nombre in {"aceptado", "salio", "invitado"}
         )
     )
 

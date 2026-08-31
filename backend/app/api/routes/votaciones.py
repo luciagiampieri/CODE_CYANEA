@@ -21,6 +21,7 @@ from app.schemas.votacion import (
     VotacionCreate,
     VotacionRead,
     VotacionResultados,
+    VotanteResultado,
 )
 
 from app.services.trip_access import get_trip_with_relations, require_trip_access, require_trip_edit_access
@@ -79,6 +80,30 @@ def _build_votacion_read(
     )
 
 
+def _votantes_por_propuesta(
+    db: Session, votacion: Votacion
+) -> dict[int, list[VotanteResultado]]:
+    filas = db.execute(
+        select(Voto.IdPropuesta, Voto.FechaVoto, Usuario)
+        .join(Usuario, Usuario.IdUsuario == Voto.IdUsuario)
+        .where(Voto.IdVotacion == votacion.IdVotacion)
+        .order_by(Voto.FechaVoto.asc())
+    ).all()
+
+    votantes_por_propuesta: dict[int, list[VotanteResultado]] = {}
+    for id_propuesta, fecha_voto, usuario in filas:
+        nombre_completo = f"{usuario.Nombre} {usuario.Apellido}".strip() or usuario.NombreUsuario
+        votantes_por_propuesta.setdefault(id_propuesta, []).append(
+            VotanteResultado(
+                IdUsuario=usuario.IdUsuario,
+                NombreCompleto=nombre_completo,
+                FotoUrl=usuario.FotoUrl,
+                FechaVoto=_aware(fecha_voto) if fecha_voto else None,
+            )
+        )
+    return votantes_por_propuesta
+
+
 def _calcular_resultados(db: Session, votacion: Votacion, current_user_id: int) -> VotacionResultados:
     filas = db.execute(
         select(Voto.IdPropuesta, func.count(Voto.IdVoto))
@@ -94,6 +119,8 @@ def _calcular_resultados(db: Session, votacion: Votacion, current_user_id: int) 
     ) or 0
     total_votos = sum(votos_por_propuesta.values())
 
+    votantes_por_propuesta = _votantes_por_propuesta(db, votacion)
+
     propuestas = sorted(votacion.Propuestas, key=lambda p: (p.Orden, p.IdPropuesta))
     resultados = [
         ResultadoPropuesta(
@@ -102,6 +129,7 @@ def _calcular_resultados(db: Session, votacion: Votacion, current_user_id: int) 
             Votos=votos_por_propuesta.get(p.IdPropuesta, 0),
             Porcentaje=round((votos_por_propuesta.get(p.IdPropuesta, 0) / total_votos) * 100, 2)
             if total_votos else 0.0,
+            Votantes=votantes_por_propuesta.get(p.IdPropuesta, []),
         )
         for p in propuestas
     ]

@@ -3,6 +3,7 @@ from functools import lru_cache
 
 from app.core.config import settings
 from app.services.mail.base import MailProvider
+from app.services.mail.branding import get_cyanea_icon_data_uri
 from app.services.mail.schemas import MailMessage
 from app.services.mail.smtp import SmtpMailProvider
 from app.services.mail.templates import render_template
@@ -49,6 +50,7 @@ class MailService:
         text_template_name: str | None = None,
         reply_to: str | None = None,
     ) -> bool:
+        context = {"cyanea_icon_data_uri": get_cyanea_icon_data_uri(), **context}
         html = render_template(template_name, context)
         text = render_template(text_template_name, context) if text_template_name else None
         return self.send_html(

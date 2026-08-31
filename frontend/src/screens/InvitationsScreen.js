@@ -159,7 +159,7 @@ export default function InvitationsScreen({ navigation }) {
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
         <View style={styles.header}>
           <View style={styles.headerRow}>
-            <IconCircleButton icon="arrow-left" onPress={() => navigation.goBack()} />
+            <IconCircleButton icon="arrow-left" onPress={() => navigation.goBack()} tone="light" />
           </View>
           <Text style={styles.eyebrow}>Centro de Actividad</Text>
           <Text style={styles.title}>Notificaciones e Invitaciones</Text>
@@ -187,10 +187,14 @@ export default function InvitationsScreen({ navigation }) {
               const isInvitation = item.isInvitation;
               const idViaje = item.id || item.tripId || item.IdViaje || item.viajeId;
               const titulo = item.title || item.titulo || item.Titulo;
-              const mensaje = item.destination || item.destino || item.Destino || item.mensaje;
               const fecha = formatDate(item.fechaCreacion || item.FechaCreacion);
+              const destinos = item.destinations || item.destination || item.Destinos || [];
+              const destinoLabel = destinos.length
+                ? destinos.map((d) => [d.name, d.country].filter(Boolean).join(", ")).join(" · ")
+                : "Destino a confirmar";
               const rol = item.role || item.rol || "Participante";
               const leida = item.leida ?? true;
+              const mensajeNotificacion = item.mensaje || item.Mensaje || "";
 
               return (
                 <View 
@@ -201,12 +205,11 @@ export default function InvitationsScreen({ navigation }) {
                     {fecha ? <Text style={styles.cardDate}>{fecha}</Text> : null}
                     {!isInvitation && !leida && <View style={styles.unreadDot} />}
                   </View>
-
                   <Text style={styles.cardTitle}>{titulo}</Text>
                   
                   {isInvitation ? (
                     <>
-                      <Text style={styles.cardMeta}>Destino: {mensaje}</Text>
+                      <Text style={styles.cardMeta}>Destino: {destinoLabel}</Text>
                       <Text style={styles.cardMeta}>Rol propuesto: {rol}</Text>
                       <View style={styles.actions}>
                         <PrimaryButton
@@ -226,7 +229,7 @@ export default function InvitationsScreen({ navigation }) {
                     </>
                   ) : (
                     <>
-                      <Text style={styles.cardMeta}>{mensaje}</Text>
+                      <Text style={styles.cardMeta}>{mensajeNotificacion}</Text>
                       {!leida && (
                         <Pressable 
                           onPress={() => handleMarkAsRead(item.id)}
@@ -258,10 +261,13 @@ const styles = StyleSheet.create({
     paddingBottom: 40,
   },
   header: {
-    backgroundColor: colors.primarySoft,
+    backgroundColor: colors.primary,
     paddingHorizontal: spacing.lg,
-    paddingTop: spacing.lg,
+    paddingTop: spacing.sm,
     paddingBottom: spacing.xl,
+    borderBottomLeftRadius: 32,
+    borderBottomRightRadius: 32,
+    alignItems: "center",
   },
   headerRow: {
     flexDirection: "row",
@@ -295,14 +301,17 @@ const styles = StyleSheet.create({
     marginTop: spacing.lg,
   },
   title: {
-    ...textStyles.screenTitle,
+    ...textStyles.tripTitle,
     color: colors.textInverse,
+    fontSize: 26,
     marginTop: spacing.xs,
+    textAlign: "center",
   },
   copy: {
     ...textStyles.body,
-    color: "#edf2ff",
+    color: "rgba(255,255,255,0.8)",
     marginTop: spacing.xs,
+    textAlign: "center",
   },
   body: {
     backgroundColor: colors.background,

@@ -162,6 +162,27 @@ const casosDeEndpoints = [
     needsAuth: true,
   },
   {
+    nombre: "getTripSettlement",
+    call: () => api.getTripSettlement(42),
+    url: `${API_BASE_URL}/trips/42/settlement`,
+    needsAuth: true,
+  },
+  {
+    nombre: "rebuildTripSettlement",
+    call: () => api.rebuildTripSettlement(42),
+    url: `${API_BASE_URL}/trips/42/settlement/rebuild`,
+    method: "POST",
+    needsAuth: true,
+  },
+  {
+    nombre: "markSettlementTransferPaid",
+    call: () => api.markSettlementTransferPaid(42, 7, true),
+    url: `${API_BASE_URL}/trips/42/settlement/transfers/7`,
+    method: "PATCH",
+    body: { Realizada: true },
+    needsAuth: true,
+  },
+  {
     nombre: "emitirVoto",
     call: () => api.emitirVoto(9, [1, 2]),
     url: `${API_BASE_URL}/votaciones/9/votar`,

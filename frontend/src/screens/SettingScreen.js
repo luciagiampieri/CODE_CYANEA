@@ -12,6 +12,7 @@ import {
 import { FontAwesome6 } from "@expo/vector-icons";
 
 import ScreenContainer from "../components/layout/ScreenContainer";
+import IconCircleButton from "../components/ui/IconCircleButton";
 import PrimaryButton from "../components/ui/PrimaryButton";
 import { useAuth } from "../context/AuthContext";
 import useResponsive from "../hooks/useResponsive";
@@ -45,24 +46,19 @@ export default function SettingsScreen({ navigation }) {
   const cardStyle = [styles.card, isDesktop && styles.cardDesktop];
 
   return (
-    <ScreenContainer>
+    <ScreenContainer fullWidth padded={false}>
       <ScrollView
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
-        <View style={cardStyle}>
-          {/* Header con botón para volver */}
-          <View style={styles.header}>
-            <PrimaryButton
-              icon="arrow-left"
-              label=""
-              onPress={() => navigation.goBack()}
-              style={styles.topBackButton}
-              variant="secondary"
-            />
-            <Text style={styles.title}>Configuración</Text>
+        <View style={styles.hero}>
+          <View style={styles.heroTopRow}>
+            <IconCircleButton icon="arrow-left" onPress={() => navigation.goBack()} tone="light" />
           </View>
+          <Text style={styles.title}>Configuración</Text>
+        </View>
 
+        <View style={cardStyle}>
           {/* SECCIÓN 1: CUENTA Y PERFIL */}
           <View style={styles.section}>
             <Text style={styles.sectionLabel}>Cuenta</Text>
@@ -133,9 +129,7 @@ export default function SettingsScreen({ navigation }) {
             <Text style={styles.sectionLabel}>Preferencias</Text>
             <View style={styles.groupContainer}>
               <Pressable
-                onPress={() => {
-                  Alert.alert("Notificaciones", "Ajustes de alertas por email y push.");
-                }}
+                onPress={() => navigation.navigate("PreferenciasNotificaciones")}
                 style={({ pressed }) => [
                   styles.itemRow,
                   pressed && styles.itemRowPressed,
@@ -218,10 +212,23 @@ const styles = StyleSheet.create({
   scrollContent: {
     paddingBottom: spacing.xxxl,
   },
+  hero: {
+    backgroundColor: colors.primary,
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.sm,
+    paddingBottom: spacing.xl,
+    borderBottomLeftRadius: 32,
+    borderBottomRightRadius: 32,
+    alignItems: "center",
+  },
+  heroTopRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    alignSelf: "flex-start",
+  },
   card: {
-    ...surfaces.card,
-    marginTop: spacing.lg,
-    padding: spacing.lg,
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.lg,
     gap: spacing.lg,
   },
   cardDesktop: {
@@ -229,22 +236,11 @@ const styles = StyleSheet.create({
     alignSelf: "center",
     width: "100%",
   },
-  header: {
-    position: "relative",
-    minHeight: 44,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  topBackButton: {
-    position: "absolute",
-    left: 0,
-    top: 0,
-    zIndex: 1,
-  },
   title: {
     ...textStyles.tripTitle,
-    color: colors.primary,
-    fontSize: 30,
+    color: colors.textInverse,
+    fontSize: 26,
+    marginTop: spacing.xs,
     textAlign: "center",
   },
   section: {
@@ -255,11 +251,10 @@ const styles = StyleSheet.create({
     color: colors.textMuted,
     fontSize: 11,
     letterSpacing: 0.8,
-    textTransform: "uppercase",
     marginLeft: 4,
   },
   groupContainer: {
-    backgroundColor: colors.surfaceMuted,
+    backgroundColor: colors.surface,
     borderRadius: radii.md,
     borderWidth: 1,
     borderColor: colors.border,
@@ -346,7 +341,7 @@ const styles = StyleSheet.create({
   },
   infoLabel: {
     ...textStyles.body,
-    color: colors.textSecondary,
+    color: colors.primary,
     fontSize: 14,
   },
   infoValue: {
@@ -361,9 +356,9 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
     padding: spacing.md,
     borderRadius: radii.md,
-    backgroundColor: colors.dangerSurface,
+    backgroundColor: colors.background,
     borderWidth: 1,
-    borderColor: "rgba(200, 73, 73, 0.2)",
+    borderColor: colors.danger,
   },
   logoutButtonPressed: {
     opacity: 0.75,

@@ -85,7 +85,7 @@ async function seleccionarArchivoValido(utils, overrides = {}) {
 }
 
 async function elegirCategoria(utils, nombre) {
-  await press(utils, "Seleccioná una categoría");
+  await press(utils, "Selecciona una categoría");
   await waitFor(() => expect(utils.getByText(nombre)).toBeTruthy());
   await press(utils, nombre);
 }
@@ -112,9 +112,9 @@ describe("DocumentsScreen", () => {
 
     await pressSubmit(utils);
 
-    expect(utils.getByText("Seleccioná un documento")).toBeTruthy();
+    expect(utils.getByText("Selecciona un documento")).toBeTruthy();
     expect(utils.getByText("El nombre del documento es obligatorio")).toBeTruthy();
-    expect(utils.getAllByText("Seleccioná una categoría")).toHaveLength(2);
+    expect(utils.getAllByText("Selecciona una categoría")).toHaveLength(2);
     expect(uploadTripDocument).not.toHaveBeenCalled();
   });
 
@@ -147,7 +147,7 @@ describe("DocumentsScreen", () => {
     await elegirCategoria(utils, "Pasajes");
 
     expect(utils.getByText("Pasajes")).toBeTruthy();
-    expect(utils.queryByText("Seleccioná una categoría")).toBeNull();
+    expect(utils.queryByText("Selecciona una categoría")).toBeNull();
   });
 
   it("camino feliz: sube el documento y confirma con Alert antes de volver", async () => {

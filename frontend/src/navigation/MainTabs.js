@@ -1,8 +1,9 @@
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
-import { FontAwesome6 } from "@expo/vector-icons";
+import { View } from "react-native";
+import { Feather } from "@expo/vector-icons";
 
 import HomeScreen from "../screens/HomeScreen";
-import PlaceholderScreen from "../screens/PlaceholderScreen";
+import MyTripsScreen from "../screens/MyTripsScreen";
 import ProfileScreen from "../screens/ProfileScreen";
 import { colors, radii, spacing, textStyles } from "../theme/tokens";
 
@@ -12,25 +13,12 @@ const tabs = [
   {
     name: "Inicio",
     component: HomeScreen,
-    icon: "house",
+    icon: "home",
   },
   {
-    name: "Historial",
-    component: PlaceholderScreen,
-    icon: "clock-rotate-left",
-    params: {
-      title: "Historial",
-      message: "Viajes pasados, acciones recientes y movimientos del grupo.",
-    },
-  },
-  {
-    name: "Explorar",
-    component: PlaceholderScreen,
-    icon: "location-dot",
-    params: {
-      title: "Explorar",
-      message: "Espacio reservado para ideas, destinos y descubrimientos.",
-    },
+    name: "Mis Viajes",
+    component: MyTripsScreen,
+    icon: "briefcase",
   },
   {
     name: "Perfil",
@@ -47,20 +35,16 @@ export default function MainTabs() {
         tabBarActiveTintColor: colors.primary,
         tabBarInactiveTintColor: colors.textMuted,
         tabBarStyle: {
-          position: "absolute",
-          left: spacing.md,
-          right: spacing.md,
-          bottom: spacing.md,
           height: 74,
           paddingTop: 10,
           paddingBottom: 12,
           backgroundColor: colors.surface,
-          borderTopWidth: 0,
-          borderRadius: radii.lg,
+          borderTopWidth: 1,
+          borderTopColor: colors.border,
           shadowColor: colors.shadow,
-          shadowOpacity: 0.12,
-          shadowRadius: 16,
-          shadowOffset: { width: 0, height: 6 },
+          shadowOpacity: 0.08,
+          shadowRadius: 12,
+          shadowOffset: { width: 0, height: -4 },
           elevation: 10,
         },
         sceneStyle: {
@@ -73,11 +57,24 @@ export default function MainTabs() {
         tabBarIcon: ({ color, size, focused }) => {
           const currentTab = tabs.find((tab) => tab.name === route.name);
           return (
-            <FontAwesome6
-              color={color}
-              name={currentTab.icon}
-              size={focused ? size + 1 : size}
-            />
+            <View
+              style={[
+                {
+                  width: 44,
+                  height: 32,
+                  borderRadius: radii.pill,
+                  alignItems: "center",
+                  justifyContent: "center",
+                },
+                focused && { backgroundColor: "rgba(30, 62, 123, 0.12)" },
+              ]}
+            >
+              <Feather
+                color={color}
+                name={currentTab.icon}
+                size={focused ? size + 1 : size}
+              />
+            </View>
           );
         },
       })}

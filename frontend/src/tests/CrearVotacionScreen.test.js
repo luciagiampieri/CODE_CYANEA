@@ -1,7 +1,7 @@
 import { Alert } from "react-native";
 import { act, fireEvent, render, waitFor } from "@testing-library/react-native";
 
-import CrearVotacionScreen from "../screens/CrearVotacionScreen";
+import CrearVotacionScreen from "../screens/CreateVotationScreen";
 import { createVotacion } from "../services/api";
 
 jest.mock("../services/api", () => ({

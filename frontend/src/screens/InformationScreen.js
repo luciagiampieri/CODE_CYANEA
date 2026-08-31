@@ -13,8 +13,10 @@ import {
 
 import { FontAwesome6 } from "@expo/vector-icons";
 
+import ScreenContainer from "../components/layout/ScreenContainer";
+import IconCircleButton from "../components/ui/IconCircleButton";
 import { createRepositorioItem, updateRepositorioItem } from "../services/api";
-import { colors, shadows } from "../theme/tokens";
+import { colors, shadows, textStyles } from "../theme/tokens";
 
 const TIPOS = [
     { key: "enlace", label: "Enlace", icon: "link" },
@@ -89,21 +91,23 @@ export default function GuardarInformacionScreen({ route, navigation }) {
     }
 
     return (
-        <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-            <View style={styles.header}>
-                <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
-                    <FontAwesome6 name="arrow-left" size={18} color={colors.primary} />
-                </TouchableOpacity>
-                <Text style={styles.title}>{editando ? "Editar información" : "Nueva información"}</Text>
-            </View>
+        <ScreenContainer fullWidth padded={false}>
+            <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+                <View style={styles.hero}>
+                    <View style={styles.heroTopRow}>
+                        <IconCircleButton icon="arrow-left" onPress={() => navigation.goBack()} tone="light" />
+                    </View>
+                    <Text style={styles.heroTitle}>{editando ? "Editar información" : "Nueva información"}</Text>
+                </View>
 
+            <View style={styles.content}>
             <Text style={styles.label}>Título</Text>
             <View style={styles.inputBox}>
                 <FontAwesome6 name="pen" size={14} color={colors.textMuted} />
                 <TextInput
                     style={styles.input}
                     placeholder="Ej: Hotel del viaje"
-                    placeholderTextColor="rgba(0, 0, 0, 0.35)"
+                    placeholderTextColor="#00000059"
                     value={titulo}
                     onChangeText={setTitulo}
                     maxLength={150}
@@ -133,7 +137,7 @@ export default function GuardarInformacionScreen({ route, navigation }) {
                 <TextInput
                     style={styles.input}
                     placeholder="El enlace, la dirección o el contacto"
-                    placeholderTextColor="rgba(0, 0, 0, 0.35)"
+                    placeholderTextColor="#00000059"
                     value={contenido}
                     onChangeText={setContenido}
                     multiline
@@ -147,7 +151,7 @@ export default function GuardarInformacionScreen({ route, navigation }) {
                 <TextInput
                     style={styles.input}
                     placeholder="Alguna aclaración adicional"
-                    placeholderTextColor="rgba(0, 0, 0, 0.35)"
+                    placeholderTextColor="#00000059"
                     value={descripcion}
                     onChangeText={setDescripcion}
                     multiline
@@ -160,7 +164,7 @@ export default function GuardarInformacionScreen({ route, navigation }) {
                     style={[styles.selectorOption, esPublico && styles.selectorOptionActive]}
                     onPress={() => setEsPublico(true)}
                 >
-                    <FontAwesome6 name="users" size={14} color={esPublico ? "#fff" : colors.textMuted} />
+                    <FontAwesome6 name="users" size={14} color={esPublico ? "#fff" : colors.overlayStrong} />
                     <Text style={[styles.selectorOptionText, esPublico && styles.selectorOptionTextActive]}>
                         Público
                     </Text>
@@ -169,7 +173,7 @@ export default function GuardarInformacionScreen({ route, navigation }) {
                     style={[styles.selectorOption, !esPublico && styles.selectorOptionActive]}
                     onPress={() => setEsPublico(false)}
                 >
-                    <FontAwesome6 name="lock" size={14} color={!esPublico ? "#fff" : colors.textMuted} />
+                    <FontAwesome6 name="lock" size={14} color={!esPublico ? "#fff" : colors.overlayStrong} />
                     <Text style={[styles.selectorOptionText, !esPublico && styles.selectorOptionTextActive]}>
                         Privado
                     </Text>
@@ -184,47 +188,54 @@ export default function GuardarInformacionScreen({ route, navigation }) {
             <TouchableOpacity style={styles.button} onPress={handleGuardar} disabled={saving}>
                 {saving ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonText}>{editando ? "Guardar cambios" : "Guardar información"}</Text>}
             </TouchableOpacity>
+            </View>
         </ScrollView>
+        </ScreenContainer>
     );
 }
 
 const styles = StyleSheet.create({
-    container: { flex: 1, backgroundColor: colors.background },
-    content: { padding: 20, paddingBottom: 40 },
-    header: {
-        height: 50,
+    scrollContent: { paddingBottom: 40 },
+    content: { padding: 20 },
+    hero: {
+        backgroundColor: colors.primary,
+        paddingHorizontal: 20,
+        paddingTop: 12,
+        paddingBottom: 28,
+        borderBottomLeftRadius: 32,
+        borderBottomRightRadius: 32,
+        alignItems: "center",
+    },
+    heroTopRow: {
         flexDirection: "row",
         alignItems: "center",
-        justifyContent: "center",
-        marginBottom: 20,
-        position: "relative",
+        alignSelf: "flex-start",
     },
-    backButton: {
-        position: "absolute",
-        left: 0,
-        width: 42,
-        height: 42,
-        borderRadius: 21,
-        backgroundColor: "#fff",
-        justifyContent: "center",
-        alignItems: "center",
-        ...shadows.card,
-    },
-    title: { fontSize: 24, fontWeight: "800", color: colors.primary, textAlign: "center" },
+    heroTitle: { ...textStyles.tripTitle, fontSize: 26, color: colors.textInverse, textAlign: "center", marginTop: 8 },
     label: { fontWeight: "700", color: colors.primary, marginTop: 14, marginBottom: 8 },
     inputBox: {
         backgroundColor: "#fff",
-        minHeight: 50,
-        borderRadius: 12,
-        paddingHorizontal: 15,
-        paddingVertical: 10,
+        minHeight: 56,
+        borderRadius: 14,
+        paddingHorizontal: 16,
+        paddingVertical: 12,
         flexDirection: "row",
         alignItems: "center",
+        justifyContent: "center",
         gap: 10,
         marginBottom: 5,
+        borderWidth: 1.5,
+        borderColor: "#e6edf5",
         ...shadows.card,
     },
-    input: { flex: 1 },
+    input: {
+        flex: 1,
+        minHeight: 24,
+        fontSize: 15,
+        fontWeight: "600",
+        color: colors.primary,
+        textAlignVertical: "center",
+    },
     button: {
         marginTop: 30,
         height: 55,
@@ -271,6 +282,6 @@ const styles = StyleSheet.create({
         gap: 8,
     },
     selectorOptionActive: { backgroundColor: colors.primary },
-    selectorOptionText: { fontWeight: "700", color: colors.textMuted, fontSize: 14 },
+    selectorOptionText: { fontWeight: "700", color: colors.overlayStrong, fontSize: 14 },
     selectorOptionTextActive: { color: "#fff" },
 });

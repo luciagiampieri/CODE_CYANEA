@@ -132,13 +132,13 @@ export default function DocumentsScreen({ route, navigation }) {
         const nuevosErrores = {};
 
         if (!archivo) {
-            nuevosErrores.archivo = "Seleccioná un documento";
+            nuevosErrores.archivo = "Selecciona un documento";
         }
         if (!nombreDocumento.trim()) {
             nuevosErrores.nombre = "El nombre del documento es obligatorio";
         }
         if (!idCategoria) {
-            nuevosErrores.categoria = "Seleccioná una categoría";
+            nuevosErrores.categoria = "Selecciona una categoría";
         }
 
         setErrores(nuevosErrores);
@@ -222,11 +222,12 @@ export default function DocumentsScreen({ route, navigation }) {
                 >
                     <View style={styles.hero}>
                         <View style={styles.heroTopRow}>
-                            <IconCircleButton icon="arrow-left" onPress={() => navigation.goBack()} />
-                            <View />
+                            <IconCircleButton
+                                icon="arrow-left"
+                                onPress={() => navigation.goBack()}
+                                tone="light"
+                            />
                         </View>
-
-                        <Text style={styles.heroEyebrow}>Documentación del viaje</Text>
                         <Text style={styles.heroTitle}>Subir documento</Text>
                         <Text style={styles.heroCopy}>
                             Adjuntá archivos importantes para este viaje.
@@ -308,7 +309,7 @@ export default function DocumentsScreen({ route, navigation }) {
                                             limpiarError("nombre");
                                         }}
                                         placeholder="Ej: Seguro médico"
-                                        placeholderTextColor={colors.textMuted}
+                                        placeholderTextColor="#00000059"
                                     />
                                     {extensionArchivo ? (
                                         <Text style={styles.extensionText}>{`.${extensionArchivo}`}</Text>
@@ -344,13 +345,13 @@ export default function DocumentsScreen({ route, navigation }) {
                                         >
                                             {categoriaSeleccionada
                                                 ? categoriaSeleccionada.Nombre
-                                                : "Seleccioná una categoría"}
+                                                : "Selecciona una categoría"}
                                         </Text>
                                     </View>
                                     <FontAwesome6
                                         name="chevron-down"
                                         size={13}
-                                        color={colors.textMuted}
+                                        color="#00000059"
                                     />
                                 </Pressable>
                                 {errores.categoria ? (
@@ -453,30 +454,31 @@ const styles = StyleSheet.create({
     },
     scrollContent: { paddingBottom: 140 },
     hero: {
-        backgroundColor: colors.primarySoft,
+        backgroundColor: colors.primary,
         paddingHorizontal: spacing.lg,
-        paddingTop: spacing.lg,
+        paddingTop: spacing.sm,
         paddingBottom: spacing.xl,
+        borderBottomLeftRadius: 32,
+        borderBottomRightRadius: 32,
+        alignItems: "center",
     },
     heroTopRow: {
         flexDirection: "row",
         alignItems: "center",
-        justifyContent: "space-between",
-    },
-    heroEyebrow: {
-        ...textStyles.meta,
-        color: "#dbe6fb",
-        marginTop: spacing.lg,
+        alignSelf: "flex-start",
     },
     heroTitle: {
-        ...textStyles.screenTitle,
+        ...textStyles.tripTitle,
         color: colors.textInverse,
+        fontSize: 26,
         marginTop: spacing.xs,
+        textAlign: "center",
     },
     heroCopy: {
         ...textStyles.body,
-        color: "#edf2ff",
+        color: "rgba(255,255,255,0.8)",
         marginTop: spacing.xs,
+        textAlign: "center",
     },
     body: {
         backgroundColor: colors.background,

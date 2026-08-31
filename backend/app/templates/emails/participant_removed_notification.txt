@@ -1,0 +1,10 @@
+Hola{% if recipient_name %} {{ recipient_name }}{% endif %},
+
+Te informamos que ya no formás parte de {{ trip_title }}{% if trip_destination %} con destino {{ trip_destination }}{% endif %}.
+
+El administrador {{ admin_name }} te quitó del viaje. A partir de ahora ya no podrás ver ni acceder a la información del mismo.
+
+La información que generaste mientras formabas parte del viaje (gastos, actividades y votos) se conserva dentro del mismo para el resto del grupo.
+
+— Equipo Cyanea
+© 2026 Cyanea

@@ -1,13 +1,45 @@
-import React from "react";
-import { View, Text, StyleSheet } from "react-native";
-import { colors, radii } from "../../theme/tokens";
+import React, { useState } from 'react';
+import { View, Text, StyleSheet, Pressable, Modal, ScrollView, Image } from "react-native";
+import { FontAwesome6 } from "@expo/vector-icons";
+import { colors, radii, spacing, textStyles } from "../../theme/tokens";
+import StatusPill from "../ui/StatusPill";
 
-export default function ResultadosVotacion({ resultados, mostrarGanador = true }) {
+
+function formatFechaVoto(dateString) {
+    if (!dateString) return "";
+    const date = new Date(dateString);
+    if (Number.isNaN(date.getTime())) return "";
+
+    return new Intl.DateTimeFormat("es-AR", {
+        day: "numeric",
+        month: "numeric",
+        year: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+    }).format(date);
+}
+
+
+const ESTADO_VOTACION_LABEL = {
+    abierta: "Activa",
+    cerrada: "Cerrada",
+    cancelada: "Cancelada",
+};
+
+
+export default function ResultadosVotacion({ resultados, mostrarGanador = true, totalParticipantes, titulo}) {
+    const [detalleVisible, setDetalleVisible] = useState(false);
     if (!resultados) return null;
 
-    const { Resultados, IdPropuestasGanadoras, Empate, TotalVotos, MisPropuestas = [] } = resultados;
+    const { Resultados, IdPropuestasGanadoras, Empate, TotalVotos, TotalVotantes, MisPropuestas = [] } = resultados;
     const ganadoras = mostrarGanador ? IdPropuestasGanadoras : [];
-
+    const estadoLabel = ESTADO_VOTACION_LABEL[resultados.Estado] || resultados.Estado;
+    const esOpcionUnica = resultados.Tipo === "opcion_unica";
+    const subtitleText =
+        typeof totalParticipantes === "number"
+            ? `${TotalVotantes} de ${totalParticipantes} participantes votaron`
+            : `${TotalVotantes} ${TotalVotantes === 1 ? "persona votó" : "personas votaron"}`;
+    
     if (TotalVotos === 0) {
         return (
             <Text style={{ color: colors.textMuted, fontSize: 13 }}>
@@ -72,6 +104,143 @@ export default function ResultadosVotacion({ resultados, mostrarGanador = true }
                     </View>
                 );
             })}
+
+            <Pressable
+                onPress={() => setDetalleVisible(true)}
+                style={{
+                    flexDirection: "row",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    gap: 6,
+                    paddingVertical: 8,
+                }}
+            >
+                <FontAwesome6 name="eye" size={12} color={colors.primary} />
+                <Text style={{ color: colors.primary, fontWeight: "700", fontSize: 13 }}>
+                    Ver votos
+                </Text>
+            </Pressable>
+
+            {detalleVisible && (
+                <Modal
+                    animationType="slide"
+                    transparent
+                    visible
+                    onRequestClose={() => setDetalleVisible(false)}
+                >
+                    <View style={styles.modalOverlay}>
+                        <View style={styles.modalCard}>
+                            <View style={styles.modalHeader}>
+                                <View style={{ flex: 1 }}>
+                                    <View style={styles.modalTitleRow}>
+                                        <Text style={styles.modalTitle}>Detalles de la votación</Text>
+                                        <View style={styles.modalBadgesRow}>
+                                            {resultados.Estado ? (
+                                                <StatusPill
+                                                    tone={resultados.Estado}
+                                                    style={{ paddingHorizontal: 6, paddingVertical: 6, borderRadius: 6 }}
+                                                    textStyle={{ fontSize: 10, textTransform: "uppercase" }}
+                                                >
+                                                    {estadoLabel}
+                                                </StatusPill>
+                                            ) : null}
+                                            {resultados.Tipo ? (
+                                                <View
+                                                    style={[
+                                                        styles.tipoBadge,
+                                                        { backgroundColor: esOpcionUnica ? "#e0f2fe" : "#f3e8ff" },
+                                                    ]}
+                                                >
+                                                    <Text
+                                                        style={[
+                                                            styles.tipoBadgeText,
+                                                            { color: esOpcionUnica ? "#0369a1" : "#6b21a8" },
+                                                        ]}
+                                                    >
+                                                        {esOpcionUnica ? "ÚNICA" : "MÚLTIPLE"}
+                                                    </Text>
+                                                </View>
+                                            ) : null}
+                                        </View>
+                                    </View>
+
+                                    {titulo ? (
+                                        <Text style={{...textStyles.bodyStrong, fontSize: 16, fontWeight: "700", color: colors.textPrimary, marginTop: 12, marginBottom: 2 }}>
+                                            {titulo}
+                                        </Text>
+                                    ) : null}
+                                    <Text style={[styles.modalSubtitle, { marginTop: titulo ? 0 : 2 }]}>
+                                        {subtitleText}
+                                    </Text>
+
+                                </View>
+                                <Pressable onPress={() => setDetalleVisible(false)} hitSlop={8}>
+                                    <FontAwesome6 name="xmark" size={18} color={colors.textSecondary} />
+                                </Pressable>
+                            </View>
+
+                            <ScrollView style={{ maxHeight: 420 }} showsVerticalScrollIndicator={false}>
+                                {Resultados.map((r) => {
+                                    const esGanadora = ganadoras.includes(r.IdPropuesta);
+                                    
+                                    return (
+                                        <View key={r.IdPropuesta} style={styles.opcionBloque}>
+                                            <View style={styles.opcionHeaderRow}>
+                                                <Text style={styles.opcionTitulo}>{r.Texto}</Text>
+                                                <View 
+                                                    style={[
+                                                        styles.opcionVotosBadge, 
+                                                        { backgroundColor: esGanadora ? (colors.successSurface || "#dcf3dd") : (colors.surfaceAlt || "#f1f5f9") }
+                                                    ]}
+                                                >
+                                                    <Text 
+                                                        style={[
+                                                            styles.opcionVotosBadgeText,
+                                                            { color: esGanadora ? (colors.success || "#16a34a") : (colors.textSecondary || "#475569") }
+                                                        ]}
+                                                    >
+                                                        {r.Votos} {r.Votos === 1 ? "voto" : "votos"}{esGanadora ? " ★" : ""}
+                                                    </Text>
+                                                </View>
+                                            </View>
+
+                                        {r.Votantes && r.Votantes.length > 0 ? (
+                                            r.Votantes.map((votante) => (
+                                                <View key={votante.IdUsuario} style={styles.votanteRow}>
+                                                    <View style={styles.votanteAvatar}>
+                                                        {votante.FotoUrl || votante.fotoUrl ? (
+                                                            <Image 
+                                                                source={{ uri: votante.FotoUrl || votante.fotoUrl }} 
+                                                                style={{ width: 28, height: 28, borderRadius: 14 }} 
+                                                            />
+                                                        ) : (
+                                                            <Text style={styles.votanteAvatarText}>
+                                                                {votante.NombreCompleto?.charAt(0)?.toUpperCase() || "?"}
+                                                            </Text>
+                                                        )}
+                                                    </View>
+
+                                                    <Text style={styles.votanteNombre}>{votante.NombreCompleto}</Text>
+                                                    <Text style={styles.votanteFecha}>
+                                                        {formatFechaVoto(votante.FechaVoto)}
+                                                    </Text>
+                                                </View>
+                                            ))
+                                        ) : (
+                                            <Text style={styles.sinVotos}>
+                                                {resultados.Estado === "abierta" 
+                                                    ? "Nadie votó esta opción todavía." 
+                                                    : "Nadie votó esta opción."}
+                                            </Text>
+                                        )}
+                                    </View>
+                                );
+                            })}    
+                            </ScrollView>
+                        </View>
+                    </View>
+                </Modal>
+            )}
         </View>
     );
 }
@@ -95,5 +264,115 @@ const styles = StyleSheet.create({
         flexDirection: "row",
         alignItems: "center",
         justifyContent: "space-between",
+    },
+    modalOverlay: {
+        flex: 1,
+        justifyContent: "flex-end",
+        backgroundColor: "rgba(9, 19, 45, 0.5)",
+    },
+    modalCard: {
+        backgroundColor: colors.surface,
+        borderTopLeftRadius: radii.xl,
+        borderTopRightRadius: radii.xl,
+        padding: spacing.lg,
+        maxHeight: "80%",
+    },
+    modalHeader: {
+        flexDirection: "row",
+        alignItems: "flex-start",
+        justifyContent: "space-between",
+        marginBottom: spacing.md,
+    },
+    modalTitleRow: {
+        flexDirection: "row",
+        alignItems: "center",
+        flexWrap: "wrap",
+        gap: 10,
+    },
+    modalBadgesRow: {
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 6,
+    },
+    tipoBadge: {
+        paddingHorizontal: 6,
+        paddingVertical: 6,
+        borderRadius: 6,
+    },
+    tipoBadgeText: {
+        fontSize: 10,
+        fontWeight: "700",
+    },
+    modalTitle: {
+        ...textStyles.bodyStrong,
+        color: colors.primary,
+        fontSize: 18,
+    },
+    modalSubtitle: {
+        ...textStyles.meta,
+        color: colors.textSecondary,
+        marginTop: 2,
+    },
+    opcionBloque: {
+        marginBottom: spacing.lg,
+    },
+    opcionHeaderRow: {
+        flexDirection: "row",
+        alignItems: "center",
+        justifyContent: "space-between",
+        marginBottom: spacing.sm,
+    },
+    opcionTitulo: {
+        ...textStyles.bodyStrong,
+        color: colors.textPrimary,
+        fontSize: 15,
+        flex: 1,
+        marginRight: spacing.sm,
+    },
+    opcionVotosBadge: {
+        backgroundColor: colors.successSurface || "#dcf3dd",
+        borderRadius: radii.pill ?? 999,
+        paddingHorizontal: 10,
+        paddingVertical: 4,
+    },
+    opcionVotosBadgeText: {
+        fontSize: 12,
+        fontWeight: "700",
+        color: colors.success,
+    },
+    votanteRow: {
+        flexDirection: "row",
+        alignItems: "center",
+        paddingVertical: 6,
+    },
+    votanteAvatar: {
+        width: 28,
+        height: 28,
+        borderRadius: 14,
+        backgroundColor: colors.surfaceAlt,
+        alignItems: "center",
+        justifyContent: "center",
+        marginRight: spacing.sm,
+    },
+    votanteAvatarText: {
+        fontSize: 12,
+        fontWeight: "700",
+        color: colors.primary,
+    },
+    votanteNombre: {
+        flex: 1,
+        color: colors.textPrimary,
+        fontSize: 13,
+        fontWeight: "600",
+    },
+    votanteFecha: {
+        color: colors.textMuted,
+        fontSize: 11,
+    },
+    sinVotos: {
+        color: colors.textMuted,
+        fontSize: 12,
+        fontStyle: "italic",
+        marginLeft: 38,
     },
 });
