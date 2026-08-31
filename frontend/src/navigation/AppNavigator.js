@@ -22,6 +22,7 @@ import ExplorePlacesScreen from "../screens/ExplorePlacesScreen";
 import EditProfileScreen from "../screens/EditProfileScreen";
 import SettingsScreen from "../screens/SettingScreen";
 import EditDocumentScreen from "../screens/EditDocumentScreen";
+import NotificationPreferencesScreen from "../screens/NotificationPreferencesScreen";
 
 const Stack = createNativeStackNavigator();
 
@@ -192,6 +193,14 @@ export default function AppNavigator() {
             component={InvitationsScreen}
             options={{
               title: "Invitaciones",
+              headerShown: false,
+            }}
+          />
+          <Stack.Screen
+            name="PreferenciasNotificaciones"
+            component={NotificationPreferencesScreen}
+            options={{
+              title: "Notificaciones",
               headerShown: false,
             }}
           />

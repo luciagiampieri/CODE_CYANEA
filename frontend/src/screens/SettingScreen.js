@@ -129,9 +129,7 @@ export default function SettingsScreen({ navigation }) {
             <Text style={styles.sectionLabel}>Preferencias</Text>
             <View style={styles.groupContainer}>
               <Pressable
-                onPress={() => {
-                  Alert.alert("Notificaciones", "Ajustes de alertas por email y push.");
-                }}
+                onPress={() => navigation.navigate("PreferenciasNotificaciones")}
                 style={({ pressed }) => [
                   styles.itemRow,
                   pressed && styles.itemRowPressed,

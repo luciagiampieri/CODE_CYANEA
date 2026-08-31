@@ -10,6 +10,9 @@ from app.models.usuario import Usuario
 from app.models.viaje import Viaje
  
  
+ESTADOS_PARTICIPACION_CON_ACCESO = {"aceptado", "invitado"}
+
+
 def get_trip_with_relations(db: Session, trip_id: int) -> Viaje | None:
     return db.scalar(
         select(Viaje)
@@ -40,7 +43,11 @@ def require_trip_access(viaje: Viaje | None, current_user: Usuario) -> Viaje:
  
     puede_ver = (
         viaje.IdAdministrador == current_user.IdUsuario
-        or any(part.IdUsuario == current_user.IdUsuario for part in viaje.Participantes)
+        or any(
+            part.IdUsuario == current_user.IdUsuario
+            and part.EstadoParticipacion.Nombre in ESTADOS_PARTICIPACION_CON_ACCESO
+            for part in viaje.Participantes
+        )
     )
     if not puede_ver:
         raise HTTPException(

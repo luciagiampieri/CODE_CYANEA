@@ -74,13 +74,16 @@ export default function InvitationsScreen({ navigation }) {
             invitations.map((item) => {
               const idViaje = item.id || item.tripId || item.IdViaje;
               const titulo = item.title || item.titulo || item.Titulo;
-              const destino = item.destination || item.destino || item.Destino;
+              const destinos = item.destinations || item.destination || item.Destinos || [];
+              const destinoLabel = destinos.length
+                ? destinos.map((d) => [d.name, d.country].filter(Boolean).join(", ")).join(" · ")
+                : "Destino a confirmar";
               const rol = item.role || item.rol || "Participante";
 
               return (
                 <View key={String(idViaje)} style={styles.card}>
                   <Text style={styles.cardTitle}>{titulo}</Text>
-                  <Text style={styles.cardMeta}>Destino: {destino}</Text>
+                  <Text style={styles.cardMeta}>Destino: {destinoLabel}</Text>
                   <Text style={styles.cardMeta}>Rol propuesto: {rol}</Text>
 
                   <View style={styles.actions}>

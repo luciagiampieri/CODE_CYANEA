@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import {
   Pressable,
   ScrollView,
@@ -6,6 +6,7 @@ import {
   Text,
   View,
 } from "react-native";
+import { useFocusEffect } from "@react-navigation/native";
 import { FontAwesome6 } from "@expo/vector-icons";
 
 import ScreenContainer from "../components/layout/ScreenContainer";
@@ -13,7 +14,7 @@ import TripCard from "../components/home/TripCard";
 import IconCircleButton from "../components/ui/IconCircleButton";
 import MetricCard from "../components/ui/MetricCard";
 import useResponsive from "../hooks/useResponsive";
-import { getCurrentUser, getTrips } from "../services/api";
+import { getCurrentUser, getPendingInvitations, getTrips } from "../services/api";
 import {
   colors,
   radii,
@@ -78,25 +79,42 @@ function normalizeTrip(trip) {
 export default function HomeScreen({ navigation }) {
   const [trips, setTrips] = useState([]);
   const [currentUser, setCurrentUser] = useState(null);
+  const [pendingInvitationsCount, setPendingInvitationsCount] = useState(0);
   const { isTablet, isDesktop } = useResponsive();
 
-  useEffect(() => {
-    async function loadData() {
-      try {
-        const [tripData, me] = await Promise.all([
-          getTrips(),
-          getCurrentUser().catch(() => null),
-        ]);
+  const loadData = useCallback(async () => {
+    try {
+      const [tripData, me] = await Promise.all([
+        getTrips(),
+        getCurrentUser().catch(() => null),
+      ]);
 
-        setTrips(tripData);
-        setCurrentUser(me);
-      } catch {
-        setTrips([]);
-      }
+      setTrips(tripData);
+      setCurrentUser(me);
+    } catch {
+      setTrips([]);
     }
-
-    loadData();
   }, []);
+
+  const loadPendingInvitations = useCallback(async () => {
+    try {
+      const invitaciones = await getPendingInvitations();
+      setPendingInvitationsCount(invitaciones?.length ?? 0);
+    } catch {
+      // La campanita es informativa: si falla la carga, se omite el badge
+      // sin romper el resto de la home.
+    }
+  }, []);
+
+  // Se recarga cada vez que la pantalla vuelve a tener foco (por ejemplo, al
+  // volver de aceptar/rechazar una invitación, o de expulsar/salir de un
+  // viaje) para que ni la lista de viajes ni el badge queden desactualizados.
+  useFocusEffect(
+    useCallback(() => {
+      loadData();
+      loadPendingInvitations();
+    }, [loadData, loadPendingInvitations])
+  );
 
   const decoratedTrips = useMemo(
     () => {
@@ -154,6 +172,8 @@ export default function HomeScreen({ navigation }) {
               <IconCircleButton
                 icon="bell"
                 tone="primary"
+                badgeCount={pendingInvitationsCount}
+                accessibilityLabel="Notificaciones"
                 onPress={() => navigation.navigate("Invitaciones")}
               />
             </View>

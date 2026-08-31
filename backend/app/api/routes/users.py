@@ -153,6 +153,20 @@ def update_me(
     current_user.NombreUsuario = nombre_usuario_normalizado
     current_user.FotoUrl = payload.fotoUrl.strip() if payload.fotoUrl else None
 
+    # Campos opcionales: solo se tocan si vienen en el payload, para no
+    # pisar el consentimiento/preferencias cuando se edita el perfil desde
+    # la pantalla de "Cuenta" (que no los envía).
+    if payload.consienteNotificacionesEmail is not None:
+        current_user.ConsienteNotificacionesEmail = payload.consienteNotificacionesEmail
+    if payload.recibeEmailsNuevaVotacion is not None:
+        current_user.RecibeEmailsNuevaVotacion = payload.recibeEmailsNuevaVotacion
+    if payload.recibeEmailsCambiosViaje is not None:
+        current_user.RecibeEmailsCambiosViaje = payload.recibeEmailsCambiosViaje
+    if payload.recibeEmailsRecordatoriosDeuda is not None:
+        current_user.RecibeEmailsRecordatoriosDeuda = payload.recibeEmailsRecordatoriosDeuda
+    if payload.recibeEmailsRecordatoriosReserva is not None:
+        current_user.RecibeEmailsRecordatoriosReserva = payload.recibeEmailsRecordatoriosReserva
+
     db.commit()
     db.refresh(current_user)
 
@@ -336,4 +350,3 @@ async def delete_me(
             trip_id,
             {"tipo": "usuario_anonimizado", "usuarioId": current_user.IdUsuario},
         )
-

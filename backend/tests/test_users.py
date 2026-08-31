@@ -115,6 +115,47 @@ def test_update_me_no_permte_modificar_email(client, auth_headers):
     assert response.json()["email"] == "ana@test.com"
 
 
+def test_update_me_actualiza_preferencias_de_notificacion(client, auth_headers):
+    response = client.put(
+        "/api/v1/users/me",
+        headers=auth_headers,
+        json={
+            "nombre": "Ana",
+            "apellido": "Test",
+            "nombreUsuario": "ana_test",
+            "fotoUrl": None,
+            "consienteNotificacionesEmail": True,
+            "recibeEmailsCambiosViaje": False,
+        },
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["consienteNotificacionesEmail"] is True
+    assert body["recibeEmailsCambiosViaje"] is False
+    # Los tipos no enviados no se tocan (mantienen su default).
+    assert body["recibeEmailsNuevaVotacion"] is True
+
+
+def test_update_me_sin_preferencias_no_las_modifica(client, db_session, auth_headers, usuario_activo):
+    usuario_activo.ConsienteNotificacionesEmail = True
+    db_session.commit()
+
+    response = client.put(
+        "/api/v1/users/me",
+        headers=auth_headers,
+        json={
+            "nombre": "Ana editada",
+            "apellido": "Test",
+            "nombreUsuario": "ana_test",
+            "fotoUrl": None,
+        },
+    )
+    assert response.status_code == 200
+    # Un update de perfil "normal" (sin mandar preferencias) no debe
+    # resetear el consentimiento que ya tenía el usuario.
+    assert response.json()["consienteNotificacionesEmail"] is True
+
+
 def test_subir_foto_perfil_actualiza_foto_url(client, auth_headers, monkeypatch):
     monkeypatch.setattr(
         "app.api.routes.users.subir_foto_perfil",
@@ -431,7 +472,6 @@ def test_delete_me_usuario_deja_de_aparecer_en_datos_publicos(
     db_session.commit()
     db_session.refresh(otro_usuario)
 
-    # Antes de eliminar la cuenta, debe aparecer públicamente
     response_antes = client.get(
         "/api/v1/users/?q=bruno_test",
         headers=auth_headers,
@@ -441,7 +481,6 @@ def test_delete_me_usuario_deja_de_aparecer_en_datos_publicos(
     assert len(response_antes.json()) == 1
     assert response_antes.json()[0]["nombreUsuario"] == "bruno_test"
 
-    # Eliminamos la cuenta de Bruno.
     token_bruno = create_access_token(
         {
             "sub": otro_usuario.Email,
@@ -458,7 +497,6 @@ def test_delete_me_usuario_deja_de_aparecer_en_datos_publicos(
 
     assert response_delete.status_code == 204
 
-    # Ana ya no debería poder encontrar a Bruno
     response_despues = client.get(
         "/api/v1/users/?q=bruno_test",
         headers=auth_headers,
@@ -477,7 +515,6 @@ def test_delete_me_reasigna_administrador_en_viaje_activo(
 ):
     viaje, participante_admin = viaje_con_admin
 
-    # Crear otro usuario activo
     otro_usuario = Usuario(
         Nombre="Bruno",
         Apellido="Test",
@@ -490,7 +527,6 @@ def test_delete_me_reasigna_administrador_en_viaje_activo(
     db_session.add(otro_usuario)
     db_session.flush()
 
-    # Obtener estado y rol necesarios
     estado_aceptado = db_session.query(EstadoParticipacion).filter_by(
         Nombre="aceptado"
     ).first()
@@ -509,7 +545,6 @@ def test_delete_me_reasigna_administrador_en_viaje_activo(
     db_session.add(otro_participante)
     db_session.commit()
 
-    # El administrador elimina su cuenta
     response = client.request(
         "DELETE",
         "/api/v1/users/me",
@@ -522,7 +557,6 @@ def test_delete_me_reasigna_administrador_en_viaje_activo(
     db_session.refresh(viaje)
     db_session.refresh(otro_usuario)
 
-    # El otro participante pasa a ser administrador
     assert viaje.IdAdministrador == otro_usuario.IdUsuario
 
 
@@ -535,7 +569,6 @@ def test_delete_me_no_reasigna_administrador_si_es_unico_participante(
 ):
     viaje, participante = viaje_con_admin
 
-    # El administrador elimina su cuenta
     response = client.request(
         "DELETE",
         "/api/v1/users/me",
@@ -548,12 +581,10 @@ def test_delete_me_no_reasigna_administrador_si_es_unico_participante(
     db_session.refresh(viaje)
     db_session.refresh(usuario_activo)
 
-    # La cuenta fue dada de baja
     assert usuario_activo.Activo is False
     assert usuario_activo.FechaBaja is not None
 
-    # El viaje sigue teniendo al usuario original como administrador.
-    # No había otro participante al que reasignar.
+
     assert viaje.IdAdministrador == usuario_activo.IdUsuario
 
 
@@ -611,7 +642,6 @@ def test_delete_me_no_reasigna_administrador_en_viaje_finalizado(
 
     db_session.refresh(viaje)
 
-    # El administrador NO cambia porque el viaje ya finalizó.
     assert viaje.IdAdministrador == administrador_original
 
 
@@ -669,5 +699,4 @@ def test_delete_me_no_reasigna_administrador_en_viaje_cancelado(
 
     db_session.refresh(viaje)
 
-    # El administrador NO cambia porque el viaje fue cancelado.
     assert viaje.IdAdministrador == administrador_original

@@ -17,6 +17,7 @@ class NotificationType(StrEnum):
     CAMBIO_VIAJE = "cambio_viaje"
     RECORDATORIO_DEUDA = "recordatorio_deuda"
     RECORDATORIO_RESERVA = "recordatorio_reserva"
+    PARTICIPANTE_EXPULSADO = "participante_expulsado"
 
 
 @dataclass(slots=True)
@@ -45,6 +46,7 @@ class NotificationService:
         NotificationType.CAMBIO_VIAJE: "RecibeEmailsCambiosViaje",
         NotificationType.RECORDATORIO_DEUDA: "RecibeEmailsRecordatoriosDeuda",
         NotificationType.RECORDATORIO_RESERVA: "RecibeEmailsRecordatoriosReserva",
+        NotificationType.PARTICIPANTE_EXPULSADO: "RecibeEmailsCambiosViaje",
     }
 
     def __init__(self, mail_service: MailService) -> None:

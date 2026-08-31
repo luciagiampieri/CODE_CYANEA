@@ -521,7 +521,9 @@ export default function TripDetailScreen({ navigation, route }) {
   }, [loadTripDetail]);
 
   useEffect(() => {
-    if (activeTab === "gastos") {
+    // Se carga también en "grupo" para poder advertir sobre saldos
+    // pendientes antes de confirmar la expulsión de un participante (US 73).
+    if (activeTab === "gastos" || activeTab === "grupo") {
       loadSettlement();
     }
   }, [activeTab, loadSettlement]);
@@ -529,7 +531,7 @@ export default function TripDetailScreen({ navigation, route }) {
   useFocusEffect(
     useCallback(() => {
       loadTripDetail();
-      if (activeTab === "gastos") {
+      if (activeTab === "gastos" || activeTab === "grupo") {
         loadSettlement();
       }
     }, [activeTab, loadSettlement, loadTripDetail])
@@ -855,11 +857,22 @@ export default function TripDetailScreen({ navigation, route }) {
   }
 
   function handleRemoveParticipant(participant) {
-    confirmar(
-      "Expulsar participante",
-      `¿Seguro que querés expulsar a ${participant.nombreCompleto} del viaje?`,
-      () => persistRemoveParticipant(participant)
-    );
+    let mensaje = `¿Seguro que querés expulsar a ${participant.nombreCompleto} del viaje?`;
+
+    if (participant.kind !== "external") {
+      const resumenParticipante = settlement?.ResumenParticipantes?.find(
+        (item) => item.IdUsuario === participant.id
+      );
+      const saldoPendiente = Number(resumenParticipante?.BalancePendiente ?? 0);
+      if (saldoPendiente !== 0) {
+        mensaje += ` Todavía tiene un saldo pendiente de liquidar de ${formatMoney(
+          Math.abs(saldoPendiente),
+          settlement?.Moneda ?? trip?.currency
+        )}. Su historial de gastos se conservará igual.`;
+      }
+    }
+
+    confirmar("Expulsar participante", mensaje, () => persistRemoveParticipant(participant));
   }
 
   async function persistRemoveParticipant(participant) {
@@ -869,8 +882,15 @@ export default function TripDetailScreen({ navigation, route }) {
       setParticipantMessage("");
       if (participant.kind === "external") {
         await removeTripExternalInvitation(trip.id, participant.email);
+        avisar("Listo", "Se quitó la invitación externa correctamente.");
       } else {
-        await removeTripParticipant(trip.id, participant.id);
+        const resultado = await removeTripParticipant(trip.id, participant.id);
+        avisar(
+          "Participante expulsado",
+          resultado?.advertencia
+            ? `${resultado.message}. ${resultado.advertencia}`
+            : resultado?.message || "El participante fue expulsado del viaje correctamente."
+        );
       }
       await loadTripDetail();
     } catch (error) {

@@ -31,6 +31,11 @@ class UsuarioProfileUpdate(BaseModel):
     apellido: str
     nombreUsuario: str
     fotoUrl: str | None = None
+    consienteNotificacionesEmail: bool | None = None
+    recibeEmailsNuevaVotacion: bool | None = None
+    recibeEmailsCambiosViaje: bool | None = None
+    recibeEmailsRecordatoriosDeuda: bool | None = None
+    recibeEmailsRecordatoriosReserva: bool | None = None
 
     @field_validator("nombre", "apellido", "nombreUsuario")
     @classmethod

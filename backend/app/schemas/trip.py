@@ -230,6 +230,7 @@ class TripParticipantUpsert(BaseModel):
 
 class TripMutationResponse(BaseModel):
     message: str
+    advertencia: str | None = None
 
 
 class TripCreate(BaseModel):
@@ -312,7 +313,7 @@ class InvitationResponse(BaseModel):
 class TripInvitationRead(BaseModel):
     tripId: int = Field(..., description="ID del viaje invitado")
     title: str = Field(..., description="Título del viaje")
-    destination: list[DestinationRead] = Field(default_factory=list, description="Lista de destinos del viaje")
+    destinations: list[DestinationRead] = Field(default_factory=list, description="Lista de destinos del viaje")
     status: str = Field(..., description="Estado actual de la participación (ej: 'invitado')")
     role: str = Field(..., description="Rol asignado en el viaje")
 
