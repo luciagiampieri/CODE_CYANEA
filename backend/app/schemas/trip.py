@@ -166,6 +166,7 @@ class TripRead(BaseModel):
     participantUserIds: list[int] = Field(default_factory=list)
     participants: list[UsuarioRead] = Field(default_factory=list)
     invitedEmails: list[str] = Field(default_factory=list)
+    hasLeft: bool = False
 
     class Config:
         from_attributes = True

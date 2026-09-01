@@ -340,6 +340,12 @@ export default function TripDetailScreen({ navigation, route }) {
       setShowLeaveModal(false);
       setNuevoAdminId(null);
 
+       if (socketRef.current) {
+        socketRef.current.onclose = null;
+        socketRef.current.close();
+        socketRef.current = null;
+      }
+
       setTrip((prev) => ({
       ...prev,
       hasLeft: true,
@@ -622,7 +628,7 @@ export default function TripDetailScreen({ navigation, route }) {
       if (activeTab === "gastos" || activeTab === "grupo") {
         loadSettlement();
       }
-    }, [activeTab, loadSettlement, loadTripDetail])
+    }, [activeTab, loadSettlement, loadTripDetail, trip?.hasLeft])
   );
 
   useEffect(() => {
@@ -633,104 +639,104 @@ export default function TripDetailScreen({ navigation, route }) {
   }, [activeTab, initialTrip?.id]);
   
   useEffect(() => {
-  if (!trip?.id) return;
+    if (!trip?.id || trip?.hasLeft) return;
+    
+    let reconnectTimeout = null;
+    let cancelado = false;
 
-  let reconnectTimeout = null;
-  let cancelado = false;
+    async function conectar() {
+      if (cancelado) return;
+      try {
+        const url = await getItinerarySocketUrl(trip.id);
+        console.log("Conectando al WebSocket con URL:", url);
+    
+        socketRef.current = new WebSocket(url);
+        console.log("WebSocket conectado");
+        
+        socketRef.current.onmessage = (event) => {
+          console.log("Mensaje WebSocket recibido:", event.data);
+          try {
+            const mensaje = JSON.parse(event.data);
+            console.log("Mensaje WebSocket recibido:", mensaje);
 
-  async function conectar() {
-    if (cancelado) return;
-    try {
-      const url = await getItinerarySocketUrl(trip.id);
-      console.log("Conectando al WebSocket con URL:", url);
-  
-      socketRef.current = new WebSocket(url);
-      console.log("WebSocket conectado");
-      
-      socketRef.current.onmessage = (event) => {
-        console.log("Mensaje WebSocket recibido:", event.data);
-        try {
-          const mensaje = JSON.parse(event.data);
-          console.log("Mensaje WebSocket recibido:", mensaje);
-
-          if (mensaje.tipo === "documento_actualizado") {
-            loadDocumentos();
-            return;
-          }
-
-          if (mensaje.tipo === "edicion_rechazada"){
-            console.log("Edición rechazada:", mensaje.mensaje);
-
-            setActivityEditMessage(mensaje.mensaje);
-
-            pendingEditRef.current = null;
-            return;
-          }
-          if (mensaje.tipo === "edicion_concedida"){
-            const actividadPendiente = pendingEditRef.current;
-
-            if(actividadPendiente){
-              setActivityModalDay(actividadPendiente);
-              pendingEditRef.current = null;
+            if (mensaje.tipo === "documento_actualizado") {
+              loadDocumentos();
+              return;
             }
-            return;
-          }
-          if (mensaje.tipo === "votacion_actualizada"){
-            loadVotaciones();
-            return;
-          }
-          if (mensaje.tipo === "usuario_anonimizado") {
 
-            loadTripDetail();
-            loadDocumentos();
-            loadVotaciones();
-            loadRepositorio();
-            loadSettlement();
-            return;
-          }
-          if (mensaje.tipo == "usuario_abandono_viaje"){
-            loadTripDetail();
-            return;
-          }
-          if (mensaje.tipo === "ruta_eliminada"){
-            setActivityFeedback({
-              success: false,
-              message:
-                "La ruta automática de ese día se eliminó porque quedaron menos de dos actividades con ubicación cargada.",
-            });
-            loadTripDetail();
-            return;
-          }
-          loadTripDetail();
-        } catch (error) {
-          console.error("Error procesando mensaje WebSocket:", error);
-        }
-      };
+            if (mensaje.tipo === "edicion_rechazada"){
+              console.log("Edición rechazada:", mensaje.mensaje);
 
-      socketRef.current.onclose = () => {
+              setActivityEditMessage(mensaje.mensaje);
+
+              pendingEditRef.current = null;
+              return;
+            }
+            if (mensaje.tipo === "edicion_concedida"){
+              const actividadPendiente = pendingEditRef.current;
+
+              if(actividadPendiente){
+                setActivityModalDay(actividadPendiente);
+                pendingEditRef.current = null;
+              }
+              return;
+            }
+            if (mensaje.tipo === "votacion_actualizada"){
+              loadVotaciones();
+              return;
+            }
+            if (mensaje.tipo === "usuario_anonimizado") {
+
+              loadTripDetail();
+              loadDocumentos();
+              loadVotaciones();
+              loadRepositorio();
+              loadSettlement();
+              return;
+            }
+            if (mensaje.tipo == "usuario_abandono_viaje"){
+              loadTripDetail();
+              return;
+            }
+            if (mensaje.tipo === "ruta_eliminada"){
+              setActivityFeedback({
+                success: false,
+                message:
+                  "La ruta automática de ese día se eliminó porque quedaron menos de dos actividades con ubicación cargada.",
+              });
+              loadTripDetail();
+              return;
+            }
+            loadTripDetail();
+          } catch (error) {
+            console.error("Error procesando mensaje WebSocket:", error);
+          }
+        };
+
+        socketRef.current.onclose = () => {
+          if (!cancelado) {
+            reconnectTimeout = setTimeout(conectar, 3000);
+          }
+        };
+
+        socketRef.current.onerror = () => {
+          socketRef.current?.close();
+        };
+      } catch {
         if (!cancelado) {
           reconnectTimeout = setTimeout(conectar, 3000);
         }
-      };
-
-      socketRef.current.onerror = () => {
-        socketRef.current?.close();
-      };
-    } catch {
-      if (!cancelado) {
-        reconnectTimeout = setTimeout(conectar, 3000);
       }
     }
-  }
 
-  conectar();
+    conectar();
 
-  return () => {
-    cancelado = true;
-    if (reconnectTimeout) clearTimeout(reconnectTimeout);
-    socketRef.current?.close();
-  };
-}, [trip?.id]);
+    return () => {
+      cancelado = true;
+      if (reconnectTimeout) clearTimeout(reconnectTimeout);
+      socketRef.current?.close();
+    };
+  }, [trip?.id, trip?.hasLeft]);
 
   const itinerarioDias = useMemo(() => {
     let diasBase = [];
@@ -2297,7 +2303,7 @@ export default function TripDetailScreen({ navigation, route }) {
             </View>
             <Text style={styles.modalTitle}>¿Dar de baja viaje?</Text>
             <Text style={styles.modalMessage}>
-              Esta acción marcará el viaje "{trip?.title}" como cancelado. Ninguno de los participantes podrá volver a acceder a la información.
+              Esta acción eliminará el viaje "{trip?.title}". Una vez eliminado, ninguno de los participantes podrá volver a acceder a la información.
             </Text>
             <View style={{ height: 10 }} /> 
             <View style={styles.modalActions}>

@@ -35,7 +35,7 @@ def require_trip_access(viaje: Viaje | None, current_user: Usuario) -> Viaje:
     if viaje is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Viaje no encontrado")
  
-    if viaje.EstadoViaje.Nombre == "cancelado":
+    if viaje.EstadoViaje.Nombre == "eliminado":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="El acceso a este viaje ha sido restringido porque fue eliminado.",

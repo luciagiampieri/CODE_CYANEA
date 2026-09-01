@@ -15,6 +15,7 @@ const toneMap = {
   abierta: { backgroundColor: "#dcf3dd", color: colors.success },
   cerrada: { backgroundColor: "#eeede5", color: "#55554d" },
   cancelada: { backgroundColor: "#ffe8ec", color: colors.danger },
+  saliste: { backgroundColor: "#f0e6f6", color: "#6b21a8" }
 };
 
 export default function StatusPill({ tone = "note", children, style, textStyle }) {

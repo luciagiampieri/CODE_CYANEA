@@ -239,6 +239,7 @@ def _build_trip_detail(
 
     fecha_salida_usuario = None
     has_left = False
+    participantes_salidos_despues = []  
 
     if current_user is not None:
         participacion_usuario = next(
@@ -263,7 +264,37 @@ def _build_trip_detail(
         if (
             participacion.Usuario.Activo 
             and participacion.EstadoParticipacion.Nombre in {"aceptado", "invitado"})
+            and (
+                fecha_salida_usuario is None
+                or participacion.FechaSalida is None
+                or participacion.FechaIncorporacion is None
+                or participacion.FechaIncorporacion <= fecha_salida_usuario
+            )
     ]
+    if fecha_salida_usuario is not None:
+        participantes_salidos_despues = [
+            participacion
+            for participacion in viaje.Participantes
+            if (
+                participacion.Usuario.Activo 
+                and participacion.EstadoParticipacion.Nombre == "salio"
+                and (
+                    participacion.FechaIncorporacion is None
+                    or participacion.FechaIncorporacion <= fecha_salida_usuario
+                )
+                and (
+                    participacion.FechaSalida is None
+                    or participacion.FechaSalida > fecha_salida_usuario
+                )
+            )
+        ]
+
+    ids_congelados_como_aceptado = {
+        p.IdParticipanteViaje for p in participantes_salidos_despues
+    }
+
+    participantes_visibles += participantes_salidos_despues
+
     participantes_visibles.sort(
         key=lambda item: (
             item.RolParticipante.Nombre != "administrador",
@@ -328,7 +359,11 @@ def _build_trip_detail(
                 email=participacion.Usuario.Email,
                 fotoUrl=participacion.Usuario.FotoUrl,
                 role=participacion.RolParticipante.Nombre,
-                status=participacion.EstadoParticipacion.Nombre,
+                status=(
+                    "aceptado"
+                    if participacion.IdParticipanteViaje in ids_congelados_como_aceptado
+                    else participacion.EstadoParticipacion.Nombre
+                ),
             )
             for participacion in participantes_visibles
         ],
@@ -506,8 +541,8 @@ def list_trips(
         .join(EstadoParticipacion, EstadoParticipacion.IdEstadoParticipacion == ParticipanteViaje.IdEstadoParticipacion)
         .where(
             ParticipanteViaje.IdUsuario == current_user.IdUsuario,
-            EstadoViaje.Nombre.in_(["activo", "finalizado"]),
-            EstadoParticipacion.Nombre == "aceptado"
+            EstadoViaje.Nombre.in_(["activo", "finalizado", "cancelado"]),
+            EstadoParticipacion.Nombre.in_(["aceptado", "salio"]),
         )
         .order_by(Viaje.FechaCreacion.desc())
     ).all()
@@ -518,6 +553,16 @@ def list_trips(
         if viaje.FechaFin and viaje.FechaFin < hoy:
             return "finalizado"
         return viaje.EstadoViaje.Nombre
+
+    def resolver_has_left(viaje: Viaje) -> bool:
+        participacion_usuario = next(
+            (p for p in viaje.Participantes if p.IdUsuario == current_user.IdUsuario),
+            None,
+        )
+        return bool(
+            participacion_usuario
+            and participacion_usuario.EstadoParticipacion.Nombre == "salio"
+        )
 
     return [
         TripRead(
@@ -535,6 +580,7 @@ def list_trips(
                 for rel in viaje.Destinos
             ],
             status=resolver_estado(viaje),
+            hasLeft=resolver_has_left(viaje),
             currency=viaje.Moneda,
             startDate=viaje.FechaInicio,
             endDate=viaje.FechaFin,
@@ -712,7 +758,7 @@ def delete_trip(
 
     nuevo_estado = db.scalar(
         select(EstadoViaje).where(
-            EstadoViaje.Nombre == "cancelado", 
+            EstadoViaje.Nombre == "eliminado", 
             EstadoViaje.Activo.is_(True)
         )
     )
@@ -720,7 +766,7 @@ def delete_trip(
     if not nuevo_estado:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Falta el estado maestro 'cancelado' en la base de datos."
+            detail="Falta el estado maestro 'eliminado' en la base de datos."
         )
 
     viaje.IdEstadoViaje = nuevo_estado.IdEstadoViaje

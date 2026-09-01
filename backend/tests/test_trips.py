@@ -170,7 +170,7 @@ def test_delete_trip_success(client, auth_headers, viaje_con_admin):
     seguimiento = client.get(f"/api/v1/trips/{viaje.IdViaje}", headers=auth_headers)
     assert seguimiento.status_code == 403
 
-
+    
 def test_delete_trip_not_found(client, auth_headers):
     response = client.delete("/api/v1/trips/9999", headers=auth_headers)
     assert response.status_code == 404

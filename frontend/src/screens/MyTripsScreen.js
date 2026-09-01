@@ -87,6 +87,7 @@ function normalizeTrip(trip) {
     endDate: endDateStr ? new Date(endDateStr) : null,
     travelersCount: participants.length,
     budgetProgress: trip.budgetProgress ?? null,
+    hasLeft: trip.hasLeft ?? trip.HasLeft ?? false,
   };
 }
 
@@ -113,7 +114,7 @@ export default function MyTripsScreen({ navigation }) {
   const nextTripId = useMemo(() => {
     const now = new Date();
     const upcoming = decoratedTrips
-      .filter((trip) => trip.status !== "finalizado" && trip.startDate)
+      .filter((trip) => trip.status !== "finalizado" && !trip.hasLeft && trip.startDate)
       .sort((a, b) => a.startDate - b.startDate);
     const closest = upcoming.find((trip) => trip.startDate >= now) || upcoming[0];
     return closest?.id;
@@ -122,18 +123,21 @@ export default function MyTripsScreen({ navigation }) {
   const filteredTrips = useMemo(() => {
     if (activeFilter === "todos") return decoratedTrips;
     if (activeFilter === "pasados") {
-      return decoratedTrips.filter((trip) => trip.status === "finalizado");
+      return decoratedTrips.filter((trip) => trip.status === "finalizado" || trip.hasLeft);
     }
-    return decoratedTrips.filter((trip) => trip.status !== "finalizado");
+    return decoratedTrips.filter((trip) => trip.status !== "finalizado" && !trip.hasLeft);
   }, [activeFilter, decoratedTrips]);
 
   const summary = useMemo(() => {
-    const activos = decoratedTrips.filter((trip) => trip.status !== "finalizado").length;
-    const completados = decoratedTrips.filter((trip) => trip.status === "finalizado").length;
+    const activos = decoratedTrips.filter((trip) => trip.status !== "finalizado" && !trip.hasLeft).length;
+    const completados = decoratedTrips.filter((trip) => trip.status === "finalizado" && !trip.hasLeft).length;
     return { activos, completados };
   }, [decoratedTrips]);
 
   function badgeInfo(trip) {
+    if (trip.hasLeft) {
+      return { tone: "saliste", label: "Saliste" };
+    }
     if (trip.status !== "finalizado" && trip.id === nextTripId) {
       return { tone: "proximo", label: "Próximo" };
     }

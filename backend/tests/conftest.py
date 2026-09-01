@@ -74,7 +74,7 @@ def client(db_session):
 @pytest.fixture()
 def master_data(db_session):
     """Datos maestros que la mayoría de los endpoints dan por hecho que existen."""
-    estados_viaje = [EstadoViaje(Nombre=n, Activo=True) for n in ("activo", "finalizado", "cancelado")]
+    estados_viaje = [EstadoViaje(Nombre=n, Activo=True) for n in ("activo", "finalizado", "cancelado", "eliminado")]
 
     estados_participacion = [
         EstadoParticipacion(Nombre="invitado", Descripcion="Invitacion pendiente de respuesta.", Activo=True),
