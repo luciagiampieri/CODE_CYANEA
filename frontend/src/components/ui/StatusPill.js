@@ -6,16 +6,21 @@ const toneMap = {
   conectada: { backgroundColor: colors.successSurface, color: colors.success },
   cargando: { backgroundColor: colors.surfaceAlt, color: colors.textSecondary },
   "sin-conexion": { backgroundColor: colors.dangerSurface, color: colors.danger },
+
+  //Estados viaje 
   activo: { backgroundColor: "#dcf3dd", color: colors.success },
   finalizado: { backgroundColor: colors.surfaceAlt, color: colors.textSecondary },
   planificando: { backgroundColor: colors.warningSurface, color: colors.warning },
+  saliste: { backgroundColor: "#f0e6f6", color: "#6b21a8" },
   proximo: { backgroundColor: colors.primary, color: colors.background },
   pendiente: { backgroundColor: colors.warningSurface, color: colors.warning },
   note: { backgroundColor: colors.accentMuted, color: colors.primary },
+
+  // estados votaciones 
   abierta: { backgroundColor: "#dcf3dd", color: colors.success },
   cerrada: { backgroundColor: "#eeede5", color: "#55554d" },
   cancelada: { backgroundColor: "#ffe8ec", color: colors.danger },
-  saliste: { backgroundColor: "#f0e6f6", color: "#6b21a8" }
+  
 };
 
 export default function StatusPill({ tone = "note", children, style, textStyle }) {

@@ -53,6 +53,11 @@ class ParticipanteViaje(Base):
         ForeignKey("Usuarios.IdUsuario", name="FK_ParticipantesViajes_Usuarios_InvitadoPor"),
         nullable=True,
     )
+    IdAdministradorAlMomentoDeSalida: Mapped[int | None] = mapped_column(
+        ForeignKey(
+            "Usuarios.IdUsuario", name="FK_ParticipantesViajes_AdminSalida"),
+            nullable=True,
+    )
 
     Viaje = relationship(
         "Viaje",
@@ -98,4 +103,8 @@ class ParticipanteViaje(Base):
         "TransferenciaLiquidacion",
         foreign_keys="TransferenciaLiquidacion.IdParticipanteAcreedor",
         back_populates="ParticipanteAcreedor",
+    )
+    AdministradorAlMomentoDeSalida = relationship(
+        "Usuario",
+        foreign_keys=[IdAdministradorAlMomentoDeSalida],
     )

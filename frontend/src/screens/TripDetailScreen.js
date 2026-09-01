@@ -1119,6 +1119,53 @@ export default function TripDetailScreen({ navigation, route }) {
     }
   }
 
+  async function abrirGoogleMaps(dayId, actividades, ruta) {
+    const actividadesConUbicacion = actividades.filter(
+      (item) => item.lat || item.latitude || item.lugarInteres?.lat || item.lugarInteres?.latitude
+    );
+
+    if (!actividadesConUbicacion || actividadesConUbicacion.length === 0) {
+      avisar("Aviso", "No hay actividades con ubicación para mostrar en Google Maps.");
+      return;
+    }
+
+    const getLat = (act) => act.lat ?? act.latitude ?? act.lugarInteres?.lat ?? act.lugarInteres?.latitude;
+    const getLng = (act) => act.lng ?? act.longitude ?? act.lugarInteres?.lng ?? act.lugarInteres?.longitude;
+
+    const origen = actividadesConUbicacion[0];
+    const destino = actividadesConUbicacion[actividadesConUbicacion.length - 1];
+
+    const waypoints = actividadesConUbicacion.slice(1, -1);
+    const waypointsString = waypoints
+      .map((act) => `${getLat(act)},${getLng(act)}`)
+      .join("|");
+
+    const originCoords = `${getLat(origen)},${getLng(origen)}`;
+    const destinationCoords = `${getLat(destino)},${getLng(destino)}`;
+    
+    const modoSeleccionado = resolverModoDelDia(dayId, ruta);
+    let travelmode = "walking";
+    if (modoSeleccionado === "driving") travelmode = "driving";
+    else if (modoSeleccionado === "bicycling") travelmode = "bicycling";
+
+    let url = `https://www.google.com/maps/dir/?api=1&origin=${originCoords}&destination=${destinationCoords}&travelmode=${travelmode}`;
+    
+    if (waypointsString) {
+      url += `&waypoints=${waypointsString}`;
+    }
+
+    try {
+      const supported = await Linking.canOpenURL(url);
+      if (supported) {
+        await Linking.openURL(url);
+      } else {
+        avisar("Error", "No se pudo abrir Google Maps en este dispositivo.");
+      }
+    } catch (error) {
+      avisar("Error", "Ocurrió un error al intentar abrir el mapa.");
+    }
+  }
+
   function handleDeleteActivity(dayId, activityId, activityTitle) {
     if (trip?.hasLeft) return;
     setActivityToDelete({ dayId, activityId, title: activityTitle });
@@ -1476,6 +1523,15 @@ export default function TripDetailScreen({ navigation, route }) {
                                     markers={routeMarkers}
                                     routePolyline={ruta.polilineaCodificada}
                                   />
+
+                                  {/* Botón para abrir en Google Maps */}
+                                  <Pressable
+                                    style={styles.openGoogleMapsButton}
+                                    onPress={() => abrirGoogleMaps(dayId, actividadesConUbicacion, ruta)}
+                                  >
+                                    <FontAwesome6 name="map-location-dot" size={14} color={colors.textInverse} />
+                                    <Text style={styles.openGoogleMapsText}>Abrir en Google Maps</Text>
+                                  </Pressable>
                                 </View>
                               ) : null}
 
@@ -3091,6 +3147,22 @@ readOnlyBackButton: {
 readOnlyBackButtonText: {
   ...textStyles.bodyStrong,
   color: colors.primary,
+  fontSize: 13,
+},
+openGoogleMapsButton: {
+  flexDirection: "row",
+  alignItems: "center",
+  justifyContent: "center",
+  gap: spacing.xs,
+  backgroundColor: colors.primary,
+  paddingVertical: spacing.sm,
+  paddingHorizontal: spacing.md,
+  borderRadius: radii.md,
+  marginTop: spacing.xs,
+},
+openGoogleMapsText: {
+  ...textStyles.bodyStrong,
+  color: colors.textInverse,
   fontSize: 13,
 },
 });

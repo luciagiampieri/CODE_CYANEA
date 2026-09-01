@@ -111,6 +111,7 @@ INSERT INTO public."ParticipantesViajes" (
     "FechaRespuesta",
     "FechaIncorporacion",
     "InvitadoPor"
+    "FechaSalida",
 )
 SELECT
     v."IdViaje",

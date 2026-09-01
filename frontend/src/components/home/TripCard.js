@@ -5,15 +5,24 @@ import AvatarStack from "../ui/AvatarStack";
 import StatusPill from "../ui/StatusPill";
 import { colors, radii, spacing, surfaces, textStyles } from "../../theme/tokens";
 
-const STATUS_LABEL = {
+const PHASE_LABEL = {
   activo: "En curso",
-  finalizado: "Finalizado",
   planificando: "Planificando",
 };
 
+function getBadges(trip) {
+  const phase = trip.phase ?? "planificando";
+  const badges = [];
+  if (phase === "planificando" && trip.isNext) {
+    badges.push({ tone: "proximo", label: "Próximo" });
+  }
+  badges.push({ tone: phase, label: PHASE_LABEL[phase] ?? "Planificando" });
+  return badges;
+}
+
 export default function TripCard({ trip, onPress, compact = false }) {
+  const badges = getBadges(trip);
   const statusKey = trip.status?.toLowerCase();
-  const statusLabel = STATUS_LABEL[statusKey] ?? trip.statusLabel ?? "Planificando";
   const hasBudgetData = Boolean(trip.budgetLabel || trip.budgetProgress != null);
   const progressValue = hasBudgetData
     ? Math.max(0, Math.min(100, Number(trip.budgetProgress ?? 0)))
@@ -45,9 +54,14 @@ export default function TripCard({ trip, onPress, compact = false }) {
           <View style={styles.imageOverlay}>
             <View style={styles.topRow}>
               <View />
-              <StatusPill tone={statusKey ?? "planificando"}>{statusLabel}</StatusPill>
+              <View style={styles.badgeStack}>
+                {badges.map((badge) => (
+                  <StatusPill key={badge.tone} tone={badge.tone}>
+                    {badge.label}
+                  </StatusPill>
+                ))}
+              </View>
             </View>
-
             <View style={styles.heroCopy}>
               <Text numberOfLines={2} style={styles.title}>
                 {trip.title}
@@ -193,5 +207,9 @@ const styles = StyleSheet.create({
     height: "100%",
     backgroundColor: colors.accentStrong,
     borderRadius: radii.pill,
+  },
+  badgeStack: {
+    gap: spacing.xxs,
+    alignItems: "flex-end",
   },
 });

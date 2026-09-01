@@ -267,12 +267,12 @@ const styles = StyleSheet.create({
     paddingBottom: spacing.xl,
     borderBottomLeftRadius: 32,
     borderBottomRightRadius: 32,
-    alignItems: "center",
+    alignItems: "left",
   },
   headerRow: {
     flexDirection: "row",
     justifyContent: "space-between",
-    alignItems: "center",
+    alignItems: "left",
   },
   actionBar: {
     flexDirection: "row",
@@ -305,13 +305,13 @@ const styles = StyleSheet.create({
     color: colors.textInverse,
     fontSize: 26,
     marginTop: spacing.xs,
-    textAlign: "center",
+    textAlign: "left",
   },
   copy: {
     ...textStyles.body,
     color: "rgba(255,255,255,0.8)",
     marginTop: spacing.xs,
-    textAlign: "center",
+    textAlign: "left",
   },
   body: {
     backgroundColor: colors.background,

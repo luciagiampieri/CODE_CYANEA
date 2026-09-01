@@ -46,25 +46,26 @@ function formatDateRange(trip) {
   return `${monthFormatter.format(start)} - ${monthFormatter.format(end)} ${end.getUTCFullYear()}`;
 }
 
-function normalizeTrip(trip) {
+function normalizeTrip(trip, phase, isNext) {
   const destinations = trip.destinations || trip.Destinations || [];
   const participants = trip.participants || trip.Participants || [];
   const destinationLabel = destinations.length
     ? destinations.map((item) => `${item.name}, ${item.country}`).join(" · ")
     : trip.destination || trip.Destino || "Destino a confirmar";
-
   const participantPreview = participants.slice(0, 4).map((participant) => ({
     id: participant.id,
     key: `${trip.id ?? trip.IdViaje}-${participant.id}`,
     nombreCompleto: participant.nombreCompleto,
     fotoUrl: participant.fotoUrl,
   }));
-
   return {
     ...trip,
     title: trip.title || trip.Titulo || "Viaje sin nombre",
     destination: destinationLabel,
     status: (trip.status || trip.Estado || "activo").toLowerCase(),
+    phase, // 👈
+    isNext: Boolean(isNext), // 👈
+    hasLeft: trip.hasLeft ?? trip.HasLeft ?? false,
     image: trip.image || null,
     dateLabel: formatDateRange(trip),
     participantsPreview: participantPreview,
@@ -76,6 +77,25 @@ function normalizeTrip(trip) {
     budgetProgress: trip.budgetProgress ?? null,
   };
 }
+
+const ESTADOS_INACTIVOS = new Set(["cancelado", "eliminado", "finalizado"]);
+
+ function getTripPhase(trip, now) {
+    const startDateStr = trip.startDate || trip.FechaInicio;
+    const endDateStr = trip.endDate || trip.FechaFin;
+    const startDate = startDateStr ? new Date(startDateStr) : null;
+    const endDate = endDateStr ? new Date(endDateStr) : null;
+
+    if (!startDate || Number.isNaN(startDate.getTime())) return null;
+
+    if (endDate && !Number.isNaN(endDate.getTime()) && now > endDate) {
+      return "finalizado"; // ya terminó, no debe mostrarse acá
+    }
+    if (now < startDate) {
+      return "planificando"; // todavía no inició
+    }
+    return "en_curso"; // fechaInicio <= hoy <= fechaFin (o sin fechaFin definida)
+  }
 
 export default function HomeScreen({ navigation }) {
 
@@ -159,20 +179,30 @@ export default function HomeScreen({ navigation }) {
     };
   }, [loadNotificationBadge]);
 
-  const decoratedTrips = useMemo(
-    () => {
-      const now = new Date();
-      return trips
-        .filter((trip) => {
-          const endDateStr = trip.endDate || trip.FechaFin;
-          if (!endDateStr) return true;
-          const endDate = new Date(endDateStr);
-          return endDate >= now;
-        })
-        .map((trip) => normalizeTrip(trip));
-    },
-    [trips]
-  );
+  const decoratedTrips = useMemo(() => {
+    const now = new Date();
+    const withPhase = trips
+      .map((trip) => ({ trip, phase: getTripPhase(trip, now) }))
+      .filter(({ trip, phase }) => {
+        if (trip.hasLeft ?? trip.HasLeft ?? false) return false;
+        const estado = (trip.status || trip.Estado || "").toLowerCase();
+        if (ESTADOS_INACTIVOS.has(estado)) return false;
+        return phase === "en_curso" || phase === "planificando";
+      })
+      .sort((a, b) => {
+        const startA = new Date(a.trip.startDate || a.trip.FechaInicio);
+        const startB = new Date(b.trip.startDate || b.trip.FechaInicio);
+        return startA - startB;
+      });
+
+    const nextPlanificando = withPhase.find(({ phase }) => phase === "planificando");
+    const nextTripId = nextPlanificando ? (nextPlanificando.trip.id ?? nextPlanificando.trip.IdViaje) : null;
+
+    return withPhase.map(({ trip, phase }) => {
+      const tripId = trip.id ?? trip.IdViaje;
+      return normalizeTrip(trip, phase, tripId === nextTripId);
+    });
+  }, [trips]);
 
   const metrics = useMemo(() => {
     const countries = new Set();

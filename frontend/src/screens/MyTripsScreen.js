@@ -23,8 +23,9 @@ import {
 
 const FILTERS = [
   { key: "todos", label: "Todos" },
-  { key: "proximos", label: "Próximos" },
-  { key: "pasados", label: "Pasados" },
+  { key: "en_curso", label: "En curso" },
+  { key: "proximo", label: "Próximos" },
+  { key: "pasado", label: "Pasados" },
 ];
 
 const STATUS_LABEL = {
@@ -39,6 +40,8 @@ const QUICK_ACTIONS = [
   { key: "checklist", label: "Checklist", icon: "check-circle", color: colors.success },
   { key: "docs", label: "Docs", icon: "file-text", color: "#7c6fa8" },
 ];
+
+const ESTADOS_INACTIVOS = new Set(["finalizado", "cancelado", "eliminado"]);
 
 function formatDateRange(trip) {
   const startDateStr = trip.startDate || trip.FechaInicio;
@@ -65,6 +68,33 @@ function formatDateRange(trip) {
 
   return `${dayFormatter.format(start)}-${dayFormatter.format(end)} ${monthFormatter.format(end)} ${end.getUTCFullYear()}`;
 }
+
+const PHASE_ORDER = { en_curso: 0, proximo: 1, pasado: 2};
+
+function getTripPhase(trip, now) {
+  // Ya no está activo: lo abandonó, o el backend lo marcó finalizado/cancelado/eliminado,
+  // o ya pasó la fecha de fin.
+  const yaNoActivo =
+    trip.hasLeft ||
+    ESTADOS_INACTIVOS.has(trip.status) ||
+    (trip.endDate && now > trip.endDate);
+  if (yaNoActivo) return "pasado";
+
+  if (trip.startDate && now < trip.startDate) return "proximo";
+
+  return "en_curso";
+}
+
+function sortByPhase(a, b) {
+    if (a.phase === "en_curso") {
+      return (a.endDate ?? Infinity) - (b.endDate ?? Infinity); // termina antes, primero
+    }
+    if (a.phase === "proximo") {
+      return (a.startDate ?? Infinity) - (b.startDate ?? Infinity); // arranca antes, primero
+    }
+    // pasado: más reciente primero
+    return (b.endDate ?? 0) - (a.endDate ?? 0);
+  }
 
 function normalizeTrip(trip) {
   const destinations = trip.destinations || trip.Destinations || [];
@@ -109,39 +139,59 @@ export default function MyTripsScreen({ navigation }) {
     loadData();
   }, []);
 
-  const decoratedTrips = useMemo(() => trips.map(normalizeTrip), [trips]);
+  const decoratedTrips = useMemo(() => {
+    const now = new Date();
+    return trips.map((trip) => {
+      const normalized = normalizeTrip(trip);
+      return { ...normalized, phase: getTripPhase(normalized, now) };
+    });
+  }, [trips]);
 
   const nextTripId = useMemo(() => {
-    const now = new Date();
-    const upcoming = decoratedTrips
-      .filter((trip) => trip.status !== "finalizado" && !trip.hasLeft && trip.startDate)
-      .sort((a, b) => a.startDate - b.startDate);
-    const closest = upcoming.find((trip) => trip.startDate >= now) || upcoming[0];
-    return closest?.id;
+    const proximos = decoratedTrips
+      .filter((trip) => trip.phase === "proximo")
+      .sort((a, b) => (a.startDate ?? Infinity) - (b.startDate ?? Infinity));
+    return proximos[0]?.id;
   }, [decoratedTrips]);
 
   const filteredTrips = useMemo(() => {
-    if (activeFilter === "todos") return decoratedTrips;
-    if (activeFilter === "pasados") {
-      return decoratedTrips.filter((trip) => trip.status === "finalizado" || trip.hasLeft);
+    let base = decoratedTrips;
+    if (activeFilter !== "todos") {
+      base = decoratedTrips.filter((trip) => trip.phase === activeFilter);
     }
-    return decoratedTrips.filter((trip) => trip.status !== "finalizado" && !trip.hasLeft);
+    return [...base].sort((a, b) => {
+      if (activeFilter === "todos" && a.phase !== b.phase) {
+        return PHASE_ORDER[a.phase] - PHASE_ORDER[b.phase];
+      }
+      return sortByPhase(a, b);
+    });
   }, [activeFilter, decoratedTrips]);
 
   const summary = useMemo(() => {
-    const activos = decoratedTrips.filter((trip) => trip.status !== "finalizado" && !trip.hasLeft).length;
-    const completados = decoratedTrips.filter((trip) => trip.status === "finalizado" && !trip.hasLeft).length;
+    const activos = decoratedTrips.filter(
+      (trip) => trip.phase === "en_curso" || trip.phase === "proximo"
+    ).length;
+    const completados = decoratedTrips.filter((trip) => !trip.hasLeft && trip.phase === "pasado").length;
     return { activos, completados };
   }, [decoratedTrips]);
 
+
   function badgeInfo(trip) {
     if (trip.hasLeft) {
-      return { tone: "saliste", label: "Saliste" };
+      return [{ tone: "saliste", label: "Saliste" }];
     }
-    if (trip.status !== "finalizado" && trip.id === nextTripId) {
-      return { tone: "proximo", label: "Próximo" };
+    if (trip.phase === "pasado") {
+      return [{ tone: "finalizado", label: "Finalizado" }];
     }
-    return { tone: trip.status, label: STATUS_LABEL[trip.status] ?? "Planificando" };
+    if (trip.phase === "proximo") {
+      const badges = [{ tone: "planificando", label: "Planificando" }];
+      if (trip.id === nextTripId) {
+        badges.unshift({ tone: "proximo", label: "Próximo" });
+      }
+      return badges;
+    }
+    // en_curso
+    return [{ tone: "activo", label: "En curso" }];
   }
 
   return (
@@ -214,9 +264,13 @@ export default function MyTripsScreen({ navigation }) {
                     {...heroProps}
                     style={[styles.hero, !trip.image && styles.heroFallback]}
                   >
-                    <StatusPill tone={badgeInfo(trip).tone} style={styles.badge}>
-                      {badgeInfo(trip).label}
-                    </StatusPill>
+                    <View style={styles.badgeStack}>
+                      {badgeInfo(trip).map((badge) => (
+                        <StatusPill key={badge.tone} tone={badge.tone}>
+                          {badge.label}
+                        </StatusPill>
+                      ))}
+                    </View>
                     <Text numberOfLines={1} style={styles.tripTitle}>
                       {trip.title}
                     </Text>
@@ -368,10 +422,12 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: radii.lg,
     borderTopRightRadius: radii.lg,
   },
-  badge: {
+  badgeStack: {
     position: "absolute",
     top: spacing.md,
     right: spacing.md,
+    gap: spacing.xxs,
+    alignItems: "flex-end",
   },
   tripTitle: {
     ...textStyles.tripTitle,

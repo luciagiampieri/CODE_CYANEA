@@ -240,6 +240,7 @@ def _build_trip_detail(
     fecha_salida_usuario = None
     has_left = False
     participantes_salidos_despues = []  
+    participacion_usuario = None
 
     if current_user is not None:
         participacion_usuario = next(
@@ -303,6 +304,24 @@ def _build_trip_detail(
         )
     )
 
+    admin_a_mostrar = viaje.Administrador
+
+    if(
+        has_left
+        and participacion_usuario is not None
+        and participacion_usuario.IdAdministradorAlMomentoDeSalida is not None
+    ):
+        admin_congelado = next(
+            (
+                p.Usuario
+                for p in viaje.Participantes
+                if p.IdUsuario == participacion_usuario.IdAdministradorAlMomentoDeSalida
+            ),
+            None,
+        )
+        if admin_congelado is not None:
+            admin_a_mostrar = admin_congelado
+
     invitaciones_visibles = [
         invitacion
         for invitacion in viaje.Invitaciones
@@ -345,11 +364,11 @@ def _build_trip_detail(
             for dia in (viaje.Cronograma or [])
         ],
         admin=TripAdminRead(
-            id=viaje.Administrador.IdUsuario,
-            nombreCompleto=f"{viaje.Administrador.Nombre} {viaje.Administrador.Apellido}",
-            nombreUsuario=viaje.Administrador.NombreUsuario,
-            email=viaje.Administrador.Email,
-            fotoUrl=viaje.Administrador.FotoUrl,
+            id=admin_a_mostrar.IdUsuario,
+            nombreCompleto=f"{admin_a_mostrar.Nombre} {admin_a_mostrar.Apellido}",
+            nombreUsuario=admin_a_mostrar.NombreUsuario,
+            email=admin_a_mostrar.Email,
+            fotoUrl=admin_a_mostrar.FotoUrl,
         ),
         participants=[
             TripParticipantRead(
@@ -1083,6 +1102,7 @@ def add_trip_participant(
                 existente.IdEstadoParticipacion = estado_invitado.IdEstadoParticipacion
                 existente.InvitadoPor = current_user.IdUsuario
                 existente.IdRolParticipante = rol_participante.IdRolParticipante
+                existente.FechaInvitacion = datetime.now()
                 db.commit()
                 return TripMutationResponse(message="Participante reincorporado correctamente")
             else:
@@ -1129,10 +1149,11 @@ def add_trip_participant(
             )
         )
         if existente is not None:
-            if existente.EstadoParticipacion.Nombre == "expulsado":
+            if existente.EstadoParticipacion.Nombre in {"expulsado", "salio"}:
                 existente.IdEstadoParticipacion = estado_invitado.IdEstadoParticipacion
                 existente.IdRolParticipante = rol_participante.IdRolParticipante
                 existente.InvitadoPor = current_user.IdUsuario
+                existente.FechaInvitacion = datetime.now()
                 db.commit()
                 return TripMutationResponse(message="Participante vuelto a invitar correctamente")
             raise HTTPException(status_code=409, detail="El usuario ya está agregado al viaje")
@@ -1779,6 +1800,7 @@ async def leave_trip(
         participacion.IdRolParticipante = rol_participante.IdRolParticipante
         participacion.IdEstadoParticipacion = estado_salio.IdEstadoParticipacion
         participacion.FechaSalida = datetime.now()
+        participacion.IdAdministradorAlMomentoDeSalida = nuevo_administrador_usuario.IdUsuario
 
         notificacion = Notificacion(
             IdUsuario=nuevo_administrador_usuario.IdUsuario,
@@ -1799,6 +1821,7 @@ async def leave_trip(
     else:
         participacion.IdEstadoParticipacion = estado_salio.IdEstadoParticipacion
         participacion.FechaSalida = datetime.now()
+        participacion.IdAdministradorAlMomentoDeSalida = viaje.IdAdministrador
 
         notificacion = Notificacion(
             IdUsuario=viaje.IdAdministrador,
