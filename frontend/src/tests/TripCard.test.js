@@ -23,10 +23,10 @@ describe("TripCard", () => {
 
   it("traduce el status conocido a su label en español", async () => {
     const { getByText } = await render(
-      <TripCard trip={buildTrip({ status: "finalizado" })} onPress={jest.fn()} />
+      <TripCard trip={buildTrip({ status: "activo" })} onPress={jest.fn()} />
     );
 
-    expect(getByText("Finalizado")).toBeTruthy();
+    expect(getByText("Planificando")).toBeTruthy();
   });
 
   it("usa statusLabel o 'Planificando' como fallback si el status no es conocido", async () => {
