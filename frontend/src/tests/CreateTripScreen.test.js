@@ -9,6 +9,7 @@ import {
   getUsers,
   getCurrencies,
   searchDestinations,
+  resolveDestination
 } from "../services/api.js";
 
 jest.mock("../services/api.js", () => ({
@@ -17,8 +18,18 @@ jest.mock("../services/api.js", () => ({
   getUsers: jest.fn(),
   getCurrencies: jest.fn(),
   searchDestinations: jest.fn(),
+  resolveDestination: jest.fn(),
 }));
 
+resolveDestination.mockResolvedValue({
+  name: "Bariloche",
+  country: "Argentina",
+  provinceState: "Río Negro",
+  lat: -41.1335,
+  lng: -71.3103,
+  placeId: "google:bariloche-id",
+  imageUrl: "https://example.com/bariloche.jpg",
+});
 
 jest.mock("@react-native-community/datetimepicker", () => {
   const ReactActual = require("react");
@@ -105,8 +116,22 @@ describe("US - Crear viaje (CreateTripScreen)", () => {
 
   it("permite buscar y agregar un destino a la lista", async () => {
     searchDestinations.mockResolvedValue([
-      { name: "Bariloche", country: "Argentina" },
+      {
+        name: "Bariloche",
+        country: "Argentina",
+        placeId: "google:bariloche-id",
+      },
     ]);
+
+    resolveDestination.mockResolvedValue({
+      name: "Bariloche",
+      country: "Argentina",
+      provinceState: "Río Negro",
+      lat: -41.1335,
+      lng: -71.3103,
+      placeId: "google:bariloche-id",
+      imageUrl: "https://example.com/bariloche.jpg",
+    });
 
     const utils = await renderPantallaCargada();
 
@@ -118,15 +143,37 @@ describe("US - Crear viaje (CreateTripScreen)", () => {
     });
 
     await waitFor(() => expect(utils.getByText("Bariloche")).toBeTruthy());
+
     await press(utils, "Bariloche");
+
+    await waitFor(() => {
+      expect(resolveDestination).toHaveBeenCalledWith(
+        "google:bariloche-id",
+        expect.any(String)
+      );
+    });
 
     expect(utils.getByText("Destinos seleccionados (1)")).toBeTruthy();
   });
 
   it("crea el viaje correctamente con datos válidos y navega al inicio", async () => {
     searchDestinations.mockResolvedValue([
-      { name: "Bariloche", country: "Argentina" },
+      {
+        name: "Bariloche",
+        country: "Argentina",
+        placeId: "google:bariloche-id",
+      },
     ]);
+
+    resolveDestination.mockResolvedValue({
+      name: "Bariloche",
+      country: "Argentina",
+      provinceState: "Río Negro",
+      lat: -41.1335,
+      lng: -71.3103,
+      placeId: "google:bariloche-id",
+      imageUrl: "https://example.com/bariloche.jpg",
+    });
 
     const utils = await renderPantallaCargada();
 
@@ -143,33 +190,74 @@ describe("US - Crear viaje (CreateTripScreen)", () => {
         "Bariloche"
       );
     });
+
     await waitFor(() => expect(utils.getByText("Bariloche")).toBeTruthy());
+
     await press(utils, "Bariloche");
+
+    await waitFor(() => {
+      expect(resolveDestination).toHaveBeenCalledWith(
+        "google:bariloche-id",
+        expect.any(String)
+      );
+    });
 
     await completarFechas(utils);
 
     await press(utils, "Crear viaje");
 
-    await waitFor(() => expect(createTrip).toHaveBeenCalledTimes(1));
+    await waitFor(() => {
+      expect(createTrip).toHaveBeenCalledTimes(1);
+    });
 
     expect(createTrip).toHaveBeenCalledWith(
       expect.objectContaining({
         title: "Viaje de egresados",
         currency: "ARS",
-        destinations: [{ name: "Bariloche", country: "Argentina" }],
+        destinations: [
+          {
+            name: "Bariloche",
+            country: "Argentina",
+            provinceState: "Río Negro",
+            lat: -41.1335,
+            lng: -71.3103,
+            placeId: "google:bariloche-id",
+            imageUrl: "https://example.com/bariloche.jpg",
+          },
+        ],
       })
     );
 
     await waitFor(() => {
-      expect(mockNavigate).toHaveBeenCalledWith("Tabs", { screen: "Inicio" });
+      expect(mockNavigate).toHaveBeenCalledWith(
+        "Tabs",
+        { screen: "Inicio" }
+      );
     });
   });
 
   it("muestra el mensaje de error si el servidor rechaza la creación", async () => {
     searchDestinations.mockResolvedValue([
-      { name: "Bariloche", country: "Argentina" },
+      {
+        name: "Bariloche",
+        country: "Argentina",
+        placeId: "google:bariloche-id",
+      },
     ]);
-    createTrip.mockRejectedValue(new Error("No se pudo crear el viaje."));
+
+    resolveDestination.mockResolvedValue({
+      name: "Bariloche",
+      country: "Argentina",
+      provinceState: "Río Negro",
+      lat: -41.1335,
+      lng: -71.3103,
+      placeId: "google:bariloche-id",
+      imageUrl: "https://example.com/bariloche.jpg",
+    });
+
+    createTrip.mockRejectedValue(
+      new Error("No se pudo crear el viaje.")
+    );
 
     const utils = await renderPantallaCargada();
 
@@ -179,21 +267,28 @@ describe("US - Crear viaje (CreateTripScreen)", () => {
         "Viaje de egresados"
       );
     });
+
     await act(async () => {
       fireEvent.changeText(
         utils.getByPlaceholderText("Ej: Córdoba, Bariloche, Chile..."),
         "Bariloche"
       );
     });
+
     await waitFor(() => expect(utils.getByText("Bariloche")).toBeTruthy());
+
     await press(utils, "Bariloche");
+
     await completarFechas(utils);
 
     await press(utils, "Crear viaje");
 
     await waitFor(() => {
-      expect(utils.getByText("No se pudo crear el viaje.")).toBeTruthy();
+      expect(
+        utils.getByText("No se pudo crear el viaje.")
+      ).toBeTruthy();
     });
+
     expect(mockNavigate).not.toHaveBeenCalled();
   });
 
@@ -203,5 +298,42 @@ describe("US - Crear viaje (CreateTripScreen)", () => {
     await press(utils, "Cancelar");
 
     expect(mockGoBack).toHaveBeenCalledTimes(1);
+  });
+
+  it("muestra un error si no se puede resolver el destino", async () => {
+    searchDestinations.mockResolvedValue([
+      {
+        name: "Bariloche",
+        country: "Argentina",
+        placeId: "google:bariloche-id",
+      },
+    ]);
+
+    resolveDestination.mockRejectedValue(
+      new Error("No se pudo resolver el destino")
+    );
+
+    const utils = await renderPantallaCargada();
+
+    await act(async () => {
+      fireEvent.changeText(
+        utils.getByPlaceholderText("Ej: Córdoba, Bariloche, Chile..."),
+        "Bariloche"
+      );
+    });
+
+    await waitFor(() => expect(utils.getByText("Bariloche")).toBeTruthy());
+
+    await press(utils, "Bariloche");
+
+    await waitFor(() => {
+      expect(
+        utils.getByText(
+          "No se pudo agregar ese destino, probá de nuevo."
+        )
+      ).toBeTruthy();
+    });
+
+    expect(utils.getByText("Destinos seleccionados (0)")).toBeTruthy();
   });
 });
