@@ -698,6 +698,10 @@ export default function TripDetailScreen({ navigation, route }) {
               loadTripDetail();
               return;
             }
+            if (mensaje.tipo === "participante_acepto"){
+              loadTripDetail();
+              return;
+            }
             if (mensaje.tipo === "ruta_eliminada"){
               setActivityFeedback({
                 success: false,

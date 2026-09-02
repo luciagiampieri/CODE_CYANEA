@@ -61,7 +61,7 @@ from app.services.notifications import (
     NotificationType,
     get_notification_service,
 )
-from app.services.destination_search import build_destination_image_url, search_destinations
+from app.services.destination_search import build_destination_image_url, search_destinations, autocomplete_destinations, resolve_destination
 from app.services.place_search import get_place_photo_uri
 from app.services.trip_access import get_trip_with_relations, require_trip_access, require_trip_edit_access
 from app.services.liquidacion_service import calcular_balances_participantes
@@ -436,7 +436,7 @@ def get_pending_invitations(
     ]
 
 @router.post("/invitations/{trip_id}/respond", status_code=status.HTTP_200_OK)
-def respond_to_invitation(
+async def respond_to_invitation(
     trip_id: int,
     payload: InvitationResponse,
     db: Session = Depends(get_db),
@@ -492,13 +492,21 @@ def respond_to_invitation(
             f"El usuario {current_user.Nombre} {current_user.Apellido} ha "
             f"{decision.upper() + 'ADO'} la invitación al viaje '{participacion.Viaje.Titulo}'."
         )
+    
+    if decision == "aceptar":
+        await manager.broadcast(trip_id, {
+            "tipo": "participante_acepto",
+                "trip_id": trip_id,
+                "user_id": current_user.IdUsuario,
+                "message": f"El usuario {current_user.Nombre} se ha unido al viaje."
+        })
 
     return {
         "status": "success",
         "message": f"Invitación {nuevo_estado_nombre} correctamente."
     }
 
-@router.get("/search")
+"""@router.get("/search")
 async def search_destinos(q: str = Query(..., min_length=2)):
     try:
         resultados = await search_destinations(q.strip(), limit=5)
@@ -519,8 +527,50 @@ async def search_destinos(q: str = Query(..., min_length=2)):
             "imageUrl": build_destination_image_url(item.place_id),
         }
         for item in resultados
+    ]"""
+
+@router.get("/search")
+async def search_destinos(
+    q: str = Query(..., min_length=2),
+    sessionToken: str | None = Query(None),
+    current_user: Usuario = Depends(get_current_user),
+):
+    try:
+        sugerencias = await autocomplete_destinations(q.strip(), session_token=sessionToken, limit=6)
+    except Exception as exc:
+        logger.exception("Error consultando autocomplete de destinos: %s", exc),
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="No se pudo consultar el servicio externo de destinos",
+        ) from exc
+    return [
+        {"name": item.name, "country": item.country, "placeId": item.place_id}
+        for item in sugerencias
     ]
 
+
+@router.get("/destinations/resolve")
+async def resolve_destino(
+    placeId: str = Query(..., min_length=2),
+    sessionToken: str | None = Query(None),
+    current_user: Usuario = Depends(get_current_user),
+):
+    try:
+        resultado = await resolve_destination(placeId, session_token=sessionToken)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="No se pudo resolver el destino seleccionado",
+        ) from exc
+    return {
+        "name": resultado.name,
+        "country": resultado.country,
+        "provinceState": resultado.province_state,
+        "lat": resultado.lat,
+        "lng": resultado.lng,
+        "placeId": resultado.place_id,
+        "imageUrl": build_destination_image_url(resultado.place_id),
+    }
 
 @router.get("/destination-photo", include_in_schema=False)
 async def get_destination_photo(

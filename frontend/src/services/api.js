@@ -583,7 +583,7 @@ export async function searchCurrencies(search = "") {
   return parseResponse(response, "No se pudieron obtener las monedas");
 }
 
-export async function searchDestinations(query) {
+/*export async function searchDestinations(query) {
   const response = await fetch(
     `${API_BASE_URL}/trips/search?q=${encodeURIComponent(query)}`,
     {
@@ -591,6 +591,28 @@ export async function searchDestinations(query) {
     }
   );
   return parseResponse(response, "No se pudieron buscar destinos");
+}*/
+
+export async function searchDestinations(query, sessionToken) {
+  const sessionParam = sessionToken ? `&sessionToken=${encodeURIComponent(sessionToken)}` : "";
+  const response = await fetch(
+    `${API_BASE_URL}/trips/search?q=${encodeURIComponent(query)}${sessionParam}`,
+    {
+      headers: await authHeaders(),
+    }
+  );
+  return parseResponse(response, "No se pudieron buscar destinos");
+}
+
+export async function resolveDestination(placeId, sessionToken) {
+  const sessionParam = sessionToken ? `&sessionToken=${encodeURIComponent(sessionToken)}` : "";
+  const response = await fetch(
+    `${API_BASE_URL}/trips/destinations/resolve?placeId=${encodeURIComponent(placeId)}${sessionParam}`,
+    {
+      headers: await authHeaders(),
+    }
+  );
+  return parseResponse(response, "No se pudo resolver el destino seleccionado");
 }
 
 export async function createVotacion(payload) {
