@@ -99,12 +99,9 @@ async def resolve_destination(
     place_id: str,
     session_token: str | None = None,
 ) -> DestinationSearchResult:
-    """Se llama UNA sola vez, cuando el usuario elige una sugerencia. Trae lat/lng, provincia, etc."""
     if not settings.google_maps_api_key:
         raise ValueError("GOOGLE_MAPS_API_KEY no esta configurada")
-
     raw_place_id = place_id.split(":", 1)[1] if place_id.startswith("google:") else place_id
-
     headers = {
         "X-Goog-Api-Key": settings.google_maps_api_key,
         "X-Goog-FieldMask": "id,displayName,formattedAddress,location,types,addressComponents",
@@ -112,26 +109,30 @@ async def resolve_destination(
     params: dict = {"languageCode": "es"}
     if session_token:
         params["sessionToken"] = session_token
-
     client = _get_client()
     response = await client.get(
         f"{GOOGLE_PLACES_DETAILS_URL}/{raw_place_id}", headers=headers, params=params
     )
-
     response.raise_for_status()
     item = response.json()
+
     name = item.get("displayName", {}).get("text") or "Destino desconocido"
     address = item.get("formattedAddress") or name
-    parts = [segment.strip() for segment in address.split(",") if segment.strip()]
-    country = parts[-1] if parts else name
+
+    country = None
     province_state = None
-
     for component in item.get("addressComponents", []):
-        if "administrative_area_level_1" in component.get("types", []):
+        types = component.get("types", [])
+        if "country" in types and country is None:
+            country = component.get("longText") or component.get("shortText")
+        if "administrative_area_level_1" in types and province_state is None:
             province_state = component.get("longText") or component.get("shortText")
-            break
-    location = item.get("location", {})
 
+    if country is None:
+        parts = [segment.strip() for segment in address.split(",") if segment.strip()]
+        country = parts[-1] if parts else name
+
+    location = item.get("location", {})
     return DestinationSearchResult(
         name=name,
         country=country,
@@ -141,35 +142,44 @@ async def resolve_destination(
         place_id=f"google:{item.get('id')}" if item.get("id") else None,
     )
 
-
 async def search_destinations(query: str, limit: int = 1) -> list[DestinationSearchResult]:
+   
+
     """Se mantiene SOLO como fallback interno (ej: resolver la portada de un
-    viaje si por algún motivo no vino placeId). No usar para autocompletado."""
+        viaje si por algún motivo no vino placeId). No usar para autocompletado."""
     if not settings.google_maps_api_key:
         raise ValueError("GOOGLE_MAPS_API_KEY no esta configurada")
+
     headers = {
         "Content-Type": "application/json",
         "X-Goog-Api-Key": settings.google_maps_api_key,
         "X-Goog-FieldMask": "places.id,places.displayName,places.formattedAddress,places.location,places.types,places.addressComponents",
     }
     payload = {"textQuery": query.strip(), "languageCode": "es", "maxResultCount": limit}
-
+    
     client = _get_client()
     response = await client.post(GOOGLE_PLACES_TEXT_SEARCH_URL, headers=headers, json=payload)
     response.raise_for_status()
     data = response.json()
     results: list[DestinationSearchResult] = []
-
+    
     for item in data.get("places", [])[:limit]:
         name = item.get("displayName", {}).get("text") or "Destino desconocido"
         address = item.get("formattedAddress") or name
-        parts = [s.strip() for s in address.split(",") if s.strip()]
-        country = parts[-1] if parts else name
+
+        country = None
         province_state = None
         for component in item.get("addressComponents", []):
-            if "administrative_area_level_1" in component.get("types", []):
+            types = component.get("types", [])
+            if "country" in types and country is None:
+                country = component.get("longText") or component.get("shortText")
+            if "administrative_area_level_1" in types and province_state is None:
                 province_state = component.get("longText") or component.get("shortText")
-                break
+
+        if country is None:
+            parts = [s.strip() for s in address.split(",") if s.strip()]
+            country = parts[-1] if parts else name
+
         location = item.get("location", {})
         results.append(
             DestinationSearchResult(

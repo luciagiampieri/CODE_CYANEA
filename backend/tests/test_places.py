@@ -47,65 +47,24 @@ def _crear_lugar_guardado(db_session, viaje, usuario, google_place_id="google:pa
     return lugar, lugar_viaje
 
 
-def test_search_places_devuelve_resultados_normalizados(client, auth_headers, viaje_con_admin, monkeypatch):
-    viaje, _ = viaje_con_admin
-
-    async def fake_search_trip_places(query,allowed_regions, limit=8):
-        assert query == "catedral palma"
-        assert limit == 8
-        return [
-            PlaceSearchResult(
-                place_id="google:1",
-                name="Catedral de Palma",
-                address="Pl. de la Seu, Palma, España",
-                country="España",
-                admin_area=None,
-                lat=39.567,
-                lng=2.648,
-                category="cathedral",
-                provider="google_places",
-                metadata={"types": ["church"]},
-            ),
-            PlaceSearchResult(
-                place_id="google:sin-coords",
-                name="Resultado inválido",
-                address="Sin coordenadas",
-                country="España",
-                admin_area=None,
-                lat=None,
-                lng=None,
-            ),
-        ]
-
-    monkeypatch.setattr(places_module, "search_trip_places", fake_search_trip_places)
-
-    response = client.get(
-        f"/api/v1/trips/{viaje.IdViaje}/places/search",
-        params={"q": "catedral palma"},
-        headers=auth_headers,
-    )
-
-    assert response.status_code == 200
-    body = response.json()
-    assert len(body) == 1
-    assert body[0]["placeId"] == "google:1"
-    assert body[0]["name"] == "Catedral de Palma"
-    assert body[0]["provider"] == "google_places"
-
-
 def test_search_places_direccion_no_reconocida_no_devuelve_resultados(
     client, auth_headers, viaje_con_admin, monkeypatch
 ):
     viaje, _ = viaje_con_admin
 
-    async def fake_search_trip_places(query, allowed_regions=None, limit=8):
+    async def fake_autocomplete_trip_places(
+        query,
+        allowed_regions,
+        session_token=None,
+        limit=6,
+    ):
         assert query == "direccion inexistente 999999"
         return []
 
     monkeypatch.setattr(
         places_module,
-        "search_trip_places",
-        fake_search_trip_places,
+        "autocomplete_trip_places",
+        fake_autocomplete_trip_places,
     )
 
     response = client.get(
@@ -118,14 +77,25 @@ def test_search_places_direccion_no_reconocida_no_devuelve_resultados(
     assert response.json() == []
 
 
-def test_search_places_rechaza_usuario_ajeno(client, db_session, viaje_con_admin, monkeypatch):
+def test_search_places_rechaza_usuario_ajeno(
+    client, db_session, viaje_con_admin, monkeypatch
+):
     viaje, _ = viaje_con_admin
     ajeno = _crear_usuario(db_session, "ajeno_places")
 
-    async def fake_search_trip_places(query, limit=8):
+    async def fake_autocomplete_trip_places(
+        query,
+        allowed_regions,
+        session_token=None,
+        limit=6,
+    ):
         return []
 
-    monkeypatch.setattr(places_module, "search_trip_places", fake_search_trip_places)
+    monkeypatch.setattr(
+        places_module,
+        "autocomplete_trip_places",
+        fake_autocomplete_trip_places,
+    )
 
     response = client.get(
         f"/api/v1/trips/{viaje.IdViaje}/places/search",
@@ -134,50 +104,6 @@ def test_search_places_rechaza_usuario_ajeno(client, db_session, viaje_con_admin
     )
 
     assert response.status_code == 403
-
-
-def test_popular_places_devuelve_contexto_y_items(client, auth_headers, viaje_con_admin, monkeypatch):
-    viaje, _ = viaje_con_admin
-
-    async def fake_search_popular_places(lat, lng, limit=6):
-        assert lat == 39.5696
-        assert lng == 2.6502
-        assert limit == 4
-        return PopularPlacesResponse(
-            context_label="Palma",
-            items=[
-                PlaceSearchResult(
-                    place_id="google:palma-1",
-                    name="Catedral de Palma",
-                    address="Palma, España",
-                    country="España",
-                    admin_area=None,
-                    lat=39.567,
-                    lng=2.648,
-                    category="tourist_attraction",
-                    provider="google_places",
-                    rating=4.7,
-                    user_ratings_total=1280,
-                    popularity_score=144.2,
-                )
-            ],
-        )
-
-    monkeypatch.setattr(places_module, "search_popular_places", fake_search_popular_places)
-
-    response = client.get(
-        f"/api/v1/trips/{viaje.IdViaje}/places/popular",
-        params={"lat": 39.5696, "lng": 2.6502, "limit": 4},
-        headers=auth_headers,
-    )
-
-    assert response.status_code == 200
-    body = response.json()
-    assert body["contextLabel"] == "Palma"
-    assert len(body["items"]) == 1
-    assert body["items"][0]["rating"] == 4.7
-    assert body["items"][0]["userRatingsTotal"] == 1280
-
 
 def test_get_place_details_devuelve_reviews(client, auth_headers, viaje_con_admin, monkeypatch):
     viaje, _ = viaje_con_admin
@@ -526,83 +452,163 @@ def test_is_place_allowed_acepta_cualquier_region_si_destino_solo_tiene_pais():
     ) is True
 
 
-@pytest.mark.anyio
-async def test_search_trip_places_filtra_ubicaciones_fuera_del_destino(monkeypatch):
-    resultados_google = [
-        places_service.PlaceSearchResult(
-            place_id="google:cordoba",
-            name="Lugar en Córdoba",
-            address="Córdoba, Argentina",
-            country="Argentina",
-            admin_area="Córdoba",
-            lat=-31.4201,
-            lng=-64.1888,
-        ),
-        places_service.PlaceSearchResult(
-            place_id="google:buenos-aires",
-            name="Lugar en Buenos Aires",
-            address="Buenos Aires, Argentina",
-            country="Argentina",
-            admin_area="Buenos Aires",
-            lat=-34.6037,
-            lng=-58.3816,
-        ),
-    ]
+def test_search_places_devuelve_sugerencias_minimas(
+    client, auth_headers, viaje_con_admin, monkeypatch
+):
+    viaje, _ = viaje_con_admin
 
-    async def fake_google_places_text_search(payload, field_mask):
-        return {
-            "places": [
-                {
-                    "id": "cordoba",
-                    "displayName": {"text": "Lugar en Córdoba"},
-                    "formattedAddress": "Córdoba, Argentina",
-                    "location": {
-                        "latitude": -31.4201,
-                        "longitude": -64.1888,
-                    },
-                },
-                {
-                    "id": "buenos-aires",
-                    "displayName": {"text": "Lugar en Buenos Aires"},
-                    "formattedAddress": "Buenos Aires, Argentina",
-                    "location": {
-                        "latitude": -34.6037,
-                        "longitude": -58.3816,
-                    },
-                },
-            ]
-        }
+    async def fake_autocomplete_trip_places(
+        query, allowed_regions, session_token=None, limit=6
+    ):
+        assert query == "catedral palma"
+        assert session_token is None
+        assert limit == 6
 
-    async def fake_enrich(result):
-        for esperado in resultados_google:
-            if esperado.place_id == result.place_id:
-                return esperado
-        return result
+        return [
+            PlaceSearchResult(
+                place_id="google:1",
+                name="Catedral de Palma",
+                address="Pl. de la Seu, Palma, España",
+                country="España",
+                admin_area=None,
+                lat=39.567,
+                lng=2.648,
+                category="cathedral",
+                provider="google_places",
+                metadata={"types": ["church"]},
+            ),
+            PlaceSearchResult(
+                place_id="google:2",
+                name="Palacio de la Almudaina",
+                address="Palma, España",
+                country="España",
+                admin_area=None,
+                lat=39.567,
+                lng=2.646,
+            ),
+        ]
 
     monkeypatch.setattr(
-        places_service,
-        "_google_places_text_search",
-        fake_google_places_text_search,
+        places_module,
+        "autocomplete_trip_places",
+        fake_autocomplete_trip_places,
     )
+
+    response = client.get(
+        f"/api/v1/trips/{viaje.IdViaje}/places/search",
+        params={"q": "catedral palma"},
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert len(body) == 2
+    assert body[0]["placeId"] == "google:1"
+    assert body[0]["name"] == "Catedral de Palma"
+    assert body[0]["address"] == "Pl. de la Seu, Palma, España"
+    assert "lat" not in body[0]
+    assert "lng" not in body[0]
+    assert "category" not in body[0]
+    assert "provider" not in body[0]
+
+
+def test_resolve_place_devuelve_datos_completos(
+    client, auth_headers, viaje_con_admin, monkeypatch
+):
+    viaje, _ = viaje_con_admin
+
+    async def fake_resolve_trip_place(
+        place_id, allowed_regions, session_token=None
+    ):
+        assert place_id == "google:palma-1"
+        assert session_token is None
+
+        return PlaceSearchResult(
+            place_id="google:palma-1",
+            name="Catedral de Palma",
+            address="Pl. de la Seu, Palma, España",
+            country="España",
+            admin_area="Illes Balears",
+            lat=39.567,
+            lng=2.648,
+            category="cathedral",
+            provider="google_places",
+            metadata={"types": ["church"]},
+        )
+
     monkeypatch.setattr(
-        places_service,
-        "_enrich_place_location",
-        fake_enrich,
+        places_module,
+        "resolve_trip_place",
+        fake_resolve_trip_place,
     )
 
-    allowed_regions = [
-        {
-            "country": "Argentina",
-            "admin_area": "Córdoba",
-        }
-    ]
-
-    resultados = await places_service.search_trip_places(
-        "museo",
-        allowed_regions=allowed_regions,
-        limit=8,
+    response = client.get(
+        f"/api/v1/trips/{viaje.IdViaje}/places/resolve",
+        params={"placeId": "google:palma-1"},
+        headers=auth_headers,
     )
 
-    assert len(resultados) == 1
-    assert resultados[0].name == "Lugar en Córdoba"
-    assert resultados[0].admin_area == "Córdoba"
+    assert response.status_code == 200
+    body = response.json()
+    assert body["placeId"] == "google:palma-1"
+    assert body["name"] == "Catedral de Palma"
+    assert body["address"] == "Pl. de la Seu, Palma, España"
+    assert body["lat"] == 39.567
+    assert body["lng"] == 2.648
+    assert body["category"] == "cathedral"
+
+def test_resolve_place_rechaza_lugar_fuera_del_destino(
+    client, auth_headers, viaje_con_admin, monkeypatch
+):
+    viaje, _ = viaje_con_admin
+
+    async def fake_resolve_trip_place(
+        place_id, allowed_regions, session_token=None
+    ):
+        raise ValueError(
+            "El lugar seleccionado no pertenece a los destinos del viaje."
+        )
+
+    monkeypatch.setattr(
+        places_module,
+        "resolve_trip_place",
+        fake_resolve_trip_place,
+    )
+
+    response = client.get(
+        f"/api/v1/trips/{viaje.IdViaje}/places/resolve",
+        params={"placeId": "google:buenos-aires"},
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == (
+        "El lugar seleccionado no pertenece a los destinos del viaje."
+    )
+
+def test_resolve_place_error_servicio_externo(
+    client, auth_headers, viaje_con_admin, monkeypatch
+):
+    viaje, _ = viaje_con_admin
+
+    async def fake_resolve_trip_place(
+        place_id, allowed_regions, session_token=None
+    ):
+        raise Exception("Google Places no responde")
+
+    monkeypatch.setattr(
+        places_module,
+        "resolve_trip_place",
+        fake_resolve_trip_place,
+    )
+
+    response = client.get(
+        f"/api/v1/trips/{viaje.IdViaje}/places/resolve",
+        params={"placeId": "google:palma-1"},
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 502
+    assert response.json()["detail"] == (
+        "No se pudo resolver el lugar seleccionado"
+    )

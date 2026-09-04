@@ -172,14 +172,42 @@ export async function getTripPlaces(tripId) {
   return parseResponse(response, "No se pudieron obtener los lugares de interés");
 }
 
-export async function searchTripPlaces(tripId, query) {
+export async function searchTripPlaces(tripId, query, sessionToken) {
+  const params = new URLSearchParams({
+    q: query,
+  });
+
+  if (sessionToken) {
+    params.append("sessionToken", sessionToken);
+  }
+
   const response = await fetch(
-    `${API_BASE_URL}/trips/${tripId}/places/search?q=${encodeURIComponent(query)}`,
+    `${API_BASE_URL}/trips/${tripId}/places/search?${params.toString()}`,
     {
       headers: await authHeaders(),
     }
   );
+
   return parseResponse(response, "No se pudieron buscar lugares");
+}
+
+export async function resolveTripPlace(tripId, placeId, sessionToken) {
+  const params = new URLSearchParams({
+    placeId,
+  });
+
+  if (sessionToken) {
+    params.append("sessionToken", sessionToken);
+  }
+
+  const response = await fetch(
+    `${API_BASE_URL}/trips/${tripId}/places/resolve?${params.toString()}`,
+    {
+      headers: await authHeaders(),
+    }
+  );
+
+  return parseResponse(response, "No se pudo resolver el lugar seleccionado");
 }
 
 export async function getTripPopularPlaces(tripId, lat, lng, limit = 6) {
@@ -582,16 +610,6 @@ export async function searchCurrencies(search = "") {
 
   return parseResponse(response, "No se pudieron obtener las monedas");
 }
-
-/*export async function searchDestinations(query) {
-  const response = await fetch(
-    `${API_BASE_URL}/trips/search?q=${encodeURIComponent(query)}`,
-    {
-      headers: await authHeaders(),
-    }
-  );
-  return parseResponse(response, "No se pudieron buscar destinos");
-}*/
 
 export async function searchDestinations(query, sessionToken) {
   const sessionParam = sessionToken ? `&sessionToken=${encodeURIComponent(sessionToken)}` : "";

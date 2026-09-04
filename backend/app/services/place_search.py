@@ -7,11 +7,25 @@ import httpx
 
 from app.core.config import settings
 
+import unicodedata
+
+GOOGLE_PLACES_AUTOCOMPLETE_URL = "https://places.googleapis.com/v1/places:autocomplete"
 GOOGLE_PLACES_TEXT_SEARCH_URL = "https://places.googleapis.com/v1/places:searchText"
 GOOGLE_GEOCODE_URL = "https://maps.googleapis.com/maps/api/geocode/json"
 GOOGLE_PLACE_DETAILS_URL = "https://places.googleapis.com/v1/places/{place_id}"
 GOOGLE_PLACE_PHOTO_MEDIA_URL = "https://places.googleapis.com/v1/{photo_name}/media"
 GOOGLE_PLACES_NEARBY_SEARCH_URL = "https://places.googleapis.com/v1/places:searchNearby"
+
+_client: httpx.AsyncClient | None = None
+
+
+def _get_client() -> httpx.AsyncClient:
+    global _client
+
+    if _client is None:
+        _client = httpx.AsyncClient(timeout=12.0)
+
+    return _client
 
 
 CATEGORY_TYPE_MAP: dict[str, list[str]] = {
@@ -21,6 +35,12 @@ CATEGORY_TYPE_MAP: dict[str, list[str]] = {
     "servicios": ["atm", "bank", "hospital", "pharmacy", "gas_station"],
 }
 
+
+@dataclass
+class PlaceSuggestion:
+    name: str
+    address: str | None
+    place_id: str
 
 @dataclass
 class PlaceSearchResult:
@@ -82,7 +102,7 @@ class NearbyPlaceResult:
     distance_meters: float | None
 
 
-async def search_trip_places(query: str, allowed_regions: list[dict[str, str | None]], limit: int = 8) -> list[PlaceSearchResult]:
+"""async def search_trip_places(query: str, allowed_regions: list[dict[str, str | None]], limit: int = 8) -> list[PlaceSearchResult]:
     data = await _google_places_text_search(
         {
             "textQuery": query,
@@ -95,7 +115,8 @@ async def search_trip_places(query: str, allowed_regions: list[dict[str, str | N
             "places.formattedAddress,"
             "places.location,"
             "places.types,"
-            "places.googleMapsUri"
+            "places.googleMapsUri",
+            
         ),
     )
 
@@ -109,8 +130,277 @@ async def search_trip_places(query: str, allowed_regions: list[dict[str, str | N
         if is_place_allowed(enriched_result, allowed_regions):
             enriched_results.append(enriched_result)
 
-    return enriched_results[:limit]
+    return enriched_results[:limit]"""
 
+async def autocomplete_trip_places(
+    query: str,
+    allowed_regions: list[dict[str, str | float | None]],
+    session_token: str | None = None,
+    limit: int = 6,
+) -> list[PlaceSuggestion]:
+
+    if not settings.google_maps_api_key:
+        raise ValueError("GOOGLE_MAPS_API_KEY no esta configurada")
+
+    headers = {
+            "Content-Type": "application/json",
+            "X-Goog-Api-Key": settings.google_maps_api_key,
+        }
+
+    client = _get_client()
+    all_predictions = []
+
+    for region in allowed_regions:
+        payload: dict = {
+            "input": query.strip(),
+            "languageCode": "es",
+        }
+
+        if session_token:
+            payload["sessionToken"] = session_token
+
+        lat = region.get("lat")
+        lng = region.get("lng")
+
+        if lat is not None and lng is not None:
+            payload["locationBias"] = {
+                "circle": {
+                    "center": {
+                        "latitude": lat,
+                        "longitude": lng,
+                    },
+                    "radius": 50000.0,
+                }
+            }
+
+    response = await client.post(
+        GOOGLE_PLACES_AUTOCOMPLETE_URL,
+        headers=headers,
+        json=payload,
+    )
+    response.raise_for_status()
+
+    data = response.json()
+
+    all_predictions.extend(
+            data.get("suggestions", [])
+        )
+
+    suggestions: list[PlaceSuggestion] = []
+    seen_place_ids: set[str] = set()
+
+    for prediction in all_predictions:
+        place_prediction = prediction.get("placePrediction")
+
+        if not place_prediction:
+            continue
+
+        place_id = place_prediction.get("placeId")
+
+        if not place_id or place_id in seen_place_ids:
+            continue
+
+        seen_place_ids.add(place_id)
+
+        structured = place_prediction.get("structuredFormat", {})
+
+        main_text = structured.get("mainText", {}).get("text")
+        secondary_text = structured.get("secondaryText", {}).get("text")
+
+        suggestions.append(
+            PlaceSuggestion(
+                name=(
+                    main_text
+                    or place_prediction.get("text", {}).get("text", "")
+                ),
+                address=secondary_text,
+                place_id=f"google:{place_id}",
+            )
+        )
+
+        if len(suggestions) >= limit:
+            break
+
+    return suggestions
+
+async def resolve_trip_place(
+    place_id: str,
+    allowed_regions: list[dict[str, str | float | None]],
+    session_token: str | None = None,
+) -> PlaceSearchResult:
+
+    if not settings.google_maps_api_key:
+        raise ValueError("GOOGLE_MAPS_API_KEY no esta configurada")
+
+    raw_place_id = (
+        place_id.split(":", 1)[1]
+        if place_id.startswith("google:")
+        else place_id
+    )
+
+    headers = {
+        "X-Goog-Api-Key": settings.google_maps_api_key,
+        "X-Goog-FieldMask": (
+            "id,"
+            "displayName,"
+            "formattedAddress,"
+            "location,"
+            "types,"
+            "primaryType,"
+            "primaryTypeDisplayName,"
+            "rating,"
+            "userRatingCount,"
+            "googleMapsUri,"
+            "addressComponents"
+        ),
+    }
+
+    params: dict = {
+        "languageCode": "es",
+    }
+
+    if session_token:
+        params["sessionToken"] = session_token
+
+    client = _get_client()
+
+    response = await client.get(
+        GOOGLE_PLACE_DETAILS_URL.format(place_id=raw_place_id),
+        headers=headers,
+        params=params,
+    )
+
+    response.raise_for_status()
+
+    item = response.json()
+
+    name = item.get("displayName", {}).get("text") or "Lugar desconocido"
+
+    address = item.get("formattedAddress") or name
+
+    country = None
+    admin_area = None
+
+    for component in item.get("addressComponents", []):
+        types = component.get("types", [])
+
+        if "country" in types and country is None:
+            country = (
+                component.get("longText")
+                or component.get("shortText")
+            )
+
+        if (
+            "administrative_area_level_1" in types
+            and admin_area is None
+        ):
+            admin_area = (
+                component.get("longText")
+                or component.get("shortText")
+            )
+
+    location = item.get("location", {})
+
+    types = item.get("types") or []
+
+    primary_type = (
+        item.get("primaryTypeDisplayName", {}).get("text")
+        or item.get("primaryType")
+    )
+
+    result = PlaceSearchResult(
+        place_id=f"google:{item.get('id')}",
+        name=name,
+        address=address,
+        country=country or "",
+        admin_area=admin_area,
+        lat=location.get("latitude"),
+        lng=location.get("longitude"),
+        category=primary_type or (types[0] if types else None),
+        provider="google_places",
+        metadata={
+            "types": types,
+            "googleMapsUri": item.get("googleMapsUri"),
+        },
+        rating=item.get("rating"),
+        user_ratings_total=item.get("userRatingCount"),
+    )
+
+    if not is_place_allowed(result, allowed_regions):
+        raise ValueError(
+            "El lugar seleccionado no pertenece a los destinos del viaje"
+        )
+
+    return result
+
+"""async def search_trip_places(
+    query: str,
+    allowed_regions: list[dict[str, str | None]],
+    limit: int = 8,
+) -> list[PlaceSearchResult]:
+    print("QUERY:", query)
+    print("ALLOWED REGIONS:", allowed_regions)
+    if not allowed_regions:
+        print("SIN ALLOWED REGIONS -> devuelvo vacío")
+        return []
+
+    seen_ids: set[str] = set()
+    all_results: list[PlaceSearchResult] = []
+
+    for region in allowed_regions:
+        payload = {
+            "textQuery": query,
+            "languageCode": "es",
+            "maxResultCount": limit,
+        }
+        lat = region.get("lat")
+        lng = region.get("lng")
+        if lat is not None and lng is not None:
+            payload["locationBias"] = {
+                "circle": {
+                    "center": {"latitude": lat, "longitude": lng},
+                    "radius": 30000.0,
+                }
+            }
+
+        data = await _google_places_text_search(
+            payload,
+            field_mask=(
+                "places.id,"
+                "places.displayName,"
+                "places.formattedAddress,"
+                "places.location,"
+                "places.types,"
+                "places.googleMapsUri"
+            ),
+        )
+        raw = _parse_google_places_results(data)
+        print(f"REGION {region} -> {len(raw)} resultados crudos de Google")
+
+        for result in raw:
+            if result.place_id in seen_ids:
+                continue
+            enriched = await _enrich_place_location(result)
+            allowed = is_place_allowed(enriched, allowed_regions)
+            print(
+                f"  '{enriched.name}' | country={enriched.country} admin_area={enriched.admin_area} "
+                f"-> allowed={allowed}"
+            )
+            if allowed:
+                seen_ids.add(enriched.place_id)
+                all_results.append(enriched)
+            if len(all_results) >= limit:
+                break
+
+    print("TOTAL FINAL:", len(all_results))
+    return all_results[:limit]"""
+
+def _normalize(text: str) -> str:
+    text = text.strip().lower()
+    return "".join(
+        c for c in unicodedata.normalize("NFKD", text)
+        if not unicodedata.combining(c)
+    )
 
 def is_place_allowed(
     place: PlaceSearchResult,
@@ -119,9 +409,16 @@ def is_place_allowed(
     if not place.country:
         return False
 
-    place_country = place.country.strip().lower()
+    """place_country = place.country.strip().lower()
     place_admin_area = (
         place.admin_area.strip().lower()
+        if place.admin_area
+        else None
+    )"""
+
+    place_country = _normalize(place.country)
+    place_admin_area = (
+        _normalize(place.admin_area)
         if place.admin_area
         else None
     )
@@ -133,7 +430,10 @@ def is_place_allowed(
         if not allowed_country:
             continue
 
-        if place_country != allowed_country.strip().lower():
+        #if place_country != allowed_country.strip().lower():
+            #continue
+        
+        if place_country != _normalize(allowed_country):
             continue
 
         # Si el destino tiene provincia/estado/región,
@@ -142,7 +442,7 @@ def is_place_allowed(
             if not place_admin_area:
                 continue
 
-            if place_admin_area == allowed_admin_area.strip().lower():
+            if place_admin_area == _normalize(allowed_admin_area):
                 return True
 
         # Si no pudimos determinar una región para el destino,
@@ -467,7 +767,7 @@ async def _reverse_geocode_location(
     }
 
 
-def get_trip_allowed_regions(viaje) -> list[dict[str, str | None]]:
+"""def get_trip_allowed_regions(viaje) -> list[dict[str, str | None]]:
     allowed_regions: list[dict[str, str | None]] = []
 
     for relacion in viaje.Destinos:
@@ -484,6 +784,22 @@ def get_trip_allowed_regions(viaje) -> list[dict[str, str | None]]:
         if region not in allowed_regions:
             allowed_regions.append(region)
 
+    return allowed_regions"""
+
+def get_trip_allowed_regions(viaje) -> list[dict[str, str | float | None]]:
+    allowed_regions: list[dict[str, str | float | None]] = []
+    for relacion in viaje.Destinos:
+        destino = relacion.Destino
+        if not destino.Pais:
+            continue
+        region = {
+            "country": destino.Pais,
+            "admin_area": destino.ProvinciaEstado,
+            "lat": destino.Lat,
+            "lng": destino.Lng,
+        }
+        if region not in allowed_regions:
+            allowed_regions.append(region)
     return allowed_regions
 
 

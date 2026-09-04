@@ -2,11 +2,12 @@ import { Platform } from "react-native";
 import { act, fireEvent, render, waitFor } from "@testing-library/react-native";
 
 import AddActivityScreen from "../screens/AddActivityScreen";
-import { searchTripPlaces, saveActivityLocation } from "../services/api";
+import { searchTripPlaces, saveActivityLocation, resolveTripPlace } from "../services/api";
 
 jest.mock("../services/api", () => ({
   searchTripPlaces: jest.fn(),
   saveActivityLocation: jest.fn(),
+  resolveTripPlace: jest.fn(),
 }));
 
 
@@ -166,33 +167,64 @@ describe("AddActivityScreen", () => {
     expect(utils.getByText("Guardar cambios")).toBeTruthy();
   });
 
-  it("busca lugares al escribir en el buscador de ubicación y permite seleccionar uno", async () => {
+  it("busca lugares al escribir en el buscador y permite seleccionar uno", async () => {
     searchTripPlaces.mockResolvedValue([
       {
         placeId: "p1",
         name: "Museo del Prado",
         address: "Calle Ruiz de Alarcón, Madrid",
-        lat: 1,
-        lng: 1,
-        category: "museo",
       },
     ]);
-    saveActivityLocation.mockResolvedValue({ id: 99, name: "Museo del Prado" });
 
-    const utils = await render(<AddActivityScreen {...baseProps} />);
+    resolveTripPlace.mockResolvedValue({
+      placeId: "p1",
+      name: "Museo del Prado",
+      address: "Calle Ruiz de Alarcón, Madrid",
+      lat: 40.415,
+      lng: -3.693,
+      category: "museum",
+      metadata: { types: ["museum"] },
+    });
+
+    saveActivityLocation.mockResolvedValue({
+      id: 99,
+      name: "Museo del Prado",
+    });
+
+    const utils = await render(
+      <AddActivityScreen {...baseProps} />
+    );
 
     await press(utils, "Seleccionar ubicación");
 
     await act(async () => {
-      fireEvent.changeText(utils.getByPlaceholderText("Buscar un lugar..."), "Museo");
+      fireEvent.changeText(
+        utils.getByPlaceholderText("Buscar un lugar..."),
+        "Museo"
+      );
     });
 
-    await waitFor(() => expect(utils.getByText("Museo del Prado")).toBeTruthy());
+    await waitFor(() =>
+      expect(utils.getByText("Museo del Prado")).toBeTruthy()
+    );
+
     expect(searchTripPlaces).toHaveBeenCalledWith(42, "Museo");
 
     await press(utils, "Museo del Prado");
 
-    await waitFor(() => expect(saveActivityLocation).toHaveBeenCalled());
+    await waitFor(() =>
+      expect(resolveTripPlace).toHaveBeenCalledWith(42, "p1")
+    );
+
+    expect(saveActivityLocation).toHaveBeenCalledWith(42, {
+      placeId: "p1",
+      name: "Museo del Prado",
+      address: "Calle Ruiz de Alarcón, Madrid",
+      lat: 40.415,
+      lng: -3.693,
+      category: "museum",
+      metadata: { types: ["museum"] },
+    });
   });
 
   it("muestra error si falla la búsqueda de lugares", async () => {

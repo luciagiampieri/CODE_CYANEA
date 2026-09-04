@@ -208,7 +208,17 @@ const casosDeEndpoints = [
   {
     nombre: "searchTripPlaces (encodea la query)",
     call: () => api.searchTripPlaces(1, "café & té"),
-    url: `${API_BASE_URL}/trips/1/places/search?q=${encodeURIComponent("café & té")}`,
+     url: `${API_BASE_URL}/trips/1/places/search?${new URLSearchParams({
+      q: "café & té",
+    }).toString()}`,
+    needsAuth: true,
+  },
+  {
+    nombre: "resolveTripPlace",
+    call: () => api.resolveTripPlace(42, "place-123"),
+     url: `${API_BASE_URL}/trips/42/places/resolve?${new URLSearchParams({
+      placeId: "place-123",
+    }).toString()}`,
     needsAuth: true,
   },
 ];

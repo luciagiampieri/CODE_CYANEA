@@ -30,6 +30,7 @@ import {
   saveTripPlace,
   scheduleTripPlace,
   searchTripPlaces,
+  resolveTripPlace,
 } from "../services/api";
 import { colors, radii, spacing, surfaces, textStyles } from "../theme/tokens";
 
@@ -207,7 +208,7 @@ export default function ExplorePlacesScreen({ navigation, route }) {
     [places]
   );
 
-  const searchedMarkers = useMemo(
+  /*const searchedMarkers = useMemo(
     () =>
       searchResults
         .map((item) => {
@@ -222,6 +223,27 @@ export default function ExplorePlacesScreen({ navigation, route }) {
           };
         })
         .filter((item) => item.lat && item.lng),
+    [savedPlacesByPlaceId, searchResults]
+  );*/
+
+  const searchSuggestions = useMemo(
+    () =>
+      searchResults.map((item) => {
+        const saved = savedPlacesByPlaceId.get(item.placeId);
+
+        if (saved) {
+          return {
+            ...saved,
+            alreadySaved: true,
+          };
+        }
+
+        return {
+          ...item,
+          kind: "searchResult",
+          alreadySaved: false,
+        };
+      }),
     [savedPlacesByPlaceId, searchResults]
   );
 
@@ -244,13 +266,39 @@ export default function ExplorePlacesScreen({ navigation, route }) {
     [resolvedNearbyPlaces, nearbyVisibleCount]
   );
 
-  const stableMapMarkers = useMemo(() => {
+  const selectedPlaceMarker = useMemo(() => {
+    if (!selectedPlace?.lat || !selectedPlace?.lng) {
+      return [];
+    }
+
+    return [selectedPlace];
+  }, [selectedPlace]);
+
+  /*const stableMapMarkers = useMemo(() => {
     const unique = new Map();
     [...destinationMarkers, ...savedPlaceMarkers, ...searchedMarkers].forEach((marker) => {
       unique.set(getMarkerKey(marker), marker);
     });
     return Array.from(unique.values());
-  }, [destinationMarkers, savedPlaceMarkers, searchedMarkers]);
+  }, [destinationMarkers, savedPlaceMarkers, searchedMarkers]);*/
+
+  const stableMapMarkers = useMemo(() => {
+    const unique = new Map();
+
+    [
+      ...destinationMarkers,
+      ...savedPlaceMarkers,
+      ...selectedPlaceMarker,
+    ].forEach((marker) => {
+      unique.set(getMarkerKey(marker), marker);
+    });
+
+    return Array.from(unique.values());
+  }, [
+    destinationMarkers,
+    savedPlaceMarkers,
+    selectedPlaceMarker,
+  ]);
 
   const mapMarkers = useMemo(() => {
     const unique = new Map();
@@ -439,7 +487,54 @@ export default function ExplorePlacesScreen({ navigation, route }) {
     };
   }, [tripId, selectedPlace?.placeId]);
 
-  async function handleSearch() {
+  useEffect(() => {
+    const query = searchQuery.trim();
+
+    if (query.length < 2) {
+      setSearchResults([]);
+      setSearchError("");
+      setSearching(false);
+      return undefined;
+    }
+
+    if (offline) {
+      setSearchResults([]);
+      setSearchError(
+        "Sin conexión a internet. No se pueden buscar lugares en este momento."
+      );
+      return undefined;
+    }
+
+    const timeoutId = setTimeout(async () => {
+      try {
+        setSearching(true);
+        setSearchError("");
+
+        const results = await searchTripPlaces(
+          tripId,
+          query
+        );
+
+        setSearchResults(results);
+
+        if (results.length === 0) {
+          setSearchError("No encontramos lugares para esa búsqueda.");
+        }
+      } catch (searchRequestError) {
+        setSearchError(
+          searchRequestError.message ||
+            "No se pudieron buscar lugares."
+        );
+        setSearchResults([]);
+      } finally {
+        setSearching(false);
+      }
+    }, 300);
+
+    return () => clearTimeout(timeoutId);
+  }, [searchQuery, tripId, offline]);
+
+  /*async function handleSearch() {
     if (!searchQuery.trim()) {
       setSearchResults([]);
       setSearchError("");
@@ -466,7 +561,7 @@ export default function ExplorePlacesScreen({ navigation, route }) {
     } finally {
       setSearching(false);
     }
-  }
+  }*/
 
   async function persistSelectedPlace(placeToSave = selectedPlace) {
     if (!placeToSave || placeToSave.kind !== "searchResult") return null;
@@ -491,10 +586,16 @@ export default function ExplorePlacesScreen({ navigation, route }) {
       setSavingPlace(true);
       setFeedbackMessage("");
       setFeedbackError("");
+
       const response = await persistSelectedPlace(selectedPlace);
+
       if (!response) return;
+
       setFeedbackMessage(response.message);
       setSelectedPlace({ ...response.place, kind: "savedPlace" });
+
+      setSearchQuery("");
+      setSearchResults([]);
     } catch (saveError) {
       setFeedbackError(saveError.message || "No se pudo guardar el lugar.");
     } finally {
@@ -565,10 +666,61 @@ export default function ExplorePlacesScreen({ navigation, route }) {
     return place;
   }
 
-  function handleSelectPlace(place) {
+ /*function handleSelectPlace(place) {
     const resolvedPlace = resolveSelectedPlace(place);
     setSelectedPlace(resolvedPlace);
     setHighlightedMarkerKey(resolvedPlace ? getMarkerKey(resolvedPlace) : null);
+  }*/
+
+  async function handleSelectPlace(place) {
+    if (!place) return;
+
+    if (place.kind === "savedPlace") {
+      setSelectedPlace(place);
+      setHighlightedMarkerKey(getMarkerKey(place));
+      return;
+    }
+
+    if (place.placeId) {
+      try {
+        setLoadingPlaceDetails(true);
+        setSearchError("");
+
+        const resolvedPlace = await resolveTripPlace(
+          tripId,
+          place.placeId
+        );
+
+        const savedPlace =
+          savedPlacesByPlaceId.get(resolvedPlace.placeId);
+
+        const finalPlace = savedPlace
+          ? {
+              ...savedPlace,
+              alreadySaved: true,
+            }
+          : {
+              ...resolvedPlace,
+              kind: "searchResult",
+              alreadySaved: false,
+            };
+
+        setSelectedPlace(finalPlace);
+        setHighlightedMarkerKey(
+          getMarkerKey(finalPlace)
+        );
+
+        // Ya no necesitamos seguir mostrando las sugerencias.
+        setSearchResults([]);
+      } catch (error) {
+        setSearchError(
+          error.message ||
+            "No se pudo obtener la información del lugar."
+        );
+      } finally {
+        setLoadingPlaceDetails(false);
+      }
+    }
   }
 
   function handleSelectPopularPlace(place) {
@@ -668,26 +820,32 @@ export default function ExplorePlacesScreen({ navigation, route }) {
                 <View style={styles.searchRow}>
                   <TextInput
                     onChangeText={setSearchQuery}
-                    onSubmitEditing={handleSearch}
+                    //onSubmitEditing={handleSearch}
                     placeholder="Ej: Catedral de Palma, playa, museo..."
                     placeholderTextColor="#00000059"
                     style={styles.searchInput}
                     value={searchQuery}
                   />
-                  <PrimaryButton
+                  {/* <PrimaryButton
                     label={searching ? "Buscando..." : "Buscar"}
                     loading={searching}
                     onPress={handleSearch}
                     style={styles.searchButton}
-                  />
+                  /> */}
+                  {searching ? (
+                    <ActivityIndicator
+                      color={colors.primary}
+                      size="small"
+                    />
+                  ) : null}
                 </View>
                 {searchError ? <Text style={styles.inlineMessage}>{searchError}</Text> : null}
                 {feedbackError ? <Text style={styles.inlineMessage}>{feedbackError}</Text> : null}
                 {feedbackMessage ? <Text style={styles.inlineSuccess}>{feedbackMessage}</Text> : null}
 
-                {searchResults.length > 0 ? (
+                {searchSuggestions.length > 0 ? (
                   <View style={styles.resultList}>
-                    {searchedMarkers.map((item) => (
+                    {searchSuggestions.map((item) => (
                       <Pressable
                         key={`${item.placeId}-${item.name}`}
                         onPress={() => handleSelectPlace(item)}
@@ -702,7 +860,9 @@ export default function ExplorePlacesScreen({ navigation, route }) {
                         </View>
                         <View style={styles.resultCopy}>
                           <Text style={styles.resultName}>{item.name}</Text>
-                          <Text style={styles.resultAddress}>{item.address}</Text>
+                          {!!item.address &&(
+                            <Text style={styles.resultAddress}>{item.address}</Text>
+                          )}
                         </View>
                       </Pressable>
                     ))}
@@ -1087,9 +1247,9 @@ const styles = StyleSheet.create({
     color: colors.textPrimary,
     ...textStyles.body,
   },
-  searchButton: {
-    minWidth: 112,
-  },
+  //searchButton: {
+  //  minWidth: 112,
+  //},
   inlineMessage: {
     ...textStyles.meta,
     color: colors.warning,
