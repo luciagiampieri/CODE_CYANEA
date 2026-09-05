@@ -969,12 +969,22 @@ async def update_activity(
             )
     
     actividad.Nombre = payload.nombre.strip()
-    actividad.IdLugarInteres = payload.idLugarInteres if lugar else None
+    if payload.idLugarInteres is not None:
+        actividad.IdLugarInteres = payload.idLugarInteres if lugar else None
+        actividad.IdLugarInteresViaje = None 
+    elif getattr(payload, "idLugarInteresViaje", None) is not None:
+        actividad.IdLugarInteresViaje = payload.idLugarInteresViaje
+        actividad.IdLugarInteres = None
+    else:
+        actividad.IdLugarInteres = None
+        actividad.IdLugarInteresViaje = None
+
     actividad.Descripcion = (
         payload.descripcion.strip()
         if payload.descripcion
         else None
     )
+
     actividad.HoraInicio = payload.horaInicio
     actividad.HoraFin = payload.horaFin
     actividad.Icono = payload.icono
