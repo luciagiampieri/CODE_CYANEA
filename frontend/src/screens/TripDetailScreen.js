@@ -68,6 +68,7 @@ import {
 
 import AddActivityScreen from "./AddActivityScreen";
 import AddGastoScreen from "./AddGastoScreen";
+import CrearVotacionScreen from "./CreateVotationScreen";
 import useItinerarioViewPreference from "../hooks/useItinerarioViewPreference";
 import useResponsive from "../hooks/useResponsive";
 import ItinerarioViewToggle from "../components/trip/ItinerarioViewToggle";
@@ -253,6 +254,7 @@ export default function TripDetailScreen({ navigation, route }) {
   const [participantMessage, setParticipantMessage] = useState("");
   const [activityModalDay, setActivityModalDay] = useState(null);
   const [showAddGastoModal, setShowAddGastoModal] = useState(false);
+  const [showCrearVotacionModal, setShowCrearVotacionModal] = useState(false);
   const [currentUser, setCurrentUser] = useState(null);
   const [showDeleteModal, setShowDeleteModal] = useState(false); 
   const [showOptionsMenu, setShowOptionsMenu] = useState(false);
@@ -394,7 +396,7 @@ export default function TripDetailScreen({ navigation, route }) {
     }
     loadCurrentUser();
   }, []);
-
+/*
   useEffect(() => {
     const nueva = route.params?.nuevaVotacion;
     if (!nueva) return;
@@ -404,7 +406,7 @@ export default function TripDetailScreen({ navigation, route }) {
     ]);
     navigation.setParams({ nuevaVotacion: undefined });
   }, [route.params?.nuevaVotacion]);
-
+*/
   useEffect(() => {
     votacionesActivas.forEach(async (v) => {
       const finalizada = v.Estado
@@ -2025,11 +2027,7 @@ export default function TripDetailScreen({ navigation, route }) {
                     marginBottom: 16,
                     opacity: pressed ? 0.85 : 1,
                   })}
-                  onPress={() => navigation.navigate("CrearVotacion", {
-                      IdViaje: trip.id,
-                      onVotacionCreada: (nuevaVotacion) =>
-                          setVotacionesActivas((prev) => [nuevaVotacion, ...prev]),
-                  })}
+                  onPress={() => setShowCrearVotacionModal(true)}
                 >
                   <FontAwesome6 name="plus" size={14} color="#fff" />
                   <Text style={{ color: "#fff", fontWeight: "800" }}>Crear votación</Text>
@@ -2332,6 +2330,17 @@ export default function TripDetailScreen({ navigation, route }) {
         onClose={() => setShowAddGastoModal(false)}
         onGastoCreado={() => {
           loadSettlement();
+        }}
+      />
+      <CrearVotacionScreen
+        visible={showCrearVotacionModal}
+        onClose={() => setShowCrearVotacionModal(false)}
+        IdViaje={trip?.id}
+        onVotacionCreada={(nuevaVotacion) => {
+          setVotacionesActivas((prev) => [
+            nuevaVotacion,
+            ...prev.filter((v) => v.IdVotacion !== nuevaVotacion.IdVotacion),
+          ]);
         }}
       />
 

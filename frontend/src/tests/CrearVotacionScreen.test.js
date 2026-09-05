@@ -8,24 +8,28 @@ jest.mock("../services/api", () => ({
   createVotacion: jest.fn(),
 }));
 
-const mockGoBack = jest.fn();
+const mockOnClose = jest.fn();
 const mockOnVotacionCreada = jest.fn();
 
-function buildRoute(overrides = {}) {
-  return {
-    params: {
-      IdViaje: 7,
-      onVotacionCreada: mockOnVotacionCreada,
-      ...overrides,
-    },
-  };
+
+async function renderPantallaCargada() {
+  return render(
+    <CrearVotacionScreen
+      visible={true}
+      IdViaje={7}
+      onClose={mockOnClose}
+      onVotacionCreada={mockOnVotacionCreada}
+    />
+  );
 }
+
 
 async function press(utils, texto) {
   await act(async () => {
     fireEvent.press(utils.getByText(texto));
   });
 }
+
 
 async function completarFormularioMinimo(utils) {
   await act(async () => {
@@ -42,6 +46,7 @@ async function completarFormularioMinimo(utils) {
   });
 }
 
+
 describe("CrearVotacionScreen", () => {
   let alertMock;
 
@@ -55,9 +60,7 @@ describe("CrearVotacionScreen", () => {
   });
 
   it("arranca con dos propuestas vacías (AC2)", async () => {
-    const utils = await render(
-      <CrearVotacionScreen route={buildRoute()} navigation={{ goBack: mockGoBack }} />
-    );
+    const utils = await renderPantallaCargada();
 
     expect(utils.getByPlaceholderText("Propuesta 1")).toBeTruthy();
     expect(utils.getByPlaceholderText("Propuesta 2")).toBeTruthy();
@@ -65,9 +68,7 @@ describe("CrearVotacionScreen", () => {
   });
 
   it("muestra error si el nombre está vacío", async () => {
-    const utils = await render(
-      <CrearVotacionScreen route={buildRoute()} navigation={{ goBack: mockGoBack }} />
-    );
+    const utils = await renderPantallaCargada();
 
     await act(async () => {
       fireEvent.changeText(utils.getByPlaceholderText("Propuesta 1"), "Parrilla");
@@ -82,9 +83,7 @@ describe("CrearVotacionScreen", () => {
   });
 
   it("muestra error si hay menos de dos propuestas completadas", async () => {
-    const utils = await render(
-      <CrearVotacionScreen route={buildRoute()} navigation={{ goBack: mockGoBack }} />
-    );
+    const utils = await renderPantallaCargada();
 
     await act(async () => {
       fireEvent.changeText(
@@ -102,9 +101,7 @@ describe("CrearVotacionScreen", () => {
   });
 
   it("muestra error si hay propuestas repetidas", async () => {
-    const utils = await render(
-      <CrearVotacionScreen route={buildRoute()} navigation={{ goBack: mockGoBack }} />
-    );
+    const utils = await renderPantallaCargada();
 
     await act(async () => {
       fireEvent.changeText(
@@ -125,9 +122,7 @@ describe("CrearVotacionScreen", () => {
   });
 
   it("agrega una nueva propuesta al presionar 'Agregar'", async () => {
-    const utils = await render(
-      <CrearVotacionScreen route={buildRoute()} navigation={{ goBack: mockGoBack }} />
-    );
+    const utils = await renderPantallaCargada();
 
     await press(utils, "Agregar");
 
@@ -135,9 +130,7 @@ describe("CrearVotacionScreen", () => {
   });
 
   it("no permite quitar propuestas por debajo de dos, pero sí a partir de la tercera", async () => {
-    const utils = await render(
-      <CrearVotacionScreen route={buildRoute()} navigation={{ goBack: mockGoBack }} />
-    );
+    const utils = await renderPantallaCargada();
 
     await act(async () => {
       fireEvent.press(utils.getByTestId("votacion-quitar-propuesta-0"));
@@ -154,13 +147,11 @@ describe("CrearVotacionScreen", () => {
     expect(utils.queryByPlaceholderText("Propuesta 3")).toBeNull();
   });
 
-  it("camino feliz: crea la votación, avisa por Alert y vuelve atrás", async () => {
+  it("camino feliz: crea la votación, avisa por Alert y cierra el modal", async () => {
     const nuevaVotacion = { id: 55, nombre: "¿Dónde cenamos?" };
     createVotacion.mockResolvedValue(nuevaVotacion);
 
-    const utils = await render(
-      <CrearVotacionScreen route={buildRoute()} navigation={{ goBack: mockGoBack }} />
-    );
+    const utils = await renderPantallaCargada();
 
     await completarFormularioMinimo(utils);
     await press(utils, "Opción múltiple");
@@ -182,15 +173,14 @@ describe("CrearVotacionScreen", () => {
       "La votación se creó correctamente."
     ));
     expect(mockOnVotacionCreada).toHaveBeenCalledWith(nuevaVotacion);
-    expect(mockGoBack).toHaveBeenCalled();
+    
+    expect(mockOnClose).toHaveBeenCalled(); 
   });
 
   it("muestra un Alert de error si falla la creación en el backend", async () => {
     createVotacion.mockRejectedValue(new Error("No hay conexión con el servidor."));
 
-    const utils = await render(
-      <CrearVotacionScreen route={buildRoute()} navigation={{ goBack: mockGoBack }} />
-    );
+    const utils = await renderPantallaCargada();
 
     await completarFormularioMinimo(utils);
     await press(utils, "Crear votación");
@@ -198,18 +188,16 @@ describe("CrearVotacionScreen", () => {
     await waitFor(() =>
       expect(alertMock).toHaveBeenCalledWith("No se pudo crear", "No hay conexión con el servidor.")
     );
-    expect(mockGoBack).not.toHaveBeenCalled();
+    expect(mockOnClose).not.toHaveBeenCalled();
   });
 
-  it("vuelve atrás al presionar el botón de retroceso", async () => {
-    const utils = await render(
-      <CrearVotacionScreen route={buildRoute()} navigation={{ goBack: mockGoBack }} />
-    );
+  it("cierra el modal al presionar la cruz de cerrar", async () => {
+    const utils = await renderPantallaCargada();
 
     await act(async () => {
-      fireEvent.press(utils.getByTestId("votacion-back-button"));
+      fireEvent.press(utils.getByTestId("cerrar-votacion-modal"));
     });
 
-    expect(mockGoBack).toHaveBeenCalled();
+    expect(mockOnClose).toHaveBeenCalled();
   });
 });

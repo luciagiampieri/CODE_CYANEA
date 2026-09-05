@@ -30,7 +30,7 @@ jest.mock("../database/gastosLocal", () => ({
   obtenerParticipantesCache: jest.fn(),
 }));
 
-const mockGoBack = jest.fn();
+const mockOnClose = jest.fn();
 
 const categorias = [
   { IdCategoria: 1, Nombre: "Comida y Bebida" },
@@ -42,9 +42,6 @@ const participantes = [
   { IdParticipanteViaje: 2, Nombre: "Ana", Apellido: "Gómez", NombreUsuario: "agomez" },
 ];
 
-const route = { params: { IdViaje: 10, Moneda: "USD" } };
-const navigation = { goBack: mockGoBack };
-
 
 async function press(getters, texto) {
   await act(async () => {
@@ -52,29 +49,34 @@ async function press(getters, texto) {
   });
 }
 
+
 async function escribir(getters, placeholder, texto) {
   await act(async () => {
     fireEvent.changeText(getters.getByPlaceholderText(placeholder), texto);
   });
 }
 
+
 async function renderPantallaCargada() {
   const utils = await render(
-    <AddGastoScreen route={route} navigation={navigation} />
+    <AddGastoScreen visible={true} IdViaje={10} Moneda="USD" onClose={mockOnClose} />
   );
   await waitFor(() => expect(utils.getByText("Nuevo gasto")).toBeTruthy());
   return utils;
 }
+
 
 async function completarNombreYMonto(utils, nombre, monto) {
   await escribir(utils, "Cena", nombre);
   await escribir(utils, "0", monto);
 }
 
+
 async function seleccionarCategoria(utils, nombreCategoria) {
   await press(utils, "Seleccioná una categoría");
   await press(utils, nombreCategoria);
 }
+
 
 describe("US - Registrar gasto (AddGastoScreen)", () => {
   beforeEach(() => {
@@ -114,7 +116,7 @@ describe("US - Registrar gasto (AddGastoScreen)", () => {
     expect(createExpense).not.toHaveBeenCalled();
   });
 
-  it("registra un gasto personal exitosamente y vuelve a la pantalla anterior", async () => {
+  it("registra un gasto personal exitosamente y cierra el modal", async () => {
     const alertMock = jest.spyOn(Alert, "alert").mockImplementation(() => {});
     const utils = await renderPantallaCargada();
 
@@ -141,7 +143,7 @@ describe("US - Registrar gasto (AddGastoScreen)", () => {
         "Gasto registrado correctamente en el servidor."
       );
     });
-    expect(mockGoBack).toHaveBeenCalledTimes(1);
+    expect(mockOnClose).toHaveBeenCalledTimes(1);
 
     alertMock.mockRestore();
   });
@@ -172,12 +174,12 @@ describe("US - Registrar gasto (AddGastoScreen)", () => {
         expect.objectContaining({ text: "Entendido" }),
       ])
     );
-    expect(mockGoBack).toHaveBeenCalledTimes(1);
+    expect(mockOnClose).toHaveBeenCalledTimes(1);
 
     alertMock.mockRestore();
   });
 
-  it("si no hay conexión al cargar y tampoco hay caché local, avisa y vuelve atrás", async () => {
+  it("si no hay conexión al cargar y tampoco hay caché local, avisa y cierra el modal", async () => {
     getExpenseCategories.mockRejectedValue(new Error("Network Error"));
     getTripParticipants.mockRejectedValue(new Error("Network Error"));
     obtenerCategoriasCache.mockReturnValue([]);
@@ -185,7 +187,7 @@ describe("US - Registrar gasto (AddGastoScreen)", () => {
 
     const alertMock = jest.spyOn(Alert, "alert").mockImplementation(() => {});
 
-    await render(<AddGastoScreen route={route} navigation={navigation} />);
+    await render(<AddGastoScreen visible={true} IdViaje={10} Moneda="USD" onClose={mockOnClose} />);
 
     await waitFor(() => {
       expect(alertMock).toHaveBeenCalledWith(
@@ -193,7 +195,7 @@ describe("US - Registrar gasto (AddGastoScreen)", () => {
         "No hay datos locales guardados para este viaje todavía."
       );
     });
-    expect(mockGoBack).toHaveBeenCalledTimes(1);
+    expect(mockOnClose).toHaveBeenCalledTimes(1);
 
     alertMock.mockRestore();
   });
@@ -206,7 +208,7 @@ describe("US - Registrar gasto (AddGastoScreen)", () => {
 
     const utils = await renderPantallaCargada();
 
-    expect(mockGoBack).not.toHaveBeenCalled();
+    expect(mockOnClose).not.toHaveBeenCalled();
     await press(utils, "Seleccioná una categoría");
     expect(utils.getByText("Comida y Bebida")).toBeTruthy();
   });

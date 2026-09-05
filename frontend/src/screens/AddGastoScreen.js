@@ -385,14 +385,14 @@ export default function AddGastoScreen({ visible, onClose, IdViaje, Moneda, onGa
                             setFecha(nuevaFecha);
                           }
                         }}
-                        style={{ border: "none", width: "100%", outline: "none" }}
+                        style={{border: "none", width: "100%", outline: "none", background: "transparent", fontFamily: "inherit"}}
                       />
                     </View>
                   ) : (
                     <>
                       <TouchableOpacity style={styles.dateBox} onPress={() => setMostrarFecha(true)}>
                         <FontAwesome6 name="calendar" size={15} color={colors.primary} />
-                        <Text>{fechaFormato()}</Text>
+                        <Text style={styles.input}>{fechaFormato()}</Text>
                       </TouchableOpacity>
 
                       {mostrarFecha && (

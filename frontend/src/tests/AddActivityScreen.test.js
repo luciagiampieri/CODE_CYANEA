@@ -10,7 +10,6 @@ jest.mock("../services/api", () => ({
   resolveTripPlace: jest.fn(),
 }));
 
-
 beforeEach(() => {
   jest.clearAllMocks();
   Platform.OS = "web";
@@ -26,6 +25,7 @@ const baseProps = {
   onCancelEdit: jest.fn(),
 };
 
+
 async function llenarFormularioValido(utils, overrides = {}) {
   const { nombre = "Visita al museo", inicio = "10:00", fin = "12:00" } = overrides;
 
@@ -40,6 +40,7 @@ async function llenarFormularioValido(utils, overrides = {}) {
   });
 }
 
+
 async function press(utils, texto) {
   await act(async () => {
     fireEvent.press(utils.getByText(texto));
@@ -53,6 +54,7 @@ async function pressSubmit(utils, texto) {
     fireEvent.press(matches[matches.length - 1]);
   });
 }
+
 
 describe("AddActivityScreen", () => {
   it("muestra error si se intenta guardar sin nombre", async () => {
@@ -84,7 +86,7 @@ describe("AddActivityScreen", () => {
     await pressSubmit(utils, "Agregar actividad");
 
     expect(
-      utils.getByText("La hora de fin debe ser posterior a la hora de inicio.")
+      utils.getByText("La hora de fin debe ser posterior a la hora de inicio (dentro del mismo día).")
     ).toBeTruthy();
     expect(onSubmit).not.toHaveBeenCalled();
   });
