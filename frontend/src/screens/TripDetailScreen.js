@@ -67,6 +67,7 @@ import {
 } from "../database/gastosLocal";
 
 import AddActivityScreen from "./AddActivityScreen";
+import AddGastoScreen from "./AddGastoScreen";
 import useItinerarioViewPreference from "../hooks/useItinerarioViewPreference";
 import useResponsive from "../hooks/useResponsive";
 import ItinerarioViewToggle from "../components/trip/ItinerarioViewToggle";
@@ -251,6 +252,7 @@ export default function TripDetailScreen({ navigation, route }) {
   const [mutatingParticipants, setMutatingParticipants] = useState(false);
   const [participantMessage, setParticipantMessage] = useState("");
   const [activityModalDay, setActivityModalDay] = useState(null);
+  const [showAddGastoModal, setShowAddGastoModal] = useState(false);
   const [currentUser, setCurrentUser] = useState(null);
   const [showDeleteModal, setShowDeleteModal] = useState(false); 
   const [showOptionsMenu, setShowOptionsMenu] = useState(false);
@@ -1667,7 +1669,7 @@ export default function TripDetailScreen({ navigation, route }) {
                     icon="plus"
                     iconPosition="left"
                     label="Agregar gasto"
-                    onPress={() => navigation.navigate("AddGasto", { IdViaje: trip.id, Moneda: trip.currency })}
+                    onPress={() => setShowAddGastoModal(true)}
                     style={styles.fullButton}
                   />
                 ) : null}
@@ -2288,9 +2290,8 @@ export default function TripDetailScreen({ navigation, route }) {
                     onPress={() => {
                       if (isUserAdmin && eligibleNewAdmins.length > 0) {
                         setNuevoAdminId(null);
-                        setShowLeaveModal(true); // Abre el modal para elegir sucesor
+                        setShowLeaveModal(true);
                       } else {
-                        // Si es participante común o único administrador, va directo al flujo normal
                         handleLeaveTripPress();
                       }
                     }}
@@ -2322,6 +2323,15 @@ export default function TripDetailScreen({ navigation, route }) {
         activityToEdit={activityModalDay?.activity}
         onCancelEdit={(activityId) => {
           finalizarEdicionActividad(activityId);
+        }}
+      />
+      <AddGastoScreen
+        visible={showAddGastoModal}
+        IdViaje={trip?.id}
+        Moneda={trip?.currency}
+        onClose={() => setShowAddGastoModal(false)}
+        onGastoCreado={() => {
+          loadSettlement();
         }}
       />
 

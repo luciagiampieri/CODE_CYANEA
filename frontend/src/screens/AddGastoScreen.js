@@ -17,9 +17,6 @@ import {
 import DateTimePicker from "@react-native-community/datetimepicker";
 import { FontAwesome6 } from "@expo/vector-icons";
 
-import ScreenContainer from "../components/layout/ScreenContainer";
-import IconCircleButton from "../components/ui/IconCircleButton";
-
 import {
   getExpenseCategories,
   getTripParticipants,
@@ -46,8 +43,8 @@ const ICONOS_CATEGORIAS = {
   Otros: "ellipsis",
 };
 
-export default function AddGastoScreen({ route, navigation }) {
-  const { IdViaje, Moneda } = route.params;
+
+export default function AddGastoScreen({ visible, onClose, IdViaje, Moneda, onGastoCreado }) {
   const monedaBase = Moneda || "USD";
 
   const [loading, setLoading] = useState(true);
@@ -126,6 +123,19 @@ export default function AddGastoScreen({ route, navigation }) {
   };
 
   useEffect(() => {
+    if (!visible) return;
+
+    setNombre("");
+    setMonto("");
+    setIdCategoria(null);
+    setIdPagador(null);
+    setEsCompartido(false);
+    setEsDivisionIgualitaria(true);
+    setIdsParticipantesSeleccionados([]);
+    setMontosPersonalizados({});
+    setFecha(new Date());
+    setErrores({});
+
     async function cargarDatos() {
       try {
         setLoading(true);
@@ -135,7 +145,13 @@ export default function AddGastoScreen({ route, navigation }) {
           getTripParticipants(IdViaje),
         ]);
 
-        setCategorias(cats);
+        const categoriasOrdenadas = cats.sort((a, b) => {
+          if (a.Nombre === "Otros") return 1; 
+          if (b.Nombre === "Otros") return -1; 
+          return a.Nombre.localeCompare(b.Nombre);
+        });        
+
+        setCategorias(categoriasOrdenadas);
         setParticipantes(parts);
       } catch (error) {
         console.log("📡 API caída o modo avión detectado. Buscando respaldo local en SQLite...");
@@ -149,14 +165,14 @@ export default function AddGastoScreen({ route, navigation }) {
           console.log("Formulario cargado con datos de respaldo local exitosamente.");
         } else {
           Alert.alert("Sin conexión", "No hay datos locales guardados para este viaje todavía.");
-          navigation.goBack();
+          onClose();
         }
       } finally {
         setLoading(false);
       }
     }
     cargarDatos();
-  }, [IdViaje, navigation]);
+  }, [IdViaje, visible]);
 
   useEffect(() => {
     if (esCompartido && idPagador) {
@@ -270,7 +286,8 @@ export default function AddGastoScreen({ route, navigation }) {
       try {
         await createExpense(nuevoGasto);
         Alert.alert("Éxito", "Gasto registrado correctamente en el servidor.");
-        navigation.goBack();
+        onGastoCreado?.();
+        onClose();
       } catch (apiError) {
         console.log("ERROR createExpense:", apiError);
         console.log("⚠️ Sin conexión. Guardando gasto localmente...");
@@ -283,7 +300,10 @@ export default function AddGastoScreen({ route, navigation }) {
             [
               {
                 text: "Entendido",
-                onPress: () => navigation.goBack(),
+                onPress: () => {
+                  onGastoCreado?.();
+                  onClose();
+                },
               },
             ]
           );
@@ -298,255 +318,255 @@ export default function AddGastoScreen({ route, navigation }) {
     }
   }
 
-  if (loading) {
-    return (
-      <ScreenContainer fullWidth padded={false}>
-        <View style={styles.center}>
-          <ActivityIndicator size="large" color={colors.primary} />
-        </View>
-      </ScreenContainer>
-    );
-  }
-
   return (
-    <ScreenContainer fullWidth padded={false}>
-      <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-        <View style={styles.hero}>
-          <View style={styles.heroTopRow}>
-            <IconCircleButton icon="arrow-left" onPress={() => navigation.goBack()} tone="light" />
-          </View>
-          <Text style={styles.heroTitle}>Nuevo gasto</Text>
-        </View>
+    <>
+      <Modal animationType="slide" transparent visible={visible} onRequestClose={onClose}>
+        <View style={styles.overlay}>
+          <View style={styles.sheet}>
+            <ScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+              <View style={styles.headerRow}>
+                <Text style={styles.title}>Nuevo gasto</Text>
+                <TouchableOpacity onPress={onClose}>
+                  <FontAwesome6 name="xmark" size={18} color={colors.textMuted} />
+                </TouchableOpacity>
+              </View>
 
-      <View style={styles.content}>
-      <Text style={styles.label}>Concepto</Text>
-      <View style={styles.inputBox}>
-        <FontAwesome6 name="pen" size={14} color={colors.textMuted} />
-        <TextInput
-          style={styles.input}
-          placeholder="Cena"
-          placeholderTextColor="#00000059"
-          value={nombre}
-          onChangeText={setNombre}
-        />
-      </View>
-      {errores.nombre && <Text style={styles.error}>{errores.nombre}</Text>}
+              {loading ? (
+                <View style={styles.center}>
+                  <ActivityIndicator size="large" color={colors.primary} />
+                </View>
+              ) : (
+                <View style={styles.content}>
 
-      <Text style={styles.label}>Monto</Text>
-      <View style={styles.inputBox}>
-        <Text style={styles.currencyCodePrefix}>{monedaBase.toUpperCase()}</Text>
-        <TextInput
-          style={styles.input}
-          placeholder="0"
-          placeholderTextColor="#00000059"
-          keyboardType="numeric"
-          value={monto}
-          onChangeText={setMonto}
-        />
-      </View>
-      {errores.monto && <Text style={styles.error}>{errores.monto}</Text>}
-
-      <Text style={styles.label}>Fecha</Text>
-      {Platform.OS === "web" ? (
-        <View style={styles.dateBox}>
-          <input
-            type="date"
-            value={fechaFormato()}
-            max={fechaFormato(new Date())}
-            onChange={(e) => {
-              const p = e.target.value.split("-");
-              const nuevaFecha = new Date(p[0], p[1] - 1, p[2]);
-              const limiteHoy = new Date();
-              limiteHoy.setHours(23, 59, 59, 999);
-
-              if (nuevaFecha > limiteHoy) {
-                Alert.alert("Fecha inválida", "No podés registrar un gasto en una fecha futura.");
-                setFecha(new Date());
-              } else {
-                setFecha(nuevaFecha);
-              }
-            }}
-            style={{ border: "none", width: "100%", outline: "none" }}
-          />
-        </View>
-      ) : (
-        <>
-          <TouchableOpacity style={styles.dateBox} onPress={() => setMostrarFecha(true)}>
-            <FontAwesome6 name="calendar" size={15} color={colors.primary} />
-            <Text>{fechaFormato()}</Text>
-          </TouchableOpacity>
-
-          {mostrarFecha && (
-            <DateTimePicker
-              value={fecha}
-              mode="date"
-              maximumDate={new Date()}
-              onChange={(e, date) => {
-                setMostrarFecha(false);
-                if (date) {
-                  const limiteHoy = new Date();
-                  limiteHoy.setHours(23, 59, 59, 999);
-
-                  if (date > limiteHoy) {
-                    Alert.alert(
-                      "Fecha inválida",
-                      "No podés registrar un gasto en una fecha futura."
-                    );
-                    setFecha(new Date());
-                  } else {
-                    setFecha(date);
-                  }
-                }
-              }}
-            />
-          )}
-        </>
-      )}
-      {errores.fecha && <Text style={styles.error}>{errores.fecha}</Text>}
-
-      <Text style={styles.label}>Categoría</Text>
-      <TouchableOpacity style={styles.dropdownButton} onPress={() => setModalCategoriaVisible(true)}>
-        <View style={styles.dropdownLeftContent}>
-          <FontAwesome6
-            name={categoriaSeleccionada ? ICONOS_CATEGORIAS[categoriaSeleccionada.Nombre] || "tags" : "tags"}
-            size={14}
-            color={categoriaSeleccionada ? colors.primary : colors.textMuted}
-            style={{ marginRight: 10, width: 20, textAlign: "center" }}
-          />
-          <Text style={idCategoria ? styles.dropdownText : styles.dropdownPlaceholder}>
-            {categoriaSeleccionada ? categoriaSeleccionada.Nombre : "Seleccioná una categoría"}
-          </Text>
-        </View>
-        <FontAwesome6 name="chevron-down" size={14} color={colors.textMuted} />
-      </TouchableOpacity>
-      {errores.categoria && <Text style={styles.error}>{errores.categoria}</Text>}
-
-      <Text style={styles.label}>Tipo de Gasto</Text>
-      <View style={styles.selectorContainer}>
-        <TouchableOpacity
-          style={[styles.selectorOption, !esCompartido && styles.selectorOptionActive]}
-          onPress={() => setEsCompartido(false)}
-        >
-          <FontAwesome6 name="user" size={14} color={!esCompartido ? "#fff" : colors.overlayStrong} />
-          <Text style={[styles.selectorOptionText, !esCompartido && styles.selectorOptionTextActive]}>
-            Personal
-          </Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[styles.selectorOption, esCompartido && styles.selectorOptionActive]}
-          onPress={() => setEsCompartido(true)}
-        >
-          <FontAwesome6 name="users" size={14} color={esCompartido ? "#fff" : colors.overlayStrong} />
-          <Text style={[styles.selectorOptionText, esCompartido && styles.selectorOptionTextActive]}>
-            Compartido
-          </Text>
-        </TouchableOpacity>
-      </View>
-
-      {/* 6. MENÚ DESPLEGABLE: PAGADOR */}
-      {esCompartido && (
-        <>
-          <Text style={styles.label}>¿Quién pagó?</Text>
-
-          <TouchableOpacity style={styles.dropdownButton} onPress={() => setModalPagadorVisible(true)}>
-            <View style={styles.dropdownLeftContent}>
-              <FontAwesome6
-                name="user"
-                size={14}
-                color={colors.textMuted}
-                style={{ marginRight: 10 }}
-              />
-
-              <Text style={idPagador ? styles.dropdownText : styles.dropdownPlaceholder}>
-                {pagadorSeleccionado
-                  ? `${pagadorSeleccionado.Nombre} ${pagadorSeleccionado.Apellido} (${pagadorSeleccionado.NombreUsuario})`
-                  : "Seleccioná quién pagó"}
-              </Text>
-            </View>
-
-            <FontAwesome6 name="chevron-down" size={14} color={colors.textMuted} />
-          </TouchableOpacity>
-
-          {errores.pagador && <Text style={styles.error}>{errores.pagador}</Text>}
-        </>
-      )}
-
-      {/* CONFIGURACIONES ADICIONALES SI ES COMPARTIDO */}
-      {esCompartido && (
-        <View style={styles.compartidoSection}>
-          {/* 7. SELECCIONAR PARTICIPANTES DEL GASTO */}
-          <Text style={styles.label}>¿Entre quiénes se divide?</Text>
-          <TouchableOpacity
-            style={[styles.dropdownButton, errores.participantes && { borderColor: "#dc2626", borderWidth: 1 }]}
-            onPress={() => setModalParticipantesVisible(true)}
-          >
-            <View style={styles.dropdownLeftContent}>
-              <FontAwesome6 name="users" size={14} color={colors.textMuted} style={{ marginRight: 10 }} />
-              <Text style={idsParticipantesSeleccionados.length > 0 ? styles.dropdownText : styles.dropdownPlaceholder}>
-                {idsParticipantesSeleccionados.length === participantes.length
-                  ? "Dividido entre Todos"
-                  : `${idsParticipantesSeleccionados.length} participantes seleccionados`}
-              </Text>
-            </View>
-            <FontAwesome6 name="chevron-down" size={14} color={colors.textMuted} />
-          </TouchableOpacity>
-          {errores.participantes && <Text style={styles.error}>{errores.participantes}</Text>}
-
-          {/* MODO DE DIVISIÓN */}
-          <Text style={styles.label}>Distribución de la división</Text>
-          <View style={styles.selectorContainer}>
-            <TouchableOpacity
-              style={[styles.selectorOption, esDivisionIgualitaria && styles.selectorOptionActive]}
-              onPress={() => setEsDivisionIgualitaria(true)}
-            >
-              <Text style={[styles.selectorOptionText, esDivisionIgualitaria && styles.selectorOptionTextActive]}>
-                Igualitaria / Equitativa
-              </Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.selectorOption, !esDivisionIgualitaria && styles.selectorOptionActive]}
-              onPress={() => setEsDivisionIgualitaria(false)}
-            >
-              <Text style={[styles.selectorOptionText, !esDivisionIgualitaria && styles.selectorOptionTextActive]}>
-                Personalizada
-              </Text>
-            </TouchableOpacity>
-          </View>
-
-          {/* 8. DESGLOSE SI SE SELECCIONÓ DIVISIÓN PERSONALIZADA */}
-          {!esDivisionIgualitaria && idsParticipantesSeleccionados.length > 0 && (
-            <View style={styles.personalizadoCard}>
-              <Text style={styles.personalizadoTitle}>
-                Asignar Montos Individuales ({monedaBase.toUpperCase()})
-              </Text>
-              {participantes
-                .filter((p) => idsParticipantesSeleccionados.includes(p.IdParticipanteViaje))
-                .map((p) => (
-                  <View key={p.IdParticipanteViaje} style={styles.personalizadoRow}>
-                    <Text style={styles.personalizadoNombre}>
-                      {p.Nombre} {p.Apellido}
-                    </Text>
+                  <Text style={styles.label}>Concepto</Text>
+                  <View style={styles.inputBox}>
+                    <FontAwesome6 name="pen" size={14} color={colors.textMuted} />
                     <TextInput
-                      style={styles.personalizadoInput}
-                      placeholder="0"
-                      placeholderTextColor="#00000059"
-                      keyboardType="numeric"
-                      value={montosPersonalizados[p.IdParticipanteViaje] || ""}
-                      onChangeText={(val) => handleMontoPersonalizadoChange(p.IdParticipanteViaje, val)}
+                      style={styles.input}
+                      placeholder="Cena"
+                      placeholderTextColor={colors.textMuted}
+                      value={nombre}
+                      onChangeText={setNombre}
                     />
                   </View>
-                ))}
-              {errores.divisionPersonalizada && (
-                <Text style={styles.error}>{errores.divisionPersonalizada}</Text>
-              )}
-            </View>
-          )}
-        </View>
-      )}
+                  {errores.nombre && <Text style={styles.error}>{errores.nombre}</Text>}
 
-      <TouchableOpacity style={styles.button} onPress={handleGuardar} disabled={saving}>
-        {saving ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonText}>Registrar gasto</Text>}
-      </TouchableOpacity>
+                  <Text style={styles.label}>Monto</Text>
+                  <View style={styles.inputBox}>
+                    <Text style={styles.currencyCodePrefix}>{monedaBase.toUpperCase()}</Text>
+                    <TextInput
+                      style={styles.input}
+                      placeholder="0"
+                      placeholderTextColor={colors.textMuted}
+                      keyboardType="numeric"
+                      value={monto}
+                      onChangeText={setMonto}
+                    />
+                  </View>
+                  {errores.monto && <Text style={styles.error}>{errores.monto}</Text>}
+
+                  <Text style={styles.label}>Fecha</Text>
+                  {Platform.OS === "web" ? (
+                    <View style={styles.dateBox}>
+                      <input
+                        type="date"
+                        value={fechaFormato()}
+                        max={fechaFormato(new Date())}
+                        onChange={(e) => {
+                          const p = e.target.value.split("-");
+                          const nuevaFecha = new Date(p[0], p[1] - 1, p[2]);
+                          const limiteHoy = new Date();
+                          limiteHoy.setHours(23, 59, 59, 999);
+
+                          if (nuevaFecha > limiteHoy) {
+                            Alert.alert("Fecha inválida", "No podés registrar un gasto en una fecha futura.");
+                            setFecha(new Date());
+                          } else {
+                            setFecha(nuevaFecha);
+                          }
+                        }}
+                        style={{ border: "none", width: "100%", outline: "none" }}
+                      />
+                    </View>
+                  ) : (
+                    <>
+                      <TouchableOpacity style={styles.dateBox} onPress={() => setMostrarFecha(true)}>
+                        <FontAwesome6 name="calendar" size={15} color={colors.primary} />
+                        <Text>{fechaFormato()}</Text>
+                      </TouchableOpacity>
+
+                      {mostrarFecha && (
+                        <DateTimePicker
+                          value={fecha}
+                          mode="date"
+                          maximumDate={new Date()}
+                          onChange={(e, date) => {
+                            setMostrarFecha(false);
+                            if (date) {
+                              const limiteHoy = new Date();
+                              limiteHoy.setHours(23, 59, 59, 999);
+
+                              if (date > limiteHoy) {
+                                Alert.alert(
+                                  "Fecha inválida",
+                                  "No podés registrar un gasto en una fecha futura."
+                                );
+                                setFecha(new Date());
+                              } else {
+                                setFecha(date);
+                              }
+                            }
+                          }}
+                        />
+                      )}
+                    </>
+                  )}
+                  {errores.fecha && <Text style={styles.error}>{errores.fecha}</Text>}
+
+                  <Text style={styles.label}>Categoría</Text>
+                  <TouchableOpacity style={styles.dropdownButton} onPress={() => setModalCategoriaVisible(true)}>
+                    <View style={styles.dropdownLeftContent}>
+                      <FontAwesome6
+                        name={categoriaSeleccionada ? ICONOS_CATEGORIAS[categoriaSeleccionada.Nombre] || "tags" : "tags"}
+                        size={14}
+                        color={categoriaSeleccionada ? colors.primary : colors.textMuted}
+                        style={{ marginRight: 10, width: 20, textAlign: "center" }}
+                      />
+                      <Text style={idCategoria ? styles.dropdownText : styles.dropdownPlaceholder}>
+                        {categoriaSeleccionada ? categoriaSeleccionada.Nombre : "Seleccioná una categoría"}
+                      </Text>
+                    </View>
+                    <FontAwesome6 name="chevron-down" size={14} color={colors.textMuted} />
+                  </TouchableOpacity>
+                  {errores.categoria && <Text style={styles.error}>{errores.categoria}</Text>}
+
+                  <Text style={styles.label}>Tipo de Gasto</Text>
+                  <View style={styles.selectorContainer}>
+                    <TouchableOpacity
+                      style={[styles.selectorOption, !esCompartido && styles.selectorOptionActive]}
+                      onPress={() => setEsCompartido(false)}
+                    >
+                      <FontAwesome6 name="user" size={14} color={!esCompartido ? "#fff" : colors.overlayStrong} />
+                      <Text style={[styles.selectorOptionText, !esCompartido && styles.selectorOptionTextActive]}>
+                        Personal
+                      </Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[styles.selectorOption, esCompartido && styles.selectorOptionActive]}
+                      onPress={() => setEsCompartido(true)}
+                    >
+                      <FontAwesome6 name="users" size={14} color={esCompartido ? "#fff" : colors.overlayStrong} />
+                      <Text style={[styles.selectorOptionText, esCompartido && styles.selectorOptionTextActive]}>
+                        Compartido
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+
+                  {esCompartido && (
+                    <>
+                      <Text style={styles.label}>¿Quién pagó?</Text>
+
+                      <TouchableOpacity style={styles.dropdownButton} onPress={() => setModalPagadorVisible(true)}>
+                        <View style={styles.dropdownLeftContent}>
+                          <FontAwesome6
+                            name="user"
+                            size={14}
+                            color={colors.textMuted}
+                            style={{ marginRight: 10 }}
+                          />
+
+                          <Text style={idPagador ? styles.dropdownText : styles.dropdownPlaceholder}>
+                            {pagadorSeleccionado
+                              ? `${pagadorSeleccionado.Nombre} ${pagadorSeleccionado.Apellido} (${pagadorSeleccionado.NombreUsuario})`
+                              : "Seleccioná quién pagó"}
+                          </Text>
+                        </View>
+
+                        <FontAwesome6 name="chevron-down" size={14} color={colors.textMuted} />
+                      </TouchableOpacity>
+
+                      {errores.pagador && <Text style={styles.error}>{errores.pagador}</Text>}
+                    </>
+                  )}
+
+                  {esCompartido && (
+                    <View style={styles.compartidoSection}>
+                      <Text style={styles.label}>¿Entre quiénes se divide?</Text>
+                      <TouchableOpacity
+                        style={[styles.dropdownButton, errores.participantes && { borderColor: "#dc2626", borderWidth: 1 }]}
+                        onPress={() => setModalParticipantesVisible(true)}
+                      >
+                        <View style={styles.dropdownLeftContent}>
+                          <FontAwesome6 name="users" size={14} color={colors.textMuted} style={{ marginRight: 10 }} />
+                          <Text style={idsParticipantesSeleccionados.length > 0 ? styles.dropdownText : styles.dropdownPlaceholder}>
+                            {idsParticipantesSeleccionados.length === participantes.length
+                              ? "Dividido entre Todos"
+                              : `${idsParticipantesSeleccionados.length} participantes seleccionados`}
+                          </Text>
+                        </View>
+                        <FontAwesome6 name="chevron-down" size={14} color={colors.textMuted} />
+                      </TouchableOpacity>
+                      {errores.participantes && <Text style={styles.error}>{errores.participantes}</Text>}
+
+                      <Text style={styles.label}>Distribución de la división</Text>
+                      <View style={styles.selectorContainer}>
+                        <TouchableOpacity
+                          style={[styles.selectorOption, esDivisionIgualitaria && styles.selectorOptionActive]}
+                          onPress={() => setEsDivisionIgualitaria(true)}
+                        >
+                          <Text style={[styles.selectorOptionText, esDivisionIgualitaria && styles.selectorOptionTextActive]}>
+                            Igualitaria / Equitativa
+                          </Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          style={[styles.selectorOption, !esDivisionIgualitaria && styles.selectorOptionActive]}
+                          onPress={() => setEsDivisionIgualitaria(false)}
+                        >
+                          <Text style={[styles.selectorOptionText, !esDivisionIgualitaria && styles.selectorOptionTextActive]}>
+                            Personalizada
+                          </Text>
+                        </TouchableOpacity>
+                      </View>
+
+                      {!esDivisionIgualitaria && idsParticipantesSeleccionados.length > 0 && (
+                        <View style={styles.personalizadoCard}>
+                          <Text style={styles.personalizadoTitle}>
+                            Asignar Montos Individuales ({monedaBase.toUpperCase()})
+                          </Text>
+                          {participantes
+                            .filter((p) => idsParticipantesSeleccionados.includes(p.IdParticipanteViaje))
+                            .map((p) => (
+                              <View key={p.IdParticipanteViaje} style={styles.personalizadoRow}>
+                                <Text style={styles.personalizadoNombre}>
+                                  {p.Nombre} {p.Apellido}
+                                </Text>
+                                <TextInput
+                                  style={styles.personalizadoInput}
+                                  placeholder="0"
+                                  placeholderTextColor={colors.textMuted}
+                                  keyboardType="numeric"
+                                  value={montosPersonalizados[p.IdParticipanteViaje] || ""}
+                                  onChangeText={(val) => handleMontoPersonalizadoChange(p.IdParticipanteViaje, val)}
+                                />
+                              </View>
+                            ))}
+                          {errores.divisionPersonalizada && (
+                            <Text style={styles.error}>{errores.divisionPersonalizada}</Text>
+                          )}
+                        </View>
+                      )}
+                    </View>
+                  )}
+
+                  <TouchableOpacity style={styles.button} onPress={handleGuardar} disabled={saving}>
+                    {saving ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonText}>Registrar gasto</Text>}
+                  </TouchableOpacity>
+                </View>
+              )}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
 
       <Modal visible={modalCategoriaVisible} transparent={true} animationType="fade">
         <View style={styles.modalOverlay}>
@@ -560,13 +580,14 @@ export default function AddGastoScreen({ route, navigation }) {
             <FlatList
               data={categorias}
               keyExtractor={(item) => item.IdCategoria.toString()}
-              renderItem={({ item }) => {
+              renderItem={({ item, index }) => {
                 const iconoName = ICONOS_CATEGORIAS[item.Nombre] || "tags";
                 const esActivo = idCategoria === item.IdCategoria;
+                const esElUltimo = index === categorias.length - 1;
 
                 return (
                   <TouchableOpacity
-                    style={[styles.modalItem, esActivo && styles.modalItemActive]}
+                    style={[styles.modalItem, esActivo && styles.modalItemActive,esElUltimo && { borderBottomWidth: 0 }]}
                     onPress={() => {
                       setIdCategoria(item.IdCategoria);
                       setModalCategoriaVisible(false);
@@ -604,9 +625,12 @@ export default function AddGastoScreen({ route, navigation }) {
             <FlatList
               data={participantes}
               keyExtractor={(item) => item.IdParticipanteViaje.toString()}
-              renderItem={({ item }) => (
+              renderItem={({ item, index }) => {
+                const esElUltimo = index === participantes.length - 1;
+
+                return (
                 <TouchableOpacity
-                  style={[styles.modalItem, idPagador === item.IdParticipanteViaje && styles.modalItemActive]}
+                  style={[styles.modalItem, idPagador === item.IdParticipanteViaje && styles.modalItemActive, esElUltimo && { borderBottomWidth: 0 }]}
                   onPress={() => {
                     const nuevoPagadorId = item.IdParticipanteViaje;
                     setIdPagador(nuevoPagadorId);
@@ -636,8 +660,9 @@ export default function AddGastoScreen({ route, navigation }) {
                   {idPagador === item.IdParticipanteViaje && (
                     <FontAwesome6 name="check" size={14} color={colors.primary} />
                   )}
-                </TouchableOpacity>
-              )}
+                  </TouchableOpacity>
+                );
+              }}
             />
           </View>
         </View>
@@ -655,9 +680,9 @@ export default function AddGastoScreen({ route, navigation }) {
                 <Text style={styles.modalDoneButtonText}>Listo</Text>
               </TouchableOpacity>
             </View>
-
-            <FlatList
-              data={[
+              
+            {(() => {
+              const datosIntegrantes = [
                 {
                   IdParticipanteViaje: "TODOS",
                   Nombre: "Todos",
@@ -665,170 +690,175 @@ export default function AddGastoScreen({ route, navigation }) {
                   NombreUsuario: "marcar_desmarcar",
                 },
                 ...participantes,
-              ]}
-              keyExtractor={(item) => item.IdParticipanteViaje.toString()}
-              renderItem={({ item }) => {
-                if (item.IdParticipanteViaje === "TODOS") {
-                  const todosIds = participantes.map((p) => p.IdParticipanteViaje);
-                  const estanTodosSeleccionados =
-                    todosIds.length > 0 &&
-                    todosIds.every((idp) => idsParticipantesSeleccionados.includes(idp));
+              ];
 
-                  return (
-                    <TouchableOpacity
-                      style={[
-                        styles.modalItem,
-                        estanTodosSeleccionados && styles.modalItemActive,
-                        { borderBottomWidth: 2, borderBottomColor: colors.primary },
-                      ]}
-                      onPress={() => toggleSeleccionParticipante("TODOS")}
-                    >
-                      <View style={{ flex: 1 }}>
-                        <Text style={[styles.modalItemText, { fontWeight: "bold", color: colors.primary }]}>
-                          Seleccionar Todos
-                        </Text>
-                      </View>
-                      <View
-                        style={[styles.customCheckbox, estanTodosSeleccionados && styles.customCheckboxChecked]}
-                      >
-                        {estanTodosSeleccionados && <FontAwesome6 name="check" size={10} color="#fff" />}
-                      </View>
-                    </TouchableOpacity>
-                  );
-                }
+              return (
+                <FlatList
+                  data={datosIntegrantes}
+                  keyExtractor={(item) => item.IdParticipanteViaje.toString()}
+                  renderItem={({ item, index }) => {
+                    const esElUltimo = index === datosIntegrantes.length - 1;
 
-                const estaSeleccionado = idsParticipantesSeleccionados.includes(item.IdParticipanteViaje);
-                const esElPagador = item.IdParticipanteViaje === idPagador;
-                return (
-                  <TouchableOpacity
-                    style={[
-                      styles.modalItem,
-                      estaSeleccionado && styles.modalItemActive,
-                      esElPagador && { backgroundColor: "#f9fafb" },
-                    ]}
-                    onPress={() => toggleSeleccionParticipante(item.IdParticipanteViaje)}
-                  >
-                    <View style={{ flex: 1 }}>
-                      <Text
+                    if (item.IdParticipanteViaje === "TODOS") {
+                      const todosIds = participantes.map((p) => p.IdParticipanteViaje);
+                      const estanTodosSeleccionados =
+                        todosIds.length > 0 &&
+                        todosIds.every((idp) => idsParticipantesSeleccionados.includes(idp));
+
+                      return (
+                        <TouchableOpacity
+                          style={[
+                            styles.modalItem,
+                            estanTodosSeleccionados && styles.modalItemActive,
+                            { borderBottomWidth: 2, borderBottomColor: colors.primary },
+                          ]}
+                          onPress={() => toggleSeleccionParticipante("TODOS")}
+                        >
+                          <View style={{ flex: 1 }}>
+                            <Text style={[styles.modalItemText, { fontWeight: "bold", color: colors.primary }]}>
+                              Seleccionar Todos
+                            </Text>
+                          </View>
+                          <View
+                            style={[styles.customCheckbox, estanTodosSeleccionados && styles.customCheckboxChecked]}
+                          >
+                            {estanTodosSeleccionados && <FontAwesome6 name="check" size={10} color="#fff" />}
+                          </View>
+                        </TouchableOpacity>
+                      );
+                    }
+
+                    const estaSeleccionado = idsParticipantesSeleccionados.includes(item.IdParticipanteViaje);
+                    const esElPagador = item.IdParticipanteViaje === idPagador;
+                    
+                    return (
+                      <TouchableOpacity
                         style={[
-                          styles.modalItemText,
-                          estaSeleccionado && styles.modalItemTextActive,
-                          esElPagador && { color: "#6b7280", fontWeight: "600" },
+                          styles.modalItem,
+                          estaSeleccionado && styles.modalItemActive,
+                          esElPagador && { backgroundColor: "#f9fafb" },
+                          esElUltimo && { borderBottomWidth: 0 },
                         ]}
+                        onPress={() => toggleSeleccionParticipante(item.IdParticipanteViaje)}
                       >
-                        {item.Nombre} {item.Apellido} {esElPagador && "(Responsable)"}
-                      </Text>
-                      <Text style={{ fontSize: 12, color: colors.textMuted }}>@{item.NombreUsuario}</Text>
-                    </View>
-                    <View
-                      style={[
-                        styles.customCheckbox,
-                        estaSeleccionado && styles.customCheckboxChecked,
-                        esElPagador && { backgroundColor: "#9ca3af", borderColor: "#9ca3af" },
-                      ]}
-                    >
-                      {estaSeleccionado && <FontAwesome6 name="check" size={10} color="#fff" />}
-                    </View>
-                  </TouchableOpacity>
-                );
-              }}
-            />
+                        <View style={{ flex: 1 }}>
+                          <Text
+                            style={[
+                              styles.modalItemText,
+                              estaSeleccionado && styles.modalItemTextActive,
+                              esElPagador && { color: "#6b7280", fontWeight: "600" },
+                            ]}
+                          >
+                            {item.Nombre} {item.Apellido} {esElPagador && "(Responsable)"}
+                          </Text>
+                          <Text style={{ fontSize: 12, color: colors.textMuted }}>@{item.NombreUsuario}</Text>
+                        </View>
+                        <View
+                          style={[
+                            styles.customCheckbox,
+                            estaSeleccionado && styles.customCheckboxChecked,
+                            esElPagador && { backgroundColor: "#9ca3af", borderColor: "#9ca3af" },
+                          ]}
+                        >
+                          {estaSeleccionado && <FontAwesome6 name="check" size={10} color="#fff" />}
+                        </View>
+                      </TouchableOpacity>
+                    );
+                  }}
+                />
+              );
+            })()}
+
           </View>
         </View>
       </Modal>
-      </View>
-    </ScrollView>
-    </ScreenContainer>
+    </>
   );
 }
 
 const styles = StyleSheet.create({
-  hero: {
-    backgroundColor: colors.primary,
-    paddingHorizontal: 20,
-    paddingTop: 12,
-    paddingBottom: 28,
-    borderBottomLeftRadius: 32,
-    borderBottomRightRadius: 32,
-    alignItems: "center",
+  overlay: {
+    flex: 1,
+    backgroundColor: colors.overlayStrong,
+    justifyContent: "flex-end",
   },
-  heroTopRow: {
+  sheet: {
+    backgroundColor: colors.surface,
+    borderTopLeftRadius: radii.xl,
+    borderTopRightRadius: radii.xl,
+    padding: spacing.lg,
+    maxHeight: "90%",
+  },
+  headerRow: {
     flexDirection: "row",
     alignItems: "center",
-    alignSelf: "flex-start",
+    justifyContent: "space-between",
   },
-  scrollContent: {
-    paddingBottom: 40,
+  title: {
+    ...textStyles.tripTitle,
+    color: colors.primary,
+    fontSize: 20,
+  },
+  center: {
+    paddingVertical: 60,
+    alignItems: "center",
+    justifyContent: "center",
   },
   content: {
     padding: 20,
   },
-  center: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  heroTitle: {
-    ...textStyles.tripTitle,
-    fontSize: 26,
-    color: colors.textInverse,
-    textAlign: "center",
-    marginTop: 8,
-  },
   label: {
-    fontWeight: "700",
+    ...textStyles.label,
+    textTransform: "none",
     color: colors.primary,
-    marginTop: 14,
-    marginBottom: 8,
+    marginTop: spacing.md,
+    marginBottom: spacing.xs,
   },
   inputBox: {
-    backgroundColor: "#fff",
-    height: 54,
-    borderRadius: 12,
-    borderWidth: 1.5,
-    borderColor: "#dfe3ea",
-    paddingHorizontal: 15,
+    minHeight: 48,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radii.md,
+    backgroundColor: colors.surface,
+    paddingHorizontal: spacing.md,
     flexDirection: "row",
     alignItems: "center",
     gap: 10,
     marginBottom: 5,
-    ...shadows.card,
   },
   input: {
     flex: 1,
-    fontSize: 15,
-    fontWeight: "600",
-    color: "#111827",
+    color: colors.textPrimary,
     paddingVertical: 8,
+    ...textStyles.body,
   },
   currencyCodePrefix: {
-    fontSize: 14,
-    fontWeight: "800",
-    color: "#6b7280",
-    marginRight: 2,
+    ...textStyles.body,
+    color: colors.textSecondary,
+    fontWeight: "700",
+    marginRight: 6,
   },
   dateBox: {
-    backgroundColor: "#fff",
-    padding: 15,
-    borderRadius: 12,
-    borderWidth: 1.5,
-    borderColor: "#dfe3ea",
+    minHeight: 48,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radii.md,
+    backgroundColor: colors.surface,
+    paddingHorizontal: spacing.md,
     flexDirection: "row",
-    gap: 10,
     alignItems: "center",
-    ...shadows.card,
+    gap: 10,
   },
   dropdownButton: {
-    backgroundColor: "#fff",
-    height: 54,
-    borderRadius: 12,
-    borderWidth: 1.5,
-    borderColor: "#dfe3ea",
-    paddingHorizontal: 15,
+    minHeight: 48,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radii.md,
+    backgroundColor: colors.surface,
+    paddingHorizontal: spacing.md,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    ...shadows.card,
   },
   dropdownLeftContent: {
     flexDirection: "row",
@@ -836,25 +866,26 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   dropdownPlaceholder: {
-    color: "#b3b3b3",
-    fontSize: 14,
+    ...textStyles.body,
+    color: colors.textMuted,
   },
   dropdownText: {
-    color: "#000",
-    fontSize: 14,
-    fontWeight: "500",
+    ...textStyles.body,
+    color: colors.textPrimary,
   },
   button: {
-    marginTop: 30,
-    height: 55,
-    borderRadius: 12,
+    marginTop: spacing.lg,
+    marginBottom: spacing.md,
+    minHeight: 48,
+    borderRadius: radii.md,
     backgroundColor: colors.primary,
     justifyContent: "center",
     alignItems: "center",
   },
   buttonText: {
-    color: "#fff",
-    fontWeight: "800",
+    color: "#fff", 
+    fontWeight: "700",
+    ...textStyles.body,
   },
   error: {
     color: "#dc2626",
@@ -864,11 +895,12 @@ const styles = StyleSheet.create({
   },
   selectorContainer: {
     flexDirection: "row",
-    backgroundColor: "#fff",
-    borderRadius: 12,
+    backgroundColor: colors.surface,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    borderColor: colors.border,
     padding: 4,
     gap: 5,
-    ...shadows.card,
   },
   selectorOption: {
     flex: 1,
@@ -883,9 +915,8 @@ const styles = StyleSheet.create({
     backgroundColor: colors.primary,
   },
   selectorOptionText: {
-    fontWeight: "700",
-    color: colors.overlayStrong,
-    fontSize: 14,
+    ...textStyles.body,
+    color: colors.primary,
   },
   selectorOptionTextActive: {
     color: "#fff",
@@ -893,25 +924,25 @@ const styles = StyleSheet.create({
   compartidoSection: {
     marginTop: 5,
     backgroundColor: "#f9fafb",
-    borderRadius: 14,
+    borderRadius: radii.md,
     padding: 10,
     borderWidth: 1,
-    borderColor: "#e5e7eb",
+    borderColor: colors.border,
   },
   personalizadoCard: {
     marginTop: 15,
-    backgroundColor: "#fff",
+    backgroundColor: colors.surface,
     padding: 15,
-    borderRadius: 12,
-    ...shadows.card,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    borderColor: colors.border,
   },
   personalizadoTitle: {
-    fontWeight: "800",
-    fontSize: 14,
+    ...textStyles.label,
     color: colors.primary,
     marginBottom: 10,
     borderBottomWidth: 1,
-    borderBottomColor: "#f3f4f6",
+    borderBottomColor: colors.border,
     paddingBottom: 5,
   },
   personalizadoRow: {
@@ -923,19 +954,19 @@ const styles = StyleSheet.create({
     borderBottomColor: "#f9fafb",
   },
   personalizadoNombre: {
-    fontSize: 14,
-    color: "#333",
-    fontWeight: "500",
+    ...textStyles.body,
+    color: colors.textPrimary,
     flex: 1,
   },
   personalizadoInput: {
     backgroundColor: "#f3f4f6",
     width: 100,
     height: 38,
-    borderRadius: 8,
+    borderRadius: radii.md,
     paddingHorizontal: 10,
     textAlign: "right",
-    fontWeight: "600",
+    ...textStyles.body,
+    color: colors.textPrimary,
   },
   customCheckbox: {
     width: 22,
@@ -958,12 +989,11 @@ const styles = StyleSheet.create({
     padding: 20,
   },
   modalContainer: {
-    backgroundColor: "#fff",
+    backgroundColor: colors.surface,
     width: "100%",
     maxHeight: "70%",
-    borderRadius: 16,
+    borderRadius: radii.lg,
     padding: 20,
-    ...shadows.card,
   },
   modalHeader: {
     flexDirection: "row",

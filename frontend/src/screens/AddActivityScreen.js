@@ -208,9 +208,16 @@ export default function AddActivityScreen({ visible, onClose, onSubmit, dayLabel
             return;
         }
         if (horaFin <= horaInicio) {
-            setError("La hora de fin debe ser posterior a la hora de inicio.");
+            if (horaFin === "00:00") {
+                setError("Para el fin del día usá 23:59. Las 00:00 cuentan como el día siguiente.");
+            } else if (horaFin === horaInicio) {
+                setError("La hora de inicio y fin no pueden ser iguales.");
+            } else {
+                setError("La hora de fin debe ser posterior a la hora de inicio (dentro del mismo día).");
+            }
             return;
         }
+        
         setSubmitting(true);
         setError("");
         setSuccessMessage("");
