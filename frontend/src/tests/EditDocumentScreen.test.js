@@ -216,7 +216,8 @@ describe("US 67 - Reemplazar documento", () => {
         uri: "file:///nuevo-pasaje.pdf",
       }),
       1,
-      "Pasaje Mendoza.pdf"
+      "Pasaje Mendoza.pdf",
+      true
     );
 
     expect(alertMock).toHaveBeenCalledWith(
@@ -278,7 +279,8 @@ describe("US 67 - Reemplazar documento", () => {
       1,
       expect.anything(),
       1,
-      "Pasaje Mendoza.pdf"
+      "Pasaje Mendoza.pdf",
+      true
     );
   });
 

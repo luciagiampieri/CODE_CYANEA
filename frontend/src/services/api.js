@@ -387,7 +387,6 @@ export async function deleteCurrentUser(password = null) {
     },
   };
 
-  // Solo enviamos contraseña si el usuario la tiene
   if (password) {
     options.headers["Content-Type"] = "application/json";
     options.body = JSON.stringify({ password });
@@ -768,7 +767,8 @@ export async function uploadTripDocument(
   tripId,
   archivo,
   idCategoriaDocumento,
-  nombreArchivo
+  nombreArchivo,
+  esPublico
 ) {
   const token = await getStoredToken();
   const fileType = archivo.mimeType || archivo.type || "application/octet-stream";
@@ -789,6 +789,10 @@ export async function uploadTripDocument(
     formData.append("IdCategoriaDocumento", String(idCategoriaDocumento));
     if (nombreArchivo) formData.append("NombreArchivo", nombreArchivo);
 
+    if (esPublico !== undefined && esPublico !== null) {
+      formData.append("EsPublico", String(esPublico));
+    }
+
     const response = await fetch(`${API_BASE_URL}/trips/${tripId}/documents`, {
       method: "POST",
       headers: { Authorization: `Bearer ${token}` },
@@ -801,6 +805,7 @@ export async function uploadTripDocument(
 
     const parameters = {
       IdCategoriaDocumento: String(idCategoriaDocumento),
+      ...(esPublico !== undefined && esPublico !== null && { EsPublico: String(esPublico) }),
     };
     if (nombreArchivo) {
       parameters.NombreArchivo = nombreArchivo;
@@ -837,6 +842,7 @@ export async function uploadTripDocument(
   }
 }
 
+
 export async function getTripDocuments(tripId) {
   const token = await getStoredToken();
 
@@ -848,10 +854,7 @@ export async function getTripDocuments(tripId) {
   return parseResponse(response, "No se pudieron cargar los documentos del viaje");
 }
 
-// US 41 - Descargar documento.
-// El backend valida que quien pide el archivo sea integrante del viaje
-// (AC3), por eso siempre se pide con el token de autenticación en vez de
-// usar directamente la URL pública del bucket.
+
 export async function downloadTripDocument(tripId, documentId, nombreArchivo) {
   const token = await getStoredToken();
   const downloadUrl = `${API_BASE_URL}/trips/${tripId}/documents/${documentId}/download`;
@@ -902,7 +905,7 @@ export async function downloadTripDocument(tripId, documentId, nombreArchivo) {
   }
 }
 
-// US 51 - Eliminar documento del repositorio.
+
 export async function deleteTripDocument(tripId, documentId) {
   const response = await fetch(
     `${API_BASE_URL}/trips/${tripId}/documents/${documentId}`,
@@ -958,7 +961,8 @@ export async function updateTripDocument(
   documentId,
   archivo,
   idCategoriaDocumento,
-  nombreArchivo
+  nombreArchivo,
+  esPublico
 ) {
   const token = await getStoredToken();
   const fileType = archivo ? (archivo.mimeType || archivo.type || "application/octet-stream") : null;
@@ -982,6 +986,9 @@ export async function updateTripDocument(
     if (idCategoriaDocumento !== null && idCategoriaDocumento !== undefined) {
       formData.append("IdCategoriaDocumento", String(idCategoriaDocumento));
     }
+    if (esPublico !== null && esPublico !== undefined) {
+      formData.append("EsPublico", String(esPublico));
+    }
     if (nombreArchivo) {
       formData.append("NombreArchivo", nombreArchivo);
     }
@@ -994,15 +1001,12 @@ export async function updateTripDocument(
 
     return parseResponse(response, "No se pudo actualizar el documento");
   } else {
-    // Entorno Mobile (Android / iOS con expo-file-system)
     const formData = new FormData();
 
     if (archivo && archivo.uri) {
-      // Si se proporciona un nuevo archivo físico
       const file = new File(archivo.uri);
       const safeName = nombreArchivo || archivo.name || "documento.pdf";
       
-      // Adjuntamos mediante multipart utilizando el objeto File de expo
       const result = await file.upload(
         `${API_BASE_URL}/trips/${tripId}/documents/${documentId}`,
         {
@@ -1013,6 +1017,7 @@ export async function updateTripDocument(
           parameters: {
             ...(idCategoriaDocumento !== null && idCategoriaDocumento !== undefined && { IdCategoriaDocumento: String(idCategoriaDocumento) }),
             ...(nombreArchivo && { NombreArchivo: nombreArchivo }),
+            ...(esPublico !== undefined && esPublico !== null && { EsPublico: String(esPublico) }),
           },
           headers: {
             Authorization: `Bearer ${token}`,
@@ -1035,13 +1040,15 @@ export async function updateTripDocument(
         return result.body;
       }
     } else {
-      // Si NO se reemplaza el archivo físico, mandamos una petición HTTP normal con JSON o FormData sin archivo
       const payload = {};
       if (idCategoriaDocumento !== null && idCategoriaDocumento !== undefined) {
         payload.IdCategoriaDocumento = Number(idCategoriaDocumento);
       }
       if (nombreArchivo) {
         payload.NombreArchivo = nombreArchivo;
+      }
+      if (esPublico !== undefined && esPublico !== null) {
+        payload.EsPublico = esPublico;
       }
 
       const response = await fetch(`${API_BASE_URL}/trips/${tripId}/documents/${documentId}`, {
@@ -1115,4 +1122,3 @@ export async function markAllNotificationsAsRead() {
     "No se pudieron marcar las notificaciones como leídas"
   );
 }
-

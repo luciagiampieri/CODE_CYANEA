@@ -168,7 +168,7 @@ describe("DocumentsScreen", () => {
     await pressSubmit(utils);
 
     await waitFor(() => expect(uploadTripDocument).toHaveBeenCalled());
-    expect(uploadTripDocument).toHaveBeenCalledWith(10, expect.objectContaining({ name: "Seguro.pdf" }), 1, "Seguro.pdf");
+    expect(uploadTripDocument).toHaveBeenCalledWith(10, expect.objectContaining({ name: "Seguro.pdf" }), 1, "Seguro.pdf", true);
 
     await waitFor(() => expect(alertMock).toHaveBeenCalledWith(
       "Éxito",

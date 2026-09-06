@@ -1917,7 +1917,7 @@ export default function TripDetailScreen({ navigation, route }) {
                           />
                           <View style={{ flex: 1 }}>
                             <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-                              <Text style={styles.sectionCopy}>{item.Titulo}</Text>
+                              <Text style={{ fontSize: 15, fontWeight: "600", color: colors.textPrimary }}>{item.Titulo}</Text>
                               <View
                                 style={{
                                   paddingHorizontal: 6,

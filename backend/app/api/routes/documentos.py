@@ -46,12 +46,13 @@ def _serializar_documento(
         FechaSubida=documento.FechaSubida,
         NombreCategoria=documento.CategoriaDocumentoRelacion.Nombre,
         NombreUsuarioSubida=f"{documento.UsuarioSubida.Nombre} {documento.UsuarioSubida.Apellido}",
+        EsPublico=documento.EsPublico,
         EsPropio=documento.IdUsuarioSubida == current_user_id,
     )
 
 
 def _obtener_documento_del_viaje(
-    db: Session, trip_id: int, document_id: int
+    db: Session, trip_id: int, document_id: int, current_user: Usuario
 ) -> DocumentoViaje:
     documento = db.get(DocumentoViaje, document_id)
 
@@ -60,7 +61,12 @@ def _obtener_documento_del_viaje(
             status_code=404,
             detail="El documento no existe."
         )
-
+    
+    if not documento.EsPublico and documento.IdUsuarioSubida != current_user.IdUsuario:
+        raise HTTPException(
+            status_code=404,
+            detail="El documento no existe o no tenés permiso para verlo."
+        )
     return documento
 
 @router.get("/documents/categories")
@@ -69,7 +75,6 @@ def obtener_categorias_documentos(db: Session = Depends(get_db)):
         db.query(CategoriaDocumento)
         .all()
     )
-
     return categorias
 
 @router.post("/{trip_id}/documents")
@@ -78,6 +83,7 @@ async def subir_documento_viaje(
     archivo: UploadFile = File(...),
     IdCategoriaDocumento: int = Form(...),
     NombreArchivo: str | None = Form(None),
+    EsPublico: bool = Form(True),
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
 ):
@@ -160,7 +166,8 @@ async def subir_documento_viaje(
         IdCategoriaDocumento=IdCategoriaDocumento,
         IdUsuarioSubida=current_user.IdUsuario,
         NombreArchivo=nombre_final,
-        UrlArchivo=url_archivo
+        UrlArchivo=url_archivo,
+        EsPublico=EsPublico
     )
 
     db.add(documento)
@@ -207,6 +214,9 @@ def listar_documentos_viaje(
 
     consulta = db.query(DocumentoViaje).filter(
         DocumentoViaje.IdViaje == trip_id
+    ).filter(
+        (DocumentoViaje.EsPublico.is_(True)) | 
+        (DocumentoViaje.IdUsuarioSubida == current_user.IdUsuario)
     )
 
     if (
@@ -234,6 +244,7 @@ async def editar_o_reemplazar_documento_viaje(
     archivo: UploadFile | None = File(None),
     IdCategoriaDocumento: int | None = Form(None),
     NombreArchivo: str | None = Form(None),
+    EsPublico: bool | None = Form(None),
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
 ):
@@ -242,14 +253,8 @@ async def editar_o_reemplazar_documento_viaje(
         current_user,
     )
 
-    documento = db.get(DocumentoViaje, document_id)
+    documento = _obtener_documento_del_viaje(db, trip_id, document_id, current_user)
 
-    if not documento or documento.IdViaje != trip_id:
-         raise HTTPException(
-              status_code=404,
-              detail="Documento no encontrado."
-            )
-    
     if documento.IdUsuarioSubida != current_user.IdUsuario:
         raise HTTPException(
             status_code=403,
@@ -284,6 +289,9 @@ async def editar_o_reemplazar_documento_viaje(
 
         documento.NombreArchivo = nombre_limpio
     
+    if EsPublico is not None:
+        documento.EsPublico = EsPublico
+
     if archivo is not None and archivo.filename:
 
         extensiones_permitidas = {".pdf", ".jpg", ".jpeg", ".png"}
@@ -314,7 +322,7 @@ async def editar_o_reemplazar_documento_viaje(
                     
         url_archivo = subir_documento(archivo, ruta_archivo)
         documento.UrlArchivo = url_archivo
-       
+
     duplicado = db.scalar(
         select(DocumentoViaje).where(
             DocumentoViaje.IdViaje == trip_id,
@@ -359,19 +367,12 @@ def descargar_documento_viaje(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
 ):
-    """AC1/AC2/AC4: descarga el documento conservando su formato original.
-
-    AC3: se valida explícitamente la pertenencia al viaje en el backend
-    (en vez de simplemente entregar la URL pública del bucket), para que
-    un usuario que no integra el viaje no pueda descargar el documento
-    aunque conozca su identificador.
-    """
     viaje = require_trip_access(
         get_trip_with_relations(db, trip_id),
         current_user,
-    )
-    
-    documento = _obtener_documento_del_viaje(db, trip_id, document_id)
+    )  
+
+    documento = _obtener_documento_del_viaje(db, trip_id, document_id, current_user)
 
     participacion = db.scalar(
         select(ParticipanteViaje).where(
@@ -421,16 +422,12 @@ async def eliminar_documento_viaje(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
 ):
-    """AC1: solo quien subió el documento puede eliminarlo.
-    AC3/AC4/AC5 (pruebas): tras eliminarlo, no debe poder visualizarse ni
-    descargarse (se logra al borrar tanto el registro como el archivo).
-    """
     viaje = require_trip_edit_access(
         get_trip_with_relations(db, trip_id),
         current_user,
     )
 
-    documento = _obtener_documento_del_viaje(db, trip_id, document_id)
+    documento = _obtener_documento_del_viaje(db, trip_id, document_id, current_user)
 
     if documento.IdUsuarioSubida != current_user.IdUsuario:
         raise HTTPException(
@@ -454,4 +451,3 @@ async def eliminar_documento_viaje(
         )
 
     return {"message": "Documento eliminado correctamente."}
-

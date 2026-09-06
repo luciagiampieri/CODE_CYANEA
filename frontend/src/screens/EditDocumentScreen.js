@@ -12,6 +12,7 @@ import {
     FlatList,
     Platform,
     KeyboardAvoidingView,
+    TouchableOpacity,
 } from "react-native";
 
 import * as DocumentPicker from "expo-document-picker";
@@ -52,10 +53,8 @@ export default function EditDocumentScreen({ route, navigation }) {
     const [idCategoria, setIdCategoria] = useState(documento?.IdCategoriaDocumento || null);
     const [modalCategoriaVisible, setModalCategoriaVisible] = useState(false);
 
-    // Archivo físico opcional (si el usuario decide reemplazarlo)
     const [archivoNuevo, setArchivoNuevo] = useState(null);
 
-    // Extraer nombre base y extensión limpia del documento existente
     const nombreOriginal = documento?.NombreArchivo || "";
     const puntoIndex = nombreOriginal.lastIndexOf(".");
     const extInicial = puntoIndex !== -1 ? nombreOriginal.substring(puntoIndex + 1) : "";
@@ -63,6 +62,8 @@ export default function EditDocumentScreen({ route, navigation }) {
 
     const [nombreDocumento, setNombreDocumento] = useState(nombreBaseInicial);
     const [extensionArchivo, setExtensionArchivo] = useState(extInicial);
+
+    const [esPublico, setEsPublico] = useState(documento?.EsPublico ?? true);
 
     const [errores, setErrores] = useState({});
 
@@ -122,7 +123,7 @@ export default function EditDocumentScreen({ route, navigation }) {
                 }
 
                 setArchivoNuevo(doc);
-                setExtensionArchivo(ext); // Actualiza la extensión si sube otro tipo de archivo
+                setExtensionArchivo(ext); 
                 limpiarError("archivo");
             }
         } catch (error) {
@@ -164,13 +165,13 @@ export default function EditDocumentScreen({ route, navigation }) {
                 ? `${nombreDocumento.trim()}.${extensionArchivo}`
                 : nombreDocumento.trim();
 
-            // Llamamos al servicio PUT que creamos en api.js
             await updateTripDocument(
                 tripId,
                 documento.IdDocumento,
-                archivoNuevo, // Si es null, el backend mantiene el archivo anterior
+                archivoNuevo, 
                 idCategoria,
-                nombreFinal
+                nombreFinal,
+                esPublico
             );
 
             mostrarAlertaConfirmacion("Éxito", "Documento actualizado correctamente.", () =>
@@ -356,6 +357,34 @@ export default function EditDocumentScreen({ route, navigation }) {
                                 {errores.categoria ? (
                                     <Text style={styles.fieldError}>{errores.categoria}</Text>
                                 ) : null}
+                            </View>
+                            <View style={styles.field}>
+                                <Text style={styles.fieldLabel}>Visibilidad</Text>
+                                <View style={styles.selectorContainer}>
+                                    <TouchableOpacity
+                                        style={[styles.selectorOption, esPublico && styles.selectorOptionActive]}
+                                        onPress={() => setEsPublico(true)}
+                                    >
+                                        <FontAwesome6 name="users" size={14} color={esPublico ? "#fff" : colors.textMuted} />
+                                        <Text style={[styles.selectorOptionText, esPublico && styles.selectorOptionTextActive]}>
+                                            Público
+                                        </Text>
+                                    </TouchableOpacity>
+                                    <TouchableOpacity
+                                        style={[styles.selectorOption, !esPublico && styles.selectorOptionActive]}
+                                        onPress={() => setEsPublico(false)}
+                                    >
+                                        <FontAwesome6 name="lock" size={14} color={!esPublico ? "#fff" : colors.textMuted} />
+                                        <Text style={[styles.selectorOptionText, !esPublico && styles.selectorOptionTextActive]}>
+                                            Privado
+                                        </Text>
+                                    </TouchableOpacity>
+                                </View>
+                                <Text style={{ fontSize: 12, color: colors.textMuted, marginTop: 6 }}>
+                                    {esPublico
+                                        ? "Visible para todos los participantes del viaje."
+                                        : "Solo vos vas a poder verlo."}
+                                </Text>
                             </View>
                         </View>
 
@@ -642,5 +671,35 @@ const styles = StyleSheet.create({
         color: colors.textSecondary,
         textAlign: "center",
         paddingVertical: spacing.lg,
+    },
+selectorContainer: {
+        flexDirection: "row",
+        backgroundColor: colors.surface,
+        borderRadius: radii.md,
+        borderWidth: 1,
+        borderColor: colors.border,
+        padding: 4,
+        gap: 5,
+    },
+    selectorOption: {
+        flex: 1,
+        flexDirection: "row",
+        height: 42,
+        borderRadius: 8,
+        justifyContent: "center",
+        alignItems: "center",
+        gap: 8,
+    },
+    selectorOptionActive: {
+        backgroundColor: colors.primary,
+    },
+    selectorOptionText: {
+        ...textStyles.body,
+        color: colors.textMuted,
+        fontWeight: "600",
+    },
+    selectorOptionTextActive: {
+        color: "#fff",
+        fontWeight: "700",
     },
 });

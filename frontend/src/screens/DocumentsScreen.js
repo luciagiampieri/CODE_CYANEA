@@ -12,6 +12,7 @@ import {
     FlatList,
     Platform,
     KeyboardAvoidingView,
+    TouchableOpacity,
 } from "react-native";
 
 import * as DocumentPicker from "expo-document-picker";
@@ -55,6 +56,8 @@ export default function DocumentsScreen({ route, navigation }) {
     const [archivo, setArchivo] = useState(null);
     const [nombreDocumento, setNombreDocumento] = useState("");
     const [extensionArchivo, setExtensionArchivo] = useState("");
+
+    const [esPublico, setEsPublico] = useState(true);
 
     const [errores, setErrores] = useState({});
 
@@ -154,7 +157,7 @@ export default function DocumentsScreen({ route, navigation }) {
                 ? `${nombreDocumento}.${extensionArchivo}`
                 : nombreDocumento;
 
-            await uploadTripDocument(tripId, archivo, idCategoria, nombreFinal);
+            await uploadTripDocument(tripId, archivo, idCategoria, nombreFinal, esPublico);
 
             mostrarAlertaConfirmacion("Éxito", "Documento subido correctamente.", () =>
                 navigation.goBack()
@@ -358,7 +361,36 @@ export default function DocumentsScreen({ route, navigation }) {
                                     <Text style={styles.fieldError}>{errores.categoria}</Text>
                                 ) : null}
                             </View>
+                            <View style={styles.field}>
+                                <Text style={styles.fieldLabel}>Visibilidad</Text>
+                                <View style={styles.selectorContainer}>
+                                    <TouchableOpacity
+                                        style={[styles.selectorOption, esPublico && styles.selectorOptionActive]}
+                                        onPress={() => setEsPublico(true)}
+                                    >
+                                        <FontAwesome6 name="users" size={14} color={esPublico ? "#fff" : colors.textMuted} />
+                                        <Text style={[styles.selectorOptionText, esPublico && styles.selectorOptionTextActive]}>
+                                            Público
+                                        </Text>
+                                    </TouchableOpacity>
+                                    <TouchableOpacity
+                                        style={[styles.selectorOption, !esPublico && styles.selectorOptionActive]}
+                                        onPress={() => setEsPublico(false)}
+                                    >
+                                        <FontAwesome6 name="lock" size={14} color={!esPublico ? "#fff" : colors.textMuted} />
+                                        <Text style={[styles.selectorOptionText, !esPublico && styles.selectorOptionTextActive]}>
+                                            Privado
+                                        </Text>
+                                    </TouchableOpacity>
+                                </View>
+                                <Text style={{ fontSize: 12, color: colors.textMuted, marginTop: 6 }}>
+                                    {esPublico
+                                        ? "Visible para todos los participantes del viaje."
+                                        : "Solo vos vas a poder verlo."}
+                                </Text>
+                            </View> 
                         </View>
+
 
                         <View style={styles.actions}>
                             <PrimaryButton
@@ -653,5 +685,35 @@ const styles = StyleSheet.create({
         color: colors.textSecondary,
         textAlign: "center",
         paddingVertical: spacing.lg,
+    },
+selectorContainer: {
+        flexDirection: "row",
+        backgroundColor: colors.surface,
+        borderRadius: radii.md,
+        borderWidth: 1,
+        borderColor: colors.border,
+        padding: 4,
+        gap: 5,
+    },
+    selectorOption: {
+        flex: 1,
+        flexDirection: "row",
+        height: 42,
+        borderRadius: 8,
+        justifyContent: "center",
+        alignItems: "center",
+        gap: 8,
+    },
+    selectorOptionActive: {
+        backgroundColor: colors.primary,
+    },
+    selectorOptionText: {
+        ...textStyles.body,
+        color: colors.textMuted,
+        fontWeight: "600",
+    },
+    selectorOptionTextActive: {
+        color: "#fff",
+        fontWeight: "700",
     },
 });
