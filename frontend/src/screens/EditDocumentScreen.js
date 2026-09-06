@@ -17,9 +17,6 @@ import {
 
 import * as DocumentPicker from "expo-document-picker";
 import { FontAwesome6 } from "@expo/vector-icons";
-
-import ScreenContainer from "../components/layout/ScreenContainer";
-import IconCircleButton from "../components/ui/IconCircleButton";
 import PrimaryButton from "../components/ui/PrimaryButton";
 
 import {
@@ -42,30 +39,37 @@ function mostrarAlertaConfirmacion(titulo, mensaje, onAceptar) {
     }
 }
 
-export default function EditDocumentScreen({ route, navigation }) {
-    const { tripId, documento } = route.params;
+
+export default function EditDocumentScreen({ visible, onClose, tripId, documento, onDocumentoEditado }) {
 
     const [loading, setLoading] = useState(true);
     const [loadError, setLoadError] = useState("");
     const [saving, setSaving] = useState(false);
 
     const [categorias, setCategorias] = useState([]);
-    const [idCategoria, setIdCategoria] = useState(documento?.IdCategoriaDocumento || null);
+    const [idCategoria, setIdCategoria] = useState(null);
     const [modalCategoriaVisible, setModalCategoriaVisible] = useState(false);
-
     const [archivoNuevo, setArchivoNuevo] = useState(null);
-
-    const nombreOriginal = documento?.NombreArchivo || "";
-    const puntoIndex = nombreOriginal.lastIndexOf(".");
-    const extInicial = puntoIndex !== -1 ? nombreOriginal.substring(puntoIndex + 1) : "";
-    const nombreBaseInicial = puntoIndex !== -1 ? nombreOriginal.substring(0, puntoIndex) : nombreOriginal;
-
-    const [nombreDocumento, setNombreDocumento] = useState(nombreBaseInicial);
-    const [extensionArchivo, setExtensionArchivo] = useState(extInicial);
-
-    const [esPublico, setEsPublico] = useState(documento?.EsPublico ?? true);
-
+    const [nombreDocumento, setNombreDocumento] = useState("");
+    const [extensionArchivo, setExtensionArchivo] = useState("");
+    const [esPublico, setEsPublico] = useState(true);
     const [errores, setErrores] = useState({});
+
+    useEffect(() => {
+        if (visible && documento) {
+            const nombreOriginal = documento?.NombreArchivo || "";
+            const puntoIndex = nombreOriginal.lastIndexOf(".");
+            const extInicial = puntoIndex !== -1 ? nombreOriginal.substring(puntoIndex + 1) : "";
+            const nombreBaseInicial = puntoIndex !== -1 ? nombreOriginal.substring(0, puntoIndex) : nombreOriginal;
+
+            setNombreDocumento(nombreBaseInicial);
+            setExtensionArchivo(extInicial);
+            setIdCategoria(documento?.IdCategoriaDocumento || null);
+            setEsPublico(documento?.EsPublico ?? true);
+            setArchivoNuevo(null);
+            setErrores({});
+        }
+    }, [visible, documento]);
 
     const categoriaSeleccionada = categorias.find(
         (c) => c.IdCategoriaDocumento === idCategoria
@@ -88,8 +92,11 @@ export default function EditDocumentScreen({ route, navigation }) {
                 setLoading(false);
             }
         }
-        cargarCategorias();
-    }, []);
+        
+        if (visible) {
+            cargarCategorias();
+        }
+    }, [visible]);
 
     function limpiarError(campo) {
         setErrores((current) => {
@@ -114,7 +121,7 @@ export default function EditDocumentScreen({ route, navigation }) {
 
                 const extensionesPermitidas = ["pdf", "jpg", "jpeg", "png"];
 
-                if (!extensionesPermitidas.includes(ext)) {
+                if (!extensionesPermitidas.includes(ext.toLowerCase())) {
                     mostrarAlertaConfirmacion(
                         "Archivo inválido",
                         "Solo se permiten archivos PDF, JPG, JPEG o PNG."
@@ -137,7 +144,8 @@ export default function EditDocumentScreen({ route, navigation }) {
 
     function eliminarNuevoArchivo() {
         setArchivoNuevo(null);
-        // Restauramos la extensión original del documento por seguridad si cancela el reemplazo
+        const nombreOriginal = documento?.NombreArchivo || "";
+        const puntoIndex = nombreOriginal.lastIndexOf(".");
         const extOriginal = puntoIndex !== -1 ? nombreOriginal.substring(puntoIndex + 1) : "";
         setExtensionArchivo(extOriginal);
     }
@@ -174,9 +182,10 @@ export default function EditDocumentScreen({ route, navigation }) {
                 esPublico
             );
 
-            mostrarAlertaConfirmacion("Éxito", "Documento actualizado correctamente.", () =>
-                navigation.goBack()
-            );
+            mostrarAlertaConfirmacion("Éxito", "Documento actualizado correctamente.", () => {
+                if (onDocumentoEditado) onDocumentoEditado();
+                onClose();
+            });
         } catch (error) {
             console.log("ERROR updateTripDocument:", error);
             const mensajeError = (error?.message || "").toLowerCase();
@@ -199,212 +208,171 @@ export default function EditDocumentScreen({ route, navigation }) {
         }
     }
 
-    if (loading) {
-        return (
-            <ScreenContainer fullWidth padded={false}>
-                <View style={styles.centered}>
-                    <ActivityIndicator size="large" color={colors.primary} />
-                </View>
-            </ScreenContainer>
-        );
-    }
-
-    if (loadError) {
-        return (
-            <ScreenContainer fullWidth padded={false}>
-                <View style={styles.centered}>
-                    <Text style={styles.fieldError}>{loadError}</Text>
-                    <PrimaryButton
-                        label="Volver"
-                        onPress={() => navigation.goBack()}
-                        variant="secondary"
-                    />
-                </View>
-            </ScreenContainer>
-        );
-    }
+    if (!documento) return null;
 
     return (
-        <ScreenContainer fullWidth padded={false}>
-            <KeyboardAvoidingView
-                behavior={Platform.OS === "ios" ? "height" : undefined}
-                style={styles.flex}
-                keyboardVerticalOffset={0}
-            >
-                <ScrollView
-                    contentContainerStyle={styles.scrollContent}
-                    showsVerticalScrollIndicator={false}
-                    keyboardShouldPersistTaps="always"
-                >
-                    <View style={styles.hero}>
-                        <View style={styles.heroTopRow}>
-                            <IconCircleButton icon="arrow-left" onPress={() => navigation.goBack()} tone="light" />
-                        </View>
-                        <Text style={styles.heroTitle}>Editar documento</Text>
-                        <Text style={styles.heroCopy}>
-                            Modificá el nombre, la categoría o reemplazá el archivo adjunto.
-                        </Text>
-                    </View>
-
-                    <View style={styles.body}>
-                        <View style={[styles.card, { marginTop: spacing.lg }]}>
-                            <Text style={styles.cardTitle}>Información del documento</Text>
-
-                            <View style={styles.field}>
-                                <Text style={styles.fieldLabel}>Archivo</Text>
-
-                                {!archivoNuevo ? (
-                                    <Pressable
-                                        style={styles.fileCardActive}
-                                        onPress={seleccionarNuevoArchivo}
-                                    >
-                                        <FontAwesome6 name="file-lines" size={20} color={colors.primary} />
-                                        <View style={{ flex: 1, marginLeft: 10 }}>
-                                            <Text style={styles.fileName} numberOfLines={1}>
-                                                {documento.NombreArchivo}
-                                            </Text>
-                                            <Text style={styles.fileSize}>
-                                                Archivo actual (Tocá para reemplazarlo)
-                                            </Text>
-                                        </View>
-                                        <FontAwesome6 name="arrows-rotate" size={14} color={colors.primary} />
-                                    </Pressable>
-                                ) : (
-                                    <View style={styles.fileCard}>
-                                        <FontAwesome6 name="file" size={22} color={colors.primary} />
-                                        <View style={{ flex: 1, marginLeft: 10 }}>
-                                            <Text style={styles.fileName} numberOfLines={1}>
-                                                {archivoNuevo.name}
-                                            </Text>
-                                            <Text style={styles.fileSize}>
-                                                Nuevo archivo seleccionado ({archivoNuevo.size ? `${(archivoNuevo.size / 1024).toFixed(1)} KB` : ""})
-                                            </Text>
-                                        </View>
-                                        <Pressable onPress={eliminarNuevoArchivo} hitSlop={15}>
-                                            <FontAwesome6
-                                                name="trash"
-                                                size={16}
-                                                color={colors.danger || "#dc2626"}
-                                            />
-                                        </Pressable>
-                                    </View>
-                                )}
+        <>
+            <Modal animationType="slide" transparent visible={visible} onRequestClose={onClose}>
+                <View style={styles.overlay}>
+                    <View style={styles.sheet}>
+                        <ScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+                            <View style={styles.headerRow}>
+                                <Text style={styles.title}>Editar documento</Text>
+                                <TouchableOpacity onPress={onClose}>
+                                    <FontAwesome6 name="xmark" size={18} color={colors.textMuted} />
+                                </TouchableOpacity>
                             </View>
 
-                            <View style={styles.field}>
-                                <Text style={styles.fieldLabel}>Nombre del documento</Text>
-                                <View
-                                    style={[
-                                        styles.input,
-                                        styles.inputRow,
-                                        errores.nombre && styles.inputError,
-                                    ]}
-                                >
-                                    <FontAwesome6 name="pen" size={13} color={colors.textMuted} />
-                                    <TextInput
-                                        style={styles.inputInner}
-                                        value={nombreDocumento}
-                                        onChangeText={(text) => {
-                                            setNombreDocumento(text);
-                                            limpiarError("nombre");
-                                        }}
-                                        placeholder="Nombre del documento"
-                                        placeholderTextColor={colors.textMuted}
-                                    />
-                                    {extensionArchivo ? (
-                                        <Text style={styles.extensionText}>{`.${extensionArchivo}`}</Text>
-                                    ) : null}
+                            {loading ? (
+                                <View style={styles.center}>
+                                    <ActivityIndicator size="large" color={colors.primary} />
                                 </View>
-                                {errores.nombre ? (
-                                    <Text style={styles.fieldError}>{errores.nombre}</Text>
-                                ) : null}
-                            </View>
+                            ) : loadError ? (
+                                <View style={styles.center}>
+                                    <Text style={styles.error}>{loadError}</Text>
+                                    <PrimaryButton label="Cerrar" onPress={onClose} variant="secondary" />
+                                </View>
+                            ) : (
+                                <View style={styles.content}>
+                                    <Text style={styles.label}>Archivo</Text>
 
-                            <View style={styles.field}>
-                                <Text style={styles.fieldLabel}>Categoría</Text>
-                                <Pressable
-                                    style={[
-                                        styles.dateButton,
-                                        errores.categoria && styles.inputError,
-                                    ]}
-                                    onPress={() => setModalCategoriaVisible(true)}
-                                >
-                                    <View style={styles.dropdownLeftContent}>
-                                        <FontAwesome6
-                                            name="tags"
-                                            size={14}
-                                            color={categoriaSeleccionada ? colors.primary : colors.textMuted}
-                                            style={{ marginRight: 10, width: 18, textAlign: "center" }}
-                                        />
-                                        <Text
-                                            style={
-                                                idCategoria
-                                                    ? styles.dateButtonText
-                                                    : styles.datePlaceholder
-                                            }
+                                    {!archivoNuevo ? (
+                                        <Pressable
+                                            style={styles.fileCardActive}
+                                            onPress={seleccionarNuevoArchivo}
                                         >
-                                            {categoriaSeleccionada
-                                                ? categoriaSeleccionada.Nombre
-                                                : "Seleccioná una categoría"}
-                                        </Text>
-                                    </View>
-                                    <FontAwesome6
-                                        name="chevron-down"
-                                        size={13}
-                                        color={colors.textMuted}
-                                    />
-                                </Pressable>
-                                {errores.categoria ? (
-                                    <Text style={styles.fieldError}>{errores.categoria}</Text>
-                                ) : null}
-                            </View>
-                            <View style={styles.field}>
-                                <Text style={styles.fieldLabel}>Visibilidad</Text>
-                                <View style={styles.selectorContainer}>
-                                    <TouchableOpacity
-                                        style={[styles.selectorOption, esPublico && styles.selectorOptionActive]}
-                                        onPress={() => setEsPublico(true)}
-                                    >
-                                        <FontAwesome6 name="users" size={14} color={esPublico ? "#fff" : colors.textMuted} />
-                                        <Text style={[styles.selectorOptionText, esPublico && styles.selectorOptionTextActive]}>
-                                            Público
-                                        </Text>
-                                    </TouchableOpacity>
-                                    <TouchableOpacity
-                                        style={[styles.selectorOption, !esPublico && styles.selectorOptionActive]}
-                                        onPress={() => setEsPublico(false)}
-                                    >
-                                        <FontAwesome6 name="lock" size={14} color={!esPublico ? "#fff" : colors.textMuted} />
-                                        <Text style={[styles.selectorOptionText, !esPublico && styles.selectorOptionTextActive]}>
-                                            Privado
-                                        </Text>
-                                    </TouchableOpacity>
-                                </View>
-                                <Text style={{ fontSize: 12, color: colors.textMuted, marginTop: 6 }}>
-                                    {esPublico
-                                        ? "Visible para todos los participantes del viaje."
-                                        : "Solo vos vas a poder verlo."}
-                                </Text>
-                            </View>
-                        </View>
+                                            <FontAwesome6 name="file-lines" size={20} color={colors.primary} />
+                                            <View style={{ flex: 1, marginLeft: 10 }}>
+                                                <Text style={styles.fileName} numberOfLines={1}>
+                                                    {documento.NombreArchivo}
+                                                </Text>
+                                                <Text style={styles.fileSize}>
+                                                    Archivo actual (Tocá para reemplazarlo)
+                                                </Text>
+                                            </View>
+                                            <FontAwesome6 name="arrows-rotate" size={14} color={colors.primary} />
+                                        </Pressable>
+                                    ) : (
+                                        <View style={styles.fileCard}>
+                                            <FontAwesome6 name="file" size={22} color={colors.primary} />
+                                            <View style={{ flex: 1, marginLeft: 10 }}>
+                                                <Text style={styles.fileName} numberOfLines={1}>
+                                                    {archivoNuevo.name}
+                                                </Text>
+                                                <Text style={styles.fileSize}>
+                                                    Nuevo archivo seleccionado ({archivoNuevo.size ? `${(archivoNuevo.size / 1024).toFixed(1)} KB` : ""})
+                                                </Text>
+                                            </View>
+                                            <Pressable onPress={eliminarNuevoArchivo} hitSlop={15}>
+                                                <FontAwesome6
+                                                    name="trash"
+                                                    size={16}
+                                                    color={colors.danger || "#dc2626"}
+                                                />
+                                            </Pressable>
+                                        </View>
+                                    )}
 
-                        <View style={styles.actions}>
-                            <PrimaryButton
-                                label={saving ? "Guardando..." : "Guardar cambios"}
-                                loading={saving}
-                                onPress={handleActualizar}
-                                style={styles.actionPrimary}
-                            />
-                            <PrimaryButton
-                                label="Cancelar"
-                                onPress={() => navigation.goBack()}
-                                variant="secondary"
-                                style={styles.actionSecondary}
-                            />
-                        </View>
+                                    <Text style={styles.label}>Nombre del documento</Text>
+                                    <View
+                                        style={[
+                                            styles.inputBox,
+                                            errores.nombre && { borderColor: "#dc2626" },
+                                        ]}
+                                    >
+                                        <FontAwesome6 name="pen" size={13} color={colors.textMuted} />
+                                        <TextInput
+                                            style={styles.inputInner}
+                                            value={nombreDocumento}
+                                            onChangeText={(text) => {
+                                                setNombreDocumento(text);
+                                                limpiarError("nombre");
+                                            }}
+                                            placeholder="Nombre del documento"
+                                            placeholderTextColor={colors.textMuted}
+                                        />
+                                        {extensionArchivo ? (
+                                            <Text style={styles.extensionText}>{`.${extensionArchivo}`}</Text>
+                                        ) : null}
+                                    </View>
+                                    {errores.nombre ? (
+                                        <Text style={styles.error}>{errores.nombre}</Text>
+                                    ) : null}
+
+                                    <Text style={styles.label}>Categoría</Text>
+                                    <TouchableOpacity
+                                        style={[
+                                            styles.dropdownButton,
+                                            errores.categoria && { borderColor: "#dc2626" },
+                                        ]}
+                                        onPress={() => setModalCategoriaVisible(true)}
+                                    >
+                                        <View style={styles.dropdownLeftContent}>
+                                            <FontAwesome6
+                                                name="tags"
+                                                size={14}
+                                                color={categoriaSeleccionada ? colors.primary : colors.textMuted}
+                                                style={{ marginRight: 10, width: 18, textAlign: "center" }}
+                                            />
+                                            <Text
+                                                style={
+                                                    idCategoria
+                                                        ? styles.dropdownText
+                                                        : styles.dropdownPlaceholder
+                                                }
+                                            >
+                                                {categoriaSeleccionada
+                                                    ? categoriaSeleccionada.Nombre
+                                                    : "Seleccioná una categoría"}
+                                            </Text>
+                                        </View>
+                                        <FontAwesome6
+                                            name="chevron-down"
+                                            size={14}
+                                            color={colors.textMuted}
+                                        />
+                                    </TouchableOpacity>
+                                    {errores.categoria ? (
+                                        <Text style={styles.error}>{errores.categoria}</Text>
+                                    ) : null}
+
+                                    <Text style={styles.label}>Visibilidad</Text>
+                                    <View style={styles.selectorContainer}>
+                                        <TouchableOpacity
+                                            style={[styles.selectorOption, esPublico && styles.selectorOptionActive]}
+                                            onPress={() => setEsPublico(true)}
+                                        >
+                                            <FontAwesome6 name="users" size={14} color={esPublico ? "#fff" : colors.textMuted} />
+                                            <Text style={[styles.selectorOptionText, esPublico && styles.selectorOptionTextActive]}>
+                                                Público
+                                            </Text>
+                                        </TouchableOpacity>
+                                        <TouchableOpacity
+                                            style={[styles.selectorOption, !esPublico && styles.selectorOptionActive]}
+                                            onPress={() => setEsPublico(false)}
+                                        >
+                                            <FontAwesome6 name="lock" size={14} color={!esPublico ? "#fff" : colors.textMuted} />
+                                            <Text style={[styles.selectorOptionText, !esPublico && styles.selectorOptionTextActive]}>
+                                                Privado
+                                            </Text>
+                                        </TouchableOpacity>
+                                    </View>
+                                    <Text style={{ fontSize: 12, color: colors.textMuted, marginTop: 6 }}>
+                                        {esPublico
+                                            ? "Visible para todos los participantes del viaje."
+                                            : "Solo vos vas a poder verlo."}
+                                    </Text>
+
+                                    <TouchableOpacity style={styles.button} onPress={handleActualizar} disabled={saving}>
+                                        {saving ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonText}>Guardar cambios</Text>}
+                                    </TouchableOpacity>
+
+                                </View>
+                            )}
+                        </ScrollView>
                     </View>
-                </ScrollView>
-            </KeyboardAvoidingView>
+                </View>
+            </Modal>
 
             <Modal
                 visible={modalCategoriaVisible}
@@ -413,12 +381,12 @@ export default function EditDocumentScreen({ route, navigation }) {
                 onRequestClose={() => setModalCategoriaVisible(false)}
             >
                 <Pressable
-                    style={styles.modalOverlay}
+                    style={styles.modalOverlayC}
                     onPress={() => setModalCategoriaVisible(false)}
                 >
-                    <Pressable style={styles.modalContainer} onPress={(e) => e.stopPropagation?.()}>
-                        <View style={styles.modalHeader}>
-                            <Text style={styles.modalTitle}>Seleccionar categoría</Text>
+                    <Pressable style={styles.modalContainerC} onPress={(e) => e.stopPropagation?.()}>
+                        <View style={styles.modalHeaderC}>
+                            <Text style={styles.modalTitleC}>Seleccionar categoría</Text>
                             <Pressable onPress={() => setModalCategoriaVisible(false)} hitSlop={10}>
                                 <FontAwesome6 name="xmark" size={18} color={colors.textMuted} />
                             </Pressable>
@@ -427,11 +395,12 @@ export default function EditDocumentScreen({ route, navigation }) {
                         <FlatList
                             data={categorias}
                             keyExtractor={(item) => item.IdCategoriaDocumento.toString()}
-                            renderItem={({ item }) => {
+                            renderItem={({ item, index }) => {
                                 const esActivo = idCategoria === item.IdCategoriaDocumento;
+                                const esElUltimo = index === categorias.length - 1;
                                 return (
                                     <Pressable
-                                        style={[styles.modalItem, esActivo && styles.modalItemActive]}
+                                        style={[styles.modalItemC, esActivo && styles.modalItemActiveC, esElUltimo && { borderBottomWidth: 0 }]}
                                         onPress={() => {
                                             setIdCategoria(item.IdCategoriaDocumento);
                                             limpiarError("categoria");
@@ -447,8 +416,8 @@ export default function EditDocumentScreen({ route, navigation }) {
                                             />
                                             <Text
                                                 style={[
-                                                    styles.modalItemText,
-                                                    esActivo && styles.modalItemTextActive,
+                                                    styles.modalItemTextC,
+                                                    esActivo && styles.modalItemTextActiveC,
                                                 ]}
                                             >
                                                 {item.Nombre}
@@ -461,90 +430,63 @@ export default function EditDocumentScreen({ route, navigation }) {
                                 );
                             }}
                             ListEmptyComponent={
-                                <Text style={styles.emptyText}>No hay categorías disponibles.</Text>
+                                <Text style={styles.emptyTextC}>No hay categorías disponibles.</Text>
                             }
                         />
                     </Pressable>
                 </Pressable>
             </Modal>
-        </ScreenContainer>
+        </>
     );
 }
 
 const styles = StyleSheet.create({
-    flex: { flex: 1 },
-    centered: {
+    overlay: {
         flex: 1,
-        alignItems: "center",
-        justifyContent: "center",
-        gap: spacing.md,
+        backgroundColor: colors.overlayStrong || "rgba(9, 19, 45, 0.7)",
+        justifyContent: "flex-end",
+    },
+    sheet: {
+        backgroundColor: colors.surface,
+        borderTopLeftRadius: radii.xl || 24,
+        borderTopRightRadius: radii.xl || 24,
         padding: spacing.lg,
+        maxHeight: "90%",
     },
-    scrollContent: { paddingBottom: 140 },
-    hero: {
-        backgroundColor: colors.primary,
-        paddingHorizontal: spacing.lg,
-        paddingTop: spacing.sm,
-        paddingBottom: spacing.xl,
-        borderBottomLeftRadius: 32,
-        borderBottomRightRadius: 32,
-        alignItems: "center",
-    },
-    heroTopRow: {
+    headerRow: {
         flexDirection: "row",
         alignItems: "center",
-        alignSelf: "flex-start",
-    },
-    heroTitle: {
-        ...textStyles.tripTitle,
-        color: colors.textInverse,
-        fontSize: 26,
-        marginTop: spacing.xs,
-        textAlign: "center",
-    },
-    heroCopy: {
-        ...textStyles.body,
-        color: "rgba(255,255,255,0.8)",
-        marginTop: spacing.xs,
-        textAlign: "center",
-    },
-    body: {
-        backgroundColor: colors.background,
-        paddingHorizontal: spacing.lg,
-        paddingTop: spacing.lg,
-    },
-    card: {
-        ...surfaces.card,
-        padding: spacing.lg,
-        gap: spacing.md,
-    },
-    cardTitle: {
-        ...textStyles.tripTitle,
-        color: colors.primary,
-        fontSize: 22,
-    },
-    field: { marginTop: spacing.md },
-    fieldLabel: {
-        ...textStyles.label,
-        color: colors.primary,
+        justifyContent: "space-between",
         marginBottom: spacing.xs,
     },
-    fieldError: {
-        ...textStyles.meta,
-        color: colors.danger || "#dc2626",
-        marginTop: spacing.xs,
+    title: {
+        ...textStyles.tripTitle,
+        color: colors.primary,
+        fontSize: 20,
     },
-    input: {
-        minHeight: 52,
+    center: {
+        paddingVertical: 60,
+        alignItems: "center",
+        justifyContent: "center",
+    },
+    content: {
+        paddingTop: spacing.sm,
+        paddingBottom: spacing.lg,
+    },
+    label: {
+        ...textStyles.label,
+        textTransform: "none",
+        color: colors.primary,
+        marginTop: spacing.md,
+        marginBottom: spacing.xs,
+    },
+    inputBox: {
+        minHeight: 48,
         borderWidth: 1,
         borderColor: colors.border,
         borderRadius: radii.md,
         backgroundColor: colors.surface,
         paddingHorizontal: spacing.md,
-        color: colors.textPrimary,
-        ...textStyles.body,
-    },
-    inputRow: {
         flexDirection: "row",
         alignItems: "center",
         gap: 10,
@@ -552,9 +494,53 @@ const styles = StyleSheet.create({
     inputInner: {
         flex: 1,
         color: colors.textPrimary,
+        paddingVertical: 8,
         ...textStyles.body,
     },
-    inputError: { borderColor: colors.danger || "#dc2626" },
+    dropdownButton: {
+        minHeight: 48,
+        borderWidth: 1,
+        borderColor: colors.border,
+        borderRadius: radii.md,
+        backgroundColor: colors.surface,
+        paddingHorizontal: spacing.md,
+        flexDirection: "row",
+        alignItems: "center",
+        justifyContent: "space-between",
+    },
+    dropdownLeftContent: {
+        flexDirection: "row",
+        alignItems: "center",
+        flex: 1,
+    },
+    dropdownPlaceholder: {
+        ...textStyles.body,
+        color: colors.textMuted,
+    },
+    dropdownText: {
+        ...textStyles.body,
+        color: colors.textPrimary,
+    },
+    button: {
+        marginTop: spacing.xl,
+        marginBottom: spacing.md,
+        minHeight: 48,
+        borderRadius: radii.md,
+        backgroundColor: colors.primary,
+        justifyContent: "center",
+        alignItems: "center",
+    },
+    buttonText: {
+        color: "#fff",
+        fontWeight: "700",
+        ...textStyles.body,
+    },
+    error: {
+        color: "#dc2626",
+        fontSize: 12,
+        marginTop: 5,
+        fontWeight: "600",
+    },
     extensionText: {
         ...textStyles.bodyStrong,
         color: colors.textMuted,
@@ -588,91 +574,7 @@ const styles = StyleSheet.create({
         color: colors.textSecondary,
         marginTop: 2,
     },
-    dateButton: {
-        minHeight: 52,
-        borderWidth: 1,
-        borderColor: colors.border,
-        borderRadius: radii.md,
-        backgroundColor: colors.surface,
-        paddingHorizontal: spacing.md,
-        alignItems: "center",
-        justifyContent: "space-between",
-        flexDirection: "row",
-    },
-    dateButtonText: {
-        ...textStyles.body,
-        color: colors.textPrimary,
-    },
-    datePlaceholder: { color: colors.textMuted },
-    dropdownLeftContent: {
-        flexDirection: "row",
-        alignItems: "center",
-        flex: 1,
-    },
-    actions: {
-        flexDirection: Platform.OS === "web" ? "row" : "column",
-        gap: spacing.md,
-        marginTop: spacing.xl,
-    },
-    actionPrimary: { flex: 1 },
-    actionSecondary: { flex: 1 },
-    modalOverlay: {
-        flex: 1,
-        backgroundColor: "rgba(0,0,0,0.4)",
-        justifyContent: "center",
-        alignItems: "center",
-        padding: spacing.lg,
-    },
-    modalContainer: {
-        backgroundColor: colors.surface,
-        width: "100%",
-        maxWidth: 480,
-        maxHeight: "70%",
-        borderRadius: radii.md,
-        padding: spacing.lg,
-    },
-    modalHeader: {
-        flexDirection: "row",
-        justifyContent: "space-between",
-        alignItems: "center",
-        marginBottom: spacing.md,
-        paddingBottom: spacing.sm,
-        borderBottomWidth: 1,
-        borderBottomColor: colors.border,
-    },
-    modalTitle: {
-        ...textStyles.bodyStrong,
-        fontSize: 18,
-        color: colors.primary,
-    },
-    modalItem: {
-        flexDirection: "row",
-        justifyContent: "space-between",
-        alignItems: "center",
-        paddingVertical: spacing.sm + 4,
-        paddingHorizontal: spacing.sm,
-        borderBottomWidth: 1,
-        borderBottomColor: "#f5f5f5",
-    },
-    modalItemActive: {
-        backgroundColor: colors.primarySoft ? `${colors.primarySoft}22` : "#f0f4f8",
-        borderRadius: radii.sm || 8,
-    },
-    modalItemText: {
-        ...textStyles.body,
-        color: colors.textPrimary,
-    },
-    modalItemTextActive: {
-        color: colors.primary,
-        fontWeight: "700",
-    },
-    emptyText: {
-        ...textStyles.meta,
-        color: colors.textSecondary,
-        textAlign: "center",
-        paddingVertical: spacing.lg,
-    },
-selectorContainer: {
+    selectorContainer: {
         flexDirection: "row",
         backgroundColor: colors.surface,
         borderRadius: radii.md,
@@ -701,5 +603,61 @@ selectorContainer: {
     selectorOptionTextActive: {
         color: "#fff",
         fontWeight: "700",
+    },
+    modalOverlayC: {
+        flex: 1,
+        backgroundColor: "rgba(0,0,0,0.4)",
+        justifyContent: "center",
+        alignItems: "center",
+        padding: spacing.lg,
+    },
+    modalContainerC: {
+        backgroundColor: colors.surface,
+        width: "100%",
+        maxWidth: 480,
+        maxHeight: "70%",
+        borderRadius: radii.md,
+        padding: spacing.lg,
+    },
+    modalHeaderC: {
+        flexDirection: "row",
+        justifyContent: "space-between",
+        alignItems: "center",
+        marginBottom: spacing.md,
+        paddingBottom: spacing.sm,
+        borderBottomWidth: 1,
+        borderBottomColor: colors.border,
+    },
+    modalTitleC: {
+        ...textStyles.bodyStrong,
+        fontSize: 18,
+        color: colors.primary,
+    },
+    modalItemC: {
+        flexDirection: "row",
+        justifyContent: "space-between",
+        alignItems: "center",
+        paddingVertical: spacing.sm + 4,
+        paddingHorizontal: spacing.sm,
+        borderBottomWidth: 1,
+        borderBottomColor: "#f5f5f5",
+    },
+    modalItemActiveC: {
+        backgroundColor: colors.primarySoft ? `${colors.primarySoft}22` : "#f0f4f8",
+        borderRadius: radii.sm || 8,
+    },
+    modalItemTextC: {
+        ...textStyles.body,
+        color: colors.textPrimary,
+    },
+    modalItemTextActiveC: {
+        color: colors.primary,
+        fontWeight: "700",
+    },
+    emptyTextC: {
+        ...textStyles.meta,
+        color: colors.textSecondary,
+        textAlign: "center",
+        paddingVertical: spacing.lg,
     },
 });

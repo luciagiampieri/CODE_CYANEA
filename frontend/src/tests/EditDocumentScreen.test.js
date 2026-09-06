@@ -72,6 +72,7 @@ describe("US 67 - Reemplazar documento", () => {
     IdUsuarioSubida: 5,
     NombreArchivo: "Pasaje Mendoza.pdf",
     UrlArchivo: "viajes/10/Pasajes/Pasaje Mendoza.pdf",
+    EsPublico: true,
   };
 
   const categorias = [
@@ -84,17 +85,6 @@ describe("US 67 - Reemplazar documento", () => {
       Nombre: "Reservas",
     },
   ];
-
-  const route = {
-    params: {
-      tripId: 10,
-      documento,
-    },
-  };
-
-  const navigation = {
-    goBack: mockGoBack,
-  };
 
   beforeEach(() => {
     jest.clearAllMocks();
@@ -109,8 +99,10 @@ describe("US 67 - Reemplazar documento", () => {
   it("muestra los datos del documento existente", async () => {
     const { getByText, getByDisplayValue } = await render(
       <EditDocumentScreen
-        route={route}
-        navigation={navigation}
+        visible={true}
+        tripId={10}
+        documento={documento}
+        onClose={mockGoBack}
       />
     );
 
@@ -136,8 +128,10 @@ describe("US 67 - Reemplazar documento", () => {
 
     const { getByText } = await render(
       <EditDocumentScreen
-        route={route}
-        navigation={navigation}
+        visible={true}
+        tripId={10}
+        documento={documento}
+        onClose={mockGoBack}
       />
     );
 
@@ -185,8 +179,10 @@ describe("US 67 - Reemplazar documento", () => {
 
     const { getByText } = await render(
       <EditDocumentScreen
-        route={route}
-        navigation={navigation}
+        visible={true}
+        tripId={10}
+        documento={documento}
+        onClose={mockGoBack}
       />
     );
 
@@ -251,8 +247,10 @@ describe("US 67 - Reemplazar documento", () => {
 
     const { getByText } = await render(
       <EditDocumentScreen
-        route={route}
-        navigation={navigation}
+        visible={true}
+        tripId={10}
+        documento={documento}
+        onClose={mockGoBack}
       />
     );
 
@@ -295,8 +293,10 @@ describe("US 67 - Reemplazar documento", () => {
 
     const { getByText } = await render(
       <EditDocumentScreen
-        route={route}
-        navigation={navigation}
+        visible={true}
+        tripId={10}
+        documento={documento}
+        onClose={mockGoBack}
       />
     );
 
@@ -330,8 +330,10 @@ describe("US 67 - Reemplazar documento", () => {
 
     const { getByText } = await render(
       <EditDocumentScreen
-        route={route}
-        navigation={navigation}
+        visible={true}
+        tripId={10}
+        documento={documento}
+        onClose={mockGoBack}
       />
     );
 
@@ -372,10 +374,12 @@ describe("US 67 - Reemplazar documento", () => {
         .mockImplementation(() => {});
 
     const { getByText, queryByText } = await render(
-        <EditDocumentScreen
-        route={route}
-        navigation={navigation}
-        />
+      <EditDocumentScreen
+        visible={true}
+        tripId={10}
+        documento={documento}
+        onClose={mockGoBack}
+      />
     );
 
     await waitFor(() => {

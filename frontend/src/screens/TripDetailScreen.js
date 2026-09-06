@@ -69,6 +69,9 @@ import {
 import AddActivityScreen from "./AddActivityScreen";
 import AddGastoScreen from "./AddGastoScreen";
 import CrearVotacionScreen from "./CreateVotationScreen";
+import DocumentsScreen from "./DocumentsScreen";
+import EditDocumentScreen from "./EditDocumentScreen";
+import GuardarInformacionScreen from "./InformationScreen";
 import useItinerarioViewPreference from "../hooks/useItinerarioViewPreference";
 import useResponsive from "../hooks/useResponsive";
 import ItinerarioViewToggle from "../components/trip/ItinerarioViewToggle";
@@ -264,6 +267,10 @@ export default function TripDetailScreen({ navigation, route }) {
   const [settlementError, setSettlementError] = useState("");
   const [documentos, setDocumentos] = useState([]);
   const [loadingDocumentos, setLoadingDocumentos] = useState(false);
+  const [showAddDocumentModal, setShowAddDocumentModal] = useState(false);
+  const [documentoAEditar, setDocumentoAEditar] = useState(null);
+  const [showInfoModal, setShowInfoModal] = useState(false);
+  const [infoItemToEdit, setInfoItemToEdit] = useState(null);
   const [documentosError, setDocumentosError] = useState("");
   const [categoriaDocFiltro, setCategoriaDocFiltro] = useState(ID_TODAS);
   const [repositorioItems, setRepositorioItems] = useState([]);
@@ -1849,12 +1856,7 @@ export default function TripDetailScreen({ navigation, route }) {
                     onCategoriaChange={setCategoriaDocFiltro}
                     onAbrir={(documento) => abrirDocumento(documento.UrlArchivo)}
                     onDescargar={handleDescargarDocumento}
-                    onEditar={!trip?.hasLeft ? (documento) =>
-                      navigation.navigate("EditDocument", {
-                        tripId: trip.id,
-                        documento,
-                      }): undefined
-                    }
+                    onEditar={!trip?.hasLeft ? (documento) => setDocumentoAEditar(documento) : undefined}
                     onEliminar={!trip?.hasLeft ? eliminarDocumento : undefined}
                     descargandoDocId={descargandoDocId}
                     eliminandoDocId={eliminandoDocId}
@@ -1867,11 +1869,7 @@ export default function TripDetailScreen({ navigation, route }) {
                   label="Subir documentos"
                   icon="folder-open"
                   iconPosition="left"
-                  onPress={() =>
-                    navigation.navigate("Documents", {
-                      tripId: trip.id,
-                    })
-                  }
+                  onPress={() => setShowAddDocumentModal(true)}
                   style={[styles.fullButton, { marginTop: spacing.md }]}
                 />
               ) : null}
@@ -1957,18 +1955,10 @@ export default function TripDetailScreen({ navigation, route }) {
                           {item.EsPropio && !trip?.hasLeft ? (
                             <>
                               <Pressable
-                                onPress={() =>
-                                  navigation.navigate("GuardarInformacion", {
-                                    tripId: trip.id,
-                                    item,
-                                    onItemGuardado: (actualizado) =>
-                                      setRepositorioItems((prev) =>
-                                        prev.map((i) =>
-                                          i.IdItemRepositorio === actualizado.IdItemRepositorio ? actualizado : i
-                                        )
-                                      ),
-                                  })
-                                }
+                                onPress={() => {
+                                  setInfoItemToEdit(item);
+                                  setShowInfoModal(true);
+                                }}
                                 style={{ flexDirection: "row", alignItems: "center", gap: 4 }}
                               >
                                 <FontAwesome6 name="pen" size={13} color={colors.textSecondary} />
@@ -1998,13 +1988,10 @@ export default function TripDetailScreen({ navigation, route }) {
                   label="Agregar información"
                   icon="plus"
                   iconPosition="left"
-                  onPress={() =>
-                    navigation.navigate("GuardarInformacion", {
-                      tripId: trip.id,
-                      onItemGuardado: (nuevoItem) =>
-                        setRepositorioItems((prev) => [nuevoItem, ...prev]),
-                    })
-                  }
+                  onPress={() => {
+                    setInfoItemToEdit(null);
+                    setShowInfoModal(true);
+                  }}
                   style={[styles.fullButton, { marginTop: spacing.md }]}
                 />
               ) : null}
@@ -2341,6 +2328,34 @@ export default function TripDetailScreen({ navigation, route }) {
             nuevaVotacion,
             ...prev.filter((v) => v.IdVotacion !== nuevaVotacion.IdVotacion),
           ]);
+        }}
+      />
+      <DocumentsScreen
+        visible={showAddDocumentModal}
+        onClose={() => setShowAddDocumentModal(false)}
+        tripId={trip?.id}
+        onDocumentoSubido={() => loadDocumentos()}
+      />
+      <EditDocumentScreen
+        visible={!!documentoAEditar}
+        onClose={() => setDocumentoAEditar(null)}
+        tripId={trip?.id}
+        documento={documentoAEditar}
+        onDocumentoEditado={() => loadDocumentos()}
+      />
+      <GuardarInformacionScreen
+        visible={showInfoModal}
+        onClose={() => setShowInfoModal(false)}
+        tripId={trip?.id}
+        item={infoItemToEdit}
+        onItemGuardado={(guardado) => {
+          if (infoItemToEdit) {
+            setRepositorioItems((prev) => 
+              prev.map((i) => i.IdItemRepositorio === guardado.IdItemRepositorio ? guardado : i)
+            );
+          } else {
+            setRepositorioItems((prev) => [guardado, ...prev]);
+          }
         }}
       />
 
