@@ -2,6 +2,7 @@ import React from "react";
 import { act, fireEvent, render, waitFor } from "@testing-library/react-native";
 
 import CreateTripScreen from "../screens/CreateTripScreen";
+import * as ImagePicker from "expo-image-picker";
 
 import {
   createTrip,
@@ -9,7 +10,8 @@ import {
   getUsers,
   getCurrencies,
   searchDestinations,
-  resolveDestination
+  resolveDestination,
+  uploadTripCover
 } from "../services/api.js";
 
 jest.mock("../services/api.js", () => ({
@@ -19,6 +21,15 @@ jest.mock("../services/api.js", () => ({
   getCurrencies: jest.fn(),
   searchDestinations: jest.fn(),
   resolveDestination: jest.fn(),
+  uploadTripCover: jest.fn(),
+}));
+
+jest.mock("expo-image-picker", () => ({
+  MediaTypeOptions: {
+    Images: "Images",
+  },
+  requestMediaLibraryPermissionsAsync: jest.fn(),
+  launchImageLibraryAsync: jest.fn(),
 }));
 
 resolveDestination.mockResolvedValue({
@@ -82,6 +93,7 @@ async function completarFechas(utils) {
   await press(utils, "Confirmar fecha (mock)");
 }
 
+
 describe("US - Crear viaje (CreateTripScreen)", () => {
   beforeEach(() => {
     jest.clearAllMocks();
@@ -93,6 +105,16 @@ describe("US - Crear viaje (CreateTripScreen)", () => {
     ]);
     searchDestinations.mockResolvedValue([]);
     createTrip.mockResolvedValue({ id: 99 });
+
+    ImagePicker.requestMediaLibraryPermissionsAsync.mockResolvedValue({
+      status: "granted",
+      canAskAgain: true,
+    });
+
+    ImagePicker.launchImageLibraryAsync.mockResolvedValue({
+      canceled: true,
+      assets: [],
+    });
   });
 
   it("carga y muestra los datos del administrador (usuario actual)", async () => {
@@ -335,5 +357,191 @@ describe("US - Crear viaje (CreateTripScreen)", () => {
     });
 
     expect(utils.getByText("Destinos seleccionados (0)")).toBeTruthy();
+  });
+
+  it("crea el viaje y sube la portada JPG seleccionada", async () => {
+    searchDestinations.mockResolvedValue([
+      {
+        name: "Bariloche",
+        country: "Argentina",
+        placeId: "google:bariloche-id",
+      },
+    ]);
+
+    resolveDestination.mockResolvedValue({
+      name: "Bariloche",
+      country: "Argentina",
+      provinceState: "Río Negro",
+      lat: -41.1335,
+      lng: -71.3103,
+      placeId: "google:bariloche-id",
+      imageUrl: "https://example.com/bariloche.jpg",
+    });
+
+    ImagePicker.launchImageLibraryAsync.mockResolvedValue({
+      canceled: false,
+      assets: [
+        {
+          uri: "file:///foto.jpg",
+          fileName: "foto.jpg",
+          mimeType: "image/jpeg",
+        },
+      ],
+    });
+
+    const utils = await renderPantallaCargada();
+
+    await press(utils, "Elegir de la galería");
+
+    await waitFor(() => {
+      expect(utils.getByText("Imagen seleccionada")).toBeTruthy();
+    });
+
+    await act(async () => {
+      fireEvent.changeText(
+        utils.getByPlaceholderText("Escapada a Córdoba"),
+        "Viaje de egresados"
+      );
+    });
+
+    await act(async () => {
+      fireEvent.changeText(
+        utils.getByPlaceholderText("Ej: Córdoba, Bariloche, Chile..."),
+        "Bariloche"
+      );
+    });
+
+    await waitFor(() => expect(utils.getByText("Bariloche")).toBeTruthy());
+
+    await press(utils, "Bariloche");
+
+    await completarFechas(utils);
+
+    await press(utils, "Crear viaje");
+
+    await waitFor(() => {
+      expect(createTrip).toHaveBeenCalledTimes(1);
+    });
+
+    await waitFor(() => {
+      expect(uploadTripCover).toHaveBeenCalledTimes(1);
+    });
+
+    expect(uploadTripCover).toHaveBeenCalledWith(
+      99,
+      expect.objectContaining({
+        uri: "file:///foto.jpg",
+        fileName: "foto.jpg",
+        mimeType: "image/jpeg",
+      })
+    );
+
+    expect(mockNavigate).toHaveBeenCalledWith(
+      "Tabs",
+      { screen: "Inicio" }
+    );
+  });
+
+  it("permite seleccionar una portada PNG", async () => {
+    ImagePicker.launchImageLibraryAsync.mockResolvedValue({
+      canceled: false,
+      assets: [
+        {
+          uri: "file:///foto.png",
+          fileName: "foto.png",
+          mimeType: "image/png",
+        },
+      ],
+    });
+
+    const utils = await renderPantallaCargada();
+
+    await press(utils, "Elegir de la galería");
+
+    await waitFor(() => {
+      expect(utils.getByText("Imagen seleccionada")).toBeTruthy();
+    });
+
+    expect(ImagePicker.launchImageLibraryAsync).toHaveBeenCalledWith({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      quality: 0.9,
+    });
+
+    expect(utils.queryByText(/Tipo de archivo no permitido/)).toBeNull();
+  });
+
+  it("rechaza una portada con formato no permitido", async () => {
+    ImagePicker.launchImageLibraryAsync.mockResolvedValue({
+      canceled: false,
+      assets: [
+        {
+          uri: "file:///foto.gif",
+          fileName: "foto.gif",
+          mimeType: "image/gif",
+        },
+      ],
+    });
+
+    const utils = await renderPantallaCargada();
+
+    await press(utils, "Elegir de la galería");
+
+    await waitFor(() => {
+      expect(
+        utils.getByText(
+          "Tipo de archivo no permitido. Solo se permiten JPG, JPEG y PNG."
+        )
+      ).toBeTruthy();
+    });
+
+    expect(utils.queryByText("Imagen seleccionada")).toBeNull();
+    expect(uploadTripCover).not.toHaveBeenCalled();
+  });
+
+  it("permite cancelar la selección de portada", async () => {
+    ImagePicker.launchImageLibraryAsync.mockResolvedValue({
+      canceled: false,
+      assets: [
+        {
+          uri: "file:///foto.jpg",
+          fileName: "foto.jpg",
+          mimeType: "image/jpeg",
+        },
+      ],
+    });
+
+    const utils = await renderPantallaCargada();
+
+    await press(utils, "Elegir de la galería");
+
+    await waitFor(() => {
+      expect(utils.getByText("Imagen seleccionada")).toBeTruthy();
+    });
+
+    await press(utils, "Cancelar selección");
+
+    expect(utils.queryByText("Imagen seleccionada")).toBeNull();
+    expect(utils.getByText("Se usará una portada predeterminada")).toBeTruthy();
+  });
+
+  it("informa si se deniega el permiso para acceder a la galería", async () => {
+    ImagePicker.requestMediaLibraryPermissionsAsync.mockResolvedValue({
+      status: "denied",
+      canAskAgain: true,
+    });
+
+    const utils = await renderPantallaCargada();
+
+    await press(utils, "Elegir de la galería");
+
+    await waitFor(() => {
+      expect(
+        utils.getByText(
+          "Necesitamos tu permiso para acceder a las fotos y poder elegir una portada."
+        )
+      ).toBeTruthy();
+    });
+
+    expect(ImagePicker.launchImageLibraryAsync).not.toHaveBeenCalled();
   });
 });

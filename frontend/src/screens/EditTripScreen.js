@@ -10,6 +10,7 @@ import {
     Text,
     TextInput,
     View,
+    ImageBackground,
 } from "react-native";
 import DateTimePicker from "@react-native-community/datetimepicker";
 
@@ -18,8 +19,10 @@ import IconCircleButton from "../components/ui/IconCircleButton";
 import MetricCard from "../components/ui/MetricCard";
 import PrimaryButton from "../components/ui/PrimaryButton";
 import useResponsive from "../hooks/useResponsive";
-import { getTripDetail, updateTrip, searchDestinations } from "../services/api.js";
+import { getTripDetail, updateTrip, searchDestinations, uploadTripCover, removeTripCover } from "../services/api.js";
 import { colors, radii, spacing, surfaces, textStyles } from "../theme/tokens";
+
+import * as ImagePicker from "expo-image-picker";
 
 function isSameDestination(a, b) {
     return a.name === b.name && a.country === b.country;
@@ -67,6 +70,22 @@ export default function EditTripScreen({ navigation, route }) {
 
     const tripAlreadyStarted = originalStartDate ? originalStartDate <= todayISO() : false;
 
+    const [coverImage, setCoverImage] = useState(null); // nueva imagen local elegida
+    const [coverError, setCoverError] = useState("");
+    const [removeCoverRequested, setRemoveCoverRequested] = useState(false); // pidió volver a la portada de Google
+    const [hasCustomCover, setHasCustomCover] = useState(false); // la portada actual (en el server) es personalizada
+    const [currentCoverUrl, setCurrentCoverUrl] = useState(null); // portada actual (google o personalizada)
+    const [defaultCoverUrl, setDefaultCoverUrl] = useState(null);
+
+    const ALLOWED_COVER_EXTENSIONS = ["jpg", "jpeg", "png"];
+
+    function getExtensionFromAsset(asset) {
+      const fromFileName = asset.fileName?.split(".").pop();
+      if (fromFileName) return fromFileName.toLowerCase();
+      const fromUri = asset.uri?.split(".").pop();
+      return fromUri ? fromUri.toLowerCase().split("?")[0] : "";
+}
+
     useEffect(() => {
         async function loadTrip() {
             try {
@@ -79,6 +98,9 @@ export default function EditTripScreen({ navigation, route }) {
                     destinations: trip.destinations ?? [],
                 });
                 setOriginalStartDate(trip.startDate ?? "");
+                setHasCustomCover(Boolean(trip.hasCustomCover));
+                setCurrentCoverUrl(trip.image ?? null);
+                setDefaultCoverUrl(trip.defaultCoverImage ?? null);
             } catch (error) {
                 setLoadError(error.message || "No se pudo cargar la información del viaje.");
             } finally {
@@ -104,6 +126,60 @@ export default function EditTripScreen({ navigation, route }) {
 
         return () => clearTimeout(timeout);
     }, [destinationSearch]);
+
+    async function handlePickCoverImage() {
+      setCoverError("");
+
+      if (Platform.OS !== "web") {
+        const { status, canAskAgain } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+        if (status !== "granted") {
+          setCoverError(
+            canAskAgain
+              ? "Necesitamos tu permiso para acceder a las fotos y poder elegir una portada."
+              : "El acceso a las fotos está bloqueado. Habilitalo desde los ajustes del dispositivo para elegir una portada."
+          );
+          return;
+        }
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        quality: 0.9,
+      });
+
+      if (result.canceled) return;
+
+      const asset = result.assets[0];
+      const extension = getExtensionFromAsset(asset);
+
+      if (!ALLOWED_COVER_EXTENSIONS.includes(extension)) {
+        setCoverError("Tipo de archivo no permitido. Solo se permiten JPG, JPEG y PNG.");
+        return;
+      }
+
+      setCoverImage({
+        uri: asset.uri,
+        fileName: asset.fileName || `portada.${extension}`,
+        mimeType: asset.mimeType || (extension === "png" ? "image/png" : "image/jpeg"),
+        file: asset.file, // solo en web
+      });
+      setRemoveCoverRequested(false); // si eligió imagen nueva, ya no pide volver a Google
+    }
+
+    function handleCancelCoverSelection() {
+      setCoverImage(null);
+      setCoverError("");
+    }
+
+    function handleRequestGoogleCover() {
+      setCoverImage(null);
+      setCoverError("");
+      setRemoveCoverRequested(true);
+    }
+
+    function handleCancelRemoveCover() {
+      setRemoveCoverRequested(false);
+    }
 
     function handleInputChange(name, value) {
         setForm((current) => ({ ...current, [name]: value }));
@@ -168,7 +244,7 @@ export default function EditTripScreen({ navigation, route }) {
         return Object.keys(localErrors).length === 0;
     }
 
-    async function handleSubmit() {
+    /*async function handleSubmit() {
         if (!validateForm()) {
             setSubmitStatus("error");
             setSubmitMessage("Por favor, corrige los errores del formulario.");
@@ -199,7 +275,61 @@ export default function EditTripScreen({ navigation, route }) {
         setSubmitStatus("error");
         setSubmitMessage(error.message);
     }
+    }*/
+
+    async function handleSubmit() {
+      if (!validateForm()) {
+        setSubmitStatus("error");
+        setSubmitMessage("Por favor, corrige los errores del formulario.");
+        return;
+      }
+
+      setSubmitStatus("submitting");
+      setSubmitMessage("");
+      try {
+        const response = await updateTrip(tripId, {
+          title: form.title,
+          description: form.description.trim() ? form.description.trim() : null,
+          startDate: form.startDate,
+          endDate: form.endDate,
+          destinations: form.destinations.map(({ name, country, lat, lng }) => ({
+            name,
+            country,
+            lat,
+            lng,
+          })),
+        });
+
+        let coverWarning = "";
+
+        if (coverImage) {
+          // Caso 1 (google -> personalizada) y caso 2 (personalizada -> otra personalizada).
+          // El backend ya se encarga de borrar la portada personalizada anterior si existía.
+          try {
+            await uploadTripCover(tripId, coverImage);
+          } catch (uploadError) {
+            coverWarning = ` No se pudo actualizar la portada (${uploadError.message}).`;
+          }
+        } else if (removeCoverRequested && hasCustomCover) {
+          // Caso 3: personalizada -> volver a la de Google.
+          try {
+            await removeTripCover(tripId);
+          } catch (removeError) {
+            coverWarning = ` No se pudo quitar la portada personalizada (${removeError.message}).`;
+          }
+        }
+
+        setSubmitStatus("success");
+        setSubmitMessage((response.message || "Los cambios se guardaron correctamente.") + coverWarning);
+        setTimeout(() => {
+          navigation.goBack();
+        }, 900);
+      } catch (error) {
+        setSubmitStatus("error");
+        setSubmitMessage(error.message);
+      }
     }
+    
 
   if (loading) {
     return (
@@ -343,6 +473,89 @@ export default function EditTripScreen({ navigation, route }) {
                   ))}
                 </ScrollView>
               </View>
+
+              <View style={styles.coverPreviewSection}>
+                <Text style={styles.fieldLabel}>Portada del viaje</Text>
+
+                {coverImage ? (
+                  <ImageBackground
+                    source={{ uri: coverImage.uri }}
+                    imageStyle={styles.coverPreviewImage}
+                    style={styles.coverPreview}
+                  >
+                    <View style={styles.coverPreviewOverlay}>
+                      <Text style={styles.coverPreviewBadge}>Nueva imagen seleccionada</Text>
+                    </View>
+                  </ImageBackground>
+                ) : removeCoverRequested ? (
+                  defaultCoverUrl ? (
+                    <ImageBackground
+                      source={{ uri: defaultCoverUrl }}
+                      imageStyle={styles.coverPreviewImage}
+                      style={styles.coverPreview}
+                    >
+                      <View style={styles.coverPreviewOverlay}>
+                        <Text style={styles.coverPreviewBadge}>Portada de Google Maps</Text>
+                      </View>
+                    </ImageBackground>
+                  ) : (
+                    <View style={[styles.coverPreview, styles.coverPreviewEmpty]}>
+                      <FontAwesome6 name="image" size={20} color={colors.textMuted} />
+                      <Text style={styles.coverPreviewEmptyText}>
+                        Se usará la portada predeterminada según el destino
+                      </Text>
+                    </View>
+                  )
+                ) : currentCoverUrl ? (
+                  <ImageBackground
+                    source={{ uri: currentCoverUrl }}
+                    imageStyle={styles.coverPreviewImage}
+                    style={styles.coverPreview}
+                  >
+                    <View style={styles.coverPreviewOverlay}>
+                      <Text style={styles.coverPreviewBadge}>
+                        {hasCustomCover ? "Portada personalizada actual" : "Portada según el destino"}
+                      </Text>
+                    </View>
+                  </ImageBackground>
+                ) : (
+                  <View style={[styles.coverPreview, styles.coverPreviewEmpty]}>
+                    <FontAwesome6 name="image" size={20} color={colors.textMuted} />
+                    <Text style={styles.coverPreviewEmptyText}>Se usará una portada predeterminada</Text>
+                  </View>
+                )}
+
+                <View style={styles.coverActionsRow}>
+                  <Pressable onPress={handlePickCoverImage} style={styles.coverActionButton}>
+                    <FontAwesome6 name="image" size={13} color={colors.primary} />
+                    <Text style={styles.coverActionText}>
+                      {coverImage || hasCustomCover ? "Cambiar imagen" : "Elegir de la galería"}
+                    </Text>
+                  </Pressable>
+
+                  {coverImage ? (
+                    <Pressable onPress={handleCancelCoverSelection} style={styles.coverActionButtonSecondary}>
+                      <Text style={styles.coverActionTextSecondary}>Cancelar selección</Text>
+                    </Pressable>
+                  ) : null}
+
+                  {!coverImage && hasCustomCover && !removeCoverRequested ? (
+                    <Pressable onPress={handleRequestGoogleCover} style={styles.coverActionButtonSecondary}>
+                      <Text style={styles.coverActionTextSecondary}>Usar portada de Google</Text>
+                    </Pressable>
+                  ) : null}
+
+                  {removeCoverRequested ? (
+                    <Pressable onPress={handleCancelRemoveCover} style={styles.coverActionButtonSecondary}>
+                      <Text style={styles.coverActionTextSecondary}>Cancelar</Text>
+                    </Pressable>
+                  ) : null}
+                </View>
+
+                {coverError ? <Text style={styles.fieldError}>{coverError}</Text> : null}
+              </View>
+
+
 
               <View style={[styles.row, isTablet && styles.rowTablet]}>
                 {tripAlreadyStarted ? (
@@ -674,4 +887,74 @@ const styles = StyleSheet.create({
   },
   actionPrimary: { flex: 1 },
   actionSecondary: { flex: 1 },
+  coverPreviewSection: {
+  marginTop: spacing.md,
+},
+coverPreview: {
+  minHeight: 180,
+  borderRadius: radii.lg,
+  overflow: "hidden",
+  justifyContent: "flex-end",
+},
+coverPreviewImage: {
+  borderRadius: radii.lg,
+},
+coverPreviewOverlay: {
+  padding: spacing.lg,
+  backgroundColor: "rgba(19, 39, 80, 0.42)",
+},
+coverPreviewBadge: {
+  ...textStyles.label,
+  color: colors.accent,
+  marginBottom: spacing.xs,
+},
+coverPreviewEmpty: {
+  alignItems: "center",
+  justifyContent: "center",
+  gap: spacing.xs,
+  backgroundColor: colors.surfaceMuted,
+},
+coverPreviewEmptyText: {
+  ...textStyles.meta,
+  color: colors.textMuted,
+},
+coverActionsRow: {
+  flexDirection: "row",
+  gap: spacing.sm,
+  marginTop: spacing.sm,
+},
+coverActionButton: {
+  flex: 1,
+  flexDirection: "row",
+  alignItems: "center",
+  gap: 6,
+  borderWidth: 1,
+  borderColor: colors.border,
+  borderRadius: radii.md,
+  paddingHorizontal: spacing.md,
+  paddingVertical: spacing.sm,
+  backgroundColor: colors.surface,
+},
+coverActionText: {
+  ...textStyles.bodyStrong,
+  color: colors.primary,
+  fontSize: 13,
+  textAlign: "center",
+},
+coverActionButtonSecondary: {
+  flex: 1,
+  alignItems: "center",
+  justifyContent: "center",
+  paddingHorizontal: spacing.sm,
+  paddingVertical: spacing.sm,
+  borderWidth: 1,
+  borderColor: colors.border,
+  borderRadius: radii.md,
+},
+coverActionTextSecondary: {
+  ...textStyles.bodyStrong,
+  color: colors.danger || "#FF3B30",
+  fontSize: 13,
+  textAlign: "center",
+},
 });

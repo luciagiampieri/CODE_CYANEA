@@ -4,7 +4,7 @@ import logging
 from secrets import token_urlsafe
 from urllib.parse import quote
 
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, HTTPException, status, Query, File, UploadFile
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
@@ -65,6 +65,7 @@ from app.services.destination_search import build_destination_image_url, search_
 from app.services.place_search import get_place_photo_uri
 from app.services.trip_access import get_trip_with_relations, require_trip_access, require_trip_edit_access
 from app.services.liquidacion_service import calcular_balances_participantes
+from app.services.supabase.storage import eliminar_documento_storage, subir_portada_viaje, obtener_url_publica
 
 ROUTE_GENERATION_AVAILABLE = True
 try:
@@ -139,12 +140,13 @@ def _require_trip_admin(viaje: Viaje, current_user: Usuario) -> None:
             detail="Solo el administrador del viaje puede modificar participantes",
         )
 
-
 def _trip_image_url(viaje: Viaje) -> str | None:
+    if viaje.UrlPortadaPersonalizada:
+        return obtener_url_publica(viaje.UrlPortadaPersonalizada)
+
     if not viaje.GooglePlaceIdPortada:
         return None
-    encoded_place_id = quote(viaje.GooglePlaceIdPortada, safe="")
-    return f"{settings.api_base_url}/trips/destination-photo?placeId={encoded_place_id}"
+    return build_destination_image_url(viaje.GooglePlaceIdPortada)
 
 
 async def _resolve_cover_place_id(destinations: list) -> str | None:
@@ -203,10 +205,28 @@ def _build_actividad_read(actividad: ActividadItinerario) -> ActividadRead:
         Icono=actividad.Icono,
     )
 
+async def _notificar_viaje_actualizado(viaje: Viaje, message: str) -> None:
+
+    await manager.broadcast_to_trip(viaje.IdViaje, {
+        "tipo": "viaje_actualizado",
+        "trip_id": viaje.IdViaje,
+        "message": message,
+    })
+
+    participantes_ids = {
+        p.IdUsuario
+        for p in viaje.Participantes
+        if p.EstadoParticipacion.Nombre == "aceptado" and p.Usuario.Activo
+    }
+    for user_id in participantes_ids:
+        await manager.broadcast_to_user(user_id, {
+            "tipo": "viaje_actualizado",
+            "trip_id": viaje.IdViaje,
+            "message": message,
+        })
+
 async def _sincronizar_y_notificar_ruta(db: Session, dia: DiaCronograma, trip_id: int) -> None:
-    """Tras crear/editar/eliminar una actividad, regenera o elimina la ruta
-    del día (si ya existía una) y avisa por WebSocket a todos los conectados.
-    No hace nada si el día nunca tuvo una ruta generada (CA3/CA6)."""
+    
     if not ROUTE_GENERATION_AVAILABLE:
         return
 
@@ -329,10 +349,18 @@ def _build_trip_detail(
     ]
     invitaciones_visibles.sort(key=lambda item: item.EmailInvitado.lower())
 
+    default_cover_image = (
+        build_destination_image_url(viaje.GooglePlaceIdPortada)
+        if viaje.GooglePlaceIdPortada
+        else None
+    )
+
     return TripDetailRead(
         id=viaje.IdViaje,
         title=viaje.Titulo,
         image=_trip_image_url(viaje),
+        hasCustomCover=bool(viaje.UrlPortadaPersonalizada),
+        defaultCoverImage=default_cover_image,
         destinations= [DestinationRead(
             id=rel.Destino.IdDestino,
             name=rel.Destino.Nombre,
@@ -803,6 +831,11 @@ async def update_trip(
     db.commit()
 
     viaje_actualizado = get_trip_with_relations(db, trip_id)
+
+    await _notificar_viaje_actualizado(
+        viaje_actualizado, "La información del viaje fue actualizada."
+    )
+
     return TripUpdateResponse(
         message="Los cambios se guardaron correctamente.",
         trip=_build_trip_detail(viaje_actualizado),
@@ -1401,6 +1434,116 @@ def remove_trip_external_invitation(
     db.commit()
     return TripMutationResponse(message="Invitación externa eliminada correctamente")
 
+
+@router.delete("/{trip_id}/cover", response_model=TripMutationResponse)
+async def remove_trip_cover(
+    trip_id: int,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> TripMutationResponse:
+
+    viaje = get_trip_with_relations(db, trip_id)
+
+    if viaje is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Viaje no encontrado",
+        )
+
+    _require_trip_admin(viaje, current_user)
+
+    ruta_portada = viaje.UrlPortadaPersonalizada
+
+    # Si no tiene portada personalizada, no hay nada que eliminar.
+    if not ruta_portada:
+        return TripMutationResponse(
+            message="El viaje ya utiliza la portada predeterminada."
+        )
+
+    # Primero quitamos la referencia de la BD.
+    viaje.UrlPortadaPersonalizada = None
+    db.commit()
+
+    # Después eliminamos el archivo de Supabase.
+    try:
+        eliminar_documento_storage(ruta_portada)
+    except Exception as e:
+        print("ERROR AL ELIMINAR PORTADA DE SUPABASE:", e)
+
+    await _notificar_viaje_actualizado(
+        viaje, "La portada del viaje fue actualizada."
+    )
+    
+    return TripMutationResponse(
+        message="La portada personalizada se eliminó correctamente."
+    )
+
+@router.post("/{trip_id}/cover", response_model=TripMutationResponse)
+async def upload_trip_cover(
+    trip_id: int,
+    archivo: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> TripMutationResponse:
+
+    viaje = get_trip_with_relations(db, trip_id)
+
+    if viaje is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Viaje no encontrado",
+        )
+
+    _require_trip_admin(viaje, current_user)
+
+    extension = (
+        (archivo.filename or "").lower().rsplit(".", 1)[-1]
+        if archivo.filename
+        else ""
+    )
+
+    extensiones_permitidas = {"jpg", "jpeg", "png"}
+
+    if extension not in extensiones_permitidas:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Tipo de archivo no permitido. Solo se permiten JPG, JPEG y PNG.",
+        )
+
+    ruta_portada_anterior = viaje.UrlPortadaPersonalizada
+
+    try:
+
+        ruta_storage = subir_portada_viaje(
+            archivo,
+            viaje.IdViaje,
+        )
+
+        viaje.UrlPortadaPersonalizada = ruta_storage
+
+        db.commit()
+
+    except Exception:
+        db.rollback()
+
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="No se pudo cargar la nueva portada. Se conservará la portada actual.",
+        )
+
+    if ruta_portada_anterior:
+        try:
+            eliminar_documento_storage(ruta_portada_anterior)
+        except Exception as e:
+            print("ERROR CRÍTICO AL ELIMINAR PORTADA ANTERIOR:", e)
+
+    await _notificar_viaje_actualizado(
+        viaje, "La portada del viaje fue actualizada."
+    )
+            
+    return TripMutationResponse(
+        message="La portada del viaje se actualizó correctamente."
+    )
 
 @router.post("", response_model=TripRead, status_code=status.HTTP_201_CREATED)
 async def create_trip(

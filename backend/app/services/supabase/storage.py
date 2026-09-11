@@ -47,6 +47,19 @@ def subir_foto_perfil(archivo: UploadFile, user_id: int) -> str:
     return subir_documento(archivo, ruta_archivo)
 
 
+def subir_portada_viaje(archivo: UploadFile, trip_id: int) -> str:
+    extension = Path(archivo.filename or "portada.jpg").suffix.lower() or ".jpg"
+    timestamp = datetime.utcnow().strftime("%Y%m%d%H%M%S")
+    nombre_base = Path(archivo.filename or "portada").stem or "portada"
+
+    ruta_archivo = (
+        f"trip-covers/{trip_id}/"
+        f"{timestamp}-{nombre_base}{extension}"
+    )
+
+    return subir_documento(archivo, ruta_archivo)
+
+
 def obtener_url_publica(ruta_archivo: str) -> str:
     return supabase.storage.from_(settings.supabase_bucket).get_public_url(ruta_archivo)
 

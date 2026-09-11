@@ -21,8 +21,9 @@ import IconCircleButton from "../components/ui/IconCircleButton";
 import MetricCard from "../components/ui/MetricCard";
 import PrimaryButton from "../components/ui/PrimaryButton";
 import useResponsive from "../hooks/useResponsive";
-import { createTrip, getCurrentUser, getUsers, getCurrencies, searchDestinations, resolveDestination} from "../services/api.js";
+import { createTrip, getCurrentUser, getUsers, getCurrencies, searchDestinations, resolveDestination, uploadTripCover} from "../services/api.js";
 import { colors, radii, spacing, surfaces, textStyles } from "../theme/tokens";
+import * as ImagePicker from "expo-image-picker";
 
 const initialForm = {
   title: "",
@@ -66,6 +67,60 @@ export default function CreateTripScreen({ navigation }) {
   const sessionTokenRef = useRef(makeSessionToken());
   const [searchingDestinations, setSearchingDestinations] = useState(false);
   const [hasSearchedDestinations, setHasSearchedDestinations] = useState(false);
+  const [coverImage, setCoverImage] = useState(null); // { uri, fileName, mimeType, file? }
+  const [coverError, setCoverError] = useState("");
+
+  const ALLOWED_COVER_EXTENSIONS = ["jpg", "jpeg", "png"];
+
+  function getExtensionFromAsset(asset) {
+    const fromFileName = asset.fileName?.split(".").pop();
+    if (fromFileName) return fromFileName.toLowerCase();
+    const fromUri = asset.uri?.split(".").pop();
+    return fromUri ? fromUri.toLowerCase().split("?")[0] : "";
+  }
+
+  async function handlePickCoverImage() {
+    setCoverError("");
+
+    if (Platform.OS !== "web") {
+      const { status, canAskAgain } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== "granted") {
+        setCoverError(
+          canAskAgain
+            ? "Necesitamos tu permiso para acceder a las fotos y poder elegir una portada."
+            : "El acceso a las fotos está bloqueado. Habilitalo desde los ajustes del dispositivo para elegir una portada."
+        );
+        return;
+      }
+    }
+
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      quality: 0.9,
+    });
+
+    if (result.canceled) return;
+
+    const asset = result.assets[0];
+    const extension = getExtensionFromAsset(asset);
+
+    if (!ALLOWED_COVER_EXTENSIONS.includes(extension)) {
+      setCoverError("Tipo de archivo no permitido. Solo se permiten JPG, JPEG y PNG.");
+      return;
+    }
+
+    setCoverImage({
+      uri: asset.uri,
+      fileName: asset.fileName || `portada.${extension}`,
+      mimeType: asset.mimeType || (extension === "png" ? "image/png" : "image/jpeg"),
+      file: asset.file, // presente solo en web
+    });
+  }
+
+  function handleRemoveCoverImage() {
+    setCoverImage(null);
+    setCoverError("");
+  }
 
   function makeSessionToken() {
     return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -273,7 +328,6 @@ export default function CreateTripScreen({ navigation }) {
     return Object.keys(localErrors).length === 0;
   }
 
-  
 
   async function addDestination(suggestion) {
     const alreadyAdded = form.destinations.some(
@@ -297,7 +351,7 @@ export default function CreateTripScreen({ navigation }) {
       setResolvingDestination(false);
     }
   }
-
+ 
   async function handleSubmit() {
     if (!validateForm()) {
       setSubmitStatus("error");
@@ -308,7 +362,7 @@ export default function CreateTripScreen({ navigation }) {
     setSubmitStatus("submitting");
     setSubmitMessage("");
     try {
-      await createTrip({
+      const createdTrip = await createTrip({
         title: form.title,
         destinations: form.destinations,
         description: form.description,
@@ -318,6 +372,20 @@ export default function CreateTripScreen({ navigation }) {
         invitedEmails: form.invitedEmails,
         participantUserIds: form.participantUserIds.map(Number),
       });
+
+      if (coverImage) {
+        try {
+          await uploadTripCover(createdTrip.id, coverImage);
+        } catch (uploadError) {
+          setSubmitStatus("success");
+          setSubmitMessage(
+            `El viaje se creó, pero no se pudo cargar la portada seleccionada (${uploadError.message}). Se usará la portada predeterminada.`
+          );
+          navigation.navigate("Tabs", { screen: "Inicio" });
+          return;
+        }
+      }
+
       setSubmitStatus("success");
       setSubmitMessage("Viaje creado correctamente.");
       navigation.navigate("Tabs", { screen: "Inicio" });
@@ -477,9 +545,20 @@ export default function CreateTripScreen({ navigation }) {
                     </ScrollView>
                   </View>
 
-                  {primaryDestination?.imageUrl ? (
-                    <View style={styles.coverPreviewSection}>
-                      <Text style={styles.fieldLabel}>Portada estimada del viaje</Text>
+                  <View style={styles.coverPreviewSection}>
+                    <Text style={styles.fieldLabel}>Portada del viaje</Text>
+
+                    {coverImage ? (
+                      <ImageBackground
+                        source={{ uri: coverImage.uri }}
+                        imageStyle={styles.coverPreviewImage}
+                        style={styles.coverPreview}
+                      >
+                        <View style={styles.coverPreviewOverlay}>
+                          <Text style={styles.coverPreviewBadge}>Imagen seleccionada</Text>
+                        </View>
+                      </ImageBackground>
+                    ) : primaryDestination?.imageUrl ? (
                       <ImageBackground
                         source={{ uri: primaryDestination.imageUrl }}
                         imageStyle={styles.coverPreviewImage}
@@ -491,9 +570,30 @@ export default function CreateTripScreen({ navigation }) {
                           <Text style={styles.coverPreviewSubtitle}>{primaryDestination.country}</Text>
                         </View>
                       </ImageBackground>
-                    </View>
-                  ) : null}
+                    ) : (
+                      <View style={[styles.coverPreview, styles.coverPreviewEmpty]}>
+                        <FontAwesome6 name="image" size={20} color={colors.textMuted} />
+                        <Text style={styles.coverPreviewEmptyText}>Se usará una portada predeterminada</Text>
+                      </View>
+                    )}
 
+                    <View style={styles.coverActionsRow}>
+                      <Pressable onPress={handlePickCoverImage} style={styles.coverActionButton}>
+                        <FontAwesome6 name="image" size={13} color={colors.primary} />
+                        <Text style={styles.coverActionText}>
+                          {coverImage ? "Cambiar imagen" : "Elegir de la galería"}
+                        </Text>
+                      </Pressable>
+
+                      {coverImage ? (
+                        <Pressable onPress={handleRemoveCoverImage} style={styles.coverActionButtonSecondary}>
+                          <Text style={styles.coverActionTextSecondary}>Cancelar selección</Text>
+                        </Pressable>
+                      ) : null}
+                    </View>
+
+                    {coverError ? <Text style={styles.fieldError}>{coverError}</Text> : null}
+                  </View>
                   <View style={[styles.row, isTablet && styles.rowTablet]}>
                     <DateField
                       error={errors.startDate}
@@ -987,5 +1087,46 @@ const styles = StyleSheet.create({
   destinationStatusText: {
     ...textStyles.meta,
     color: colors.textSecondary,
+  },
+  coverPreviewEmpty: {
+    alignItems: "center",
+    justifyContent: "center",
+    gap: spacing.xs,
+    backgroundColor: colors.surfaceMuted,
+  },
+  coverPreviewEmptyText: {
+    ...textStyles.meta,
+    color: colors.textMuted,
+  },
+  coverActionsRow: {
+    flexDirection: "row",
+    gap: spacing.sm,
+    marginTop: spacing.sm,
+  },
+  coverActionButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radii.md,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    backgroundColor: colors.surface,
+  },
+  coverActionText: {
+    ...textStyles.bodyStrong,
+    color: colors.primary,
+    fontSize: 13,
+  },
+  coverActionButtonSecondary: {
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    justifyContent: "center",
+  },
+  coverActionTextSecondary: {
+    ...textStyles.bodyStrong,
+    color: colors.danger || "#FF3B30",
+    fontSize: 13,
   },
 });

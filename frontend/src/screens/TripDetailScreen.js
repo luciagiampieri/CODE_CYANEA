@@ -403,17 +403,7 @@ export default function TripDetailScreen({ navigation, route }) {
     }
     loadCurrentUser();
   }, []);
-/*
-  useEffect(() => {
-    const nueva = route.params?.nuevaVotacion;
-    if (!nueva) return;
-    setVotacionesActivas((prev) => [
-      nueva,
-      ...prev.filter((v) => v.IdVotacion !== nueva.IdVotacion),
-    ]);
-    navigation.setParams({ nuevaVotacion: undefined });
-  }, [route.params?.nuevaVotacion]);
-*/
+
   useEffect(() => {
     votacionesActivas.forEach(async (v) => {
       const finalizada = v.Estado
@@ -466,7 +456,7 @@ export default function TripDetailScreen({ navigation, route }) {
       const detail = await getTripDetail(initialTrip.id);
       setTrip((current) => ({
         ...normalizeTrip(detail),
-        image: current?.image ?? initialTrip.image,
+        image: detail.image ?? initialTrip.image,
       }));
       return true;
     } catch (error) {
@@ -710,6 +700,10 @@ export default function TripDetailScreen({ navigation, route }) {
               return;
             }
             if (mensaje.tipo === "participante_acepto"){
+              loadTripDetail();
+              return;
+            }
+            if (mensaje.tipo === "viaje_actualizado"){
               loadTripDetail();
               return;
             }
