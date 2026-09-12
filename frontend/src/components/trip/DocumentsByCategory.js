@@ -80,6 +80,7 @@ export default function DocumentosPorCategoria({
                 <Pressable
                     onPress={() => onCategoriaChange?.(ID_TODAS)}
                     style={[styles.chip, mostrandoTodas && styles.chipActiva]}
+                    testID="documentos-categoria-todas"
                 >
                     <Text style={[styles.chipTexto, mostrandoTodas && styles.chipTextoActivo]}>
                         Todos ({documentos.length})
@@ -93,6 +94,7 @@ export default function DocumentosPorCategoria({
                             key={cat.id}
                             onPress={() => onCategoriaChange?.(cat.id)}
                             style={[styles.chip, activa && styles.chipActiva]}
+                            testID={`documentos-categoria-${cat.id}`}
                         >
                             <Text style={[styles.chipTexto, activa && styles.chipTextoActivo]}>
                                 {cat.nombre} ({cat.documentos.length})
@@ -180,6 +182,7 @@ function DocumentoCard({ documento, onAbrir, onDescargar, onEditar, onEliminar, 
             <Pressable
                 onPress={() => onAbrir?.(documento)}
                 style={styles.cardHeaderRow}
+                testID={`documento-abrir-${documento.IdDocumento}`}
             >
                 <FontAwesome6 name="file-lines" size={18} color={colors.primary} />
 
@@ -217,6 +220,7 @@ function DocumentoCard({ documento, onAbrir, onDescargar, onEditar, onEliminar, 
                     disabled={descargando}
                     style={[styles.accionBoton, descargando && styles.accionBotonDisabled]}
                     hitSlop={8}
+                    testID={`documento-descargar-${documento.IdDocumento}`}
                 >
                     {descargando ? (
                         <ActivityIndicator size="small" color={colors.primary} />
@@ -234,6 +238,7 @@ function DocumentoCard({ documento, onAbrir, onDescargar, onEditar, onEliminar, 
                             onPress={() => onEditar?.(documento)}
                             style={styles.accionBoton}
                             hitSlop={8}
+                            testID={`documento-editar-${documento.IdDocumento}`}
                         >
                             <FontAwesome6 name="pen" size={12} color={colors.primary} />
                             <Text style={styles.accionTexto}>Editar</Text>
@@ -244,6 +249,7 @@ function DocumentoCard({ documento, onAbrir, onDescargar, onEditar, onEliminar, 
                             disabled={eliminando}
                             style={[styles.accionBoton, eliminando && styles.accionBotonDisabled]}
                             hitSlop={8}
+                            testID={`documento-eliminar-${documento.IdDocumento}`}
                         >
                             {eliminando ? (
                                 <ActivityIndicator size="small" color={colors.danger || "#dc2626"} />

@@ -302,34 +302,41 @@ export default function AddActivityScreen({ visible, onClose, onSubmit, dayLabel
                         {dayLabel ? <Text style={styles.subtitle}>{dayLabel}</Text> : null}
 
                         <Text style={styles.label}>Nombre</Text>
-                        <TextInput
-                            onChangeText={setNombre}
-                            placeholder="Visita al museo"
-                            placeholderTextColor={colors.textMuted}
-                            style={styles.input}
-                            value={nombre}
-                            editable={!successMessage}
-                        />
+                        <View style={styles.inputBox}>
+                            <FontAwesome6 name="pen" size={14} color={colors.overlay} />
+                            <TextInput
+                                onChangeText={setNombre}
+                                placeholder="Visita al museo"
+                                placeholderTextColor={colors.overlay}
+                                style={styles.inputInner}
+                                value={nombre}
+                                editable={!successMessage}
+                            />
+                        </View>
 
                         <View style={styles.row}>
                             <View style={styles.timeField}>
                                 <Text style={styles.label}>Hora de inicio</Text>
 
                                 {Platform.OS === "web" ? (
-                                    <TextInput
-                                        onChangeText={setHoraInicio}
-                                        placeholder="10:00"
-                                        placeholderTextColor={colors.textMuted}
-                                        style={styles.input}
-                                        value={horaInicio}
-                                        editable={!successMessage}
-                                        type="time"
-                                    />
+                                    <View style={styles.dateBox}>
+                                        <FontAwesome6 name="clock" size={14} color={colors.overlay} />
+                                        <TextInput
+                                            onChangeText={setHoraInicio}
+                                            placeholder="10:00"
+                                            placeholderTextColor={colors.overlay}
+                                            style={styles.inputInner}
+                                            value={horaInicio}
+                                            editable={!successMessage}
+                                            type="time"
+                                        />
+                                    </View>
                                 ) : (
                                     <Pressable
                                         onPress={() => !successMessage && setShowTimePicker("inicio")}
-                                        style={styles.input}
+                                        style={styles.dateBox}
                                 >
+                                    <FontAwesome6 name="clock" size={14} color={colors.overlay} />
                                     <Text style={horaInicio ? styles.timeText : styles.placeholderText}>
                                         {horaInicio || "Seleccionar hora"}
                                     </Text>
@@ -341,20 +348,24 @@ export default function AddActivityScreen({ visible, onClose, onSubmit, dayLabel
                                 <Text style={styles.label}>Hora de fin</Text>
 
                                 {Platform.OS === "web" ? (
-                                    <TextInput
-                                        onChangeText={setHoraFin}
-                                        placeholder="12:00"
-                                        placeholderTextColor={colors.textMuted}
-                                        style={styles.input}
-                                        value={horaFin}
-                                        editable={!successMessage}
-                                        type="time"
-                                    />
+                                    <View style={styles.dateBox}>
+                                        <FontAwesome6 name="clock" size={14} color={colors.overlay} />
+                                        <TextInput
+                                            onChangeText={setHoraFin}
+                                            placeholder="12:00"
+                                            placeholderTextColor={colors.overlay}
+                                            style={styles.inputInner}
+                                            value={horaFin}
+                                            editable={!successMessage}
+                                            type="time"
+                                        />
+                                    </View>
                                 ) : (
                                     <Pressable
                                     onPress={() => !successMessage && setShowTimePicker("fin")}
-                                    style={styles.input}
+                                    style={styles.dateBox}
                                 >
+                                    <FontAwesome6 name="clock" size={14} color={colors.overlay} />
                                     <Text style={horaFin ? styles.timeText : styles.placeholderText}>
                                         {horaFin || "Seleccionar hora"}
                                     </Text>
@@ -391,6 +402,7 @@ export default function AddActivityScreen({ visible, onClose, onSubmit, dayLabel
                                     }
                                 }}
                             >
+                                <FontAwesome6 name="location-dot" size={14} color={colors.overlay} />
                                 <Text style={ubicacion ? styles.timeText : styles.placeholderText}>
                                     {ubicacion ? ubicacion.name : "Seleccionar ubicación"}
                                 </Text>
@@ -412,15 +424,18 @@ export default function AddActivityScreen({ visible, onClose, onSubmit, dayLabel
                         </View>
 
                         <Text style={styles.label}>Descripción (opcional)</Text>
-                        <TextInput
-                            multiline
-                            onChangeText={setDescripcion}
-                            placeholder="Detalle del traslado, excursión o evento."
-                            placeholderTextColor={colors.textMuted}
-                            style={[styles.input, styles.inputMultiline]}
-                            value={descripcion}
-                            editable={!successMessage}
-                        />
+                        <View style={[styles.inputBox, styles.inputBoxMultiline]}>
+                            <FontAwesome6 name="note-sticky" size={14} color={colors.overlay} style={styles.inputBoxMultilineIcon} />
+                            <TextInput
+                                multiline
+                                onChangeText={setDescripcion}
+                                placeholder="Detalle del traslado, excursión o evento."
+                                placeholderTextColor={colors.overlay}
+                                style={[styles.inputInner, styles.inputMultiline]}
+                                value={descripcion}
+                                editable={!successMessage}
+                            />
+                        </View>
 
                         <Text style={styles.label}>Ícono</Text>
                         <Text style={styles.iconHint}>
@@ -479,7 +494,7 @@ export default function AddActivityScreen({ visible, onClose, onSubmit, dayLabel
                             onPress={closeLocationPicker}
                         >
                             <FontAwesome6
-                                color={colors.textMuted}
+                                color={colors.overlay}
                                 name="xmark"
                                 size={18}
                             />
@@ -490,8 +505,8 @@ export default function AddActivityScreen({ visible, onClose, onSubmit, dayLabel
                         value={locationQuery}
                         onChangeText={setLocationQuery}
                         placeholder="Buscar un lugar..."
-                        placeholderTextColor={colors.textMuted}
-                        style={styles.input}
+                        placeholderTextColor={colors.overlay}
+                        style={[styles.input, { marginVertical: spacing.md }]}
                         autoFocus
                     />
                         {locationQuery.trim().length < 2 ? (
@@ -628,10 +643,45 @@ const styles = StyleSheet.create({
         color: colors.textPrimary,
         ...textStyles.body,
     },
+    inputBox: {
+        minHeight: 48,
+        borderWidth: 1,
+        borderColor: colors.border,
+        borderRadius: radii.md,
+        backgroundColor: colors.surface,
+        paddingHorizontal: spacing.md,
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 10,
+    },
+    inputBoxMultiline: {
+        alignItems: "flex-start",
+        paddingVertical: spacing.sm,
+    },
+    inputBoxMultilineIcon: {
+        marginTop: 4,
+    },
+    inputInner: {
+        flex: 1,
+        color: colors.textPrimary,
+        paddingVertical: 8,
+        ...textStyles.body,
+    },
+    dateBox: {
+        minHeight: 48,
+        borderWidth: 1,
+        borderColor: colors.border,
+        borderRadius: radii.md,
+        backgroundColor: colors.surface,
+        paddingHorizontal: spacing.md,
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 10,
+    },
     inputMultiline: {
         minHeight: 90,
         textAlignVertical: "top",
-        paddingTop: spacing.sm,
+        paddingTop: 0,
     },
     row: {
         flexDirection: "row",
@@ -661,7 +711,7 @@ const styles = StyleSheet.create({
     },
     placeholderText: {
         ...textStyles.body,
-        color: colors.textMuted,
+        color: colors.overlay,
     },
     locationResults: {
     marginTop: spacing.md,
@@ -703,7 +753,9 @@ const styles = StyleSheet.create({
         backgroundColor: colors.surface,
         paddingHorizontal: spacing.md,
         paddingRight: 48,
-        justifyContent: "center",
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 10,
     },
 
     removeLocationButton: {

@@ -17,6 +17,8 @@ import {
 import DateTimePicker from "@react-native-community/datetimepicker";
 import { FontAwesome6 } from "@expo/vector-icons";
 
+import PrimaryButton from "../components/ui/PrimaryButton";
+
 import {
   getExpenseCategories,
   getTripParticipants,
@@ -326,8 +328,8 @@ export default function AddGastoScreen({ visible, onClose, IdViaje, Moneda, onGa
             <ScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
               <View style={styles.headerRow}>
                 <Text style={styles.title}>Nuevo gasto</Text>
-                <TouchableOpacity onPress={onClose}>
-                  <FontAwesome6 name="xmark" size={18} color={colors.textMuted} />
+                <TouchableOpacity onPress={onClose} hitSlop={10}>
+                  <FontAwesome6 name="xmark" size={18} color={colors.overlay} />
                 </TouchableOpacity>
               </View>
 
@@ -340,11 +342,11 @@ export default function AddGastoScreen({ visible, onClose, IdViaje, Moneda, onGa
 
                   <Text style={styles.label}>Concepto</Text>
                   <View style={styles.inputBox}>
-                    <FontAwesome6 name="pen" size={14} color={colors.textMuted} />
+                    <FontAwesome6 name="pen" size={14} color={colors.overlay} />
                     <TextInput
                       style={styles.input}
                       placeholder="Cena"
-                      placeholderTextColor={colors.textMuted}
+                      placeholderTextColor={colors.overlay}
                       value={nombre}
                       onChangeText={setNombre}
                     />
@@ -357,7 +359,7 @@ export default function AddGastoScreen({ visible, onClose, IdViaje, Moneda, onGa
                     <TextInput
                       style={styles.input}
                       placeholder="0"
-                      placeholderTextColor={colors.textMuted}
+                      placeholderTextColor={colors.overlay}
                       keyboardType="numeric"
                       value={monto}
                       onChangeText={setMonto}
@@ -391,7 +393,7 @@ export default function AddGastoScreen({ visible, onClose, IdViaje, Moneda, onGa
                   ) : (
                     <>
                       <TouchableOpacity style={styles.dateBox} onPress={() => setMostrarFecha(true)}>
-                        <FontAwesome6 name="calendar" size={15} color={colors.primary} />
+                        <FontAwesome6 name="calendar" size={15} color={colors.overlay} />
                         <Text style={styles.input}>{fechaFormato()}</Text>
                       </TouchableOpacity>
 
@@ -429,7 +431,7 @@ export default function AddGastoScreen({ visible, onClose, IdViaje, Moneda, onGa
                       <FontAwesome6
                         name={categoriaSeleccionada ? ICONOS_CATEGORIAS[categoriaSeleccionada.Nombre] || "tags" : "tags"}
                         size={14}
-                        color={categoriaSeleccionada ? colors.primary : colors.textMuted}
+                        color={categoriaSeleccionada ? colors.primary : colors.overlay}
                         style={{ marginRight: 10, width: 20, textAlign: "center" }}
                       />
                       <Text style={idCategoria ? styles.dropdownText : styles.dropdownPlaceholder}>
@@ -446,7 +448,7 @@ export default function AddGastoScreen({ visible, onClose, IdViaje, Moneda, onGa
                       style={[styles.selectorOption, !esCompartido && styles.selectorOptionActive]}
                       onPress={() => setEsCompartido(false)}
                     >
-                      <FontAwesome6 name="user" size={14} color={!esCompartido ? "#fff" : colors.overlayStrong} />
+                      <FontAwesome6 name="user" size={14} color={!esCompartido ? colors.textInverse : colors.primary} />
                       <Text style={[styles.selectorOptionText, !esCompartido && styles.selectorOptionTextActive]}>
                         Personal
                       </Text>
@@ -455,7 +457,7 @@ export default function AddGastoScreen({ visible, onClose, IdViaje, Moneda, onGa
                       style={[styles.selectorOption, esCompartido && styles.selectorOptionActive]}
                       onPress={() => setEsCompartido(true)}
                     >
-                      <FontAwesome6 name="users" size={14} color={esCompartido ? "#fff" : colors.overlayStrong} />
+                      <FontAwesome6 name="users" size={14} color={esCompartido ? colors.textInverse : colors.primary} />
                       <Text style={[styles.selectorOptionText, esCompartido && styles.selectorOptionTextActive]}>
                         Compartido
                       </Text>
@@ -471,7 +473,7 @@ export default function AddGastoScreen({ visible, onClose, IdViaje, Moneda, onGa
                           <FontAwesome6
                             name="user"
                             size={14}
-                            color={colors.textMuted}
+                            color={colors.overlay}
                             style={{ marginRight: 10 }}
                           />
 
@@ -493,18 +495,18 @@ export default function AddGastoScreen({ visible, onClose, IdViaje, Moneda, onGa
                     <View style={styles.compartidoSection}>
                       <Text style={styles.label}>¿Entre quiénes se divide?</Text>
                       <TouchableOpacity
-                        style={[styles.dropdownButton, errores.participantes && { borderColor: "#dc2626", borderWidth: 1 }]}
+                        style={[styles.dropdownButton, errores.participantes && { borderColor: colors.danger, borderWidth: 1 }]}
                         onPress={() => setModalParticipantesVisible(true)}
                       >
                         <View style={styles.dropdownLeftContent}>
-                          <FontAwesome6 name="users" size={14} color={colors.textMuted} style={{ marginRight: 10 }} />
+                          <FontAwesome6 name="users" size={14} color={colors.overlay} style={{ marginRight: 10 }} />
                           <Text style={idsParticipantesSeleccionados.length > 0 ? styles.dropdownText : styles.dropdownPlaceholder}>
                             {idsParticipantesSeleccionados.length === participantes.length
                               ? "Dividido entre Todos"
                               : `${idsParticipantesSeleccionados.length} participantes seleccionados`}
                           </Text>
                         </View>
-                        <FontAwesome6 name="chevron-down" size={14} color={colors.textMuted} />
+                        <FontAwesome6 name="chevron-down" size={14} color={colors.overlay} />
                       </TouchableOpacity>
                       {errores.participantes && <Text style={styles.error}>{errores.participantes}</Text>}
 
@@ -558,9 +560,13 @@ export default function AddGastoScreen({ visible, onClose, IdViaje, Moneda, onGa
                     </View>
                   )}
 
-                  <TouchableOpacity style={styles.button} onPress={handleGuardar} disabled={saving}>
-                    {saving ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonText}>Registrar gasto</Text>}
-                  </TouchableOpacity>
+                  <PrimaryButton
+                    label={saving ? "Guardando..." : "Registrar gasto"}
+                    loading={saving}
+                    onPress={handleGuardar}
+                    disabled={saving}
+                    style={styles.submitButton}
+                  />
                 </View>
               )}
             </ScrollView>
@@ -787,7 +793,7 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: radii.xl,
     borderTopRightRadius: radii.xl,
     padding: spacing.lg,
-    maxHeight: "90%",
+    maxHeight: "85%",
   },
   headerRow: {
     flexDirection: "row",
@@ -805,7 +811,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   content: {
-    padding: 20,
+    padding: 0,
   },
   label: {
     ...textStyles.label,
@@ -834,7 +840,7 @@ const styles = StyleSheet.create({
   },
   currencyCodePrefix: {
     ...textStyles.body,
-    color: colors.textSecondary,
+    color: colors.overlay,
     fontWeight: "700",
     marginRight: 6,
   },
@@ -867,30 +873,20 @@ const styles = StyleSheet.create({
   },
   dropdownPlaceholder: {
     ...textStyles.body,
-    color: colors.textMuted,
+    color: colors.overlay,
   },
   dropdownText: {
     ...textStyles.body,
     color: colors.textPrimary,
   },
-  button: {
+  submitButton: {
     marginTop: spacing.lg,
     marginBottom: spacing.md,
-    minHeight: 48,
-    borderRadius: radii.md,
-    backgroundColor: colors.primary,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  buttonText: {
-    color: "#fff", 
-    fontWeight: "700",
-    ...textStyles.body,
   },
   error: {
-    color: "#dc2626",
-    fontSize: 12,
-    marginTop: 5,
+    ...textStyles.meta,
+    color: colors.danger,
+    marginTop: spacing.xs,
     fontWeight: "600",
   },
   selectorContainer: {

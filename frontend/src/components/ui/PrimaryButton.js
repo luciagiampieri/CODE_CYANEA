@@ -13,6 +13,7 @@ export default function PrimaryButton({
   textStyle,
   icon,
   iconPosition = "right",
+  testID,
 }) {
   const isPrimary = variant === "primary";
   const indicatorColor = isPrimary ? colors.textInverse : colors.primary;
@@ -20,6 +21,7 @@ export default function PrimaryButton({
 
   return (
     <Pressable
+      testID={testID}
       disabled={disabled || loading}
       onPress={onPress}
       style={({ pressed }) => [

@@ -92,7 +92,7 @@ export default function NotificationPreferencesScreen({ navigation }) {
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
         <View style={styles.hero}>
           <View style={styles.heroTopRow}>
-            <IconCircleButton icon="arrow-left" onPress={() => navigation.goBack()} tone="light" />
+            <IconCircleButton icon="arrow-left" onPress={() => navigation.goBack()} tone="light" testID="notification-prefs-back-button" />
           </View>
           <Text style={styles.title}>Notificaciones</Text>
         </View>
@@ -122,6 +122,7 @@ export default function NotificationPreferencesScreen({ navigation }) {
                     </View>
                   </View>
                   <Switch
+                    testID="notification-prefs-master-switch"
                     value={notificacionesActivas}
                     onValueChange={(value) =>
                       persistCambio({ consienteNotificacionesEmail: value })
@@ -156,6 +157,7 @@ export default function NotificationPreferencesScreen({ navigation }) {
                       </View>
                     </View>
                     <Switch
+                      testID={`notification-prefs-switch-${tipo.key}`}
                       value={notificacionesActivas ? Boolean(usuario?.[tipo.key]) : false}
                       onValueChange={(value) => persistCambio({ [tipo.key]: value })}
                       disabled={saving || !notificacionesActivas}

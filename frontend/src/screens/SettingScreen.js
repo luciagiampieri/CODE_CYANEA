@@ -53,7 +53,7 @@ export default function SettingsScreen({ navigation }) {
       >
         <View style={styles.hero}>
           <View style={styles.heroTopRow}>
-            <IconCircleButton icon="arrow-left" onPress={() => navigation.goBack()} tone="light" />
+            <IconCircleButton icon="arrow-left" onPress={() => navigation.goBack()} tone="light" testID="settings-back-button" />
           </View>
           <Text style={styles.title}>Configuración</Text>
         </View>
@@ -65,6 +65,7 @@ export default function SettingsScreen({ navigation }) {
             <View style={styles.groupContainer}>
               <Pressable
                 onPress={() => navigation.navigate("EditarPerfil")}
+                testID="settings-cuenta-row"
                 style={({ pressed }) => [
                   styles.itemRow,
                   pressed && styles.itemRowPressed,
@@ -191,6 +192,7 @@ export default function SettingsScreen({ navigation }) {
                 variant="secondary"
                 onPress={() => setShowLogoutModal(false)}
                 style={{ flex: 1 }}
+                testID="settings-modal-cancel-button"
               />
               <PrimaryButton
                 label="Cerrar sesión"
@@ -199,6 +201,7 @@ export default function SettingsScreen({ navigation }) {
                   logout();
                 }}
                 style={[{ flex: 1, backgroundColor: colors.danger }]}
+                testID="settings-modal-confirm-logout-button"
               />
             </View>
           </View>

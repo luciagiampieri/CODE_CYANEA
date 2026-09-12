@@ -273,6 +273,8 @@ class TripCreate(BaseModel):
 
     @model_validator(mode="after")
     def validate_dates(self):
+        if self.startDate and self.startDate < date.today():
+            raise ValueError("La fecha de inicio no puede ser anterior a la fecha actual")
         if self.startDate and self.endDate and self.endDate < self.startDate:
             raise ValueError("La fecha de fin no puede ser anterior a la fecha de inicio")
         return self

@@ -108,6 +108,7 @@ export default function FacebookRegisterScreen({ route }) {
 
       <View style={styles.termsRow}>
         <Switch
+          testID="facebook-register-terminos-switch"
           value={aceptaTerminos}
           onValueChange={setAceptaTerminos}
           trackColor={{

@@ -213,6 +213,7 @@ export default function MyTripsScreen({ navigation }) {
                 <Pressable
                   key={filter.key}
                   onPress={() => setActiveFilter(filter.key)}
+                  testID={`mytrips-filter-${filter.key}`}
                   style={[styles.chip, active && styles.chipActive]}
                 >
                   <Text style={[styles.chipLabel, active && styles.chipLabelActive]}>
@@ -227,6 +228,7 @@ export default function MyTripsScreen({ navigation }) {
             accessibilityLabel="Crear viaje"
             onPress={() => navigation.navigate("NuevoViaje")}
             style={styles.addButton}
+            testID="mytrips-add-button"
           >
             <FontAwesome6 name="plus" size={16} color={colors.primary} />
           </Pressable>
@@ -258,6 +260,7 @@ export default function MyTripsScreen({ navigation }) {
                 <Pressable
                   key={trip.id}
                   onPress={() => navigation.navigate("TripDetail", { trip })}
+                  testID={`mytrips-trip-${trip.id}`}
                   style={[styles.tripCard, (isTablet || isDesktop) && styles.tripCardGrid]}
                 >
                   <HeroContainer
@@ -307,6 +310,7 @@ export default function MyTripsScreen({ navigation }) {
                               initialTab: action.key,
                             })
                           }
+                          testID={`mytrips-action-${trip.id}-${action.key}`}
                           style={styles.actionItem}
                         >
                           <View style={styles.actionCircle}>

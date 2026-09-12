@@ -81,10 +81,15 @@ function calcularProximoViaje(viajes) {
 }
 
 
-function calcularEstadisticas(viajes, idUsuarioActual, year) {
-  const filtrados = year == null
-    ? viajes
-    : viajes.filter((viaje) => viaje.startDate && new Date(`${viaje.startDate}T00:00:00`).getFullYear() === year);
+export function calcularEstadisticas(viajes, idUsuarioActual, year, hoy = new Date()) {
+  const fechaHoy = new Date(hoy);
+  fechaHoy.setHours(0, 0, 0, 0);
+  const filtrados = viajes.filter((viaje) => {
+    if (!viaje.startDate) return year == null;
+
+    const inicio = new Date(`${viaje.startDate}T00:00:00`);
+    return inicio <= fechaHoy && (year == null || inicio.getFullYear() === year);
+  });
 
   const amigosIds = new Set();
   const paisesSet = new Set();
@@ -166,9 +171,13 @@ export default function ProfileScreen({ navigation }) {
 
   const aniosDisponibles = useMemo(() => {
     const anios = new Set();
+    const hoy = new Date();
+    hoy.setHours(0, 0, 0, 0);
+
     for (const viaje of trips) {
       if (viaje.startDate) {
-        anios.add(new Date(`${viaje.startDate}T00:00:00`).getFullYear());
+        const inicio = new Date(`${viaje.startDate}T00:00:00`);
+        if (inicio <= hoy) anios.add(inicio.getFullYear());
       }
     }
     return Array.from(anios).sort((a, b) => b - a);
@@ -210,6 +219,7 @@ export default function ProfileScreen({ navigation }) {
                   onPress={() => navigation.navigate("Configuracion")}
                   style={styles.settingsButton}
                   tone="surface"
+                  testID="profile-settings-button"
                 />
               </View>
 
@@ -330,17 +340,17 @@ export default function ProfileScreen({ navigation }) {
                   <View style={styles.yearStatsRow}>
                     <View style={styles.yearStatCard}>
                       <FontAwesome6 name="suitcase-rolling" size={18} color={colors.primary} />
-                      <Text style={styles.yearStatValue}>{estadisticasAnio.totalViajes}</Text>
+                      <Text style={styles.yearStatValue} testID="profile-stat-viajes">{estadisticasAnio.totalViajes}</Text>
                       <Text style={styles.yearStatLabel}>Viajes</Text>
                     </View>
                     <View style={styles.yearStatCard}>
                       <FontAwesome6 name="earth-americas" size={18} color={colors.primary} />
-                      <Text style={styles.yearStatValue}>{estadisticasAnio.totalPaises}</Text>
+                      <Text style={styles.yearStatValue} testID="profile-stat-paises">{estadisticasAnio.totalPaises}</Text>
                       <Text style={styles.yearStatLabel}>Países</Text>
                     </View>
                     <View style={styles.yearStatCard}>
                       <FontAwesome6 name="user-group" size={18} color={colors.primary} />
-                      <Text style={styles.yearStatValue}>{estadisticasAnio.totalAmigos}</Text>
+                      <Text style={styles.yearStatValue} testID="profile-stat-amigos">{estadisticasAnio.totalAmigos}</Text>
                       <Text style={styles.yearStatLabel}>Amigos</Text>
                     </View>
                   </View>

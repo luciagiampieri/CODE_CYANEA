@@ -14,6 +14,7 @@ import {
 
 import DateTimePicker from "@react-native-community/datetimepicker";
 import { FontAwesome6 } from "@expo/vector-icons";
+import PrimaryButton from "../components/ui/PrimaryButton";
 import { createVotacion } from "../services/api";
 import { colors, shadows, textStyles, radii, spacing } from "../theme/tokens";
 
@@ -138,18 +139,18 @@ export default function CrearVotacionScreen({ visible, onClose, IdViaje, onVotac
                         <View style={styles.headerRow}>
                             <Text style={styles.title}>Nueva votación</Text>
                             <TouchableOpacity onPress={onClose} testID="cerrar-votacion-modal">
-                                <FontAwesome6 name="xmark" size={18} color={colors.textMuted} />
+                                <FontAwesome6 name="xmark" size={18} color={colors.overlay} />
                             </TouchableOpacity>
                         </View>
 
                         <View style={styles.content}>
                             <Text style={styles.label}>Nombre descriptivo</Text>
                             <View style={styles.inputBox}>
-                                <FontAwesome6 name="pen" size={14} color={colors.textMuted} />
+                                <FontAwesome6 name="pen" size={14} color={colors.overlay} />
                                 <TextInput
                                     style={styles.input}
                                     placeholder="¿Qué hacemos el segundo día?"
-                                    placeholderTextColor={colors.textMuted} 
+                                    placeholderTextColor={colors.overlay} 
                                     value={titulo}
                                     onChangeText={setTitulo}
                                     maxLength={150}
@@ -166,7 +167,7 @@ export default function CrearVotacionScreen({ visible, onClose, IdViaje, onVotac
                                     <FontAwesome6
                                         name="circle-dot"
                                         size={14}
-                                        color={tipo === "opcion_unica" ? "#fff" : colors.primary} 
+                                        color={tipo === "opcion_unica" ? colors.textInverse : colors.primary} 
                                     />
                                     <Text style={[styles.selectorOptionText, tipo === "opcion_unica" && styles.selectorOptionTextActive]}>
                                         Opción única
@@ -179,7 +180,7 @@ export default function CrearVotacionScreen({ visible, onClose, IdViaje, onVotac
                                     <FontAwesome6
                                         name="square-check"
                                         size={14}
-                                        color={tipo === "opcion_multiple" ? "#fff" : colors.primary} 
+                                        color={tipo === "opcion_multiple" ? colors.textInverse : colors.primary} 
                                     />
                                     <Text style={[styles.selectorOptionText, tipo === "opcion_multiple" && styles.selectorOptionTextActive]}>
                                         Opción múltiple
@@ -198,7 +199,7 @@ export default function CrearVotacionScreen({ visible, onClose, IdViaje, onVotac
                                             if (!e.target.value) return;
                                             setFechaCierre(new Date(e.target.value));
                                         }}
-                                        style={{ border: "none", width: "100%", outline: "none", background: "transparent", fontFamily: "inherit" }}
+                                        style={{ border: "none", width: "100%", outline: "none", background: "transparent", fontFamily: "fontFamilies.sans" }}
                                     />
                                 </View>
                             ) : (
@@ -246,7 +247,7 @@ export default function CrearVotacionScreen({ visible, onClose, IdViaje, onVotac
                             <View style={styles.propuestasHeader}>
                                 <Text style={styles.label}>Propuestas</Text>
                                 <TouchableOpacity style={styles.addChip} onPress={agregarPropuesta}>
-                                    <FontAwesome6 name="plus" size={11} color="#fff" />
+                                    <FontAwesome6 name="plus" size={11} color={colors.textInverse} />
                                     <Text style={styles.addChipText}>Agregar</Text>
                                 </TouchableOpacity>
                             </View>
@@ -258,7 +259,7 @@ export default function CrearVotacionScreen({ visible, onClose, IdViaje, onVotac
                                         <TextInput
                                             style={styles.input}
                                             placeholder={`Propuesta ${index + 1}`}
-                                            placeholderTextColor={colors.textMuted} 
+                                            placeholderTextColor={colors.overlay} 
                                             value={propuesta}
                                             onChangeText={(val) => actualizarPropuesta(index, val)}
                                             maxLength={255}
@@ -280,9 +281,13 @@ export default function CrearVotacionScreen({ visible, onClose, IdViaje, onVotac
                             ))}
                             {errores.propuestas && <Text style={styles.error}>{errores.propuestas}</Text>}
 
-                            <TouchableOpacity style={styles.button} onPress={handleCrear} disabled={saving}>
-                                {saving ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonText}>Crear votación</Text>}
-                            </TouchableOpacity>
+                            <PrimaryButton
+                                label={saving ? "Creando..." : "Crear votación"}
+                                loading={saving}
+                                onPress={handleCrear}
+                                disabled={saving}
+                                style={styles.submitButton}
+                            />
                         </View>
                     </ScrollView>
                 </View>
@@ -340,8 +345,9 @@ const styles = StyleSheet.create({
     },
     input: {
         flex: 1,
-        color: colors.textPrimary,
+        color: colors.overlayStrong,
         paddingVertical: 8,
+        fontWeight: "700",
         ...textStyles.body,
     },
     dateBox: {
@@ -355,22 +361,12 @@ const styles = StyleSheet.create({
         gap: 10,
         alignItems: "center",
     },
-    button: {
-        marginTop: 30,
-        marginBottom: 20,
-        minHeight: 48,
-        borderRadius: radii.md || 12,
-        backgroundColor: colors.primary,
-        justifyContent: "center",
-        alignItems: "center",
-    },
-    buttonText: {
-        color: "#fff",
-        fontWeight: "700",
-        ...textStyles.body,
+    submitButton: {
+        marginTop: spacing.lg,
+        marginBottom: spacing.md,
     },
     error: {
-        color: "#dc2626",
+        color: colors.danger,
         fontSize: 12,
         marginTop: 5,
         fontWeight: "600",
@@ -401,7 +397,7 @@ const styles = StyleSheet.create({
         color: colors.primary,
     },
     selectorOptionTextActive: {
-        color: "#fff",
+        color: colors.textInverse,
     },
     propuestasHeader: {
         flexDirection: "row",
@@ -419,7 +415,7 @@ const styles = StyleSheet.create({
         paddingHorizontal: 12,
         borderRadius: 999,
     },
-    addChipText: { color: "#fff", fontWeight: "700", fontSize: 12 },
+    addChipText: { color: colors.textInverse, fontWeight: "700", fontSize: 12 },
     propuestaRow: {
         flexDirection: "row",
         alignItems: "center",
@@ -428,7 +424,7 @@ const styles = StyleSheet.create({
     },
     propuestaIndex: {
         fontWeight: "800",
-        color: colors.textMuted,
+        color: colors.overlay,
         width: 16,
         textAlign: "center",
     },

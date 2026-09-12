@@ -262,7 +262,7 @@ export default function HomeScreen({ navigation }) {
           </View>
           <View style={styles.sectionHeader}>
             <Text style={styles.sectionTitle}>Próximos viajes</Text>
-            <Pressable>
+            <Pressable onPress={() => navigation.navigate("Mis Viajes")}>
               <Text style={styles.sectionAction}>Ver todos</Text>
             </Pressable>
           </View>
@@ -396,7 +396,7 @@ const styles = StyleSheet.create({
   fab: {
     position: "absolute",
     right: spacing.xl,
-    bottom: 104,
+    bottom: spacing.lg,
     width: 64,
     height: 64,
     borderRadius: 32,

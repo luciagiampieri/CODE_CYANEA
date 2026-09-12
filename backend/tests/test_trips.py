@@ -105,6 +105,14 @@ def test_create_trip_success(client, master_data, auth_headers):
     assert response.json()["title"] == "Viaje a Bariloche"
 
 
+def test_create_trip_rejects_past_start_date(client, master_data, auth_headers):
+    payload = {**TRIP_PAYLOAD, "startDate": "2020-01-01", "endDate": "2020-01-10"}
+
+    response = client.post("/api/v1/trips", json=payload, headers=auth_headers)
+
+    assert response.status_code == 422
+
+
 def test_list_trips_empty_for_new_user(client, master_data, auth_headers):
     response = client.get("/api/v1/trips", headers=auth_headers)
     assert response.status_code == 200

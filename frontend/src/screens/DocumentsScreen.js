@@ -18,6 +18,8 @@ import {
 import * as DocumentPicker from "expo-document-picker";
 import { FontAwesome6 } from "@expo/vector-icons";
 
+import PrimaryButton from "../components/ui/PrimaryButton";
+
 import {
     getDocumentCategories,
     uploadTripDocument,
@@ -222,7 +224,7 @@ export default function DocumentsScreen({ visible, onClose, tripId, onDocumentoS
                                     <Text style={styles.label}>Documento del viaje</Text>
                                     {!archivo ? (
                                         <TouchableOpacity
-                                            style={[styles.uploadBox, errores.archivo && { borderColor: "#dc2626" }]}
+                                            style={[styles.uploadBox, errores.archivo && { borderColor: colors.danger }]}
                                             onPress={seleccionarArchivo}
                                         >
                                             <FontAwesome6 name="cloud-arrow-up" size={32} color={colors.primary} />
@@ -239,15 +241,15 @@ export default function DocumentsScreen({ visible, onClose, tripId, onDocumentoS
                                                 </Text>
                                             </View>
                                             <TouchableOpacity onPress={eliminarArchivo} hitSlop={15} testID="documentos-eliminar-archivo">
-                                                <FontAwesome6 name="trash" size={16} color="#dc2626" />
+                                                <FontAwesome6 name="trash" size={16} color={colors.danger} />
                                             </TouchableOpacity>
                                         </View>
                                     )}
                                     {errores.archivo && <Text style={styles.error}>{errores.archivo}</Text>}
 
                                     <Text style={styles.label}>Nombre del documento</Text>
-                                    <View style={[styles.inputBox, errores.nombre && { borderColor: "#dc2626" }]}>
-                                        <FontAwesome6 name="pen" size={13} color={colors.textMuted} />
+                                    <View style={[styles.inputBox, errores.nombre && { borderColor: colors.danger }]}>
+                                        <FontAwesome6 name="pen" size={13} color={colors.overlay} />
                                         <TextInput
                                             style={styles.inputInner}
                                             value={nombreDocumento}
@@ -255,8 +257,8 @@ export default function DocumentsScreen({ visible, onClose, tripId, onDocumentoS
                                                 setNombreDocumento(text);
                                                 limpiarError("nombre");
                                             }}
-                                            placeholder="Ej: Seguro médico"
-                                            placeholderTextColor="#00000059"
+                                            placeholder="Seguro médico"
+                                            placeholderTextColor={colors.overlay}
                                         />
                                         {extensionArchivo ? (
                                             <Text style={styles.extensionText}>{`.${extensionArchivo}`}</Text>
@@ -266,21 +268,21 @@ export default function DocumentsScreen({ visible, onClose, tripId, onDocumentoS
 
                                     <Text style={styles.label}>Categoría</Text>
                                     <TouchableOpacity
-                                        style={[styles.dropdownButton, errores.categoria && { borderColor: "#dc2626" }]}
+                                        style={[styles.dropdownButton, errores.categoria && { borderColor: colors.danger }]}
                                         onPress={() => setModalCategoriaVisible(true)}
                                     >
                                         <View style={styles.dropdownLeftContent}>
                                             <FontAwesome6
                                                 name="tags"
                                                 size={14}
-                                                color={categoriaSeleccionada ? colors.primary : colors.textMuted}
+                                                color={categoriaSeleccionada ? colors.primary : colors.overlay}
                                                 style={{ marginRight: 10, width: 18, textAlign: "center" }}
                                             />
                                             <Text style={idCategoria ? styles.dropdownText : styles.dropdownPlaceholder}>
                                                 {categoriaSeleccionada ? categoriaSeleccionada.Nombre : "Selecciona una categoría"}
                                             </Text>
                                         </View>
-                                        <FontAwesome6 name="chevron-down" size={14} color={colors.textMuted} />
+                                        <FontAwesome6 name="chevron-down" size={14} color={colors.overlay} />
                                     </TouchableOpacity>
                                     {errores.categoria && <Text style={styles.error}>{errores.categoria}</Text>}
 
@@ -290,7 +292,7 @@ export default function DocumentsScreen({ visible, onClose, tripId, onDocumentoS
                                             style={[styles.selectorOption, esPublico && styles.selectorOptionActive]}
                                             onPress={() => setEsPublico(true)}
                                         >
-                                            <FontAwesome6 name="users" size={14} color={esPublico ? "#fff" : colors.textMuted} />
+                                            <FontAwesome6 name="users" size={14} color={esPublico ? colors.textInverse : colors.primary} />
                                             <Text style={[styles.selectorOptionText, esPublico && styles.selectorOptionTextActive]}>
                                                 Público
                                             </Text>
@@ -299,7 +301,7 @@ export default function DocumentsScreen({ visible, onClose, tripId, onDocumentoS
                                             style={[styles.selectorOption, !esPublico && styles.selectorOptionActive]}
                                             onPress={() => setEsPublico(false)}
                                         >
-                                            <FontAwesome6 name="lock" size={14} color={!esPublico ? "#fff" : colors.textMuted} />
+                                            <FontAwesome6 name="lock" size={14} color={!esPublico ? colors.textInverse : colors.primary} />
                                             <Text style={[styles.selectorOptionText, !esPublico && styles.selectorOptionTextActive]}>
                                                 Privado
                                             </Text>
@@ -311,9 +313,13 @@ export default function DocumentsScreen({ visible, onClose, tripId, onDocumentoS
                                             : "Solo vos vas a poder verlo."}
                                     </Text>
 
-                                    <TouchableOpacity style={styles.button} onPress={handleSubir} disabled={saving}>
-                                        {saving ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonText}>Subir documento</Text>}
-                                    </TouchableOpacity>
+                                    <PrimaryButton
+                                        label={saving ? "Subiendo..." : "Subir documento"}
+                                        loading={saving}
+                                        onPress={handleSubir}
+                                        disabled={saving}
+                                        style={styles.submitButton}
+                                    />
                                 </View>
                             )}
                         </ScrollView>
@@ -457,30 +463,20 @@ const styles = StyleSheet.create({
     },
     dropdownPlaceholder: {
         ...textStyles.body,
-        color: colors.textMuted,
+        color: colors.overlay,
     },
     dropdownText: {
         ...textStyles.body,
         color: colors.textPrimary,
     },
-    button: {
+    submitButton: {
         marginTop: spacing.xl,
         marginBottom: spacing.md,
-        minHeight: 48,
-        borderRadius: radii.md,
-        backgroundColor: colors.primary,
-        justifyContent: "center",
-        alignItems: "center",
-    },
-    buttonText: {
-        color: "#fff",
-        fontWeight: "700",
-        ...textStyles.body,
     },
     error: {
-        color: "#dc2626",
-        fontSize: 12,
-        marginTop: 5,
+        ...textStyles.meta,
+        color: colors.danger,
+        marginTop: spacing.xs,
         fontWeight: "600",
     },
     extensionText: {
@@ -550,11 +546,11 @@ const styles = StyleSheet.create({
     },
     selectorOptionText: {
         ...textStyles.body,
-        color: colors.textMuted,
+        color: colors.primary,
         fontWeight: "600",
     },
     selectorOptionTextActive: {
-        color: "#fff",
+        color: colors.textInverse,
         fontWeight: "700",
     },
     modalOverlayC: {

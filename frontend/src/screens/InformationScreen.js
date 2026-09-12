@@ -15,6 +15,8 @@ import {
 
 import { FontAwesome6 } from "@expo/vector-icons";
 
+import PrimaryButton from "../components/ui/PrimaryButton";
+
 import { createRepositorioItem, updateRepositorioItem } from "../services/api";
 import { colors, radii, spacing, shadows, textStyles } from "../theme/tokens";
 
@@ -118,17 +120,17 @@ export default function GuardarInformacionScreen({ visible, onClose, tripId, ite
                         <View style={styles.headerRow}>
                             <Text style={styles.title}>{editando ? "Editar información" : "Nueva información"}</Text>
                             <TouchableOpacity onPress={onClose} testID="close-modal-button">
-                                <FontAwesome6 name="xmark" size={18} color={colors.textMuted} />
+                                <FontAwesome6 name="xmark" size={18} color={colors.overlay} />
                             </TouchableOpacity>
                         </View>
 
                         <View style={styles.content}>
                             <Text style={styles.label}>Título</Text>
-                            <View style={[styles.inputBox, errores.titulo && { borderColor: "#dc2626" }]}>
-                                <FontAwesome6 name="pen" size={14} color={colors.textMuted} />
+                            <View style={[styles.inputBox, errores.titulo && { borderColor: colors.danger }]}>
+                                <FontAwesome6 name="pen" size={14} color={colors.overlay} />
                                 <TextInput
                                     style={styles.input}
-                                    placeholder="Ej: Hotel del viaje"
+                                    placeholder="Hotel del viaje"
                                     placeholderTextColor="#00000059"
                                     value={titulo}
                                     onChangeText={setTitulo}
@@ -145,7 +147,7 @@ export default function GuardarInformacionScreen({ visible, onClose, tripId, ite
                                         style={[styles.tipoOption, tipo === t.key && styles.tipoOptionActive]}
                                         onPress={() => setTipo(t.key)}
                                     >
-                                        <FontAwesome6 name={t.icon} size={14} color={tipo === t.key ? "#fff" : colors.textMuted} />
+                                        <FontAwesome6 name={t.icon} size={14} color={tipo === t.key ? colors.textInverse : colors.primary} />
                                         <Text style={[styles.tipoOptionText, tipo === t.key && styles.tipoOptionTextActive]}>
                                             {t.label}
                                         </Text>
@@ -154,11 +156,11 @@ export default function GuardarInformacionScreen({ visible, onClose, tripId, ite
                             </View>
 
                             <Text style={styles.label}>Contenido</Text>
-                            <View style={[styles.inputBox, errores.contenido && { borderColor: "#dc2626" }]}>
-                                <FontAwesome6 name="align-left" size={14} color={colors.textMuted} />
+                            <View style={[styles.inputBox, errores.contenido && { borderColor: colors.danger }]}>
+                                <FontAwesome6 name="align-left" size={14} color={colors.overlay} />
                                 <TextInput
                                     style={styles.input}
-                                    placeholder="El enlace, la dirección o el contacto"
+                                    placeholder="Enlace, Dirección o Contacto"
                                     placeholderTextColor="#00000059"
                                     value={contenido}
                                     onChangeText={setContenido}
@@ -168,10 +170,10 @@ export default function GuardarInformacionScreen({ visible, onClose, tripId, ite
 
                             <Text style={styles.label}>Descripción (opcional)</Text>
                             <View style={styles.inputBox}>
-                                <FontAwesome6 name="note-sticky" size={14} color={colors.textMuted} />
+                                <FontAwesome6 name="note-sticky" size={14} color={colors.overlay} />
                                 <TextInput
                                     style={styles.input}
-                                    placeholder="Alguna aclaración adicional"
+                                    placeholder="Aclaración adicional"
                                     placeholderTextColor="#00000059"
                                     value={descripcion}
                                     onChangeText={setDescripcion}
@@ -184,7 +186,7 @@ export default function GuardarInformacionScreen({ visible, onClose, tripId, ite
                                     style={[styles.selectorOption, esPublico && styles.selectorOptionActive]}
                                     onPress={() => setEsPublico(true)}
                                 >
-                                    <FontAwesome6 name="users" size={14} color={esPublico ? "#fff" : colors.textMuted} />
+                                    <FontAwesome6 name="users" size={14} color={esPublico ? colors.textInverse : colors.primary} />
                                     <Text style={[styles.selectorOptionText, esPublico && styles.selectorOptionTextActive]}>
                                         Público
                                     </Text>
@@ -193,7 +195,7 @@ export default function GuardarInformacionScreen({ visible, onClose, tripId, ite
                                     style={[styles.selectorOption, !esPublico && styles.selectorOptionActive]}
                                     onPress={() => setEsPublico(false)}
                                 >
-                                    <FontAwesome6 name="lock" size={14} color={!esPublico ? "#fff" : colors.textMuted} />
+                                    <FontAwesome6 name="lock" size={14} color={!esPublico ? colors.textInverse : colors.primary} />
                                     <Text style={[styles.selectorOptionText, !esPublico && styles.selectorOptionTextActive]}>
                                         Privado
                                     </Text>
@@ -205,9 +207,13 @@ export default function GuardarInformacionScreen({ visible, onClose, tripId, ite
                                     : "Solo vos vas a poder verlo."}
                             </Text>
 
-                            <TouchableOpacity style={styles.button} onPress={handleGuardar} disabled={saving}>
-                                {saving ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonText}>{editando ? "Guardar cambios" : "Guardar información"}</Text>}
-                            </TouchableOpacity>
+                            <PrimaryButton
+                                label={saving ? "Guardando..." : editando ? "Guardar cambios" : "Guardar información"}
+                                loading={saving}
+                                onPress={handleGuardar}
+                                disabled={saving}
+                                style={styles.submitButton}
+                            />
                         </View>
                     </ScrollView>
                 </View>
@@ -252,7 +258,7 @@ const styles = StyleSheet.create({
         marginBottom: 8 
     },
     inputBox: {
-        backgroundColor: "#fff",
+        backgroundColor: colors.surface,
         minHeight: 52,
         borderRadius: radii.md || 12,
         paddingHorizontal: 16,
@@ -273,16 +279,11 @@ const styles = StyleSheet.create({
         textAlignVertical: "center",
         ...textStyles.body,
     },
-    button: {
-        marginTop: 30,
-        height: 55,
-        borderRadius: radii.md || 12,
-        backgroundColor: colors.primary,
-        justifyContent: "center",
-        alignItems: "center",
+    submitButton: {
+        marginTop: spacing.lg,
+        marginBottom: spacing.md,
     },
-    buttonText: { color: "#fff", fontWeight: "800", ...textStyles.body },
-    error: { color: "#dc2626", fontSize: 12, marginTop: 5, fontWeight: "600" },
+    error: { ...textStyles.meta, color: colors.danger, marginTop: spacing.xs, fontWeight: "600" },
     tipoGrid: {
         flexDirection: "row",
         flexWrap: "wrap",
@@ -300,8 +301,8 @@ const styles = StyleSheet.create({
         borderRadius: radii.md || 10,
     },
     tipoOptionActive: { backgroundColor: colors.primary, borderColor: colors.primary },
-    tipoOptionText: { fontWeight: "700", color: colors.textMuted, fontSize: 13 },
-    tipoOptionTextActive: { color: "#fff" },
+    tipoOptionText: { fontWeight: "700", color: colors.primary, fontSize: 13 },
+    tipoOptionTextActive: { color: colors.textInverse },
     selectorContainer: {
         flexDirection: "row",
         backgroundColor: colors.surface,
@@ -321,6 +322,6 @@ const styles = StyleSheet.create({
         gap: 8,
     },
     selectorOptionActive: { backgroundColor: colors.primary },
-    selectorOptionText: { fontWeight: "700", color: colors.textMuted, fontSize: 14 },
-    selectorOptionTextActive: { color: "#fff" },
+    selectorOptionText: { fontWeight: "700", color: colors.primary, fontSize: 14 },
+    selectorOptionTextActive: { color: colors.textInverse },
 });

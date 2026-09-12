@@ -45,6 +45,13 @@ function getEmailLabel(email) {
   return email.split("@")[0].replace(/[._-]+/g, " ");
 }
 
+function getTodayIso() {
+  const today = new Date();
+  const month = String(today.getMonth() + 1).padStart(2, "0");
+  const day = String(today.getDate()).padStart(2, "0");
+  return `${today.getFullYear()}-${month}-${day}`;
+}
+
 export default function CreateTripScreen({ navigation }) {
   const [currentUser, setCurrentUser] = useState(null);
   const [userOptions, setUserOptions] = useState([]);
@@ -317,6 +324,10 @@ export default function CreateTripScreen({ navigation }) {
     if (!form.startDate.trim()) localErrors.startDate = "La fecha de inicio es obligatoria.";
     if (!form.endDate.trim()) localErrors.endDate = "La fecha de finalización es obligatoria.";
     if (!form.currency.trim()) localErrors.currency = "La moneda es obligatoria.";
+
+    if (form.startDate && form.startDate < getTodayIso()) {
+      localErrors.startDate = "La fecha de inicio no puede ser anterior a la fecha actual.";
+    }
 
     if (form.startDate && form.endDate) {
       const start = new Date(`${form.startDate}T12:00:00`);
@@ -598,6 +609,7 @@ export default function CreateTripScreen({ navigation }) {
                     <DateField
                       error={errors.startDate}
                       label="Fecha ida"
+                      minDate={new Date(`${getTodayIso()}T12:00:00`)}
                       onChange={handleInputChange}
                       onOpenPicker={() => setShowStartPicker(true)}
                       pickerVisible={showStartPicker}

@@ -108,6 +108,7 @@ export default function GoogleRegisterScreen({ route }) {
 
       <View style={styles.termsRow}>
         <Switch
+          testID="google-register-terminos-switch"
           value={aceptaTerminos}
           onValueChange={setAceptaTerminos}
           trackColor={{
