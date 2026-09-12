@@ -50,7 +50,7 @@ jest.mock("@react-native-community/datetimepicker", () => {
       Pressable,
       {
         testID: "mock-date-picker-confirm",
-        onPress: () => onChange({}, new Date("2026-09-10T12:00:00")),
+        onPress: () => onChange({}, mockPickerDate),
       },
       ReactActual.createElement(Text, null, "Confirmar fecha (mock)")
     );
@@ -60,6 +60,7 @@ jest.mock("@react-native-community/datetimepicker", () => {
 const mockGoBack = jest.fn();
 const mockNavigate = jest.fn();
 const navigation = { goBack: mockGoBack, navigate: mockNavigate };
+let mockPickerDate = new Date();
 
 const currentUser = {
   id: 1,
@@ -97,6 +98,7 @@ async function completarFechas(utils) {
 describe("US - Crear viaje (CreateTripScreen)", () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockPickerDate = new Date();
     getCurrentUser.mockResolvedValue(currentUser);
     getUsers.mockResolvedValue([]);
     getCurrencies.mockResolvedValue([
@@ -133,6 +135,19 @@ describe("US - Crear viaje (CreateTripScreen)", () => {
     expect(utils.getByText("Al menos un destino es requerido.")).toBeTruthy();
     expect(utils.getByText("La fecha de inicio es obligatoria.")).toBeTruthy();
     expect(utils.getByText("La fecha de finalización es obligatoria.")).toBeTruthy();
+    expect(createTrip).not.toHaveBeenCalled();
+  });
+
+  it("informa que no se puede crear un viaje con fecha de inicio pasada", async () => {
+    mockPickerDate = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const utils = await renderPantallaCargada();
+
+    await completarFechas(utils);
+    await press(utils, "Crear viaje");
+
+    expect(
+      utils.getByText("La fecha de inicio no puede ser anterior a la fecha actual.")
+    ).toBeTruthy();
     expect(createTrip).not.toHaveBeenCalled();
   });
 

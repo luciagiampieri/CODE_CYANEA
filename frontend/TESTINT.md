@@ -6,9 +6,13 @@ otro, sino que **la cobertura solo pueda subir, nunca bajar**, y que cada test
 nuevo aporte confianza real (no un test que "pasa" pero no prueba nada).
 
 Estado de partida (24/08/2026): ~4.5% de statements cubiertos. Última
-actualización de este documento (27/08/2026): ~30% de statements, con
-`components/ui`, `components/home`, `hooks/` y buena parte de
-`components/trip` ya al 100%. Ver el detalle en la sección 6.
+actualización de este documento (12/09/2026): veníamos de ~30% (27/08/2026),
+y en esta vuelta sumamos varias screens más a 100% — ver el detalle en la
+sección 6. `components/ui`, `components/home`, `hooks/` y buena parte de
+`components/trip` ya estaban al 100%; ahora se suman `SettingScreen`,
+`ProfileScreen`, `MyTripsScreen`, `NotificationPreferencesScreen`,
+`FacebookRegisterScreen`/`GoogleRegisterScreen`, `PlaceholderScreen`,
+`RegistrationSuccessScreen` y `EmailConfirmadoScreen`.
 
 ⚠️ **El % exacto puede haber cambiado desde que se escribió esto.** No lo
 tomes como verdad absoluta — corré `npm run test:coverage` y confiá en eso.
@@ -192,7 +196,60 @@ fijas, tomadas de `EditDocumentScreen.test.js` y `logout.test.js`:
    la *validación* (formato, orden de fechas) y no el picker en sí, forzar
    `Platform.OS = "web"` en el `beforeEach` te deja escribir el valor
    directo con `fireEvent.changeText` y te ahorrás mockear el picker.
-9. Cubrí, como mínimo, para cada pantalla con lógica no trivial:
+9. **Pantallas con `useFocusEffect` de `@react-navigation/native`** (en vez
+   de `useEffect` simple, ej. `ProfileScreen`): mockeá el hook para que se
+   comporte como un `useEffect` normal, si no el efecto nunca corre porque
+   no hay un `NavigationContainer` real alrededor del componente en el test:
+   ```js
+   jest.mock("@react-navigation/native", () => {
+     const actualNav = jest.requireActual("@react-navigation/native");
+     return {
+       ...actualNav,
+       useFocusEffect: (callback) => {
+         const { useEffect } = require("react");
+         useEffect(callback, []);
+       },
+     };
+   });
+   ```
+10. **Lógica que depende de "hoy" (`new Date()` sin inyectar)** — por
+    ejemplo "próximo viaje" en `ProfileScreen` o las fases en `MyTripsScreen`
+    (en curso/próximo/pasado). Si el componente llama a `new Date()`
+    directamente adentro (no recibe la fecha por prop), no hay forma de
+    testear eso de forma estable sin fijar el reloj:
+    ```js
+    beforeEach(() => {
+      jest.useFakeTimers().setSystemTime(new Date("2026-06-15T00:00:00"));
+    });
+    afterEach(() => {
+      jest.useRealTimers();
+    });
+    ```
+    Armá los fixtures de fecha (`startDate`, `endDate`) relativos a esa fecha
+    fija, no a la fecha real del día que corras el test.
+11. **Chequear que un `Pressable`/`Switch` está deshabilitado.**
+    `.props.disabled` da `undefined` aunque el elemento SÍ esté deshabilitado
+    — `Pressable` expone el estado a través de accesibilidad, no como prop
+    plana. Usá:
+    ```js
+    expect(getByTestId("mi-boton").props.accessibilityState.disabled).toBe(true);
+    ```
+12. **No hace falta `testID` en todo.** `fireEvent.press` en RNTL sí
+    "burbujea": presionar el `<Text>` que está adentro de un `<Pressable>`
+    dispara el `onPress` del padre sin problema, aunque el `Text` en sí no
+    tenga ningún handler. El `testID` solo hace falta cuando:
+    - el elemento no tiene texto único (un ícono solo, un `Switch`), o
+    - el texto se repite en la pantalla (badges, contadores, filas de un
+      `.map` — ver punto 7), incluso si esa repetición no es obvia a
+      primera vista (ej. dos stats numéricas que casualmente dan el mismo
+      valor, como pasó en `ProfileScreen`).
+13. **Pantallas "gemelas" con la misma estructura** (`FacebookRegisterScreen`
+    / `GoogleRegisterScreen`, que solo difieren en el nombre del token y en
+    qué función de `services/api` llaman): el segundo test es casi un
+    copy-paste del primero cambiando esos dos datos. No hace falta
+    reinventar la estructura, pero sí correr ambos igual — son archivos
+    distintos y un typo en uno no lo detecta el otro.
+14. Cubrí, como mínimo, para cada pantalla con lógica no trivial:
    - el camino feliz (render inicial + acción exitosa)
    - al menos un camino de error (la pantalla debe mostrar el mensaje, no
      solo no explotar)
@@ -282,11 +339,46 @@ Para toda US nueva que toque frontend:
   modal, alta exitosa con `Alert` de confirmación, error de nombre
   duplicado (parseo de mensaje del backend), error genérico, cancelar.
 
+**Sesión del 12/09/2026 — screens y componentes en 0% que se sumaron:**
+- ~~`components/trip/DocumentsByCategory.js`~~ ✅ 0% → 100% líneas. Agrupación
+  por categoría, orden ("Otros" siempre al final), filtro por categoría,
+  badges público/privado, visibilidad condicional de Editar/Eliminar según
+  `EsPropio`, estados de carga (Descargando/Eliminando). Se le agregaron
+  `testID`s a los `Pressable` que no tenían (chips, botones de acción).
+- ~~`RegistrationSuccessScreen`~~ / ~~`EmailConfirmadoScreen`~~ /
+  ~~`PlaceholderScreen`~~ ✅ 100%. Las tres eran screens chicas sin `api` ni
+  estado complejo — buenos "quick wins".
+- ~~`FacebookRegisterScreen`~~ / ~~`GoogleRegisterScreen`~~ ✅ 100%. Screens
+  gemelas (ver punto 13 de la sección 2).
+- ~~`SettingScreen`~~ ✅ 63% → 100%. Ya tenía `logout.test.js` (cubría el
+  flujo nativo con `Alert`), pero el flujo Web (`Platform.OS === "web"`,
+  abre un modal en vez de `Alert`) no estaba probado. Ojo con
+  `<Modal visible={false}>` de React Native: **no renderiza sus hijos en
+  absoluto** mientras está cerrado (no es que estén pero ocultos) — hay que
+  disparar la apertura y esperar el re-render (con `act`, ver punto 4) antes
+  de poder buscar contenido de adentro con `getByText`/`getByTestId`.
+- ~~`ProfileScreen`~~ ✅ 0% → ~97%. Se aprovechó que expone
+  `calcularEstadisticas` como export nombrado (función pura) para testearla
+  aparte, sin mockear nada — ver sección 2, punto A. El resto de la pantalla
+  usa `useFocusEffect` y depende de "hoy" (ver puntos 9 y 10 de la
+  sección 2).
+- ~~`MyTripsScreen`~~ ✅ 0% → ~97%. Fases del viaje (en curso/próximo/pasado)
+  calculadas con fechas reales — mismo patrón de reloj fijo que
+  `ProfileScreen`. A diferencia de esa pantalla, acá `formatDateRange`,
+  `getTripPhase`, `normalizeTrip` y `badgeInfo` NO están exportadas, así que
+  se testearon a través del render completo en vez de como funciones puras;
+  si en algún momento se exportan, valdría la pena sacarles tests unitarios
+  aparte (más baratos).
+- ~~`NotificationPreferencesScreen`~~ ✅ ~6% → 97%. Carga async + guardado
+  optimista con revert en error (falla `updateCurrentUser` → vuelve al
+  valor anterior y muestra `Alert`).
+
 **Prioridad baja pero rápida (componentes chicos):** en su mayoría ✅
 - ~~`components/ui/*`~~ ✅ `Avatar`, `AvatarStack`, `StatusPill`,
-  `AuthSwitch` — todos al 100%. (`MetricCard`, `PrimaryButton`,
-  `IconCircleButton` ya estaban cubiertos indirectamente por otras
-  pantallas.)
+  `AuthSwitch` — todos al 100%. (`MetricCard` ya estaba cubierto
+  indirectamente por otras pantallas; `PrimaryButton` e
+  `IconCircleButton` también, y además ahora reenvían `testID` al
+  `Pressable` interno — no lo hacían antes.)
 - ~~`hooks/useResponsive`, `hooks/useItinerarioViewPreference`~~ ✅ ambos al
   100%. Ojo con `useItinerarioViewPreference`: guarda el estado en una
   variable de módulo (no en contexto), así que los tests que lo tocan
@@ -305,19 +397,19 @@ Para toda US nueva que toque frontend:
   releer el test si cambian el criterio de búsqueda.
 
 **Lo que queda (sin empezar o parcial):**
-- `components/trip/DocumentsByCategory.js` (0%, 356 líneas) —
-  el más grande que queda en `components/trip`.
 - `components/trip/ItinerarioCalendarView.js` (ya ~82%, le faltan pocas
   líneas para cerrar).
 - `components/map/*` (`MapCanvas.native.js`, `MapCanvas.web.js`,
   `OfflineMapState.js`, `PlaceDetailSheet.js`, `PlaceScheduleSheet.js`) —
   todos en 0%. Dependen de `react-native-maps`; mockearlo es su propio
-  trabajo, no lo mezcles con otro test.
-- Pantallas en 0% sin tocar todavía: `HomeScreen`, `ProfileScreen`,
-  `EditProfileScreen`, `InvitationsScreen`, `EmailConfirmadoScreen`,
-  `FacebookRegisterScreen`, `GoogleRegisterScreen`,
-  `InformationScreen`, `PlaceholderScreen`,
-  `RegistrationSuccessScreen`.
+  trabajo, no lo mezcles con otro test. Hay un mock ya armado y probado en
+  `TripDetailScreen.test.js`, se puede reusar tal cual.
+- Pantallas en 0% sin tocar todavía: `HomeScreen` (la más grande que queda,
+  302 líneas, usa varias funciones de `api` a la vez + un socket de
+  notificaciones), `EditProfileScreen`, `InformationScreen` (0%, es uno de
+  los 5 modales de "agregar/editar" — mismo patrón que `AddGastoScreen`/
+  `CreateVotationScreen`/`DocumentsScreen`, que sí tienen test).
+- `InvitationsScreen`: parcial (57%), quedó pendiente de profundizar.
 - `context/AuthContext.js` — quedó al 87%; el 13% restante son las ramas
   nativas de `expo-secure-store`, no testeables en este entorno de Jest
   hoy (ver sección 9).

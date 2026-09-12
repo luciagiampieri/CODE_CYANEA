@@ -30,6 +30,9 @@ npm-debug.*
 yarn-debug.*
 yarn-error.*
 
+# test coverage reports
+coverage/
+
 # macOS
 .DS_Store
 *.pem

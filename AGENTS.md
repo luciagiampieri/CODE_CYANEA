@@ -366,6 +366,7 @@ Orden actual:
 - login y registro comparten shell visual con cabecera azul, superficie marfil y selector segmentado `Iniciar sesion / Crear cuenta`
 - la home base usa saludo superior, KPI cards, cards de viaje con imagen, badge de estado, fecha, avatares y progreso, mas un FAB para crear viaje
 - el detalle de viaje usa hero con imagen, acciones circulares flotantes, stack de avatares, tabs secundarios visuales y cards de agenda por dia
+- las estadisticas de viajes del perfil solo consideran viajes cuya fecha de inicio ya llego; los años futuros no se muestran como filtros
 
 ### Responsive
 
