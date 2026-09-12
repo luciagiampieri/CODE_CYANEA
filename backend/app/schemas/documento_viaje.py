@@ -28,6 +28,7 @@ class DocumentoViajeRead(BaseModel):
 
     NombreCategoria: str
     NombreUsuarioSubida: str
+    EsPublico: bool
     EsPropio: bool = Field(
         ...,
         description="Si el documento fue subido por el usuario que consulta (habilita eliminarlo)."

@@ -27,7 +27,7 @@ from app.schemas.place import (
     NearbyPlacesResponse
 )
 from app.schemas.trip import ActividadRead, RutaDiariaRead
-from app.services.place_search import get_place_details, search_popular_places, search_trip_places, get_trip_allowed_regions, search_nearby_places, CATEGORY_TYPE_MAP
+from app.services.place_search import get_place_details, search_popular_places, get_trip_allowed_regions, search_nearby_places, CATEGORY_TYPE_MAP, autocomplete_trip_places, resolve_trip_place
 from app.services.route_generation import sincronizar_ruta_tras_cambio_actividad
 from app.services.trip_access import get_trip_with_relations, require_trip_access, require_trip_edit_access
 
@@ -135,7 +135,7 @@ def _serialize_trip_place(trip_place: LugarInteresViaje) -> TripPlaceRead:
     )
 
 
-@router.get("/trips/{trip_id}/places/search", response_model=list[TripPlaceSearchRead])
+"""@router.get("/trips/{trip_id}/places/search", response_model=list[TripPlaceSearchRead])
 async def search_places(
     trip_id: int,
     q: str = Query(..., min_length=2),
@@ -143,10 +143,8 @@ async def search_places(
     current_user: Usuario = Depends(get_current_user),
 ) -> list[TripPlaceSearchRead]:
 
-    
     viaje = get_trip_with_relations(db, trip_id)
     require_trip_edit_access(viaje, current_user)
-
     allowed_regions = get_trip_allowed_regions(viaje)
 
     results = await search_trip_places(q.strip(), allowed_regions=allowed_regions, limit=8)
@@ -166,8 +164,89 @@ async def search_places(
         for item in results
         if item.lat is not None
         and item.lng is not None
+    ]"""
+
+@router.get("/trips/{trip_id}/places/search")
+async def search_places(
+    trip_id: int,
+    q: str = Query(..., min_length=2),
+    sessionToken: str | None = Query(None),
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+):
+    viaje = get_trip_with_relations(db, trip_id)
+
+    require_trip_edit_access(viaje, current_user)
+
+    allowed_regions = get_trip_allowed_regions(viaje)
+
+    try:
+        suggestions = await autocomplete_trip_places(
+            q.strip(),
+            allowed_regions=allowed_regions,
+            session_token=sessionToken,
+            limit=6,
+        )
+
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="No se pudo consultar el servicio externo de lugares",
+        ) from exc
+
+    return [
+        {
+            "name": item.name,
+            "address": item.address,
+            "placeId": item.place_id,
+        }
+        for item in suggestions
     ]
 
+@router.get("/trips/{trip_id}/places/resolve")
+async def resolve_place(
+    trip_id: int,
+    placeId: str = Query(..., min_length=2),
+    sessionToken: str | None = Query(None),
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+):
+    viaje = get_trip_with_relations(db, trip_id)
+
+    require_trip_edit_access(viaje, current_user)
+
+    allowed_regions = get_trip_allowed_regions(viaje)
+
+    try:
+        result = await resolve_trip_place(
+            place_id=placeId,
+            allowed_regions=allowed_regions,
+            session_token=sessionToken,
+        )
+
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="No se pudo resolver el lugar seleccionado",
+        ) from exc
+
+    return TripPlaceSearchRead(
+        placeId=result.place_id,
+        name=result.name,
+        address=result.address,
+        country=result.country,
+        lat=result.lat,
+        lng=result.lng,
+        category=result.category,
+        provider=result.provider,
+        metadata=result.metadata,
+    )
 
 @router.get("/trips/{trip_id}/places/popular", response_model=PopularTripPlacesResponse)
 async def popular_places(

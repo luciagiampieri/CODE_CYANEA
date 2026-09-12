@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useRef  } from "react";
 import { FontAwesome6 } from "@expo/vector-icons";
 import {
   ImageBackground,
@@ -21,8 +21,9 @@ import IconCircleButton from "../components/ui/IconCircleButton";
 import MetricCard from "../components/ui/MetricCard";
 import PrimaryButton from "../components/ui/PrimaryButton";
 import useResponsive from "../hooks/useResponsive";
-import { createTrip, getCurrentUser, getUsers, getCurrencies, searchDestinations} from "../services/api.js";
+import { createTrip, getCurrentUser, getUsers, getCurrencies, searchDestinations, resolveDestination, uploadTripCover} from "../services/api.js";
 import { colors, radii, spacing, surfaces, textStyles } from "../theme/tokens";
+import * as ImagePicker from "expo-image-picker";
 
 const initialForm = {
   title: "",
@@ -62,6 +63,68 @@ export default function CreateTripScreen({ navigation }) {
   const [destinationSearch, setDestinationSearch] = useState("");
   const [destinationOptions, setDestinationOptions] = useState([]);
   const primaryDestination = form.destinations[0] ?? null;
+  const [resolvingDestination, setResolvingDestination] = useState(false);
+  const sessionTokenRef = useRef(makeSessionToken());
+  const [searchingDestinations, setSearchingDestinations] = useState(false);
+  const [hasSearchedDestinations, setHasSearchedDestinations] = useState(false);
+  const [coverImage, setCoverImage] = useState(null); // { uri, fileName, mimeType, file? }
+  const [coverError, setCoverError] = useState("");
+
+  const ALLOWED_COVER_EXTENSIONS = ["jpg", "jpeg", "png"];
+
+  function getExtensionFromAsset(asset) {
+    const fromFileName = asset.fileName?.split(".").pop();
+    if (fromFileName) return fromFileName.toLowerCase();
+    const fromUri = asset.uri?.split(".").pop();
+    return fromUri ? fromUri.toLowerCase().split("?")[0] : "";
+  }
+
+  async function handlePickCoverImage() {
+    setCoverError("");
+
+    if (Platform.OS !== "web") {
+      const { status, canAskAgain } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== "granted") {
+        setCoverError(
+          canAskAgain
+            ? "Necesitamos tu permiso para acceder a las fotos y poder elegir una portada."
+            : "El acceso a las fotos está bloqueado. Habilitalo desde los ajustes del dispositivo para elegir una portada."
+        );
+        return;
+      }
+    }
+
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      quality: 0.9,
+    });
+
+    if (result.canceled) return;
+
+    const asset = result.assets[0];
+    const extension = getExtensionFromAsset(asset);
+
+    if (!ALLOWED_COVER_EXTENSIONS.includes(extension)) {
+      setCoverError("Tipo de archivo no permitido. Solo se permiten JPG, JPEG y PNG.");
+      return;
+    }
+
+    setCoverImage({
+      uri: asset.uri,
+      fileName: asset.fileName || `portada.${extension}`,
+      mimeType: asset.mimeType || (extension === "png" ? "image/png" : "image/jpeg"),
+      file: asset.file, // presente solo en web
+    });
+  }
+
+  function handleRemoveCoverImage() {
+    setCoverImage(null);
+    setCoverError("");
+  }
+
+  function makeSessionToken() {
+    return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  }
 
   useEffect(() => {
     async function loadCurrentUser() {
@@ -75,23 +138,53 @@ export default function CreateTripScreen({ navigation }) {
     loadCurrentUser();
   }, []);
 
+
+  const lastQueryLengthRef = useRef(0);
+
   useEffect(() => {
-    const timeoutId = setTimeout(async () => {
-      if (!participantSearch.trim()) {
-        setUserOptions([]);
-        return;
-      }
+    let active = true;
+    const queryLimpia = destinationSearch.trim();
 
+    if (queryLimpia.length < 2) {
+      setDestinationOptions([]);
+      setSearchingDestinations(false);
+      setHasSearchedDestinations(false);
+      lastQueryLengthRef.current = 0;
+      return;
+    }
+
+    // Si es la primera vez que cruzamos el umbral de 2 caracteres
+    // (o venimos de estar vacío), buscamos ya, sin esperar debounce.
+    const isFirstSearch = lastQueryLengthRef.current < 2;
+    lastQueryLengthRef.current = queryLimpia.length;
+
+    const delay = isFirstSearch ? 0 : 150;
+
+    setSearchingDestinations(true);
+    setHasSearchedDestinations(false);
+
+    const timeout = setTimeout(async () => {
       try {
-        const users = await getUsers(participantSearch, 8);
-        setUserOptions(users);
+        const results = await searchDestinations(queryLimpia, sessionTokenRef.current);
+        if (active) {
+          setDestinationOptions(results);
+          setSearchingDestinations(false);
+          setHasSearchedDestinations(true);
+        }
       } catch {
-        setUserOptions([]);
+        if (active) {
+          setDestinationOptions([]);
+          setSearchingDestinations(false);
+          setHasSearchedDestinations(true);
+        }
       }
-    }, 250);
+    }, delay);
 
-    return () => clearTimeout(timeoutId);
-  }, [participantSearch]);
+    return () => {
+      active = false;
+      clearTimeout(timeout);
+    };
+  }, [destinationSearch]);
 
   useEffect(() => {
     async function loadCurrencies() {
@@ -106,25 +199,6 @@ export default function CreateTripScreen({ navigation }) {
 
     loadCurrencies();
   }, []);
-
-  useEffect(() => {
-    const timeout = setTimeout(async () => {
-      if (!destinationSearch.trim()) {
-        setDestinationOptions([]);
-        return;
-      }
-
-      try {
-        const results = await searchDestinations(destinationSearch);
-        console.log("Resultados de búsqueda de destinos:", results);
-        setDestinationOptions(results);
-      } catch {
-        setDestinationOptions([]);
-      }
-    }, 300);
-
-    return () => clearTimeout(timeout);
-  }, [destinationSearch]);
 
   const selectableUsers = useMemo(
     () =>
@@ -254,22 +328,30 @@ export default function CreateTripScreen({ navigation }) {
     return Object.keys(localErrors).length === 0;
   }
 
-  function addDestination(dest) {
+
+  async function addDestination(suggestion) {
     const alreadyAdded = form.destinations.some(
-      (d) => d.name === dest.name && d.country === dest.country 
+      (d) => d.placeId === suggestion.placeId
     );
-
     if (alreadyAdded) return;
-
-    setForm((current) => ({
-      ...current,
-      destinations: [...current.destinations, dest],
-    }));
 
     setDestinationSearch("");
     setDestinationOptions([]);
+    setResolvingDestination(true);
+    try {
+      const full = await resolveDestination(suggestion.placeId, sessionTokenRef.current);
+      setForm((current) => ({
+        ...current,
+        destinations: [...current.destinations, full],
+      }));
+      sessionTokenRef.current = makeSessionToken(); // cerramos la sesión de búsqueda
+    } catch {
+      setErrors((current) => ({ ...current, destinations: "No se pudo agregar ese destino, probá de nuevo." }));
+    } finally {
+      setResolvingDestination(false);
+    }
   }
-
+ 
   async function handleSubmit() {
     if (!validateForm()) {
       setSubmitStatus("error");
@@ -280,7 +362,7 @@ export default function CreateTripScreen({ navigation }) {
     setSubmitStatus("submitting");
     setSubmitMessage("");
     try {
-      await createTrip({
+      const createdTrip = await createTrip({
         title: form.title,
         destinations: form.destinations,
         description: form.description,
@@ -290,6 +372,20 @@ export default function CreateTripScreen({ navigation }) {
         invitedEmails: form.invitedEmails,
         participantUserIds: form.participantUserIds.map(Number),
       });
+
+      if (coverImage) {
+        try {
+          await uploadTripCover(createdTrip.id, coverImage);
+        } catch (uploadError) {
+          setSubmitStatus("success");
+          setSubmitMessage(
+            `El viaje se creó, pero no se pudo cargar la portada seleccionada (${uploadError.message}). Se usará la portada predeterminada.`
+          );
+          navigation.navigate("Tabs", { screen: "Inicio" });
+          return;
+        }
+      }
+
       setSubmitStatus("success");
       setSubmitMessage("Viaje creado correctamente.");
       navigation.navigate("Tabs", { screen: "Inicio" });
@@ -365,38 +461,38 @@ export default function CreateTripScreen({ navigation }) {
                     />
                     {errors.destinations ? <Text style={styles.fieldError}>{errors.destinations}</Text> : null}
 
-                    {destinationOptions.length > 0 && (
+                    {destinationSearch.trim().length >= 2 && (
                       <View style={styles.destinationResults}>
-                        <ScrollView
-                          nestedScrollEnabled
-                          keyboardShouldPersistTaps="handled"
-                        >
-                          {destinationOptions.map((item, index) => (
-                            <Pressable
-                              key={`${item.name}-${item.country}-${index}`}
-                              onPress={() => addDestination(item)}
-                              style={styles.destinationItem}
-                            >
-                              <View style={{ flexDirection: "row", alignItems: "center" }}>
-                                <FontAwesome6
-                                  name="location-dot"
-                                  size={15}
-                                  color={colors.primary}
-                                />
-
-                                <View style={{ marginLeft: 10 }}>
-                                  <Text style={styles.destinationName}>
-                                    {item.name}
-                                  </Text>
-
-                                  <Text style={styles.destinationCountry}>
-                                    {item.country}
-                                  </Text>
+                        {searchingDestinations ? (
+                          <View style={styles.destinationStatusRow}>
+                            <Text style={styles.destinationStatusText}>Buscando destinos...</Text>
+                          </View>
+                        ) : destinationOptions.length > 0 ? (
+                          <ScrollView nestedScrollEnabled keyboardShouldPersistTaps="handled">
+                            {destinationOptions.map((item, index) => (
+                              <Pressable
+                                key={`${item.name}-${item.country}-${index}`}
+                                onPress={() => addDestination(item)}
+                                style={styles.destinationItem}
+                              >
+                                <View style={{ flexDirection: "row", alignItems: "center" }}>
+                                  <FontAwesome6 name="location-dot" size={15} color={colors.primary} />
+                                  <View style={{ marginLeft: 10 }}>
+                                    <Text style={styles.destinationName}>{item.name}</Text>
+                                    <Text style={styles.destinationCountry}>{item.country}</Text>
+                                  </View>
                                 </View>
-                              </View>
-                            </Pressable>
-                          ))}
-                        </ScrollView>
+                              </Pressable>
+                            ))}
+                          </ScrollView>
+                        ) : hasSearchedDestinations ? (
+                          <View style={styles.destinationStatusRow}>
+                            <FontAwesome6 name="magnifying-glass" size={14} color={colors.textMuted} />
+                            <Text style={styles.destinationStatusText}>
+                              No encontramos destinos para "{destinationSearch.trim()}"
+                            </Text>
+                          </View>
+                        ) : null}
                       </View>
                     )}
                   </View>
@@ -449,9 +545,20 @@ export default function CreateTripScreen({ navigation }) {
                     </ScrollView>
                   </View>
 
-                  {primaryDestination?.imageUrl ? (
-                    <View style={styles.coverPreviewSection}>
-                      <Text style={styles.fieldLabel}>Portada estimada del viaje</Text>
+                  <View style={styles.coverPreviewSection}>
+                    <Text style={styles.fieldLabel}>Portada del viaje</Text>
+
+                    {coverImage ? (
+                      <ImageBackground
+                        source={{ uri: coverImage.uri }}
+                        imageStyle={styles.coverPreviewImage}
+                        style={styles.coverPreview}
+                      >
+                        <View style={styles.coverPreviewOverlay}>
+                          <Text style={styles.coverPreviewBadge}>Imagen seleccionada</Text>
+                        </View>
+                      </ImageBackground>
+                    ) : primaryDestination?.imageUrl ? (
                       <ImageBackground
                         source={{ uri: primaryDestination.imageUrl }}
                         imageStyle={styles.coverPreviewImage}
@@ -463,9 +570,30 @@ export default function CreateTripScreen({ navigation }) {
                           <Text style={styles.coverPreviewSubtitle}>{primaryDestination.country}</Text>
                         </View>
                       </ImageBackground>
-                    </View>
-                  ) : null}
+                    ) : (
+                      <View style={[styles.coverPreview, styles.coverPreviewEmpty]}>
+                        <FontAwesome6 name="image" size={20} color={colors.textMuted} />
+                        <Text style={styles.coverPreviewEmptyText}>Se usará una portada predeterminada</Text>
+                      </View>
+                    )}
 
+                    <View style={styles.coverActionsRow}>
+                      <Pressable onPress={handlePickCoverImage} style={styles.coverActionButton}>
+                        <FontAwesome6 name="image" size={13} color={colors.primary} />
+                        <Text style={styles.coverActionText}>
+                          {coverImage ? "Cambiar imagen" : "Elegir de la galería"}
+                        </Text>
+                      </Pressable>
+
+                      {coverImage ? (
+                        <Pressable onPress={handleRemoveCoverImage} style={styles.coverActionButtonSecondary}>
+                          <Text style={styles.coverActionTextSecondary}>Cancelar selección</Text>
+                        </Pressable>
+                      ) : null}
+                    </View>
+
+                    {coverError ? <Text style={styles.fieldError}>{coverError}</Text> : null}
+                  </View>
                   <View style={[styles.row, isTablet && styles.rowTablet]}>
                     <DateField
                       error={errors.startDate}
@@ -859,7 +987,10 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
     borderRadius: radii.md,
     backgroundColor: colors.surface,
-    position: "relative",
+    position: "absolute",
+    top: 85, 
+    left: 0,
+    right: 0,
     zIndex: 30,
     elevation: 10,
   },
@@ -945,5 +1076,57 @@ const styles = StyleSheet.create({
     ...textStyles.body,
     color: "#edf2ff",
     marginTop: spacing.xxs,
+  },
+  destinationStatusRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 14,
+  },
+  destinationStatusText: {
+    ...textStyles.meta,
+    color: colors.textSecondary,
+  },
+  coverPreviewEmpty: {
+    alignItems: "center",
+    justifyContent: "center",
+    gap: spacing.xs,
+    backgroundColor: colors.surfaceMuted,
+  },
+  coverPreviewEmptyText: {
+    ...textStyles.meta,
+    color: colors.textMuted,
+  },
+  coverActionsRow: {
+    flexDirection: "row",
+    gap: spacing.sm,
+    marginTop: spacing.sm,
+  },
+  coverActionButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radii.md,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    backgroundColor: colors.surface,
+  },
+  coverActionText: {
+    ...textStyles.bodyStrong,
+    color: colors.primary,
+    fontSize: 13,
+  },
+  coverActionButtonSecondary: {
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    justifyContent: "center",
+  },
+  coverActionTextSecondary: {
+    ...textStyles.bodyStrong,
+    color: colors.danger || "#FF3B30",
+    fontSize: 13,
   },
 });

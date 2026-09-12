@@ -828,3 +828,134 @@ def test_reemplazar_documento_permite_modificar_nombre_y_categoria(
     assert documento_existente.IdCategoriaDocumento == (
         nueva_categoria.IdCategoriaDocumento
     )
+
+
+def test_subir_documento_privado_se_guarda_en_bd(
+    client,
+    db_session,
+    auth_headers,
+    viaje_con_admin,
+    categoria_documento,
+):
+    viaje, _ = viaje_con_admin
+
+    response = client.post(
+        f"/api/v1/trips/{viaje.IdViaje}/documents",
+        headers=auth_headers,
+        files={
+            "archivo": (
+                "privado.pdf",
+                io.BytesIO(b"contenido secreto"),
+                "application/pdf",
+            )
+        },
+        data={
+            "IdCategoriaDocumento": categoria_documento.IdCategoriaDocumento,
+            "NombreArchivo": "Doc Privado",
+            "EsPublico": False,  
+        },
+    )
+
+    assert response.status_code == 200
+
+    documento = (
+        db_session.query(DocumentoViaje)
+        .filter_by(NombreArchivo="Doc Privado.pdf", IdViaje=viaje.IdViaje)
+        .first()
+    )
+
+    assert documento is not None
+    assert documento.EsPublico is False
+
+
+def test_listar_documentos_respeta_privacidad(
+    client,
+    db_session,
+    viaje_con_admin,
+    categoria_documento,
+    auth_headers, 
+):
+    viaje, admin = viaje_con_admin
+
+    doc_publico = DocumentoViaje(
+        IdViaje=viaje.IdViaje,
+        IdCategoriaDocumento=categoria_documento.IdCategoriaDocumento,
+        IdUsuarioSubida=admin.IdUsuario,
+        NombreArchivo="Publico.pdf",
+        UrlArchivo="url/publico.pdf",
+        EsPublico=True
+    )
+    
+    doc_privado = DocumentoViaje(
+        IdViaje=viaje.IdViaje,
+        IdCategoriaDocumento=categoria_documento.IdCategoriaDocumento,
+        IdUsuarioSubida=admin.IdUsuario,
+        NombreArchivo="Privado.pdf",
+        UrlArchivo="url/privado.pdf",
+        EsPublico=False
+    )
+    db_session.add_all([doc_publico, doc_privado])
+    db_session.commit()
+
+    res_admin = client.get(
+        f"/api/v1/trips/{viaje.IdViaje}/documents",
+        headers=auth_headers,
+    )
+    assert res_admin.status_code == 200
+    docs_admin = res_admin.json()
+    assert len(docs_admin) == 2
+
+    otro_usuario = Usuario(
+        Nombre="Test", Apellido="User", NombreUsuario="test_privacidad",
+        Email="privacidad@test.com", HashedPassword="hashed", Activo=True, EmailConfirmado=True
+    )
+    db_session.add(otro_usuario)
+    db_session.commit()
+    db_session.refresh(otro_usuario)
+
+    participante = ParticipanteViaje(
+        IdViaje=viaje.IdViaje,
+        IdUsuario=otro_usuario.IdUsuario,
+        IdRolParticipante=2,
+        IdEstadoParticipacion=2,
+        InvitadoPor=admin.IdUsuario,
+    )
+    db_session.add(participante)
+    db_session.commit()
+
+    token_otro = create_access_token({"sub": otro_usuario.Email, "user_id": otro_usuario.IdUsuario})
+    headers_otro = {"Authorization": f"Bearer {token_otro}"}
+
+    res_otro = client.get(
+        f"/api/v1/trips/{viaje.IdViaje}/documents",
+        headers=headers_otro,
+    )
+    assert res_otro.status_code == 200
+    docs_otro = res_otro.json()
+    
+    assert len(docs_otro) == 1
+    assert docs_otro[0]["NombreArchivo"] == "Publico.pdf"
+
+
+def test_editar_documento_actualiza_privacidad(
+    client,
+    auth_headers,
+    viaje_con_admin,
+    documento_existente, 
+    db_session,
+):
+    viaje, _ = viaje_con_admin
+
+    assert documento_existente.EsPublico is True
+
+    response = client.put(
+        f"/api/v1/trips/{viaje.IdViaje}/documents/{documento_existente.IdDocumento}",
+        headers=auth_headers,
+        data={
+            "EsPublico": False,
+        },
+    )
+
+    assert response.status_code == 200
+    db_session.refresh(documento_existente)
+    assert documento_existente.EsPublico is False

@@ -157,6 +157,9 @@ export default function HomeScreen({ navigation }) {
             if (data.tipo === "nueva_notificacion") {
               loadNotificationBadge();
             }
+            if (data.tipo === "viaje_actualizado") {
+              loadData();
+            }
           } catch (e) {
             console.error("Error al parsear mensaje de notificación", e);
           }

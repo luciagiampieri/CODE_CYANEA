@@ -1,10 +1,10 @@
-import {useState, useEffect } from "react";
+import {useState, useEffect, useRef } from "react";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import { Platform, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { FontAwesome6 } from "@expo/vector-icons";
 
 import PrimaryButton from "../components/ui/PrimaryButton";
-import { searchTripPlaces, saveActivityLocation} from "../services/api";
+import { searchTripPlaces, saveActivityLocation, resolveTripPlace} from "../services/api";
 import { colors, radii, spacing, textStyles } from "../theme/tokens";
 
 const ICON_OPTIONS = [
@@ -57,6 +57,10 @@ export default function AddActivityScreen({ visible, onClose, onSubmit, dayLabel
     const [locationQuery, setLocationQuery] = useState("");
     const [locationResults, setLocationResults] = useState([]);
     const [searchingLocations, setSearchingLocations] = useState(false);
+    const [hasSearchedLocations, setHasSearchedLocations] = useState(false);
+    const [savingLocation, setSavingLocation] = useState(false);
+
+    const lastQueryLengthRef = useRef(0);
 
     useEffect(() => {
         if (!iconoModificadoManual) {
@@ -99,6 +103,53 @@ export default function AddActivityScreen({ visible, onClose, onSubmit, dayLabel
     }, [visible, activityToEdit]);
 
 
+    useEffect(() => {
+        let active = true;
+
+        const queryLimpia = locationQuery.trim();
+
+        if (queryLimpia.length < 2) {
+            setLocationResults([]);
+            setSearchingLocations(false);
+            setHasSearchedLocations(false);
+            lastQueryLengthRef.current = 0;
+            return;
+        }
+
+        const isFirstSearch = lastQueryLengthRef.current < 2;
+        lastQueryLengthRef.current = queryLimpia.length;
+
+        const delay = isFirstSearch ? 0 : 150;
+
+        setSearchingLocations(true);
+
+        const timeout = setTimeout(async () => {
+            try {
+                const results = await searchTripPlaces(tripId, queryLimpia);
+
+                if (!active) return;
+
+                setLocationResults(results);
+                setHasSearchedLocations(true);
+            } catch (err) {
+                if (!active) return;
+
+                setLocationResults([]);
+                setHasSearchedLocations(true);
+                setError(err.message || "No se pudieron buscar lugares.");
+            } finally {
+                if (active) {
+                    setSearchingLocations(false);
+                }
+            }
+        }, delay);
+
+        return () => {
+            active = false;
+            clearTimeout(timeout);
+        };
+    }, [locationQuery, tripId]);
+
 
     function handleSelectIcon(iconName) {
         setIcono(iconName);
@@ -138,6 +189,15 @@ export default function AddActivityScreen({ visible, onClose, onSubmit, dayLabel
         }
     }
 
+    function closeLocationPicker() {
+        setShowLocationPicker(false);
+        setLocationQuery("");
+        setLocationResults([]);
+        setSearchingLocations(false);
+        setHasSearchedLocations(false);
+        lastQueryLengthRef.current = 0;
+    }
+
     async function handleSubmit() {
         if (!nombre.trim()) {
             setError("El nombre de la actividad es obligatorio.");
@@ -148,9 +208,16 @@ export default function AddActivityScreen({ visible, onClose, onSubmit, dayLabel
             return;
         }
         if (horaFin <= horaInicio) {
-            setError("La hora de fin debe ser posterior a la hora de inicio.");
+            if (horaFin === "00:00") {
+                setError("Para el fin del día usá 23:59. Las 00:00 cuentan como el día siguiente.");
+            } else if (horaFin === horaInicio) {
+                setError("La hora de inicio y fin no pueden ser iguales.");
+            } else {
+                setError("La hora de fin debe ser posterior a la hora de inicio (dentro del mismo día).");
+            }
             return;
         }
+        
         setSubmitting(true);
         setError("");
         setSuccessMessage("");
@@ -181,52 +248,35 @@ export default function AddActivityScreen({ visible, onClose, onSubmit, dayLabel
         }
     }
 
-    async function handleSearchLocations(query) {
-        setLocationQuery(query);
-
-        if (query.trim().length < 2) {
-            setLocationResults([]);
-            return;
-        }
-
-        setSearchingLocations(true);
-
-        try {
-            const results = await searchTripPlaces(tripId, query.trim());
-            setLocationResults(results);
-        } catch (err) {
-            setLocationResults([]);
-            setError(err.message || "No se pudieron buscar lugares.");
-        } finally {
-            setSearchingLocations(false);
-        }
-    }
-
     async function handleSelectLocation(place) {
         try {
-
-            setSearchingLocations(true);
+            setSavingLocation(true);
             setError("");
-            
+
+            const resolvedPlace = await resolveTripPlace(
+                tripId,
+                place.placeId
+            );
+
             const response = await saveActivityLocation(tripId, {
-                placeId: place.placeId,
-                name: place.name,
-                address: place.address,
-                lat: place.lat,
-                lng: place.lng,
-                category: place.category,
-                metadata: place.metadata,
+                placeId: resolvedPlace.placeId,
+                name: resolvedPlace.name,
+                address: resolvedPlace.address,
+                lat: resolvedPlace.lat,
+                lng: resolvedPlace.lng,
+                category: resolvedPlace.category,
+                metadata: resolvedPlace.metadata,
             });
-            
+
             setUbicacion(response);
             setShowLocationPicker(false);
             setLocationQuery("");
             setLocationResults([]);
+            setHasSearchedLocations(false);
         } catch (err) {
-            
             setError(err.message || "No se pudo guardar la ubicación.");
         } finally {
-            setSearchingLocations(false);
+            setSavingLocation(false);
         }
     }
 
@@ -416,7 +466,7 @@ export default function AddActivityScreen({ visible, onClose, onSubmit, dayLabel
             animationType="slide"
             transparent
             visible={showLocationPicker}
-            onRequestClose={() => setShowLocationPicker(false)}
+            onRequestClose={closeLocationPicker}
         >
             <View style={styles.overlay}>
                 <View style={styles.sheet}>
@@ -426,7 +476,7 @@ export default function AddActivityScreen({ visible, onClose, onSubmit, dayLabel
                         </Text>
 
                         <Pressable
-                            onPress={() => setShowLocationPicker(false)}
+                            onPress={closeLocationPicker}
                         >
                             <FontAwesome6
                                 color={colors.textMuted}
@@ -438,53 +488,59 @@ export default function AddActivityScreen({ visible, onClose, onSubmit, dayLabel
 
                     <TextInput
                         value={locationQuery}
-                        onChangeText={handleSearchLocations}
+                        onChangeText={setLocationQuery}
                         placeholder="Buscar un lugar..."
                         placeholderTextColor={colors.textMuted}
                         style={styles.input}
                         autoFocus
                     />
+                        {locationQuery.trim().length < 2 ? (
+                            <Text style={styles.placeholderText}>
+                                Escribí el nombre de un lugar para buscarlo.
+                            </Text>
+                        ) : locationResults.length > 0 ? (
+                            <>
+                                <View style={styles.locationResults}>
+                                    {locationResults.map((place) => (
+                                        <Pressable
+                                            key={place.placeId}
+                                            style={styles.locationResult}
+                                            onPress={() => handleSelectLocation(place)}
+                                        >
+                                            <FontAwesome6
+                                                name="location-dot"
+                                                size={16}
+                                                color={colors.primary}
+                                            />
 
-                    {searchingLocations ? (
-                        <Text style={styles.placeholderText}>
-                            Buscando lugares...
-                        </Text>
-                    ) : locationResults.length > 0 ? (
-                        <View style={styles.locationResults}>
-                            {locationResults.map((place) => (
-                                <Pressable
-                                    key={place.placeId}
-                                    style={styles.locationResult}
-                                    onPress={() => handleSelectLocation(place)}
-                                >
-                                    <FontAwesome6
-                                        name="location-dot"
-                                        size={16}
-                                        color={colors.primary}
-                                    />
+                                            <View style={styles.locationResultText}>
+                                                <Text style={styles.locationResultName}>
+                                                    {place.name}
+                                                </Text>
 
-                                    <View style={styles.locationResultText}>
-                                        <Text style={styles.locationResultName}>
-                                            {place.name}
-                                        </Text>
+                                                <Text style={styles.locationResultAddress}>
+                                                    {place.address}
+                                                </Text>
+                                            </View>
+                                        </Pressable>
+                                    ))}
+                                </View>
 
-                                        <Text style={styles.locationResultAddress}>
-                                            {place.address}
-                                        </Text>
-                                    </View>
-                                </Pressable>
-                            ))}
-                        </View>
-                    ) : locationQuery.trim().length >= 2 ? (
-                        <Text style={styles.placeholderText}>
-                            No se encontraron lugares.
-                        </Text>
-                    ) : (
-                        <Text style={styles.placeholderText}>
-                            Escribí el nombre de un lugar para buscarlo.
-                        </Text>
-                    )}
-
+                                {searchingLocations ? (
+                                    <Text style={styles.searchingText}>
+                                        Actualizando resultados...
+                                    </Text>
+                                ) : null}
+                            </>
+                        ) : searchingLocations ? (
+                            <Text style={styles.placeholderText}>
+                                Buscando lugares...
+                            </Text>
+                        ) : hasSearchedLocations ? (
+                            <Text style={styles.placeholderText}>
+                                No se encontraron lugares.
+                            </Text>
+                        ) : null}
                 </View>
             </View>
         </Modal>
@@ -657,5 +713,10 @@ const styles = StyleSheet.create({
         width: 40,
         alignItems: "center",
         justifyContent: "center",
+    },
+    searchingText: {
+        ...textStyles.meta,
+        color: colors.textMuted,
+        marginTop: spacing.xs,
     },
 });

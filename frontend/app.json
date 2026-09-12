@@ -7,7 +7,11 @@
     "icon": "./assets/cyanea_Logo.png",
     "userInterfaceStyle": "light",
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.ticigaticasteam.cyanea",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
       "adaptiveIcon": {
@@ -23,7 +27,18 @@
       "expo-secure-store",
       "expo-sqlite",
       "expo-web-browser",
-      "expo-font"
-    ]
+      "expo-font",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Necesitamos acceso a tus fotos para elegir la portada del viaje."
+        }
+      ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "e33efd22-aa5c-4522-a28e-8661409ec0e4"
+      }
+    }
   }
 }

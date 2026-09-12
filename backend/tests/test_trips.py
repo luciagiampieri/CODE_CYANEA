@@ -1,6 +1,9 @@
 from datetime import date as date_type, datetime, timedelta
 
 import pytest
+import io 
+from unittest.mock import MagicMock
+
 
 from app.api.routes import trips as trips_module
 from app.core.security import hash_password, create_access_token
@@ -26,6 +29,23 @@ def _mock_broadcast_to_trip(monkeypatch):
     )
 
     return broadcast_mock
+
+@pytest.fixture
+def mock_storage(monkeypatch):
+    """Evita que los tests de portada pegen contra Supabase real."""
+    subir_mock = MagicMock(return_value="trip-covers/1/portada.jpg")
+    eliminar_mock = MagicMock()
+    url_publica_mock = MagicMock(side_effect=lambda ruta: f"https://storage.test/{ruta}")
+
+    monkeypatch.setattr(trips_module, "subir_portada_viaje", subir_mock)
+    monkeypatch.setattr(trips_module, "eliminar_documento_storage", eliminar_mock)
+    monkeypatch.setattr(trips_module, "obtener_url_publica", url_publica_mock)
+
+    return {
+        "subir": subir_mock,
+        "eliminar": eliminar_mock,
+        "url_publica": url_publica_mock,
+    }
 
 
 def _crear_usuario(db_session, nombre_usuario, activo=True):
@@ -58,6 +78,8 @@ def _agregar_participante(db_session, viaje, usuario, estado_nombre="invitado", 
     db_session.refresh(participante)
     return participante
 
+def _archivo(nombre="foto.jpg", contenido=b"contenido-fake-imagen", content_type="image/jpeg"):
+    return {"archivo": (nombre, io.BytesIO(contenido), content_type)}
 
 TRIP_PAYLOAD = {
     "title": "Viaje a Bariloche",
@@ -1457,3 +1479,239 @@ def test_leave_trip_admin_notifica_al_nuevo_administrador(
     
     assert notificacion is not None
     assert "administrador" in notificacion.Titulo.lower()
+
+
+def test_upload_trip_cover_jpg_valido_success(
+    client, auth_headers, viaje_con_admin, mock_storage
+):
+    """CT1: crear/editar viaje con imagen JPG válida establece la portada."""
+    viaje, _ = viaje_con_admin
+
+    response = client.post(
+        f"/api/v1/trips/{viaje.IdViaje}/cover",
+        files=_archivo("foto.jpg", content_type="image/jpeg"),
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 200
+    assert response.json()["message"] == "La portada del viaje se actualizó correctamente."
+    mock_storage["subir"].assert_called_once()
+
+    detalle = client.get(f"/api/v1/trips/{viaje.IdViaje}", headers=auth_headers)
+    assert detalle.status_code == 200
+    assert detalle.json()["hasCustomCover"] is True
+
+
+def test_upload_trip_cover_png_valido_success(
+    client, auth_headers, viaje_con_admin, mock_storage
+):
+    """CT3: cambiar la portada usando una imagen PNG válida."""
+    viaje, _ = viaje_con_admin
+
+    response = client.post(
+        f"/api/v1/trips/{viaje.IdViaje}/cover",
+        files=_archivo("nueva_portada.png", content_type="image/png"),
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 200
+    mock_storage["subir"].assert_called_once()
+
+
+def test_create_trip_sin_imagen_usa_portada_predeterminada(client, master_data, auth_headers):
+    """CT2: crear un viaje sin seleccionar imagen usa la portada predeterminada."""
+    response = client.post("/api/v1/trips", json=TRIP_PAYLOAD, headers=auth_headers)
+    assert response.status_code == 201
+
+    trip_id = response.json()["id"]
+    detalle = client.get(f"/api/v1/trips/{trip_id}", headers=auth_headers)
+    assert detalle.status_code == 200
+    assert detalle.json()["hasCustomCover"] is False
+
+
+def test_upload_trip_cover_formato_no_admitido(
+    client, auth_headers, viaje_con_admin, mock_storage
+):
+    """CT4: una imagen con formato no admitido debe ser rechazada e informarse."""
+    viaje, _ = viaje_con_admin
+
+    response = client.post(
+        f"/api/v1/trips/{viaje.IdViaje}/cover",
+        files=_archivo("foto.gif", content_type="image/gif"),
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 400
+    assert "no permitido" in response.json()["detail"].lower()
+    mock_storage["subir"].assert_not_called()
+
+
+def test_upload_trip_cover_formato_no_admitido_txt(
+    client, auth_headers, viaje_con_admin, mock_storage
+):
+    """Formato claramente no-imagen también debe rechazarse."""
+    viaje, _ = viaje_con_admin
+
+    response = client.post(
+        f"/api/v1/trips/{viaje.IdViaje}/cover",
+        files=_archivo("documento.txt", content_type="text/plain"),
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 400
+    mock_storage["subir"].assert_not_called()
+
+
+def test_upload_trip_cover_requiere_admin(
+    client, db_session, viaje_con_admin, mock_storage
+):
+    """CT6: un participante no administrador no puede modificar la portada."""
+    viaje, _ = viaje_con_admin
+    no_admin = _crear_usuario(db_session, "no_admin_cover")
+    _agregar_participante(db_session, viaje, no_admin, estado_nombre="aceptado")
+
+    response = client.post(
+        f"/api/v1/trips/{viaje.IdViaje}/cover",
+        files=_archivo(),
+        headers=_token_de(no_admin),
+    )
+
+    assert response.status_code == 403
+    mock_storage["subir"].assert_not_called()
+
+
+def test_upload_trip_cover_falla_conserva_portada_anterior(
+    client, db_session, auth_headers, viaje_con_admin, mock_storage
+):
+    """CT: si la carga falla, se informa al administrador y se conserva la portada anterior."""
+    viaje, _ = viaje_con_admin
+    viaje.UrlPortadaPersonalizada = "trip-covers/1/portada_anterior.jpg"
+    db_session.commit()
+
+    mock_storage["subir"].side_effect = Exception("Error de red con Supabase")
+
+    response = client.post(
+        f"/api/v1/trips/{viaje.IdViaje}/cover",
+        files=_archivo(),
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 500
+    assert "no se pudo cargar" in response.json()["detail"].lower()
+
+    db_session.refresh(viaje)
+    assert viaje.UrlPortadaPersonalizada == "trip-covers/1/portada_anterior.jpg"
+    mock_storage["eliminar"].assert_not_called()
+
+
+def test_upload_trip_cover_elimina_portada_anterior_en_storage(
+    client, db_session, auth_headers, viaje_con_admin, mock_storage
+):
+    """Al reemplazar una portada personalizada existente, se borra el archivo viejo de Supabase."""
+    viaje, _ = viaje_con_admin
+    viaje.UrlPortadaPersonalizada = "trip-covers/1/portada_vieja.jpg"
+    db_session.commit()
+
+    response = client.post(
+        f"/api/v1/trips/{viaje.IdViaje}/cover",
+        files=_archivo("portada_nueva.jpg", content_type="image/jpeg"),
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 200
+    mock_storage["eliminar"].assert_called_once_with("trip-covers/1/portada_vieja.jpg")
+
+
+def test_upload_trip_cover_no_elimina_si_no_habia_portada_previa(
+    client, auth_headers, viaje_con_admin, mock_storage
+):
+    """Si no había portada personalizada antes, no se intenta borrar nada en Supabase."""
+    viaje, _ = viaje_con_admin
+
+    response = client.post(
+        f"/api/v1/trips/{viaje.IdViaje}/cover",
+        files=_archivo(),
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 200
+    mock_storage["eliminar"].assert_not_called()
+
+
+def test_upload_trip_cover_viaje_no_encontrado(client, auth_headers, mock_storage):
+    response = client.post(
+        "/api/v1/trips/9999/cover",
+        files=_archivo(),
+        headers=auth_headers,
+    )
+    assert response.status_code == 404
+
+
+def test_upload_trip_cover_notifica_viaje_actualizado(
+    client, auth_headers, viaje_con_admin, mock_storage, _mock_broadcast_to_trip
+):
+    """Tras subir la portada, se notifica por WebSocket a los conectados al viaje."""
+    viaje, _ = viaje_con_admin
+
+    response = client.post(
+        f"/api/v1/trips/{viaje.IdViaje}/cover",
+        files=_archivo(),
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 200
+    _mock_broadcast_to_trip.assert_awaited_once()
+    args = _mock_broadcast_to_trip.await_args.args
+    assert args[0] == viaje.IdViaje
+    assert args[1]["tipo"] == "viaje_actualizado"
+
+
+def test_remove_trip_cover_success(
+    client, db_session, auth_headers, viaje_con_admin, mock_storage
+):
+    """Quitar la portada personalizada vuelve a la predeterminada."""
+    viaje, _ = viaje_con_admin
+    viaje.UrlPortadaPersonalizada = "viajes/1/portada.jpg"
+    db_session.commit()
+
+    response = client.delete(f"/api/v1/trips/{viaje.IdViaje}/cover", headers=auth_headers)
+
+    assert response.status_code == 200
+    mock_storage["eliminar"].assert_called_once_with("viajes/1/portada.jpg")
+
+    db_session.refresh(viaje)
+    assert viaje.UrlPortadaPersonalizada is None
+
+
+def test_remove_trip_cover_sin_portada_personalizada(
+    client, auth_headers, viaje_con_admin, mock_storage
+):
+    """Si ya usa la portada predeterminada, no hay nada que eliminar."""
+    viaje, _ = viaje_con_admin
+
+    response = client.delete(f"/api/v1/trips/{viaje.IdViaje}/cover", headers=auth_headers)
+
+    assert response.status_code == 200
+    assert "predeterminada" in response.json()["message"].lower()
+    mock_storage["eliminar"].assert_not_called()
+
+
+def test_remove_trip_cover_requiere_admin(
+    client, db_session, viaje_con_admin, mock_storage
+):
+    viaje, _ = viaje_con_admin
+    no_admin = _crear_usuario(db_session, "no_admin_del_cover")
+    _agregar_participante(db_session, viaje, no_admin, estado_nombre="aceptado")
+
+    response = client.delete(
+        f"/api/v1/trips/{viaje.IdViaje}/cover",
+        headers=_token_de(no_admin),
+    )
+
+    assert response.status_code == 403
+
+
+def test_remove_trip_cover_viaje_no_encontrado(client, auth_headers):
+    response = client.delete("/api/v1/trips/9999/cover", headers=auth_headers)
+    assert response.status_code == 404
+

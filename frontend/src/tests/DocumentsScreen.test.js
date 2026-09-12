@@ -7,6 +7,7 @@ import { getDocumentCategories, uploadTripDocument } from "../services/api";
 
 const mockGoBack = jest.fn();
 const mockGetDocumentAsync = jest.fn();
+const mockOnDocumentoSubido = jest.fn();
 
 jest.mock("../services/api", () => ({
   getDocumentCategories: jest.fn(),
@@ -44,8 +45,6 @@ const categorias = [
   { IdCategoriaDocumento: 2, Nombre: "Reservas" },
 ];
 
-const route = { params: { tripId: 10 } };
-const navigation = { goBack: mockGoBack };
 
 async function press(utils, texto) {
   await act(async () => {
@@ -61,11 +60,20 @@ async function pressSubmit(utils) {
   });
 }
 
+
 async function renderPantallaCargada() {
-  const utils = await render(<DocumentsScreen route={route} navigation={navigation} />);
+  const utils = await render(
+    <DocumentsScreen 
+        visible={true} 
+        tripId={10} 
+        onClose={mockGoBack} 
+        onDocumentoSubido={mockOnDocumentoSubido} 
+    />
+  );
   await waitFor(() => expect(utils.getByText("Seleccionar archivo")).toBeTruthy());
   return utils;
 }
+
 
 async function seleccionarArchivoValido(utils, overrides = {}) {
   mockGetDocumentAsync.mockResolvedValue({
@@ -96,16 +104,22 @@ describe("DocumentsScreen", () => {
     getDocumentCategories.mockResolvedValue(categorias);
   });
 
-  it("muestra un error de carga y permite volver si fallan las categorías", async () => {
+
+  it("muestra un error de carga y permite cerrar el modal si fallan las categorías", async () => {
     getDocumentCategories.mockRejectedValue(new Error("Sin conexión con el servidor."));
 
-    const utils = await render(<DocumentsScreen route={route} navigation={navigation} />);
+    const utils = await render(
+        <DocumentsScreen visible={true} tripId={10} onClose={mockGoBack} />
+    );
 
     await waitFor(() => expect(utils.getByText("Sin conexión con el servidor.")).toBeTruthy());
 
-    await press(utils, "Volver");
+    await act(async () => {
+        fireEvent.press(utils.getByText("")); 
+    });
     expect(mockGoBack).toHaveBeenCalled();
   });
+
 
   it("muestra los tres errores de validación al subir sin completar nada", async () => {
     const utils = await renderPantallaCargada();
@@ -168,13 +182,15 @@ describe("DocumentsScreen", () => {
     await pressSubmit(utils);
 
     await waitFor(() => expect(uploadTripDocument).toHaveBeenCalled());
-    expect(uploadTripDocument).toHaveBeenCalledWith(10, expect.objectContaining({ name: "Seguro.pdf" }), 1, "Seguro.pdf");
+    expect(uploadTripDocument).toHaveBeenCalledWith(10, expect.objectContaining({ name: "Seguro.pdf" }), 1, "Seguro.pdf", true);
 
     await waitFor(() => expect(alertMock).toHaveBeenCalledWith(
       "Éxito",
       "Documento subido correctamente.",
       expect.any(Array)
     ));
+    
+    expect(mockOnDocumentoSubido).toHaveBeenCalled();
     expect(mockGoBack).toHaveBeenCalled();
 
     alertMock.mockRestore();
@@ -215,10 +231,12 @@ describe("DocumentsScreen", () => {
     alertMock.mockRestore();
   });
 
-  it("el botón Cancelar vuelve atrás sin subir nada", async () => {
+  it("el botón de cerrar (X) cierra el modal sin subir nada", async () => {
     const utils = await renderPantallaCargada();
 
-    await press(utils, "Cancelar");
+    await act(async () => {
+      fireEvent.press(utils.getByText(""));
+    });
 
     expect(mockGoBack).toHaveBeenCalled();
     expect(uploadTripDocument).not.toHaveBeenCalled();

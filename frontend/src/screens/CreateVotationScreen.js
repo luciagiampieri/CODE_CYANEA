@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
     View,
     Text,
@@ -9,15 +9,14 @@ import {
     ActivityIndicator,
     Alert,
     Platform,
+    Modal,
 } from "react-native";
 
 import DateTimePicker from "@react-native-community/datetimepicker";
 import { FontAwesome6 } from "@expo/vector-icons";
-
-import ScreenContainer from "../components/layout/ScreenContainer";
-import IconCircleButton from "../components/ui/IconCircleButton";
 import { createVotacion } from "../services/api";
-import { colors, shadows, textStyles } from "../theme/tokens";
+import { colors, shadows, textStyles, radii, spacing } from "../theme/tokens";
+
 
 function fechaDefault() {
     const d = new Date();
@@ -25,6 +24,7 @@ function fechaDefault() {
     d.setSeconds(0, 0);
     return d;
 }
+
 
 function toDatetimeLocal(date) {
     const pad = (n) => String(n).padStart(2, "0");
@@ -34,18 +34,25 @@ function toDatetimeLocal(date) {
     );
 }
 
-export default function CrearVotacionScreen({ route, navigation }) {
-    const { IdViaje } = route.params || {};
 
+export default function CrearVotacionScreen({ visible, onClose, IdViaje, onVotacionCreada }) {
     const [titulo, setTitulo] = useState("");
-    const [tipo, setTipo] = useState("opcion_unica"); // AC3
+    const [tipo, setTipo] = useState("opcion_unica"); 
     const [fechaCierre, setFechaCierre] = useState(fechaDefault());
-    const [propuestas, setPropuestas] = useState(["", ""]); // AC2: arranca con 2
+    const [propuestas, setPropuestas] = useState(["", ""]); 
     const [errores, setErrores] = useState({});
     const [saving, setSaving] = useState(false);
-
     const [mostrarFecha, setMostrarFecha] = useState(false);
     const [mostrarHora, setMostrarHora] = useState(false);
+
+    useEffect(() => {
+        if (!visible) return;
+        setTitulo("");
+        setTipo("opcion_unica");
+        setFechaCierre(fechaDefault());
+        setPropuestas(["", ""]);
+        setErrores({});
+    }, [visible]);
 
     function actualizarPropuesta(index, valor) {
         setPropuestas((prev) => prev.map((p, i) => (i === index ? valor : p)));
@@ -113,9 +120,9 @@ export default function CrearVotacionScreen({ route, navigation }) {
                 Alert.alert("Votación creada", "La votación se creó correctamente.");
             }
 
-            route.params?.onVotacionCreada?.(nuevaVotacion);
-            navigation.goBack();
-            return nuevaVotacion;
+            onVotacionCreada?.(nuevaVotacion);
+            onClose();
+
         } catch (error) {
             Alert.alert("No se pudo crear", error.message);
         } finally {
@@ -124,230 +131,258 @@ export default function CrearVotacionScreen({ route, navigation }) {
     }
 
     return (
-        <ScreenContainer fullWidth padded={false}>
-            <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-                <View style={styles.hero}>
-                    <View style={styles.heroTopRow}>
-                        <IconCircleButton
-                            icon="arrow-left"
-                            onPress={() => navigation.goBack()}
-                            tone="light"
-                            testID="votacion-back-button"
-                        />
-                    </View>
-                    <Text style={styles.heroTitle}>Nueva votación</Text>
+        <Modal animationType="slide" transparent visible={visible} onRequestClose={onClose}>
+            <View style={styles.overlay}>
+                <View style={styles.sheet}>
+                    <ScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+                        <View style={styles.headerRow}>
+                            <Text style={styles.title}>Nueva votación</Text>
+                            <TouchableOpacity onPress={onClose} testID="cerrar-votacion-modal">
+                                <FontAwesome6 name="xmark" size={18} color={colors.textMuted} />
+                            </TouchableOpacity>
+                        </View>
+
+                        <View style={styles.content}>
+                            <Text style={styles.label}>Nombre descriptivo</Text>
+                            <View style={styles.inputBox}>
+                                <FontAwesome6 name="pen" size={14} color={colors.textMuted} />
+                                <TextInput
+                                    style={styles.input}
+                                    placeholder="¿Qué hacemos el segundo día?"
+                                    placeholderTextColor={colors.textMuted} 
+                                    value={titulo}
+                                    onChangeText={setTitulo}
+                                    maxLength={150}
+                                />
+                            </View>
+                            {errores.titulo && <Text style={styles.error}>{errores.titulo}</Text>}
+
+                            <Text style={styles.label}>Tipo de votación</Text>
+                            <View style={styles.selectorContainer}>
+                                <TouchableOpacity
+                                    style={[styles.selectorOption, tipo === "opcion_unica" && styles.selectorOptionActive]}
+                                    onPress={() => setTipo("opcion_unica")}
+                                >
+                                    <FontAwesome6
+                                        name="circle-dot"
+                                        size={14}
+                                        color={tipo === "opcion_unica" ? "#fff" : colors.primary} 
+                                    />
+                                    <Text style={[styles.selectorOptionText, tipo === "opcion_unica" && styles.selectorOptionTextActive]}>
+                                        Opción única
+                                    </Text>
+                                </TouchableOpacity>
+                                <TouchableOpacity
+                                    style={[styles.selectorOption, tipo === "opcion_multiple" && styles.selectorOptionActive]}
+                                    onPress={() => setTipo("opcion_multiple")}
+                                >
+                                    <FontAwesome6
+                                        name="square-check"
+                                        size={14}
+                                        color={tipo === "opcion_multiple" ? "#fff" : colors.primary} 
+                                    />
+                                    <Text style={[styles.selectorOptionText, tipo === "opcion_multiple" && styles.selectorOptionTextActive]}>
+                                        Opción múltiple
+                                    </Text>
+                                </TouchableOpacity>
+                            </View>
+
+                            <Text style={styles.label}>Cierre (fecha y hora)</Text>
+                            {Platform.OS === "web" ? (
+                                <View style={styles.dateBox}>
+                                    <input
+                                        type="datetime-local"
+                                        value={toDatetimeLocal(fechaCierre)}
+                                        min={toDatetimeLocal(new Date())}
+                                        onChange={(e) => {
+                                            if (!e.target.value) return;
+                                            setFechaCierre(new Date(e.target.value));
+                                        }}
+                                        style={{ border: "none", width: "100%", outline: "none", background: "transparent", fontFamily: "inherit" }}
+                                    />
+                                </View>
+                            ) : (
+                                <>
+                                    <TouchableOpacity style={styles.dateBox} onPress={() => setMostrarFecha(true)}>
+                                        <FontAwesome6 name="calendar" size={15} color={colors.primary} />
+                                        <Text style={styles.input}>{fechaCierreTexto()}</Text>
+                                    </TouchableOpacity>
+
+                                    {mostrarFecha && (
+                                        <DateTimePicker
+                                            value={fechaCierre}
+                                            mode="date"
+                                            minimumDate={new Date()}
+                                            onChange={(e, date) => {
+                                                setMostrarFecha(false);
+                                                if (date) {
+                                                    const nueva = new Date(fechaCierre);
+                                                    nueva.setFullYear(date.getFullYear(), date.getMonth(), date.getDate());
+                                                    setFechaCierre(nueva);
+                                                    setMostrarHora(true);
+                                                }
+                                            }}
+                                        />
+                                    )}
+
+                                    {mostrarHora && (
+                                        <DateTimePicker
+                                            value={fechaCierre}
+                                            mode="time"
+                                            onChange={(e, date) => {
+                                                setMostrarHora(false);
+                                                if (date) {
+                                                    const nueva = new Date(fechaCierre);
+                                                    nueva.setHours(date.getHours(), date.getMinutes(), 0, 0);
+                                                    setFechaCierre(nueva);
+                                                }
+                                            }}
+                                        />
+                                    )}
+                                </>
+                            )}
+                            {errores.fechaCierre && <Text style={styles.error}>{errores.fechaCierre}</Text>}
+
+                            <View style={styles.propuestasHeader}>
+                                <Text style={styles.label}>Propuestas</Text>
+                                <TouchableOpacity style={styles.addChip} onPress={agregarPropuesta}>
+                                    <FontAwesome6 name="plus" size={11} color="#fff" />
+                                    <Text style={styles.addChipText}>Agregar</Text>
+                                </TouchableOpacity>
+                            </View>
+
+                            {propuestas.map((propuesta, index) => (
+                                <View key={index} style={styles.propuestaRow}>
+                                    <View style={[styles.inputBox, { flex: 1, marginBottom: 0 }]}>
+                                        <Text style={styles.propuestaIndex}>{index + 1}</Text>
+                                        <TextInput
+                                            style={styles.input}
+                                            placeholder={`Propuesta ${index + 1}`}
+                                            placeholderTextColor={colors.textMuted} 
+                                            value={propuesta}
+                                            onChangeText={(val) => actualizarPropuesta(index, val)}
+                                            maxLength={255}
+                                        />
+                                    </View>
+                                    <TouchableOpacity
+                                        style={[styles.removeButton, propuestas.length <= 2 && styles.removeButtonDisabled]}
+                                        onPress={() => quitarPropuesta(index)}
+                                        disabled={propuestas.length <= 2}
+                                        testID={`votacion-quitar-propuesta-${index}`}
+                                    >
+                                        <FontAwesome6
+                                            name="trash"
+                                            size={14}
+                                            color={propuestas.length <= 2 ? colors.textMuted : colors.danger}
+                                        />
+                                    </TouchableOpacity>
+                                </View>
+                            ))}
+                            {errores.propuestas && <Text style={styles.error}>{errores.propuestas}</Text>}
+
+                            <TouchableOpacity style={styles.button} onPress={handleCrear} disabled={saving}>
+                                {saving ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonText}>Crear votación</Text>}
+                            </TouchableOpacity>
+                        </View>
+                    </ScrollView>
                 </View>
-
-            <View style={styles.content}>
-            <Text style={styles.label}>Nombre descriptivo</Text>
-            <View style={styles.inputBox}>
-                <FontAwesome6 name="pen" size={14} color={colors.textMuted} />
-                <TextInput
-                    style={styles.input}
-                    placeholder="¿Qué hacemos el segundo día?"
-                    placeholderTextColor="#00000059"
-                    value={titulo}
-                    onChangeText={setTitulo}
-                    maxLength={150}
-                />
             </View>
-            {errores.titulo && <Text style={styles.error}>{errores.titulo}</Text>}
-
-            <Text style={styles.label}>Tipo de votación</Text>
-            <View style={styles.selectorContainer}>
-                <TouchableOpacity
-                    style={[styles.selectorOption, tipo === "opcion_unica" && styles.selectorOptionActive]}
-                    onPress={() => setTipo("opcion_unica")}
-                >
-                    <FontAwesome6
-                        name="circle-dot"
-                        size={14}
-                        color={tipo === "opcion_unica" ? "#fff" : colors.overlayStrong}
-                    />
-                    <Text style={[styles.selectorOptionText, tipo === "opcion_unica" && styles.selectorOptionTextActive]}>
-                        Opción única
-                    </Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                    style={[styles.selectorOption, tipo === "opcion_multiple" && styles.selectorOptionActive]}
-                    onPress={() => setTipo("opcion_multiple")}
-                >
-                    <FontAwesome6
-                        name="square-check"
-                        size={14}
-                        color={tipo === "opcion_multiple" ? "#fff" : colors.overlayStrong}
-                    />
-                    <Text style={[styles.selectorOptionText, tipo === "opcion_multiple" && styles.selectorOptionTextActive]}>
-                        Opción múltiple
-                    </Text>
-                </TouchableOpacity>
-            </View>
-
-            <Text style={styles.label}>Cierre (fecha y hora)</Text>
-            {Platform.OS === "web" ? (
-                <View style={styles.dateBox}>
-                    <FontAwesome6 name="calendar" size={15} color={colors.primary} />
-                    <input
-                        type="datetime-local"
-                        value={toDatetimeLocal(fechaCierre)}
-                        min={toDatetimeLocal(new Date())}
-                        onChange={(e) => {
-                            if (!e.target.value) return;
-                            setFechaCierre(new Date(e.target.value));
-                        }}
-                        style={{ border: "none", width: "100%", outline: "none", background: "transparent" }}
-                    />
-                </View>
-            ) : (
-                <>
-                    <TouchableOpacity style={styles.dateBox} onPress={() => setMostrarFecha(true)}>
-                        <FontAwesome6 name="calendar" size={15} color={colors.primary} />
-                        <Text>{fechaCierreTexto()}</Text>
-                    </TouchableOpacity>
-
-                    {mostrarFecha && (
-                        <DateTimePicker
-                            value={fechaCierre}
-                            mode="date"
-                            minimumDate={new Date()}
-                            onChange={(e, date) => {
-                                setMostrarFecha(false);
-                                if (date) {
-                                    // Conservamos la hora ya elegida y luego pedimos la hora.
-                                    const nueva = new Date(fechaCierre);
-                                    nueva.setFullYear(date.getFullYear(), date.getMonth(), date.getDate());
-                                    setFechaCierre(nueva);
-                                    setMostrarHora(true);
-                                }
-                            }}
-                        />
-                    )}
-
-                    {mostrarHora && (
-                        <DateTimePicker
-                            value={fechaCierre}
-                            mode="time"
-                            onChange={(e, date) => {
-                                setMostrarHora(false);
-                                if (date) {
-                                    const nueva = new Date(fechaCierre);
-                                    nueva.setHours(date.getHours(), date.getMinutes(), 0, 0);
-                                    setFechaCierre(nueva);
-                                }
-                            }}
-                        />
-                    )}
-                </>
-            )}
-            {errores.fechaCierre && <Text style={styles.error}>{errores.fechaCierre}</Text>}
-
-            <View style={styles.propuestasHeader}>
-                <Text style={styles.label}>Propuestas</Text>
-                <TouchableOpacity style={styles.addChip} onPress={agregarPropuesta}>
-                    <FontAwesome6 name="plus" size={11} color="#fff" />
-                    <Text style={styles.addChipText}>Agregar</Text>
-                </TouchableOpacity>
-            </View>
-
-            {propuestas.map((propuesta, index) => (
-                <View key={index} style={styles.propuestaRow}>
-                    <View style={[styles.inputBox, { flex: 1, marginBottom: 0 }]}>
-                        <Text style={styles.propuestaIndex}>{index + 1}</Text>
-                        <TextInput
-                            style={styles.input}
-                            placeholder={`Propuesta ${index + 1}`}
-                            placeholderTextColor="#00000059"
-                            value={propuesta}
-                            onChangeText={(val) => actualizarPropuesta(index, val)}
-                            maxLength={255}
-                        />
-                    </View>
-                    <TouchableOpacity
-                        style={[styles.removeButton, propuestas.length <= 2 && styles.removeButtonDisabled]}
-                        onPress={() => quitarPropuesta(index)}
-                        disabled={propuestas.length <= 2}
-                        testID={`votacion-quitar-propuesta-${index}`}
-                    >
-                        <FontAwesome6
-                            name="trash"
-                            size={14}
-                            color={propuestas.length <= 2 ? colors.textMuted : colors.danger}
-                        />
-                    </TouchableOpacity>
-                </View>
-            ))}
-            {errores.propuestas && <Text style={styles.error}>{errores.propuestas}</Text>}
-
-            <TouchableOpacity style={styles.button} onPress={handleCrear} disabled={saving}>
-                {saving ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonText}>Crear votación</Text>}
-            </TouchableOpacity>
-            </View>
-        </ScrollView>
-        </ScreenContainer>
+        </Modal>
     );
 }
 
+
 const styles = StyleSheet.create({
-    scrollContent: { paddingBottom: 40 },
-    content: { padding: 20 },
-    hero: {
-        backgroundColor: colors.primary,
-        paddingHorizontal: 20,
-        paddingTop: 12,
-        paddingBottom: 28,
-        borderBottomLeftRadius: 32,
-        borderBottomRightRadius: 32,
-        alignItems: "center",
+    overlay: {
+        flex: 1,
+        backgroundColor: colors.overlayStrong,
+        justifyContent: "flex-end",
     },
-    heroTopRow: {
+    sheet: {
+        backgroundColor: colors.surface,
+        borderTopLeftRadius: radii.xl || 24,
+        borderTopRightRadius: radii.xl || 24,
+        padding: spacing.lg || 24,
+        maxHeight: "90%",
+    },
+    headerRow: {
         flexDirection: "row",
         alignItems: "center",
-        alignSelf: "flex-start",
+        justifyContent: "space-between",
+        marginBottom: 10,
     },
-    heroTitle: { ...textStyles.tripTitle, fontSize: 26, color: colors.textInverse, textAlign: "center", marginTop: 8 },
-    label: { fontWeight: "700", color: colors.primary, marginTop: 14, marginBottom: 8 },
+    title: {
+        ...textStyles.tripTitle,
+        color: colors.primary,
+        fontSize: 20,
+    },
+    content: {
+        paddingVertical: 10,
+    },
+    label: {
+        ...textStyles.label,
+        textTransform: "none",
+        color: colors.primary,
+        marginTop: 14,
+        marginBottom: 8,
+    },
     inputBox: {
-        backgroundColor: "#fff",
-        height: 54,
-        borderRadius: 14,
-        borderWidth: 1.5,
-        borderColor: "#dfe4ea",
+        minHeight: 48,
+        borderWidth: 1,
+        borderColor: colors.border || "#dfe3ea",
+        borderRadius: radii.md || 12,
+        backgroundColor: colors.surface,
         paddingHorizontal: 15,
         flexDirection: "row",
         alignItems: "center",
         gap: 10,
         marginBottom: 5,
-        ...shadows.card,
     },
-    input: { flex: 1, fontWeight: "600", fontSize: 15 },
+    input: {
+        flex: 1,
+        color: colors.textPrimary,
+        paddingVertical: 8,
+        ...textStyles.body,
+    },
     dateBox: {
-        backgroundColor: "#fff",
-        padding: 15,
-        borderRadius: 14,
-        borderWidth: 1.5,
-        borderColor: "#dfe4ea",
+        minHeight: 48,
+        borderWidth: 1,
+        borderColor: colors.border || "#dfe3ea",
+        borderRadius: radii.md || 12,
+        backgroundColor: colors.surface,
+        paddingHorizontal: 15,
         flexDirection: "row",
         gap: 10,
         alignItems: "center",
-        ...shadows.card,
     },
     button: {
         marginTop: 30,
-        height: 55,
-        borderRadius: 12,
+        marginBottom: 20,
+        minHeight: 48,
+        borderRadius: radii.md || 12,
         backgroundColor: colors.primary,
         justifyContent: "center",
         alignItems: "center",
     },
-    buttonText: { color: "#fff", fontWeight: "800" },
-    error: { color: "#dc2626", fontSize: 12, marginTop: 5, fontWeight: "600" },
+    buttonText: {
+        color: "#fff",
+        fontWeight: "700",
+        ...textStyles.body,
+    },
+    error: {
+        color: "#dc2626",
+        fontSize: 12,
+        marginTop: 5,
+        fontWeight: "600",
+    },
     selectorContainer: {
         flexDirection: "row",
-        backgroundColor: "#fff",
-        borderRadius: 12,
+        backgroundColor: colors.surface,
+        borderRadius: radii.md || 12,
+        borderWidth: 1,
+        borderColor: colors.border || "#dfe3ea",
         padding: 4,
         gap: 5,
-        ...shadows.card,
     },
     selectorOption: {
         flex: 1,
@@ -358,9 +393,16 @@ const styles = StyleSheet.create({
         alignItems: "center",
         gap: 8,
     },
-    selectorOptionActive: { backgroundColor: colors.primary },
-    selectorOptionText: { fontWeight: "700", color: colors.overlayStrong, fontSize: 14 },
-    selectorOptionTextActive: { color: "#fff" },
+    selectorOptionActive: {
+        backgroundColor: colors.primary,
+    },
+    selectorOptionText: {
+        ...textStyles.body,
+        color: colors.primary,
+    },
+    selectorOptionTextActive: {
+        color: "#fff",
+    },
     propuestasHeader: {
         flexDirection: "row",
         alignItems: "center",
@@ -378,7 +420,12 @@ const styles = StyleSheet.create({
         borderRadius: 999,
     },
     addChipText: { color: "#fff", fontWeight: "700", fontSize: 12 },
-    propuestaRow: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 8 },
+    propuestaRow: {
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 8,
+        marginBottom: 8,
+    },
     propuestaIndex: {
         fontWeight: "800",
         color: colors.textMuted,
@@ -388,11 +435,12 @@ const styles = StyleSheet.create({
     removeButton: {
         width: 44,
         height: 44,
-        borderRadius: 12,
-        backgroundColor: "#fff",
+        borderWidth: 1,
+        borderColor: colors.border || "#dfe3ea",
+        borderRadius: radii.md || 12,
+        backgroundColor: colors.surface,
         justifyContent: "center",
         alignItems: "center",
-        ...shadows.card,
     },
     removeButtonDisabled: { opacity: 0.5 },
 });

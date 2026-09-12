@@ -29,6 +29,7 @@ class Viaje(Base):
         nullable=False,
     )
     GooglePlaceIdPortada: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    UrlPortadaPersonalizada: Mapped[str | None] = mapped_column(String(500), nullable=True)
     IdAdministrador: Mapped[int] = mapped_column(
         ForeignKey("Usuarios.IdUsuario", name="FK_Viajes_Usuarios_IdAdministrador"),
         nullable=False,

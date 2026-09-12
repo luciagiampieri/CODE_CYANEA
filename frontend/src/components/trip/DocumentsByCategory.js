@@ -1,5 +1,5 @@
 import { useEffect, useMemo } from "react";
-import { View, Text, StyleSheet, Pressable, ScrollView, ActivityIndicator } from "react-native";
+import { View, Text, StyleSheet, Pressable, ScrollView, ActivityIndicator} from "react-native";
 import { FontAwesome6 } from "@expo/vector-icons";
 
 import { colors, radii, spacing, surfaces, textStyles } from "../../theme/tokens";
@@ -184,9 +184,25 @@ function DocumentoCard({ documento, onAbrir, onDescargar, onEditar, onEliminar, 
                 <FontAwesome6 name="file-lines" size={18} color={colors.primary} />
 
                 <View style={styles.cardBody}>
-                    <Text style={styles.cardNombre} numberOfLines={1}>
-                        {documento.NombreArchivo}
-                    </Text>
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 2 }}>
+                        <Text style={[styles.cardNombre, { flexShrink: 1 }]} numberOfLines={1}>
+                            {documento.NombreArchivo}
+                        </Text>
+                        <View
+                            style={{
+                                paddingHorizontal: 6,
+                                paddingVertical: 2,
+                                borderRadius: 6,
+                                backgroundColor: documento.EsPublico ? "#e0f2fe" : "#f3e8ff",
+                                marginTop: 2,
+                            }}
+                        >
+                            <Text style={{ fontSize: 10, fontWeight: "700", color: documento.EsPublico ? "#0369a1" : "#6b21a8" }}>
+                                {documento.EsPublico ? "PÚBLICO" : "PRIVADO"}
+                            </Text>
+                        </View>                        
+                    </View>
+                    
                     <Text style={styles.cardMeta}>
                         {documento.NombreCategoria} · Subido por {documento.NombreUsuarioSubida}
                     </Text>

@@ -172,14 +172,42 @@ export async function getTripPlaces(tripId) {
   return parseResponse(response, "No se pudieron obtener los lugares de interés");
 }
 
-export async function searchTripPlaces(tripId, query) {
+export async function searchTripPlaces(tripId, query, sessionToken) {
+  const params = new URLSearchParams({
+    q: query,
+  });
+
+  if (sessionToken) {
+    params.append("sessionToken", sessionToken);
+  }
+
   const response = await fetch(
-    `${API_BASE_URL}/trips/${tripId}/places/search?q=${encodeURIComponent(query)}`,
+    `${API_BASE_URL}/trips/${tripId}/places/search?${params.toString()}`,
     {
       headers: await authHeaders(),
     }
   );
+
   return parseResponse(response, "No se pudieron buscar lugares");
+}
+
+export async function resolveTripPlace(tripId, placeId, sessionToken) {
+  const params = new URLSearchParams({
+    placeId,
+  });
+
+  if (sessionToken) {
+    params.append("sessionToken", sessionToken);
+  }
+
+  const response = await fetch(
+    `${API_BASE_URL}/trips/${tripId}/places/resolve?${params.toString()}`,
+    {
+      headers: await authHeaders(),
+    }
+  );
+
+  return parseResponse(response, "No se pudo resolver el lugar seleccionado");
 }
 
 export async function getTripPopularPlaces(tripId, lat, lng, limit = 6) {
@@ -359,7 +387,6 @@ export async function deleteCurrentUser(password = null) {
     },
   };
 
-  // Solo enviamos contraseña si el usuario la tiene
   if (password) {
     options.headers["Content-Type"] = "application/json";
     options.body = JSON.stringify({ password });
@@ -583,14 +610,26 @@ export async function searchCurrencies(search = "") {
   return parseResponse(response, "No se pudieron obtener las monedas");
 }
 
-export async function searchDestinations(query) {
+export async function searchDestinations(query, sessionToken) {
+  const sessionParam = sessionToken ? `&sessionToken=${encodeURIComponent(sessionToken)}` : "";
   const response = await fetch(
-    `${API_BASE_URL}/trips/search?q=${encodeURIComponent(query)}`,
+    `${API_BASE_URL}/trips/search?q=${encodeURIComponent(query)}${sessionParam}`,
     {
       headers: await authHeaders(),
     }
   );
   return parseResponse(response, "No se pudieron buscar destinos");
+}
+
+export async function resolveDestination(placeId, sessionToken) {
+  const sessionParam = sessionToken ? `&sessionToken=${encodeURIComponent(sessionToken)}` : "";
+  const response = await fetch(
+    `${API_BASE_URL}/trips/destinations/resolve?placeId=${encodeURIComponent(placeId)}${sessionParam}`,
+    {
+      headers: await authHeaders(),
+    }
+  );
+  return parseResponse(response, "No se pudo resolver el destino seleccionado");
 }
 
 export async function createVotacion(payload) {
@@ -728,7 +767,8 @@ export async function uploadTripDocument(
   tripId,
   archivo,
   idCategoriaDocumento,
-  nombreArchivo
+  nombreArchivo,
+  esPublico
 ) {
   const token = await getStoredToken();
   const fileType = archivo.mimeType || archivo.type || "application/octet-stream";
@@ -749,6 +789,10 @@ export async function uploadTripDocument(
     formData.append("IdCategoriaDocumento", String(idCategoriaDocumento));
     if (nombreArchivo) formData.append("NombreArchivo", nombreArchivo);
 
+    if (esPublico !== undefined && esPublico !== null) {
+      formData.append("EsPublico", String(esPublico));
+    }
+
     const response = await fetch(`${API_BASE_URL}/trips/${tripId}/documents`, {
       method: "POST",
       headers: { Authorization: `Bearer ${token}` },
@@ -761,6 +805,7 @@ export async function uploadTripDocument(
 
     const parameters = {
       IdCategoriaDocumento: String(idCategoriaDocumento),
+      ...(esPublico !== undefined && esPublico !== null && { EsPublico: String(esPublico) }),
     };
     if (nombreArchivo) {
       parameters.NombreArchivo = nombreArchivo;
@@ -797,6 +842,7 @@ export async function uploadTripDocument(
   }
 }
 
+
 export async function getTripDocuments(tripId) {
   const token = await getStoredToken();
 
@@ -808,10 +854,7 @@ export async function getTripDocuments(tripId) {
   return parseResponse(response, "No se pudieron cargar los documentos del viaje");
 }
 
-// US 41 - Descargar documento.
-// El backend valida que quien pide el archivo sea integrante del viaje
-// (AC3), por eso siempre se pide con el token de autenticación en vez de
-// usar directamente la URL pública del bucket.
+
 export async function downloadTripDocument(tripId, documentId, nombreArchivo) {
   const token = await getStoredToken();
   const downloadUrl = `${API_BASE_URL}/trips/${tripId}/documents/${documentId}/download`;
@@ -862,7 +905,7 @@ export async function downloadTripDocument(tripId, documentId, nombreArchivo) {
   }
 }
 
-// US 51 - Eliminar documento del repositorio.
+
 export async function deleteTripDocument(tripId, documentId) {
   const response = await fetch(
     `${API_BASE_URL}/trips/${tripId}/documents/${documentId}`,
@@ -918,7 +961,8 @@ export async function updateTripDocument(
   documentId,
   archivo,
   idCategoriaDocumento,
-  nombreArchivo
+  nombreArchivo,
+  esPublico
 ) {
   const token = await getStoredToken();
   const fileType = archivo ? (archivo.mimeType || archivo.type || "application/octet-stream") : null;
@@ -942,6 +986,9 @@ export async function updateTripDocument(
     if (idCategoriaDocumento !== null && idCategoriaDocumento !== undefined) {
       formData.append("IdCategoriaDocumento", String(idCategoriaDocumento));
     }
+    if (esPublico !== null && esPublico !== undefined) {
+      formData.append("EsPublico", String(esPublico));
+    }
     if (nombreArchivo) {
       formData.append("NombreArchivo", nombreArchivo);
     }
@@ -954,15 +1001,12 @@ export async function updateTripDocument(
 
     return parseResponse(response, "No se pudo actualizar el documento");
   } else {
-    // Entorno Mobile (Android / iOS con expo-file-system)
     const formData = new FormData();
 
     if (archivo && archivo.uri) {
-      // Si se proporciona un nuevo archivo físico
       const file = new File(archivo.uri);
       const safeName = nombreArchivo || archivo.name || "documento.pdf";
       
-      // Adjuntamos mediante multipart utilizando el objeto File de expo
       const result = await file.upload(
         `${API_BASE_URL}/trips/${tripId}/documents/${documentId}`,
         {
@@ -973,6 +1017,7 @@ export async function updateTripDocument(
           parameters: {
             ...(idCategoriaDocumento !== null && idCategoriaDocumento !== undefined && { IdCategoriaDocumento: String(idCategoriaDocumento) }),
             ...(nombreArchivo && { NombreArchivo: nombreArchivo }),
+            ...(esPublico !== undefined && esPublico !== null && { EsPublico: String(esPublico) }),
           },
           headers: {
             Authorization: `Bearer ${token}`,
@@ -995,13 +1040,15 @@ export async function updateTripDocument(
         return result.body;
       }
     } else {
-      // Si NO se reemplaza el archivo físico, mandamos una petición HTTP normal con JSON o FormData sin archivo
       const payload = {};
       if (idCategoriaDocumento !== null && idCategoriaDocumento !== undefined) {
         payload.IdCategoriaDocumento = Number(idCategoriaDocumento);
       }
       if (nombreArchivo) {
         payload.NombreArchivo = nombreArchivo;
+      }
+      if (esPublico !== undefined && esPublico !== null) {
+        payload.EsPublico = esPublico;
       }
 
       const response = await fetch(`${API_BASE_URL}/trips/${tripId}/documents/${documentId}`, {
@@ -1076,3 +1123,62 @@ export async function markAllNotificationsAsRead() {
   );
 }
 
+export async function uploadTripCover(tripId, archivo) {
+  const token = await getStoredToken();
+  const fileType = archivo.mimeType || archivo.type || "application/octet-stream";
+
+  if (Platform.OS === "web") {
+    const formData = new FormData();
+    const safeName = archivo.fileName || archivo.name || "portada.jpg";
+
+    if (archivo.file instanceof Blob || archivo.file instanceof File) {
+      formData.append("archivo", archivo.file, safeName);
+    } else if (archivo.uri && archivo.uri.startsWith("blob:")) {
+      const response = await fetch(archivo.uri);
+      const blob = await response.blob();
+      formData.append("archivo", blob, safeName);
+    } else {
+      formData.append("archivo", archivo, safeName);
+    }
+
+    const response = await fetch(`${API_BASE_URL}/trips/${tripId}/cover`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+      body: formData,
+    });
+
+    return parseResponse(response, "No se pudo subir la portada del viaje");
+  }
+
+  const file = new File(archivo.uri);
+  const result = await file.upload(`${API_BASE_URL}/trips/${tripId}/cover`, {
+    httpMethod: "POST",
+    uploadType: UploadType.MULTIPART,
+    fieldName: "archivo",
+    mimeType: fileType,
+    headers: { Authorization: `Bearer ${token}` },
+  });
+
+  if (result.status < 200 || result.status >= 300) {
+    let mensaje = "No se pudo subir la portada del viaje";
+    try {
+      const parsed = JSON.parse(result.body);
+      mensaje = parsed.detail || parsed.message || mensaje;
+    } catch {}
+    throw new Error(mensaje);
+  }
+
+  try {
+    return JSON.parse(result.body);
+  } catch {
+    return result.body;
+  }
+}
+
+export async function removeTripCover(tripId) {
+  const response = await fetch(`${API_BASE_URL}/trips/${tripId}/cover`, {
+    method: "DELETE",
+    headers: await authHeaders(),
+  });
+  return parseResponse(response, "No se pudo quitar la portada personalizada");
+}

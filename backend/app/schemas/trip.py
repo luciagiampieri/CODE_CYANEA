@@ -206,6 +206,9 @@ class TripDetailRead(TripRead):
     externalInvitations: list[TripExternalInvitationRead] = Field(default_factory=list)
     invitedEmails: list[str] = Field(default_factory=list)
     hasLeft: bool = False
+    image: str | None = None
+    hasCustomCover: bool = False
+    defaultCoverImage: str | None = None
 
 
 class TripParticipantUpsert(BaseModel):

@@ -67,6 +67,11 @@ import {
 } from "../database/gastosLocal";
 
 import AddActivityScreen from "./AddActivityScreen";
+import AddGastoScreen from "./AddGastoScreen";
+import CrearVotacionScreen from "./CreateVotationScreen";
+import DocumentsScreen from "./DocumentsScreen";
+import EditDocumentScreen from "./EditDocumentScreen";
+import GuardarInformacionScreen from "./InformationScreen";
 import useItinerarioViewPreference from "../hooks/useItinerarioViewPreference";
 import useResponsive from "../hooks/useResponsive";
 import ItinerarioViewToggle from "../components/trip/ItinerarioViewToggle";
@@ -251,6 +256,8 @@ export default function TripDetailScreen({ navigation, route }) {
   const [mutatingParticipants, setMutatingParticipants] = useState(false);
   const [participantMessage, setParticipantMessage] = useState("");
   const [activityModalDay, setActivityModalDay] = useState(null);
+  const [showAddGastoModal, setShowAddGastoModal] = useState(false);
+  const [showCrearVotacionModal, setShowCrearVotacionModal] = useState(false);
   const [currentUser, setCurrentUser] = useState(null);
   const [showDeleteModal, setShowDeleteModal] = useState(false); 
   const [showOptionsMenu, setShowOptionsMenu] = useState(false);
@@ -260,6 +267,10 @@ export default function TripDetailScreen({ navigation, route }) {
   const [settlementError, setSettlementError] = useState("");
   const [documentos, setDocumentos] = useState([]);
   const [loadingDocumentos, setLoadingDocumentos] = useState(false);
+  const [showAddDocumentModal, setShowAddDocumentModal] = useState(false);
+  const [documentoAEditar, setDocumentoAEditar] = useState(null);
+  const [showInfoModal, setShowInfoModal] = useState(false);
+  const [infoItemToEdit, setInfoItemToEdit] = useState(null);
   const [documentosError, setDocumentosError] = useState("");
   const [categoriaDocFiltro, setCategoriaDocFiltro] = useState(ID_TODAS);
   const [repositorioItems, setRepositorioItems] = useState([]);
@@ -394,16 +405,6 @@ export default function TripDetailScreen({ navigation, route }) {
   }, []);
 
   useEffect(() => {
-    const nueva = route.params?.nuevaVotacion;
-    if (!nueva) return;
-    setVotacionesActivas((prev) => [
-      nueva,
-      ...prev.filter((v) => v.IdVotacion !== nueva.IdVotacion),
-    ]);
-    navigation.setParams({ nuevaVotacion: undefined });
-  }, [route.params?.nuevaVotacion]);
-
-  useEffect(() => {
     votacionesActivas.forEach(async (v) => {
       const finalizada = v.Estado
         ? v.Estado === "cerrada" || v.Estado === "cancelada"
@@ -455,7 +456,7 @@ export default function TripDetailScreen({ navigation, route }) {
       const detail = await getTripDetail(initialTrip.id);
       setTrip((current) => ({
         ...normalizeTrip(detail),
-        image: current?.image ?? initialTrip.image,
+        image: detail.image ?? initialTrip.image,
       }));
       return true;
     } catch (error) {
@@ -695,6 +696,14 @@ export default function TripDetailScreen({ navigation, route }) {
               return;
             }
             if (mensaje.tipo == "usuario_abandono_viaje"){
+              loadTripDetail();
+              return;
+            }
+            if (mensaje.tipo === "participante_acepto"){
+              loadTripDetail();
+              return;
+            }
+            if (mensaje.tipo === "viaje_actualizado"){
               loadTripDetail();
               return;
             }
@@ -1663,7 +1672,7 @@ export default function TripDetailScreen({ navigation, route }) {
                     icon="plus"
                     iconPosition="left"
                     label="Agregar gasto"
-                    onPress={() => navigation.navigate("AddGasto", { IdViaje: trip.id, Moneda: trip.currency })}
+                    onPress={() => setShowAddGastoModal(true)}
                     style={styles.fullButton}
                   />
                 ) : null}
@@ -1841,12 +1850,7 @@ export default function TripDetailScreen({ navigation, route }) {
                     onCategoriaChange={setCategoriaDocFiltro}
                     onAbrir={(documento) => abrirDocumento(documento.UrlArchivo)}
                     onDescargar={handleDescargarDocumento}
-                    onEditar={!trip?.hasLeft ? (documento) =>
-                      navigation.navigate("EditDocument", {
-                        tripId: trip.id,
-                        documento,
-                      }): undefined
-                    }
+                    onEditar={!trip?.hasLeft ? (documento) => setDocumentoAEditar(documento) : undefined}
                     onEliminar={!trip?.hasLeft ? eliminarDocumento : undefined}
                     descargandoDocId={descargandoDocId}
                     eliminandoDocId={eliminandoDocId}
@@ -1859,11 +1863,7 @@ export default function TripDetailScreen({ navigation, route }) {
                   label="Subir documentos"
                   icon="folder-open"
                   iconPosition="left"
-                  onPress={() =>
-                    navigation.navigate("Documents", {
-                      tripId: trip.id,
-                    })
-                  }
+                  onPress={() => setShowAddDocumentModal(true)}
                   style={[styles.fullButton, { marginTop: spacing.md }]}
                 />
               ) : null}
@@ -1909,7 +1909,7 @@ export default function TripDetailScreen({ navigation, route }) {
                           />
                           <View style={{ flex: 1 }}>
                             <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-                              <Text style={styles.sectionCopy}>{item.Titulo}</Text>
+                              <Text style={{ fontSize: 15, fontWeight: "600", color: colors.textPrimary }}>{item.Titulo}</Text>
                               <View
                                 style={{
                                   paddingHorizontal: 6,
@@ -1949,18 +1949,10 @@ export default function TripDetailScreen({ navigation, route }) {
                           {item.EsPropio && !trip?.hasLeft ? (
                             <>
                               <Pressable
-                                onPress={() =>
-                                  navigation.navigate("GuardarInformacion", {
-                                    tripId: trip.id,
-                                    item,
-                                    onItemGuardado: (actualizado) =>
-                                      setRepositorioItems((prev) =>
-                                        prev.map((i) =>
-                                          i.IdItemRepositorio === actualizado.IdItemRepositorio ? actualizado : i
-                                        )
-                                      ),
-                                  })
-                                }
+                                onPress={() => {
+                                  setInfoItemToEdit(item);
+                                  setShowInfoModal(true);
+                                }}
                                 style={{ flexDirection: "row", alignItems: "center", gap: 4 }}
                               >
                                 <FontAwesome6 name="pen" size={13} color={colors.textSecondary} />
@@ -1990,13 +1982,10 @@ export default function TripDetailScreen({ navigation, route }) {
                   label="Agregar información"
                   icon="plus"
                   iconPosition="left"
-                  onPress={() =>
-                    navigation.navigate("GuardarInformacion", {
-                      tripId: trip.id,
-                      onItemGuardado: (nuevoItem) =>
-                        setRepositorioItems((prev) => [nuevoItem, ...prev]),
-                    })
-                  }
+                  onPress={() => {
+                    setInfoItemToEdit(null);
+                    setShowInfoModal(true);
+                  }}
                   style={[styles.fullButton, { marginTop: spacing.md }]}
                 />
               ) : null}
@@ -2019,11 +2008,7 @@ export default function TripDetailScreen({ navigation, route }) {
                     marginBottom: 16,
                     opacity: pressed ? 0.85 : 1,
                   })}
-                  onPress={() => navigation.navigate("CrearVotacion", {
-                      IdViaje: trip.id,
-                      onVotacionCreada: (nuevaVotacion) =>
-                          setVotacionesActivas((prev) => [nuevaVotacion, ...prev]),
-                  })}
+                  onPress={() => setShowCrearVotacionModal(true)}
                 >
                   <FontAwesome6 name="plus" size={14} color="#fff" />
                   <Text style={{ color: "#fff", fontWeight: "800" }}>Crear votación</Text>
@@ -2284,9 +2269,8 @@ export default function TripDetailScreen({ navigation, route }) {
                     onPress={() => {
                       if (isUserAdmin && eligibleNewAdmins.length > 0) {
                         setNuevoAdminId(null);
-                        setShowLeaveModal(true); // Abre el modal para elegir sucesor
+                        setShowLeaveModal(true);
                       } else {
-                        // Si es participante común o único administrador, va directo al flujo normal
                         handleLeaveTripPress();
                       }
                     }}
@@ -2318,6 +2302,54 @@ export default function TripDetailScreen({ navigation, route }) {
         activityToEdit={activityModalDay?.activity}
         onCancelEdit={(activityId) => {
           finalizarEdicionActividad(activityId);
+        }}
+      />
+      <AddGastoScreen
+        visible={showAddGastoModal}
+        IdViaje={trip?.id}
+        Moneda={trip?.currency}
+        onClose={() => setShowAddGastoModal(false)}
+        onGastoCreado={() => {
+          loadSettlement();
+        }}
+      />
+      <CrearVotacionScreen
+        visible={showCrearVotacionModal}
+        onClose={() => setShowCrearVotacionModal(false)}
+        IdViaje={trip?.id}
+        onVotacionCreada={(nuevaVotacion) => {
+          setVotacionesActivas((prev) => [
+            nuevaVotacion,
+            ...prev.filter((v) => v.IdVotacion !== nuevaVotacion.IdVotacion),
+          ]);
+        }}
+      />
+      <DocumentsScreen
+        visible={showAddDocumentModal}
+        onClose={() => setShowAddDocumentModal(false)}
+        tripId={trip?.id}
+        onDocumentoSubido={() => loadDocumentos()}
+      />
+      <EditDocumentScreen
+        visible={!!documentoAEditar}
+        onClose={() => setDocumentoAEditar(null)}
+        tripId={trip?.id}
+        documento={documentoAEditar}
+        onDocumentoEditado={() => loadDocumentos()}
+      />
+      <GuardarInformacionScreen
+        visible={showInfoModal}
+        onClose={() => setShowInfoModal(false)}
+        tripId={trip?.id}
+        item={infoItemToEdit}
+        onItemGuardado={(guardado) => {
+          if (infoItemToEdit) {
+            setRepositorioItems((prev) => 
+              prev.map((i) => i.IdItemRepositorio === guardado.IdItemRepositorio ? guardado : i)
+            );
+          } else {
+            setRepositorioItems((prev) => [guardado, ...prev]);
+          }
         }}
       />
 
