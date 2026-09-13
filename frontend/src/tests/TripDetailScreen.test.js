@@ -1,7 +1,15 @@
 import { render, waitFor, fireEvent } from "@testing-library/react-native";
 import { Alert } from "react-native";
 import TripDetailScreen from "../screens/TripDetailScreen";
-import { getCurrentUser, leaveTrip, getTripDetail, getTripPlaces } from "../services/api";
+import {
+  getCurrentUser,
+  leaveTrip,
+  getTripDetail,
+  getTripPlaces,
+  getTripSettlement,
+  getTripDocuments,
+  getVotaciones,
+} from "../services/api";
 
 jest.mock("react-native-maps", () => {
   const React = require("react");
@@ -338,5 +346,117 @@ describe("US 68 - Abandonar un viaje (Suite completa de tests frontend)", () => 
 
     expect(leaveTrip).not.toHaveBeenCalled();
     expect(queryByText("Transferir administración")).toBeNull();
+  });
+
+  test("11. en la pestaña de resumen, un viaje finalizado muestra 'Finalizado' y no 'En curso'", async () => {
+    const tripFinished = {
+      ...mockTripActive,
+      status: "finalizado",
+      startDate: "2026-01-01",
+      endDate: "2026-01-05",
+    };
+
+    getTripDetail.mockResolvedValueOnce(tripFinished);
+
+    const { findByText, queryByText } = await render(
+      <TripDetailScreen
+        navigation={{ goBack: mockGoBack, navigate: mockNavigate, setParams: jest.fn(), addListener: jest.fn(() => jest.fn()) }}
+        route={{ params: { trip: tripFinished } }}
+      />
+    );
+
+    expect(await findByText("Finalizado")).toBeTruthy();
+    expect(queryByText("En curso")).toBeNull();
+  });
+
+  describe("US 77 - Visualizar resumen de viaje", () => {
+    const tripSummary = {
+      id: 99,
+      title: "Viaje a Ushuaia",
+      destination: "Ushuaia, Argentina",
+      status: "activo",
+      hasLeft: false,
+      currency: "USD",
+      startDate: "2026-10-10",
+      endDate: "2026-10-15",
+      admin: { id: 2, nombreCompleto: "Admin Test", email: "admin@test.com" },
+      participants: [
+        { id: 1, nombreCompleto: "Juan Pérez", role: "participante", status: "aceptado" },
+        { id: 2, nombreCompleto: "Admin Test", role: "administrador", status: "aceptado" },
+      ],
+      cronograma: [],
+    };
+
+    beforeEach(() => {
+      getTripDetail.mockResolvedValue(tripSummary);
+      getTripSettlement.mockResolvedValue({
+        Moneda: "USD",
+        TotalGastosViaje: 1250,
+        TotalGastosRegistrados: 3,
+        Gastos: [{}, {}, {}],
+        ResumenParticipantes: [],
+        Transferencias: [],
+      });
+      getTripDocuments.mockResolvedValue([
+        { IdDocumento: 1, NombreArchivo: "Itinerario.pdf" },
+        { IdDocumento: 2, NombreArchivo: "Presupuesto.pdf" },
+      ]);
+      getVotaciones.mockResolvedValue([
+        { IdVotacion: 1, Estado: "abierta", YaVoto: false },
+      ]);
+    });
+
+    test("1. la vista de resumen se renderiza con las métricas clave del viaje", async () => {
+      const { findByText } = await render(
+        <TripDetailScreen
+          navigation={{ goBack: mockGoBack, navigate: mockNavigate, setParams: jest.fn(), addListener: jest.fn(() => jest.fn()) }}
+          route={{ params: { trip: tripSummary } }}
+        />
+      );
+
+      expect(await findByText("Noches")).toBeTruthy();
+      expect(await findByText("Viajeros")).toBeTruthy();
+      expect(await findByText("Total gastado (USD)")).toBeTruthy();
+      expect(await findByText("Faltan")).toBeTruthy();
+    });
+
+    test("2. se muestra la sumatoria total de gastos con la moneda del viaje", async () => {
+      const { findByText } = await render(
+        <TripDetailScreen
+          navigation={{ goBack: mockGoBack, navigate: mockNavigate, setParams: jest.fn(), addListener: jest.fn(() => jest.fn()) }}
+          route={{ params: { trip: tripSummary } }}
+        />
+      );
+
+      expect(await findByText("Total gastado (USD)")).toBeTruthy();
+    });
+
+    test("6. los contadores rápidos reflejan gastos, documentos y decisiones actuales", async () => {
+      const { findByText } = await render(
+        <TripDetailScreen
+          navigation={{ goBack: mockGoBack, navigate: mockNavigate, setParams: jest.fn(), addListener: jest.fn(() => jest.fn()) }}
+          route={{ params: { trip: tripSummary } }}
+        />
+      );
+
+      expect(await findByText("Ver gastos")).toBeTruthy();
+      expect(await findByText("3 registrados")).toBeTruthy();
+      expect(await findByText("Documentos")).toBeTruthy();
+      expect(await findByText("2 subidos")).toBeTruthy();
+      expect(await findByText("Decisiones")).toBeTruthy();
+      expect(await findByText("1 pendiente")).toBeTruthy();
+    });
+
+    test("7. al presionar un acceso rápido se redirige a la sección correspondiente", async () => {
+      const { findByText } = await render(
+        <TripDetailScreen
+          navigation={{ goBack: mockGoBack, navigate: mockNavigate, setParams: jest.fn(), addListener: jest.fn(() => jest.fn()) }}
+          route={{ params: { trip: tripSummary } }}
+        />
+      );
+
+      fireEvent.press(await findByText("Ver gastos"));
+      expect(await findByText("Gastos del viaje")).toBeTruthy();
+    });
   });
 });

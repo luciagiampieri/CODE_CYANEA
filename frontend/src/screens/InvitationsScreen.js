@@ -161,7 +161,6 @@ export default function InvitationsScreen({ navigation }) {
           <View style={styles.headerRow}>
             <IconCircleButton icon="arrow-left" onPress={() => navigation.goBack()} tone="light" />
           </View>
-          <Text style={styles.eyebrow}>Centro de Actividad</Text>
           <Text style={styles.title}>Notificaciones e Invitaciones</Text>
           <Text style={styles.copy}>Revisá las invitaciones a nuevos viajes y avisos importantes de tus grupos.</Text>
         </View>
@@ -263,16 +262,17 @@ const styles = StyleSheet.create({
   header: {
     backgroundColor: colors.primary,
     paddingHorizontal: spacing.lg,
-    paddingTop: spacing.sm,
+    paddingTop: spacing.lg,
     paddingBottom: spacing.xl,
     borderBottomLeftRadius: 32,
     borderBottomRightRadius: 32,
-    alignItems: "left",
+    alignItems: "center",
   },
   headerRow: {
     flexDirection: "row",
     justifyContent: "space-between",
-    alignItems: "left",
+    alignItems: "center",
+    alignSelf: "flex-start",
   },
   actionBar: {
     flexDirection: "row",
@@ -305,13 +305,13 @@ const styles = StyleSheet.create({
     color: colors.textInverse,
     fontSize: 26,
     marginTop: spacing.xs,
-    textAlign: "left",
+    textAlign: "center",
   },
   copy: {
     ...textStyles.body,
     color: "rgba(255,255,255,0.8)",
     marginTop: spacing.xs,
-    textAlign: "left",
+    textAlign: "center",
   },
   body: {
     backgroundColor: colors.background,

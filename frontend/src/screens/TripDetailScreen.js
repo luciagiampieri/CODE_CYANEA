@@ -57,8 +57,7 @@ import {
   deleteActivity,
   generateTripRoute,
   leaveTrip,
-} from "../services/api"
-;
+} from "../services/api";
 import { colors, radii, spacing, surfaces, textStyles } from "../theme/tokens";
 
 import {
@@ -78,11 +77,12 @@ import ItinerarioViewToggle from "../components/trip/ItinerarioViewToggle";
 import ItinerarioCalendarView from "../components/trip/ItinerarioCalendarView";
 import { buildRouteMarkers } from "../utils/routeMarkers";
 
-
 const tabs = [
+  { id: "resumen", label: "Resumen", icon: "chart-pie" },
   { id: "itinerario", label: "Itinerario", icon: "map" },
   { id: "gastos", label: "Gastos", icon: "sack-dollar" },
   { id: "docs", label: "Docs", icon: "folder" },
+  { id: "checklist", label: "Checklist", icon: "list-check" },
   { id: "votar", label: "Votar", icon: "check-to-slot" },
   { id: "grupo", label: "Grupo", icon: "users" },
 ];
@@ -148,13 +148,15 @@ function formatDayDate(dateString) {
   if (Number.isNaN(date.getTime())) return "";
 
   const formattedDate = new Intl.DateTimeFormat("es-AR", {
-    weekday: "long", 
-    day: "2-digit",   
+    weekday: "long",
+    day: "2-digit",
     month: "long",
-    timeZone: "UTC"
+    timeZone: "UTC",
   }).format(date);
 
-  return formattedDate.replace(/(\p{L})\p{L}*/gu, (word) => word.charAt(0).toLocaleUpperCase("es-AR") + word.slice(1).toLocaleLowerCase("es-AR"));
+  return formattedDate.replace(/(\p{L})\p{L}*/gu, (word) =>
+    word.charAt(0).toLocaleUpperCase("es-AR") + word.slice(1).toLocaleLowerCase("es-AR")
+  );
 }
 
 function formatDayDateCorta(dateString) {
@@ -169,7 +171,9 @@ function formatDayDateCorta(dateString) {
     timeZone: "UTC",
   }).format(date);
 
-  return formattedDate.replace(/(\p{L})\p{L}*/gu, (word) => word.charAt(0).toLocaleUpperCase("es-AR") + word.slice(1).toLocaleLowerCase("es-AR"));
+  return formattedDate.replace(/(\p{L})\p{L}*/gu, (word) =>
+    word.charAt(0).toLocaleUpperCase("es-AR") + word.slice(1).toLocaleLowerCase("es-AR")
+  );
 }
 
 function formatFechaHoraCierre(dateString) {
@@ -185,6 +189,7 @@ function formatFechaHoraCierre(dateString) {
     minute: "2-digit",
   }).format(date);
 }
+
 const ESTADO_VOTACION_LABEL = {
   abierta: "Activa",
   cerrada: "Cerrada",
@@ -215,13 +220,14 @@ function confirmar(titulo, mensaje, onConfirmar) {
 function formatMoney(amount, currency) {
   const numeric = Number(amount ?? 0);
   if (Number.isNaN(numeric)) {
-    return `${currency} 0,00`;
+    return `${currency || "ARS"} 0,00`;
   }
 
   return new Intl.NumberFormat("es-AR", {
     style: "currency",
-    currency: currency || "EUR",
-    minimumFractionDigits: 2,
+    currency: currency || "ARS",
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 2,
   }).format(numeric);
 }
 
@@ -230,8 +236,10 @@ export default function TripDetailScreen({ navigation, route }) {
   const { width, isTablet } = useResponsive();
   const isNarrowMobile = !isTablet && width < 430;
   const [trip, setTrip] = useState(initialTrip);
-  const [activeTab, setActiveTab] = useState("itinerario");
-  const [expandedDayId, setExpandedDayId] = useState(initialTrip?.cronograma[0]?.IdDiaCronograma ?? initialTrip?.cronograma[0]?.id ?? null);
+  const [activeTab, setActiveTab] = useState("resumen");
+  const [expandedDayId, setExpandedDayId] = useState(
+    initialTrip?.cronograma[0]?.IdDiaCronograma ?? initialTrip?.cronograma[0]?.id ?? null
+  );
   const [votacionesActivas, setVotacionesActivas] = useState([]);
   const [loadingVotaciones, setLoadingVotaciones] = useState(false);
   const [votacionesError, setVotacionesError] = useState("");
@@ -259,7 +267,7 @@ export default function TripDetailScreen({ navigation, route }) {
   const [showAddGastoModal, setShowAddGastoModal] = useState(false);
   const [showCrearVotacionModal, setShowCrearVotacionModal] = useState(false);
   const [currentUser, setCurrentUser] = useState(null);
-  const [showDeleteModal, setShowDeleteModal] = useState(false); 
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [showOptionsMenu, setShowOptionsMenu] = useState(false);
   const [activityEditMessage, setActivityEditMessage] = useState("");
   const [settlement, setSettlement] = useState(null);
@@ -298,13 +306,11 @@ export default function TripDetailScreen({ navigation, route }) {
 
     return trip.participants.filter(
       (participant) =>
-        String(participant.id ?? participant.IdUsuario) !==
-        String(currentUser.id)
+        String(participant.id ?? participant.IdUsuario) !== String(currentUser.id)
     );
   }, [trip?.participants, currentUser]);
 
   const handleLeaveTripPress = () => {
-
     if (trip?.status && trip.status !== "activo") {
       avisar(
         "Acción no permitida",
@@ -343,28 +349,25 @@ export default function TripDetailScreen({ navigation, route }) {
       const response = await leaveTrip(trip.id, {
         confirmar: true,
         nuevoAdministradorId:
-          isUserAdmin && administradorNuevo
-            ? Number(administradorNuevo)
-            : null,
+          isUserAdmin && administradorNuevo ? Number(administradorNuevo) : null,
       });
 
       setShowLeaveModal(false);
       setNuevoAdminId(null);
 
-       if (socketRef.current) {
+      if (socketRef.current) {
         socketRef.current.onclose = null;
         socketRef.current.close();
         socketRef.current = null;
       }
 
       setTrip((prev) => ({
-      ...prev,
-      hasLeft: true,
+        ...prev,
+        hasLeft: true,
       }));
 
       avisar("¡Listo!", response?.message || "Has abandonado el viaje correctamente.");
       loadTripDetail();
-
     } catch (error) {
       avisar(
         "No se pudo abandonar el viaje",
@@ -385,7 +388,7 @@ export default function TripDetailScreen({ navigation, route }) {
     return false;
   }
 
-  function finalizarEdicionActividad(activityId){
+  function finalizarEdicionActividad(activityId) {
     enviarMensajeWebSocket({
       tipo: "finalizar_edicion",
       idActividad: activityId,
@@ -418,7 +421,9 @@ export default function TripDetailScreen({ navigation, route }) {
         } catch (error) {
           setResultadosPorVotacion((prev) => ({
             ...prev,
-            [v.IdVotacion]: { error: error.message || "No se pudieron cargar los resultados." },
+            [v.IdVotacion]: {
+              error: error.message || "No se pudieron cargar los resultados.",
+            },
           }));
         }
         return;
@@ -428,8 +433,7 @@ export default function TripDetailScreen({ navigation, route }) {
         try {
           const data = await getProgresoVotacion(v.IdVotacion);
           setResultadosPorVotacion((prev) => ({ ...prev, [v.IdVotacion]: data }));
-        } catch (error) {
-        }
+        } catch (error) {}
       }
     });
   }, [votacionesActivas]);
@@ -495,7 +499,9 @@ export default function TripDetailScreen({ navigation, route }) {
       const data = await getTripDocuments(initialTrip.id);
       setDocumentos(data);
     } catch (error) {
-      setDocumentosError(error.message || "No se pudieron cargar los documentos del viaje.");
+      setDocumentosError(
+        error.message || "No se pudieron cargar los documentos del viaje."
+      );
     } finally {
       setLoadingDocumentos(false);
     }
@@ -512,7 +518,9 @@ export default function TripDetailScreen({ navigation, route }) {
       const data = await getRepositorioItems(initialTrip.id);
       setRepositorioItems(data);
     } catch (error) {
-      setRepositorioError(error.message || "No se pudo cargar la información del repositorio.");
+      setRepositorioError(
+        error.message || "No se pudo cargar la información del repositorio."
+      );
     } finally {
       setLoadingRepositorio(false);
     }
@@ -557,7 +565,6 @@ export default function TripDetailScreen({ navigation, route }) {
     }
   }
 
-
   async function handleDescargarDocumento(documento) {
     try {
       setDescargandoDocId(documento.IdDocumento);
@@ -569,65 +576,65 @@ export default function TripDetailScreen({ navigation, route }) {
           : "El documento se guardó en tu dispositivo."
       );
     } catch (error) {
-      avisar("Error", error.message || "No se pudo descargar el documento. Intentá nuevamente.");
+      avisar(
+        "Error",
+        error.message || "No se pudo descargar el documento. Intentá nuevamente."
+      );
     } finally {
       setDescargandoDocId(null);
     }
   }
 
-
   async function eliminarDocumento(documento) {
-      const ejecutar = async () => {
-        try {
-          setEliminandoDocId(documento.IdDocumento);
-          await deleteTripDocument(trip.id, documento.IdDocumento);
+    const ejecutar = async () => {
+      try {
+        setEliminandoDocId(documento.IdDocumento);
+        await deleteTripDocument(trip.id, documento.IdDocumento);
 
-          setDocumentos((prev) => {
-            const nuevosDocs = prev.filter((d) => d.IdDocumento !== documento.IdDocumento);
-            const quedanEnCategoria = nuevosDocs.some(
-              (d) => d.IdCategoriaDocumento === documento.IdCategoriaDocumento
-            );
-            setTimeout(() => {
-              if (quedanEnCategoria) {
-                avisar("Documento eliminado", "El documento se eliminó correctamente.");
-              } else {
-                avisar("Documento eliminado", "Documento eliminado. La categoría quedó sin documentos y ya no se mostrará.");
-                setCategoriaDocFiltro(ID_TODAS);
-              }
-            }, 150);
-            return nuevosDocs;
-          });
-        } catch (error) {
-          avisar("No se pudo eliminar", error.message || "Ocurrió un error al eliminar el documento.");
-        } finally {
-          setEliminandoDocId(null);
-        }
-      };
+        setDocumentos((prev) => {
+          const nuevosDocs = prev.filter((d) => d.IdDocumento !== documento.IdDocumento);
+          const quedanEnCategoria = nuevosDocs.some(
+            (d) => d.IdCategoriaDocumento === documento.IdCategoriaDocumento
+          );
+          setTimeout(() => {
+            if (quedanEnCategoria) {
+              avisar("Documento eliminado", "El documento se eliminó correctamente.");
+            } else {
+              avisar(
+                "Documento eliminado",
+                "Documento eliminado. La categoría quedó sin documentos y ya no se mostrará."
+              );
+              setCategoriaDocFiltro(ID_TODAS);
+            }
+          }, 150);
+          return nuevosDocs;
+        });
+      } catch (error) {
+        avisar("No se pudo eliminar", error.message || "Ocurrió un error al eliminar el documento.");
+      } finally {
+        setEliminandoDocId(null);
+      }
+    };
 
-      confirmar(
-        "Eliminar documento",
-        `¿Seguro que querés eliminar "${documento.NombreArchivo}"? Esta acción no se puede deshacer.`,
-        ejecutar
-      );
-    }
-
-  /*useEffect(() => {
-    loadTripDetail();
-  }, [loadTripDetail]);
-
-  useEffect(() => {
-    // Se carga también en "grupo" para poder advertir sobre saldos
-    // pendientes antes de confirmar la expulsión de un participante (US 73).
-    if (activeTab === "gastos" || activeTab === "grupo") {
-      loadSettlement();
-    }
-  }, [activeTab, loadSettlement]);*/
+    confirmar(
+      "Eliminar documento",
+      `¿Seguro que querés eliminar "${documento.NombreArchivo}"? Esta acción no se puede deshacer.`,
+      ejecutar
+    );
+  }
 
   useFocusEffect(
     useCallback(() => {
       loadTripDetail();
-      if (activeTab === "gastos" || activeTab === "grupo") {
+      if (
+        activeTab === "resumen" ||
+        activeTab === "gastos" ||
+        activeTab === "grupo"
+      ) {
         loadSettlement();
+      }
+      if (activeTab === "resumen" || activeTab === "docs") {
+        loadDocumentos();
       }
     }, [activeTab, loadSettlement, loadTripDetail, trip?.hasLeft])
   );
@@ -638,10 +645,10 @@ export default function TripDetailScreen({ navigation, route }) {
       loadRepositorio();
     }
   }, [activeTab, initialTrip?.id]);
-  
+
   useEffect(() => {
     if (!trip?.id || trip?.hasLeft) return;
-    
+
     let reconnectTimeout = null;
     let cancelado = false;
 
@@ -649,45 +656,35 @@ export default function TripDetailScreen({ navigation, route }) {
       if (cancelado) return;
       try {
         const url = await getItinerarySocketUrl(trip.id);
-        console.log("Conectando al WebSocket con URL:", url);
-    
         socketRef.current = new WebSocket(url);
-        console.log("WebSocket conectado");
-        
+
         socketRef.current.onmessage = (event) => {
-          console.log("Mensaje WebSocket recibido:", event.data);
           try {
             const mensaje = JSON.parse(event.data);
-            console.log("Mensaje WebSocket recibido:", mensaje);
 
             if (mensaje.tipo === "documento_actualizado") {
               loadDocumentos();
               return;
             }
 
-            if (mensaje.tipo === "edicion_rechazada"){
-              console.log("Edición rechazada:", mensaje.mensaje);
-
+            if (mensaje.tipo === "edicion_rechazada") {
               setActivityEditMessage(mensaje.mensaje);
-
               pendingEditRef.current = null;
               return;
             }
-            if (mensaje.tipo === "edicion_concedida"){
+            if (mensaje.tipo === "edicion_concedida") {
               const actividadPendiente = pendingEditRef.current;
-
-              if(actividadPendiente){
+              if (actividadPendiente) {
                 setActivityModalDay(actividadPendiente);
                 pendingEditRef.current = null;
               }
               return;
             }
-            if (mensaje.tipo === "votacion_actualizada"){
+            if (mensaje.tipo === "votacion_actualizada") {
               loadVotaciones();
               return;
             }
             if (mensaje.tipo === "usuario_anonimizado") {
-
               loadTripDetail();
               loadDocumentos();
               loadVotaciones();
@@ -695,19 +692,19 @@ export default function TripDetailScreen({ navigation, route }) {
               loadSettlement();
               return;
             }
-            if (mensaje.tipo == "usuario_abandono_viaje"){
+            if (mensaje.tipo === "usuario_abandono_viaje") {
               loadTripDetail();
               return;
             }
-            if (mensaje.tipo === "participante_acepto"){
+            if (mensaje.tipo === "participante_acepto") {
               loadTripDetail();
               return;
             }
-            if (mensaje.tipo === "viaje_actualizado"){
+            if (mensaje.tipo === "viaje_actualizado") {
               loadTripDetail();
               return;
             }
-            if (mensaje.tipo === "ruta_eliminada"){
+            if (mensaje.tipo === "ruta_eliminada") {
               setActivityFeedback({
                 success: false,
                 message:
@@ -830,14 +827,6 @@ export default function TripDetailScreen({ navigation, route }) {
     loadVotaciones();
   }, [trip?.id]);
 
-  /*useEffect(() => {
-    const unsubscribe = navigation.addListener("focus", () => {
-      loadTripDetail();
-      loadSettlement();
-    });
-    return unsubscribe;
-  }, [navigation, initialTrip?.id]);*/
-
   useEffect(() => {
     if (!trip || trip?.hasLeft) return;
     const timeoutId = setTimeout(async () => {
@@ -859,17 +848,16 @@ export default function TripDetailScreen({ navigation, route }) {
   useEffect(() => {
     async function precargarDatosOffline() {
       if (!trip?.id) return;
-      
+
       try {
         const [participantes, categorias] = await Promise.all([
           getTripParticipants(trip.id),
           getExpenseCategories(),
         ]);
-        
+
         guardarParticipantesEnCache(trip.id, participantes);
         guardarCategoriasEnCache(categorias);
-        console.log("Datos offline del viaje precargados correctamente.");
-        
+
         if (participantes) {
           setTrip((prev) => ({
             ...prev,
@@ -879,7 +867,6 @@ export default function TripDetailScreen({ navigation, route }) {
               : participantes.map((p) => p.id ?? p.IdUsuario ?? p.Id),
           }));
         }
-      
       } catch (error) {
         console.log("No se pudieron precargar datos offline del viaje:", error);
       }
@@ -888,7 +875,6 @@ export default function TripDetailScreen({ navigation, route }) {
   }, [trip?.id]);
 
   const normalizedSearch = participantSearch.trim().toLowerCase();
-
 
   const isAdmin = useMemo(() => {
     if (!currentUser || !trip?.admin) return false;
@@ -911,9 +897,12 @@ export default function TripDetailScreen({ navigation, route }) {
   const participantItems = useMemo(() => {
     if (!trip) return [];
     const registered = (trip.participants || []).map((user) => {
-      const nombreCompleto = user.nombreCompleto || user.name || 
-        (user.Nombre && user.Apellido ? `${user.Nombre} ${user.Apellido}` : null) || 
-        user.Nombre || "Usuario";
+      const nombreCompleto =
+        user.nombreCompleto ||
+        user.name ||
+        (user.Nombre && user.Apellido ? `${user.Nombre} ${user.Apellido}` : null) ||
+        user.Nombre ||
+        "Usuario";
 
       return {
         key: `user-${user.id ?? user.IdUsuario}`,
@@ -941,12 +930,77 @@ export default function TripDetailScreen({ navigation, route }) {
   }, [trip?.externalInvitations, trip?.participants]);
 
   const participantesActivos = useMemo(() => {
-    return participantItems.filter(p => p.status === "aceptado" || !p.status);
+    return participantItems.filter((p) => p.status === "aceptado" || !p.status);
   }, [participantItems]);
 
   const invitadosPendientes = useMemo(() => {
-    return participantItems.filter(p => p.status === "invitado");
+    return participantItems.filter((p) => p.status === "invitado");
   }, [participantItems]);
+
+  // Métricas del Resumen del Viaje
+  const tripSummaryMetrics = useMemo(() => {
+    let noches = 0;
+    let diasFaltan = 0;
+    let yaComenzo = false;
+    let estaFinalizado = false;
+
+    const tripStatus = String(trip?.status ?? "activo").toLowerCase();
+    estaFinalizado = ["finalizado", "cancelado", "eliminado"].includes(tripStatus);
+
+    if (trip?.startDate && trip?.endDate) {
+      const start = new Date(`${trip.startDate}T00:00:00`);
+      const end = new Date(`${trip.endDate}T00:00:00`);
+      const hoy = new Date();
+      hoy.setHours(0, 0, 0, 0);
+
+      const diffNoches = Math.round((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24));
+      noches = diffNoches > 0 ? diffNoches : 1;
+
+      const diffFaltan = Math.ceil((start.getTime() - hoy.getTime()) / (1000 * 60 * 60 * 24));
+      diasFaltan = diffFaltan;
+      yaComenzo = diffFaltan <= 0;
+
+      if (end < hoy || tripStatus === "finalizado" || tripStatus === "cancelado") {
+        estaFinalizado = true;
+        yaComenzo = true;
+      }
+    }
+
+    const cantGastos =
+      settlement?.TotalGastosRegistrados ?? (settlement?.Gastos?.length || 0);
+    const totalGastadoMonto = settlement?.TotalGastosViaje ?? 0;
+    const cantDocs = documentos?.length || 0;
+
+    const votacionesPendientes = votacionesActivas.filter(
+      (v) => v.Estado === "abierta" && !v.YaVoto
+    ).length;
+
+    let avance = 20;
+    if (cantGastos > 0) avance += 25;
+    if (cantDocs > 0) avance += 25;
+    if (participantesActivos.length > 1) avance += 30;
+    avance = Math.min(avance, 100);
+
+    return {
+      noches,
+      diasFaltan,
+      yaComenzo,
+      estaFinalizado,
+      cantGastos,
+      totalGastadoMonto,
+      cantDocs,
+      votacionesPendientes,
+      avance,
+    };
+  }, [
+    trip?.status,
+    trip?.startDate,
+    trip?.endDate,
+    settlement,
+    documentos,
+    votacionesActivas,
+    participantesActivos,
+  ]);
 
   function handleAddParticipant(user) {
     if (trip?.hasLeft) return;
@@ -976,7 +1030,7 @@ export default function TripDetailScreen({ navigation, route }) {
 
   function handleRemoveParticipant(participant) {
     if (trip?.hasLeft) return;
-    
+
     let mensaje = `¿Seguro que querés expulsar a ${participant.nombreCompleto} del viaje?`;
 
     if (participant.kind !== "external") {
@@ -991,11 +1045,13 @@ export default function TripDetailScreen({ navigation, route }) {
         )}. Su historial de gastos se conservará igual.`;
       }
     }
-    confirmar("Expulsar participante", mensaje, () => persistRemoveParticipant(participant));
+    confirmar("Expulsar participante", mensaje, () =>
+      persistRemoveParticipant(participant)
+    );
   }
 
   async function persistRemoveParticipant(participant) {
-    if  (trip?.hasLeft || !trip?.id) return;
+    if (trip?.hasLeft || !trip?.id) return;
     try {
       setMutatingParticipants(true);
       setParticipantMessage("");
@@ -1021,15 +1077,10 @@ export default function TripDetailScreen({ navigation, route }) {
 
   async function handleCreateActivity(payload) {
     if (!trip?.id || trip?.hasLeft || !activityModalDay) return;
-    
-    if (payload.id){
-      await updateActivity(
-      trip.id,
-      activityModalDay.id,
-      payload.id,
-      payload
-    );
-    finalizarEdicionActividad(payload.id);
+
+    if (payload.id) {
+      await updateActivity(trip.id, activityModalDay.id, payload.id, payload);
+      finalizarEdicionActividad(payload.id);
     } else {
       await createActivity(trip.id, activityModalDay.id, payload);
     }
@@ -1138,8 +1189,10 @@ export default function TripDetailScreen({ navigation, route }) {
       return;
     }
 
-    const getLat = (act) => act.lat ?? act.latitude ?? act.lugarInteres?.lat ?? act.lugarInteres?.latitude;
-    const getLng = (act) => act.lng ?? act.longitude ?? act.lugarInteres?.lng ?? act.lugarInteres?.longitude;
+    const getLat = (act) =>
+      act.lat ?? act.latitude ?? act.lugarInteres?.lat ?? act.lugarInteres?.latitude;
+    const getLng = (act) =>
+      act.lng ?? act.longitude ?? act.lugarInteres?.lng ?? act.lugarInteres?.longitude;
 
     const origen = actividadesConUbicacion[0];
     const destino = actividadesConUbicacion[actividadesConUbicacion.length - 1];
@@ -1151,14 +1204,14 @@ export default function TripDetailScreen({ navigation, route }) {
 
     const originCoords = `${getLat(origen)},${getLng(origen)}`;
     const destinationCoords = `${getLat(destino)},${getLng(destino)}`;
-    
+
     const modoSeleccionado = resolverModoDelDia(dayId, ruta);
     let travelmode = "walking";
     if (modoSeleccionado === "driving") travelmode = "driving";
     else if (modoSeleccionado === "bicycling") travelmode = "bicycling";
 
     let url = `https://www.google.com/maps/dir/?api=1&origin=${originCoords}&destination=${destinationCoords}&travelmode=${travelmode}`;
-    
+
     if (waypointsString) {
       url += `&waypoints=${waypointsString}`;
     }
@@ -1213,26 +1266,25 @@ export default function TripDetailScreen({ navigation, route }) {
     try {
       setShowDeleteModal(false);
       setLoading(true);
-      
+
       await deleteTrip(trip.id);
 
       setLoading(false);
       navigation.reset({
         index: 0,
-        routes: [{ name: "Tabs" }], 
+        routes: [{ name: "Tabs" }],
       });
 
       setTimeout(() => {
-        Alert.alert(
-          "Viaje dado de baja", 
-          "El viaje ha sido eliminado correctamente."
-        );
+        Alert.alert("Viaje dado de baja", "El viaje ha sido eliminado correctamente.");
       }, 300);
-
     } catch (error) {
       setLoading(false);
       setTimeout(() => {
-        Alert.alert("Error", error.message || "Ocurrió un problema al intentar eliminar el viaje.");
+        Alert.alert(
+          "Error",
+          error.message || "Ocurrió un problema al intentar eliminar el viaje."
+        );
       }, 300);
     }
   }
@@ -1259,16 +1311,19 @@ export default function TripDetailScreen({ navigation, route }) {
           <ActivityIndicator color={colors.primary} size="large" />
         </View>
       ) : null}
-      <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-        <ImageBackground 
-          imageStyle={styles.heroImage} 
-          source={{ uri: trip.image }} 
+      <ScrollView
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+      >
+        <ImageBackground
+          imageStyle={styles.heroImage}
+          source={{ uri: trip.image }}
           style={styles.hero}
         >
-          <LinearGradient 
-            colors={["rgba(4,16,36,0.15)", "rgba(9,19,45,0.82)"]} 
+          <LinearGradient
+            colors={["rgba(4,16,36,0.15)", "rgba(9,19,45,0.82)"]}
             style={styles.heroGradient}
-            pointerEvents="box-none" 
+            pointerEvents="box-none"
           >
             <View style={styles.heroActions} pointerEvents="box-none">
               <IconCircleButton icon="arrow-left" onPress={() => navigation.goBack()} />
@@ -1276,35 +1331,47 @@ export default function TripDetailScreen({ navigation, route }) {
                 {isAdmin && !trip?.hasLeft ? (
                   <IconCircleButton
                     icon="pen-to-square"
-                    onPress={() => navigation.navigate("EditarViaje", { tripId: trip.id })}
+                    onPress={() =>
+                      navigation.navigate("EditarViaje", { tripId: trip.id })
+                    }
                   />
                 ) : null}
-                
-                <IconCircleButton 
-                  icon="ellipsis-vertical" 
+
+                <IconCircleButton
+                  icon="ellipsis-vertical"
                   onPress={() => {
                     if (trip?.hasLeft) {
-                      Alert.alert("Modo consulta", "Estás consultando este viaje desde tu historial. No se puede gestionar.");
+                      Alert.alert(
+                        "Modo consulta",
+                        "Estás consultando este viaje desde tu historial. No se puede gestionar."
+                      );
                       return;
                     }
                     if (isAdmin) {
-                      setShowOptionsMenu(true); 
+                      setShowOptionsMenu(true);
                     } else {
-                      Alert.alert("Acceso denegado", "Solo el administrador de este viaje puede gestionarlo."); 
+                      Alert.alert(
+                        "Acceso denegado",
+                        "Solo el administrador de este viaje puede gestionarlo."
+                      );
                     }
-                  }} 
+                  }}
                 />
               </View>
             </View>
 
             <View style={styles.heroContent}>
-              <Text style={styles.heroMeta}>{`${formatHeroDate(trip)} · ${participantItems.length} ${participantItems.length === 1 ? "persona" : "personas"}`}</Text>
+              <Text style={styles.heroMeta}>{`${formatHeroDate(trip)} · ${
+                participantItems.length
+              } ${participantItems.length === 1 ? "persona" : "personas"}`}</Text>
               <Text style={styles.heroTitle}>{trip.title}</Text>
               <Text style={styles.heroSubtitle}>{trip.destination}</Text>
               <View style={styles.heroFooter}>
                 <AvatarStack
                   max={4}
-                  overflowLabel={participantItems.length > 4 ? `+${participantItems.length - 4}` : ""}
+                  overflowLabel={
+                    participantItems.length > 4 ? `+${participantItems.length - 4}` : ""
+                  }
                   participants={participantItems}
                   size={34}
                 />
@@ -1322,8 +1389,14 @@ export default function TripDetailScreen({ navigation, route }) {
                 onPress={() => setActiveTab(tab.id)}
                 style={[styles.tabButton, active && styles.tabButtonActive]}
               >
-                <FontAwesome6 color={active ? colors.accent : colors.primary} name={tab.icon} size={18} />
-                <Text style={[styles.tabText, active && styles.tabTextActive]}>{tab.label}</Text>
+                <FontAwesome6
+                  color={active ? colors.accent : colors.primary}
+                  name={tab.icon}
+                  size={18}
+                />
+                <Text style={[styles.tabText, active && styles.tabTextActive]}>
+                  {tab.label}
+                </Text>
               </Pressable>
             );
           })}
@@ -1331,11 +1404,7 @@ export default function TripDetailScreen({ navigation, route }) {
 
         {trip?.hasLeft ? (
           <View style={styles.readOnlyBanner}>
-            <FontAwesome6
-              name="triangle-exclamation"
-              size={16}
-              color={colors.warning}
-            />
+            <FontAwesome6 name="triangle-exclamation" size={16} color={colors.warning} />
 
             <View style={styles.readOnlyBannerContent}>
               <Text style={styles.readOnlyBannerTitle}>
@@ -1356,23 +1425,200 @@ export default function TripDetailScreen({ navigation, route }) {
               <Text style={styles.sectionCopy}>{loadError}</Text>
             </View>
           ) : null}
+
+          {/* TAB 0: RESUMEN */}
+          {activeTab === "resumen" ? (
+            <View style={styles.summaryContainer}>
+              {/* Tarjetas de métricas superiores (4 cuadrantes) */}
+              <View style={styles.summaryGrid}>
+                <View style={styles.summaryCard}>
+                  <View style={styles.summaryIconWrap}>
+                    <FontAwesome6 name="moon" size={22} color={colors.primary} />
+                  </View>
+                  <Text style={styles.summaryValue}>{tripSummaryMetrics.noches}</Text>
+                  <Text style={styles.summaryLabel}>Noches</Text>
+                </View>
+
+                <View style={styles.summaryCard}>
+                  <View style={styles.summaryIconWrap}>
+                    <FontAwesome6 name="users" size={22} color={colors.primary} />
+                  </View>
+                  <Text style={styles.summaryValue}>{participantesActivos.length}</Text>
+                  <Text style={styles.summaryLabel}>Viajeros</Text>
+                </View>
+
+                <View style={styles.summaryCard}>
+                  <View style={styles.summaryIconWrap}>
+                    <FontAwesome6 name="sack-dollar" size={22} color={colors.primary} />
+                  </View>
+                  <Text style={styles.summaryValue} numberOfLines={1} adjustsFontSizeToFit>
+                    {formatMoney(
+                      tripSummaryMetrics.totalGastadoMonto,
+                      settlement?.Moneda || trip?.currency
+                    )}
+                  </Text>
+                  <Text style={styles.summaryLabel}>
+                    Total gastado ({settlement?.Moneda || trip?.currency || "ARS"})
+                  </Text>
+                </View>
+
+                <View style={styles.summaryCard}>
+                  <View style={styles.summaryIconWrap}>
+                    <FontAwesome6 name="clock" size={22} color={colors.primary} />
+                  </View>
+                  <Text style={styles.summaryValue}>
+                    {tripSummaryMetrics.estaFinalizado
+                      ? "Finalizado"
+                      : tripSummaryMetrics.yaComenzo
+                        ? "En curso"
+                        : `${tripSummaryMetrics.diasFaltan} días`}
+                  </Text>
+                  <Text style={styles.summaryLabel}>
+                    {tripSummaryMetrics.estaFinalizado ? "Estado" : tripSummaryMetrics.yaComenzo ? "Estado" : "Faltan"}
+                  </Text>
+                </View>
+              </View>
+
+              {/* Barra de progreso de Organización */}
+              <View style={styles.progressCard}>
+                <View style={styles.progressHeader}>
+                  <Text style={styles.progressTitle}>Organización del viaje</Text>
+                  <Text style={styles.progressPercent}>{tripSummaryMetrics.avance}%</Text>
+                </View>
+
+                <View style={styles.progressBarTrack}>
+                  <View
+                    style={[
+                      styles.progressBarFill,
+                      { width: `${tripSummaryMetrics.avance}%` },
+                    ]}
+                  />
+                </View>
+
+                <Text style={styles.progressHint}>
+                  Completa checklist, gastos y documentos para llegar al 100%
+                </Text>
+              </View>
+
+              {/* Tarjetas de Acceso Rápido */}
+              <View style={styles.quickAccessStack}>
+                <Pressable
+                  style={({ pressed }) => [
+                    styles.quickAccessRow,
+                    pressed && styles.quickAccessRowPressed,
+                  ]}
+                  onPress={() => setActiveTab("gastos")}
+                >
+                  <View style={styles.quickAccessLeft}>
+                    <View style={styles.quickAccessIconWrap}>
+                      <FontAwesome6 name="sack-dollar" size={18} color={colors.primary} />
+                    </View>
+                    <View>
+                      <Text style={styles.quickAccessTitle}>Ver gastos</Text>
+                      <Text style={styles.quickAccessSub}>
+                        {tripSummaryMetrics.cantGastos}{" "}
+                        {tripSummaryMetrics.cantGastos === 1
+                          ? "registrado"
+                          : "registrados"}
+                      </Text>
+                    </View>
+                  </View>
+                  <FontAwesome6 name="chevron-right" size={14} color={colors.primary} />
+                </Pressable>
+
+                <Pressable
+                  style={({ pressed }) => [
+                    styles.quickAccessRow,
+                    pressed && styles.quickAccessRowPressed,
+                  ]}
+                  onPress={() => setActiveTab("docs")}
+                >
+                  <View style={styles.quickAccessLeft}>
+                    <View style={styles.quickAccessIconWrap}>
+                      <FontAwesome6 name="file-lines" size={18} color={colors.primary} />
+                    </View>
+                    <View>
+                      <Text style={styles.quickAccessTitle}>Documentos</Text>
+                      <Text style={styles.quickAccessSub}>
+                        {tripSummaryMetrics.cantDocs}{" "}
+                        {tripSummaryMetrics.cantDocs === 1 ? "subido" : "subidos"}
+                      </Text>
+                    </View>
+                  </View>
+                  <FontAwesome6 name="chevron-right" size={14} color={colors.primary} />
+                </Pressable>
+
+                <Pressable
+                  style={({ pressed }) => [
+                    styles.quickAccessRow,
+                    pressed && styles.quickAccessRowPressed,
+                  ]}
+                  onPress={() => setActiveTab("checklist")}
+                >
+                  <View style={styles.quickAccessLeft}>
+                    <View style={styles.quickAccessIconWrap}>
+                      <FontAwesome6 name="clipboard-check" size={18} color={colors.primary} />
+                    </View>
+                    <View>
+                      <Text style={styles.quickAccessTitle}>Checklist</Text>
+                      <Text style={styles.quickAccessSub}>Ver tareas pendientes</Text>
+                    </View>
+                  </View>
+                  <FontAwesome6 name="chevron-right" size={14} color={colors.primary} />
+                </Pressable>
+
+                <Pressable
+                  style={({ pressed }) => [
+                    styles.quickAccessRow,
+                    pressed && styles.quickAccessRowPressed,
+                  ]}
+                  onPress={() => setActiveTab("votar")}
+                >
+                  <View style={styles.quickAccessLeft}>
+                    <View style={styles.quickAccessIconWrap}>
+                      <FontAwesome6 name="check-to-slot" size={18} color={colors.primary} />
+                    </View>
+                    <View>
+                      <Text style={styles.quickAccessTitle}>Decisiones</Text>
+                      <Text style={styles.quickAccessSub}>
+                        {tripSummaryMetrics.votacionesPendientes > 0
+                          ? `${tripSummaryMetrics.votacionesPendientes} pendiente${
+                              tripSummaryMetrics.votacionesPendientes > 1 ? "s" : ""
+                            }`
+                          : "Al día"}
+                      </Text>
+                    </View>
+                  </View>
+                  <FontAwesome6 name="chevron-right" size={14} color={colors.primary} />
+                </Pressable>
+              </View>
+            </View>
+          ) : null}
+
+          {/* TAB 1: ITINERARIO */}
           {activeTab === "itinerario" ? (
             <>
               <View style={styles.sectionCard}>
                 <Text style={styles.sectionHeading}>Explorar destinos</Text>
                 <Text style={styles.sectionCopy}>
-                  Abre el mapa del viaje para revisar destinos base y guardar lugares de interés con Google Maps.
+                  Abre el mapa del viaje para revisar destinos base y guardar lugares de
+                  interés con Google Maps.
                 </Text>
                 <PrimaryButton
                   icon="map-location-dot"
                   iconPosition="left"
                   label="Explorar destinos de interés"
-                  onPress={() => navigation.navigate("ExplorePlaces", { tripId: trip.id })}
+                  onPress={() =>
+                    navigation.navigate("ExplorePlaces", { tripId: trip.id })
+                  }
                   style={styles.fullButton}
                 />
               </View>
               <View style={styles.itinerarioHeader}>
-                <ItinerarioViewToggle onChange={setItinerarioView} value={itinerarioView} />
+                <ItinerarioViewToggle
+                  onChange={setItinerarioView}
+                  value={itinerarioView}
+                />
               </View>
             </>
           ) : null}
@@ -1384,24 +1630,37 @@ export default function TripDetailScreen({ navigation, route }) {
                 const isExpanded = expandedDayId === dayId;
 
                 return (
-                  <View key={dayId} style={[styles.dayCard, !isExpanded && styles.dayCardCompact]}>
+                  <View
+                    key={dayId}
+                    style={[styles.dayCard, !isExpanded && styles.dayCardCompact]}
+                  >
                     <Pressable
                       onPress={() => setExpandedDayId(isExpanded ? null : dayId)}
                       style={styles.dayHeader}
                     >
-                      <View style={[styles.dayIndex, isExpanded && styles.dayIndexActive]}>
-                        <Text style={[styles.dayIndexText, isExpanded && styles.dayIndexTextActive]}>
+                      <View
+                        style={[
+                          styles.dayIndex,
+                          isExpanded && styles.dayIndexActive,
+                        ]}
+                      >
+                        <Text
+                          style={[
+                            styles.dayIndexText,
+                            isExpanded && styles.dayIndexTextActive,
+                          ]}
+                        >
                           {dayIndex}
                         </Text>
                       </View>
-                      <View style={styles.dayTitleWrap} >
-                        <Text style={styles.dayTitle}>{dayDateText}</Text> 
+                      <View style={styles.dayTitleWrap}>
+                        <Text style={styles.dayTitle}>{dayDateText}</Text>
                         <Text style={styles.daySubtitle}>Día {dayIndex} del viaje</Text>
                       </View>
-                      <FontAwesome6 
-                        color={colors.textSecondary} 
-                        name={isExpanded ? "chevron-up" : "chevron-down"} 
-                        size={14} 
+                      <FontAwesome6
+                        color={colors.textSecondary}
+                        name={isExpanded ? "chevron-up" : "chevron-down"}
+                        size={14}
                       />
                     </Pressable>
 
@@ -1411,57 +1670,81 @@ export default function TripDetailScreen({ navigation, route }) {
                           actividades.map((item, actIndex) => (
                             <View key={item.id ?? actIndex} style={styles.agendaItem}>
                               <View style={styles.agendaIcon}>
-                                <FontAwesome6 color={colors.primary} name={item.icon ?? "location-dot"} size={14} />
+                                <FontAwesome6
+                                  color={colors.primary}
+                                  name={item.icon ?? "location-dot"}
+                                  size={14}
+                                />
                               </View>
                               <View style={styles.agendaContent}>
                                 <View style={styles.agendaHeaderRow}>
-                                  <Text style={styles.agendaTime}>{item.time ?? item.Hora ?? "---"}</Text>
-                                  <Text style={styles.agendaTitle}>{item.title ?? item.Titulo}</Text>
+                                  <Text style={styles.agendaTime}>
+                                    {item.time ?? item.Hora ?? "---"}
+                                  </Text>
+                                  <Text style={styles.agendaTitle}>
+                                    {item.title ?? item.Titulo}
+                                  </Text>
                                 </View>
                                 {!!item.note || item.Notas ? (
-                                  <Text style={styles.agendaNote}>{item.note ?? item.Notas}</Text>
+                                  <Text style={styles.agendaNote}>
+                                    {item.note ?? item.Notas}
+                                  </Text>
                                 ) : null}
                               </View>
                               {!trip?.hasLeft ? (
                                 <View style={styles.agendaActions}>
-                                <Pressable
-                                  hitSlop={8}
-                                  onPress={() => {
-                                    const enviado = enviarMensajeWebSocket({
-                                      tipo: "iniciar_edicion",
-                                      idActividad: item.id,
-                                    });
+                                  <Pressable
+                                    hitSlop={8}
+                                    onPress={() => {
+                                      const enviado = enviarMensajeWebSocket({
+                                        tipo: "iniciar_edicion",
+                                        idActividad: item.id,
+                                      });
 
-                                    if (!enviado) {
-                                      return;
+                                      if (!enviado) {
+                                        return;
+                                      }
+
+                                      pendingEditRef.current = {
+                                        id: dayId,
+                                        label: `${dayDateText} · Día ${dayIndex}`,
+                                        activity: item,
+                                      };
+                                    }}
+                                    style={styles.agendaActionButton}
+                                  >
+                                    <FontAwesome6
+                                      color={colors.primary}
+                                      name="pen"
+                                      size={13}
+                                    />
+                                  </Pressable>
+
+                                  <Pressable
+                                    hitSlop={8}
+                                    onPress={() =>
+                                      handleDeleteActivity(
+                                        dayId,
+                                        item.id,
+                                        item.title ?? item.Titulo
+                                      )
                                     }
-
-                                    pendingEditRef.current = {
-                                      id: dayId,
-                                      label: `${dayDateText} · Día ${dayIndex}`,
-                                      activity: item,
-                                    };
-                                  }}
-                                  style={styles.agendaActionButton}
-                                >
-                                  <FontAwesome6 color={colors.primary} name="pen" size={13} />
-                                </Pressable>
-
-                                <Pressable
-                                  hitSlop={8}
-                                  onPress={() =>
-                                    handleDeleteActivity(dayId, item.id, item.title ?? item.Titulo)
-                                  }
-                                  style={styles.agendaActionButton}
-                                >
-                                  <FontAwesome6 color={colors.textMuted} name="trash" size={13} />
-                                </Pressable>
-                              </View>
-                          ): null}
-                          </View>
-                        ))
-                      ): (
-                          <Text style={styles.sectionCopy}>No hay actividades agendadas para este día todavía.</Text>
+                                    style={styles.agendaActionButton}
+                                  >
+                                    <FontAwesome6
+                                      color={colors.textMuted}
+                                      name="trash"
+                                      size={13}
+                                    />
+                                  </Pressable>
+                                </View>
+                              ) : null}
+                            </View>
+                          ))
+                        ) : (
+                          <Text style={styles.sectionCopy}>
+                            No hay actividades agendadas para este día todavía.
+                          </Text>
                         )}
 
                         {!trip?.hasLeft ? (
@@ -1474,14 +1757,19 @@ export default function TripDetailScreen({ navigation, route }) {
                             }
                             style={styles.addActivityButton}
                           >
-                            <FontAwesome6 color={colors.primary} name="plus" size={12} />
+                            <FontAwesome6
+                              color={colors.primary}
+                              name="plus"
+                              size={12}
+                            />
                             <Text style={styles.addActivityText}>Agregar actividad</Text>
                           </Pressable>
                         ) : null}
 
                         {(() => {
                           const actividadesConUbicacion = actividades.filter(
-                            (item) => item.idLugarInteres || item.lugarInteres
+                            (item) =>
+                              item.idLugarInteres || item.lugarInteres
                           );
                           const puedeGenerarRuta = actividadesConUbicacion.length >= 2;
                           const generando = generandoRutaDayId === dayId;
@@ -1493,7 +1781,11 @@ export default function TripDetailScreen({ navigation, route }) {
                               {ruta ? (
                                 <View style={styles.routeSummaryRow}>
                                   <View style={styles.routeSummary}>
-                                    <FontAwesome6 color={colors.primary} name="route" size={13} />
+                                    <FontAwesome6
+                                      color={colors.primary}
+                                      name="route"
+                                      size={13}
+                                    />
                                     <Text style={styles.routeSummaryText}>
                                       {(ruta.distanciaMetros / 1000).toFixed(1)} km ·{" "}
                                       {Math.round(ruta.duracionSegundos / 60)} min
@@ -1510,11 +1802,17 @@ export default function TripDetailScreen({ navigation, route }) {
                                     >
                                       <FontAwesome6
                                         color={colors.primary}
-                                        name={diaConMapaVisible === dayId ? "chevron-up" : "map-location-dot"}
+                                        name={
+                                          diaConMapaVisible === dayId
+                                            ? "chevron-up"
+                                            : "map-location-dot"
+                                        }
                                         size={12}
                                       />
                                       <Text style={styles.routeMapToggleText}>
-                                        {diaConMapaVisible === dayId ? "Ocultar mapa" : "Ver mapa"}
+                                        {diaConMapaVisible === dayId
+                                          ? "Ocultar mapa"
+                                          : "Ver mapa"}
                                       </Text>
                                     </Pressable>
                                   ) : null}
@@ -1526,20 +1824,34 @@ export default function TripDetailScreen({ navigation, route }) {
                                   <MapCanvas
                                     initialCenter={
                                       routeMarkers[0]
-                                        ? { lat: routeMarkers[0].lat, lng: routeMarkers[0].lng }
+                                        ? {
+                                            lat: routeMarkers[0].lat,
+                                            lng: routeMarkers[0].lng,
+                                          }
                                         : undefined
                                     }
                                     markers={routeMarkers}
                                     routePolyline={ruta.polilineaCodificada}
                                   />
 
-                                  {/* Botón para abrir en Google Maps */}
                                   <Pressable
                                     style={styles.openGoogleMapsButton}
-                                    onPress={() => abrirGoogleMaps(dayId, actividadesConUbicacion, ruta)}
+                                    onPress={() =>
+                                      abrirGoogleMaps(
+                                        dayId,
+                                        actividadesConUbicacion,
+                                        ruta
+                                      )
+                                    }
                                   >
-                                    <FontAwesome6 name="map-location-dot" size={14} color={colors.textInverse} />
-                                    <Text style={styles.openGoogleMapsText}>Abrir en Google Maps</Text>
+                                    <FontAwesome6
+                                      name="map-location-dot"
+                                      size={14}
+                                      color={colors.textInverse}
+                                    />
+                                    <Text style={styles.openGoogleMapsText}>
+                                      Abrir en Google Maps
+                                    </Text>
                                   </Pressable>
                                 </View>
                               ) : null}
@@ -1565,10 +1877,17 @@ export default function TripDetailScreen({ navigation, route }) {
                                               [dayId]: modo.valor,
                                             }))
                                           }
-                                          style={[styles.modoChip, active && styles.modoChipActive]}
+                                          style={[
+                                            styles.modoChip,
+                                            active && styles.modoChipActive,
+                                          ]}
                                         >
                                           <FontAwesome6
-                                            color={active ? colors.textInverse : colors.primary}
+                                            color={
+                                              active
+                                                ? colors.textInverse
+                                                : colors.primary
+                                            }
                                             name={modo.icono}
                                             size={12}
                                           />
@@ -1587,16 +1906,25 @@ export default function TripDetailScreen({ navigation, route }) {
 
                                   <Pressable
                                     disabled={generando}
-                                    onPress={() => handleGenerarRuta(dayId, modoSeleccionado)}
+                                    onPress={() =>
+                                      handleGenerarRuta(dayId, modoSeleccionado)
+                                    }
                                     style={[
                                       styles.addActivityButton,
                                       generando && styles.addActivityButtonDisabled,
                                     ]}
                                   >
                                     {generando ? (
-                                      <ActivityIndicator color={colors.primary} size="small" />
+                                      <ActivityIndicator
+                                        color={colors.primary}
+                                        size="small"
+                                      />
                                     ) : (
-                                      <FontAwesome6 color={colors.primary} name="route" size={12} />
+                                      <FontAwesome6
+                                        color={colors.primary}
+                                        name="route"
+                                        size={12}
+                                      />
                                     )}
                                     <Text style={styles.addActivityText}>
                                       {generando
@@ -1609,8 +1937,8 @@ export default function TripDetailScreen({ navigation, route }) {
                                 </>
                               ) : (
                                 <Text style={styles.routeHint}>
-                                  Agregá al menos 2 actividades con ubicación para generar una ruta
-                                  automática.
+                                  Agrega al menos 2 actividades con ubicación para generar una
+                                  ruta automática.
                                 </Text>
                               )}
                             </View>
@@ -1624,7 +1952,9 @@ export default function TripDetailScreen({ navigation, route }) {
             ) : (
               <View style={styles.sectionCard}>
                 <Text style={styles.sectionHeading}>Fechas sin definir</Text>
-                <Text style={styles.sectionCopy}>Establecé las fechas de ida y vuelta para estructurar el cronograma.</Text>
+                <Text style={styles.sectionCopy}>
+                  Establecé las fechas de ida y vuelta para estructurar el cronograma.
+                </Text>
               </View>
             )
           ) : null}
@@ -1640,33 +1970,44 @@ export default function TripDetailScreen({ navigation, route }) {
                   label: `${day.dayDateText} · Día ${day.dayIndex}`,
                 })
               }
-              onDeleteActivity={!trip?.hasLeft ? (day, actividad) => 
-                handleDeleteActivity(day.dayId, actividad.id, actividad.title): undefined
+              onDeleteActivity={
+                !trip?.hasLeft
+                  ? (day, actividad) =>
+                      handleDeleteActivity(day.dayId, actividad.id, actividad.title)
+                  : undefined
               }
-              onEditActivity={!trip?.hasLeft ? (day, actividad) => {
-                const enviado = enviarMensajeWebSocket({
-                  tipo: "iniciar_edicion",
-                  idActividad: actividad.id,
-                });
+              onEditActivity={
+                !trip?.hasLeft
+                  ? (day, actividad) => {
+                      const enviado = enviarMensajeWebSocket({
+                        tipo: "iniciar_edicion",
+                        idActividad: actividad.id,
+                      });
 
-                if (!enviado) {
-                  return;
-                }
+                      if (!enviado) {
+                        return;
+                      }
 
-                pendingEditRef.current = {
-                  id: day.dayId,
-                  label: `${day.dayDateText} · Día ${day.dayIndex}`,
-                  activity: actividad,
-                };
-              } : undefined}
+                      pendingEditRef.current = {
+                        id: day.dayId,
+                        label: `${day.dayDateText} · Día ${day.dayIndex}`,
+                        activity: actividad,
+                      };
+                    }
+                  : undefined
+              }
             />
           ) : null}
 
+          {/* TAB 2: GASTOS */}
           {activeTab === "gastos" ? (
             <View style={styles.sectionStack}>
               <View style={styles.sectionCard}>
                 <Text style={styles.sectionHeading}>Gastos del viaje</Text>
-                <Text style={styles.sectionCopy}>Moneda base: {trip.currency}. Puedes cargar nuevos gastos o revisar el balance del grupo.</Text>
+                <Text style={styles.sectionCopy}>
+                  Moneda base: {trip.currency}. Puedes cargar nuevos gastos o revisar el balance
+                  del grupo.
+                </Text>
                 {!trip?.hasLeft ? (
                   <PrimaryButton
                     icon="plus"
@@ -1681,7 +2022,8 @@ export default function TripDetailScreen({ navigation, route }) {
               <View style={styles.sectionCard}>
                 <Text style={styles.sectionHeading}>Balance general</Text>
                 <Text style={styles.sectionCopy}>
-                  El sistema calcula automáticamente las deudas netas y propone la menor cantidad posible de transferencias.
+                  El sistema calcula automáticamente las deudas netas y propone la menor
+                  cantidad posible de transferencias.
                 </Text>
                 {!trip?.hasLeft ? (
                   <PrimaryButton
@@ -1705,20 +2047,32 @@ export default function TripDetailScreen({ navigation, route }) {
                   {loadingSettlement ? <ActivityIndicator color={colors.primary} /> : null}
                 </View>
                 <Text style={styles.sectionCopy}>
-                  El estado de cuenta se recalcula con cada gasto nuevo y refleja tanto lo pagado como el gasto individual asignado.
+                  El estado de cuenta se recalcula con cada gasto nuevo y refleja tanto lo pagado
+                  como el gasto individual asignado.
                 </Text>
-                <View style={[styles.metricsRow, isNarrowMobile ? styles.metricsRowCompact : null]}>
+                <View
+                  style={[
+                    styles.metricsRow,
+                    isNarrowMobile ? styles.metricsRowCompact : null,
+                  ]}
+                >
                   <MetricCard
                     label="Total gastado"
                     style={isNarrowMobile ? styles.metricCardHalf : null}
                     valueStyle={isNarrowMobile ? styles.metricValueCompact : null}
-                    value={formatMoney(settlement?.TotalGastosViaje ?? 0, settlement?.Moneda ?? trip.currency)}
+                    value={formatMoney(
+                      settlement?.TotalGastosViaje ?? 0,
+                      settlement?.Moneda ?? trip.currency
+                    )}
                   />
                   <MetricCard
                     label="Por saldar"
                     style={isNarrowMobile ? styles.metricCardHalf : null}
                     valueStyle={isNarrowMobile ? styles.metricValueCompact : null}
-                    value={formatMoney(totalPendienteLiquidacion, settlement?.Moneda ?? trip.currency)}
+                    value={formatMoney(
+                      totalPendienteLiquidacion,
+                      settlement?.Moneda ?? trip.currency
+                    )}
                   />
                   <MetricCard
                     label="Participantes"
@@ -1741,15 +2095,22 @@ export default function TripDetailScreen({ navigation, route }) {
                       const esAcreedor = balancePendiente > 0;
                       const esDeudor = balancePendiente < 0;
                       return (
-                        <View key={item.IdParticipanteViaje} style={styles.settlementRow}>
+                        <View
+                          key={item.IdParticipanteViaje}
+                          style={styles.settlementRow}
+                        >
                           <View style={styles.settlementPerson}>
-                            <Text style={styles.settlementPersonName}>{item.NombreCompleto}</Text>
+                            <Text style={styles.settlementPersonName}>
+                              {item.NombreCompleto}
+                            </Text>
                             <Text style={styles.settlementPersonMeta}>
-                              Pagó: {formatMoney(item.TotalPagado, settlement.Moneda)} · Gasto individual:{" "}
+                              Pagó: {formatMoney(item.TotalPagado, settlement.Moneda)} · Gasto
+                              individual:{" "}
                               {formatMoney(item.GastoIndividual, settlement.Moneda)}
                             </Text>
                             <Text style={styles.settlementPersonMeta}>
-                              Saldo neto: {formatMoney(item.BalanceOriginal, settlement.Moneda)}
+                              Saldo neto:{" "}
+                              {formatMoney(item.BalanceOriginal, settlement.Moneda)}
                             </Text>
                           </View>
                           <View style={styles.settlementRight}>
@@ -1759,12 +2120,16 @@ export default function TripDetailScreen({ navigation, route }) {
                                 esAcreedor
                                   ? styles.settlementBadgeSuccess
                                   : esDeudor
-                                    ? styles.settlementBadgeWarning
-                                    : styles.settlementBadgeNeutral,
+                                  ? styles.settlementBadgeWarning
+                                  : styles.settlementBadgeNeutral,
                               ]}
                             >
                               <Text style={styles.settlementBadgeText}>
-                                {esAcreedor ? "Debe cobrar" : esDeudor ? "Debe pagar" : "Saldado"}
+                                {esAcreedor
+                                  ? "Debe cobrar"
+                                  : esDeudor
+                                  ? "Debe pagar"
+                                  : "Saldado"}
                               </Text>
                             </View>
                             <Text style={styles.settlementAmount}>
@@ -1776,7 +2141,9 @@ export default function TripDetailScreen({ navigation, route }) {
                     })}
                   </View>
                 ) : !loadingSettlement ? (
-                  <Text style={styles.sectionCopy}>Todavía no hay participantes aceptados para calcular la liquidación.</Text>
+                  <Text style={styles.sectionCopy}>
+                    Todavía no hay participantes aceptados para calcular la liquidación.
+                  </Text>
                 ) : null}
               </View>
 
@@ -1787,7 +2154,10 @@ export default function TripDetailScreen({ navigation, route }) {
                     {settlement.Transferencias.map((transfer) => {
                       const pendiente = transfer.Estado === "pendiente";
                       return (
-                        <View key={transfer.IdTransferenciaLiquidacion} style={styles.transferCard}>
+                        <View
+                          key={transfer.IdTransferenciaLiquidacion}
+                          style={styles.transferCard}
+                        >
                           <View style={styles.transferHeader}>
                             <View style={styles.transferTextWrap}>
                               <Text style={styles.transferTitle}>
@@ -1800,7 +2170,9 @@ export default function TripDetailScreen({ navigation, route }) {
                             <View
                               style={[
                                 styles.settlementBadge,
-                                pendiente ? styles.settlementBadgeWarning : styles.settlementBadgeSuccess,
+                                pendiente
+                                  ? styles.settlementBadgeWarning
+                                  : styles.settlementBadgeSuccess,
                               ]}
                             >
                               <Text style={styles.settlementBadgeText}>
@@ -1812,8 +2184,12 @@ export default function TripDetailScreen({ navigation, route }) {
                           <PrimaryButton
                             icon={pendiente ? "check" : "arrow-rotate-left"}
                             iconPosition="left"
-                            label={pendiente ? "Marcar como realizada" : "Volver a pendiente"}
-                            loading={updatingTransferId === transfer.IdTransferenciaLiquidacion}
+                            label={
+                              pendiente ? "Marcar como realizada" : "Volver a pendiente"
+                            }
+                            loading={
+                              updatingTransferId === transfer.IdTransferenciaLiquidacion
+                            }
                             onPress={() =>
                               handleMarkTransferPaid(
                                 transfer.IdTransferenciaLiquidacion,
@@ -1828,171 +2204,294 @@ export default function TripDetailScreen({ navigation, route }) {
                     })}
                   </View>
                 ) : !loadingSettlement ? (
-                  <Text style={styles.sectionCopy}>No hay deudas pendientes. El grupo está balanceado.</Text>
+                  <Text style={styles.sectionCopy}>
+                    No hay deudas pendientes. El grupo está balanceado.
+                  </Text>
                 ) : null}
               </View>
             </View>
           ) : null}
 
+          {/* TAB 3: DOCS */}
           {activeTab === "docs" ? (
             <>
-            <View style={styles.sectionCard}>
-              <Text style={styles.sectionHeading}>Documentos</Text>
-              {loadingDocumentos ? (
-                <ActivityIndicator color={colors.primary} style={{ marginTop: spacing.md }} />
-              ) : documentosError ? (
-                <Text style={styles.settlementError}>{documentosError}</Text>
-              ) : (
-                <View style={{ marginTop: spacing.sm }}>
-                  <DocumentosPorCategoria
-                    documentos={documentos}
-                    categoriaFiltro={categoriaDocFiltro}
-                    onCategoriaChange={setCategoriaDocFiltro}
-                    onAbrir={(documento) => abrirDocumento(documento.UrlArchivo)}
-                    onDescargar={handleDescargarDocumento}
-                    onEditar={!trip?.hasLeft ? (documento) => setDocumentoAEditar(documento) : undefined}
-                    onEliminar={!trip?.hasLeft ? eliminarDocumento : undefined}
-                    descargandoDocId={descargandoDocId}
-                    eliminandoDocId={eliminandoDocId}
+              <View style={styles.sectionCard}>
+                <Text style={styles.sectionHeading}>Documentos</Text>
+                {loadingDocumentos ? (
+                  <ActivityIndicator
+                    color={colors.primary}
+                    style={{ marginTop: spacing.md }}
                   />
-                </View>
-              )}
+                ) : documentosError ? (
+                  <Text style={styles.settlementError}>{documentosError}</Text>
+                ) : (
+                  <View style={{ marginTop: spacing.sm }}>
+                    <DocumentosPorCategoria
+                      documentos={documentos}
+                      categoriaFiltro={categoriaDocFiltro}
+                      onCategoriaChange={setCategoriaDocFiltro}
+                      onAbrir={(documento) => abrirDocumento(documento.UrlArchivo)}
+                      onDescargar={handleDescargarDocumento}
+                      onEditar={
+                        !trip?.hasLeft
+                          ? (documento) => setDocumentoAEditar(documento)
+                          : undefined
+                      }
+                      onEliminar={!trip?.hasLeft ? eliminarDocumento : undefined}
+                      descargandoDocId={descargandoDocId}
+                      eliminandoDocId={eliminandoDocId}
+                    />
+                  </View>
+                )}
 
-              {!trip?.hasLeft ? (
-                <PrimaryButton
-                  label="Subir documentos"
-                  icon="folder-open"
-                  iconPosition="left"
-                  onPress={() => setShowAddDocumentModal(true)}
-                  style={[styles.fullButton, { marginTop: spacing.md }]}
-                />
-              ) : null}
-            </View>
+                {!trip?.hasLeft ? (
+                  <PrimaryButton
+                    label="Subir documentos"
+                    icon="folder-open"
+                    iconPosition="left"
+                    onPress={() => setShowAddDocumentModal(true)}
+                    style={[styles.fullButton, { marginTop: spacing.md }]}
+                  />
+                ) : null}
+              </View>
 
-            <View style={[styles.sectionCard, { marginTop: spacing.md }]}>
-              <Text style={styles.sectionHeading}>Información relevante</Text>
+              <View style={[styles.sectionCard, { marginTop: spacing.md }]}>
+                <Text style={styles.sectionHeading}>Información relevante</Text>
 
-              {loadingRepositorio ? (
-                <ActivityIndicator color={colors.primary} style={{ marginTop: spacing.md }} />
-              ) : repositorioError ? (
-                <Text style={styles.settlementError}>{repositorioError}</Text>
-              ) : repositorioItems.length === 0 ? (
-                <Text style={styles.sectionCopy}>
-                  Enlaces, direcciones y contactos útiles para el viaje aparecerán aquí.
-                </Text>
-              ) : (
-                <View style={{ gap: spacing.sm, marginTop: spacing.sm }}>
-                  {repositorioItems.map((item) => {
-                    const eliminandoEsteItem = eliminandoItemId === item.IdItemRepositorio;
-                    const iconoPorTipo = {
-                      enlace: "link",
-                      direccion: "location-dot",
-                      contacto: "address-book",
-                      otro: "circle-info",
-                    };
-                    return (
-                      <View
-                        key={item.IdItemRepositorio}
-                        style={{
-                          borderWidth: 1,
-                          borderColor: colors.border,
-                          borderRadius: radii.md,
-                          padding: spacing.md,
-                          gap: 6,
-                        }}
-                      >
-                        <View style={{ flexDirection: "row", alignItems: "flex-start", gap: spacing.sm }}>
-                          <FontAwesome6
-                            name={iconoPorTipo[item.Tipo] || "circle-info"}
-                            size={16}
-                            color={colors.primary}
-                          />
-                          <View style={{ flex: 1 }}>
-                            <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-                              <Text style={{ fontSize: 15, fontWeight: "600", color: colors.textPrimary }}>{item.Titulo}</Text>
+                {loadingRepositorio ? (
+                  <ActivityIndicator
+                    color={colors.primary}
+                    style={{ marginTop: spacing.md }}
+                  />
+                ) : repositorioError ? (
+                  <Text style={styles.settlementError}>{repositorioError}</Text>
+                ) : repositorioItems.length === 0 ? (
+                  <Text style={styles.sectionCopy}>
+                    Enlaces, direcciones y contactos útiles para el viaje aparecerán aquí.
+                  </Text>
+                ) : (
+                  <View style={{ gap: spacing.sm, marginTop: spacing.sm }}>
+                    {repositorioItems.map((item) => {
+                      const eliminandoEsteItem =
+                        eliminandoItemId === item.IdItemRepositorio;
+                      const iconoPorTipo = {
+                        enlace: "link",
+                        direccion: "location-dot",
+                        contacto: "address-book",
+                        otro: "circle-info",
+                      };
+                      return (
+                        <View
+                          key={item.IdItemRepositorio}
+                          style={{
+                            borderWidth: 1,
+                            borderColor: colors.border,
+                            borderRadius: radii.md,
+                            padding: spacing.md,
+                            gap: 6,
+                          }}
+                        >
+                          <View
+                            style={{
+                              flexDirection: "row",
+                              alignItems: "flex-start",
+                              gap: spacing.sm,
+                            }}
+                          >
+                            <FontAwesome6
+                              name={iconoPorTipo[item.Tipo] || "circle-info"}
+                              size={16}
+                              color={colors.primary}
+                            />
+                            <View style={{ flex: 1 }}>
                               <View
                                 style={{
-                                  paddingHorizontal: 6,
-                                  paddingVertical: 2,
-                                  borderRadius: 6,
-                                  backgroundColor: item.EsPublico ? "#e0f2fe" : "#f3e8ff",
+                                  flexDirection: "row",
+                                  alignItems: "center",
+                                  gap: 6,
                                 }}
                               >
-                                <Text style={{ fontSize: 10, fontWeight: "700", color: item.EsPublico ? "#0369a1" : "#6b21a8" }}>
-                                  {item.EsPublico ? "PÚBLICO" : "PRIVADO"}
+                                <Text
+                                  style={{
+                                    fontSize: 15,
+                                    fontWeight: "600",
+                                    color: colors.textPrimary,
+                                  }}
+                                >
+                                  {item.Titulo}
                                 </Text>
+                                <View
+                                  style={{
+                                    paddingHorizontal: 6,
+                                    paddingVertical: 2,
+                                    borderRadius: 6,
+                                    backgroundColor: item.EsPublico
+                                      ? "#e0f2fe"
+                                      : "#f3e8ff",
+                                  }}
+                                >
+                                  <Text
+                                    style={{
+                                      fontSize: 10,
+                                      fontWeight: "700",
+                                      color: item.EsPublico ? "#0369a1" : "#6b21a8",
+                                    }}
+                                  >
+                                    {item.EsPublico ? "PÚBLICO" : "PRIVADO"}
+                                  </Text>
+                                </View>
                               </View>
-                            </View>
-                            <Text style={[styles.sectionCopy, { fontSize: 13, marginTop: 2 }]}>
-                              {item.Contenido}
-                            </Text>
-                            {item.Descripcion ? (
-                              <Text style={[styles.sectionCopy, { fontSize: 12, opacity: 0.7, marginTop: 2 }]}>
-                                {item.Descripcion}
+                              <Text
+                                style={[
+                                  styles.sectionCopy,
+                                  { fontSize: 13, marginTop: 2 },
+                                ]}
+                              >
+                                {item.Contenido}
                               </Text>
+                              {item.Descripcion ? (
+                                <Text
+                                  style={[
+                                    styles.sectionCopy,
+                                    { fontSize: 12, opacity: 0.7, marginTop: 2 },
+                                  ]}
+                                >
+                                  {item.Descripcion}
+                                </Text>
+                              ) : null}
+                              <Text
+                                style={[
+                                  styles.sectionCopy,
+                                  { fontSize: 11, opacity: 0.6, marginTop: 2 },
+                                ]}
+                              >
+                                Subido por {item.NombreUsuarioCreador}
+                              </Text>
+                            </View>
+                          </View>
+
+                          <View
+                            style={{
+                              flexDirection: "row",
+                              gap: spacing.md,
+                              marginTop: 6,
+                            }}
+                          >
+                            <Pressable
+                              onPress={() => copiarContenido(item.Contenido)}
+                              style={{
+                                flexDirection: "row",
+                                alignItems: "center",
+                                gap: 4,
+                              }}
+                            >
+                              <FontAwesome6
+                                name="copy"
+                                size={12}
+                                color={colors.textSecondary}
+                              />
+                              <Text
+                                style={{
+                                  fontSize: 12,
+                                  color: colors.textSecondary,
+                                  fontWeight: "600",
+                                }}
+                              >
+                                Copiar
+                              </Text>
+                            </Pressable>
+
+                            {item.EsPropio && !trip?.hasLeft ? (
+                              <>
+                                <Pressable
+                                  onPress={() => {
+                                    setInfoItemToEdit(item);
+                                    setShowInfoModal(true);
+                                  }}
+                                  style={{
+                                    flexDirection: "row",
+                                    alignItems: "center",
+                                    gap: 4,
+                                  }}
+                                >
+                                  <FontAwesome6
+                                    name="pen"
+                                    size={13}
+                                    color={colors.textSecondary}
+                                  />
+                                  <Text
+                                    style={{
+                                      fontSize: 12,
+                                      color: colors.textSecondary,
+                                      fontWeight: "600",
+                                    }}
+                                  >
+                                    Editar
+                                  </Text>
+                                </Pressable>
+
+                                <Pressable
+                                  onPress={() => eliminarItemRepositorio(item)}
+                                  disabled={eliminandoEsteItem}
+                                  style={{
+                                    flexDirection: "row",
+                                    alignItems: "center",
+                                    gap: 4,
+                                    opacity: eliminandoEsteItem ? 0.6 : 1,
+                                  }}
+                                >
+                                  <FontAwesome6
+                                    name="trash"
+                                    size={12}
+                                    color={colors.danger}
+                                  />
+                                  <Text
+                                    style={{
+                                      fontSize: 12,
+                                      color: colors.danger,
+                                      fontWeight: "600",
+                                    }}
+                                  >
+                                    {eliminandoEsteItem ? "Eliminando..." : "Eliminar"}
+                                  </Text>
+                                </Pressable>
+                              </>
                             ) : null}
-                            <Text style={[styles.sectionCopy, { fontSize: 11, opacity: 0.6, marginTop: 2 }]}>
-                              Subido por {item.NombreUsuarioCreador}
-                            </Text>
                           </View>
                         </View>
-
-                        <View style={{ flexDirection: "row", gap: spacing.md, marginTop: 6 }}>
-                          <Pressable
-                            onPress={() => copiarContenido(item.Contenido)}
-                            style={{ flexDirection: "row", alignItems: "center", gap: 4 }}
-                          >
-                            <FontAwesome6 name="copy" size={12} color={colors.textSecondary} />
-                            <Text style={{ fontSize: 12, color: colors.textSecondary, fontWeight: "600" }}>Copiar</Text>
-                          </Pressable>
-
-                          {item.EsPropio && !trip?.hasLeft ? (
-                            <>
-                              <Pressable
-                                onPress={() => {
-                                  setInfoItemToEdit(item);
-                                  setShowInfoModal(true);
-                                }}
-                                style={{ flexDirection: "row", alignItems: "center", gap: 4 }}
-                              >
-                                <FontAwesome6 name="pen" size={13} color={colors.textSecondary} />
-                                <Text style={{ fontSize: 12, color: colors.textSecondary, fontWeight: "600" }}>Editar</Text>
-                              </Pressable>
-
-                              <Pressable
-                                onPress={() => eliminarItemRepositorio(item)}
-                                disabled={eliminandoEsteItem}
-                                style={{ flexDirection: "row", alignItems: "center", gap: 4, opacity: eliminandoEsteItem ? 0.6 : 1 }}
-                              >
-                                <FontAwesome6 name="trash" size={12} color={colors.danger} />
-                                <Text style={{ fontSize: 12, color: colors.danger, fontWeight: "600" }}>
-                                  {eliminandoEsteItem ? "Eliminando..." : "Eliminar"}
-                                </Text>
-                              </Pressable>
-                            </>
-                          ) : null}
-                        </View>
-                      </View>
-                    );
-                  })}
-                </View>
-              )}
-              {!trip?.hasLeft ? (
-                <PrimaryButton
-                  label="Agregar información"
-                  icon="plus"
-                  iconPosition="left"
-                  onPress={() => {
-                    setInfoItemToEdit(null);
-                    setShowInfoModal(true);
-                  }}
-                  style={[styles.fullButton, { marginTop: spacing.md }]}
-                />
-              ) : null}
-            </View>
+                      );
+                    })}
+                  </View>
+                )}
+                {!trip?.hasLeft ? (
+                  <PrimaryButton
+                    label="Agregar información"
+                    icon="plus"
+                    iconPosition="left"
+                    onPress={() => {
+                      setInfoItemToEdit(null);
+                      setShowInfoModal(true);
+                    }}
+                    style={[styles.fullButton, { marginTop: spacing.md }]}
+                  />
+                ) : null}
+              </View>
             </>
           ) : null}
 
+          {/* TAB 4: CHECKLIST */}
+          {activeTab === "checklist" ? (
+            <View style={styles.sectionStack}>
+              <View style={styles.sectionCard}>
+                <Text style={styles.sectionHeading}>Listas de tareas</Text>
+                <Text style={styles.sectionCopy}>
+                  Organiza las cosas pendientes del viaje de forma colaborativa o personal.
+                </Text>
+              </View>
+            </View>
+          ) : null}
+
+          {/* TAB 5: VOTAR */}
           {activeTab === "votar" ? (
             <View style={styles.sectionStack}>
               {!trip?.hasLeft ? (
@@ -2013,7 +2512,7 @@ export default function TripDetailScreen({ navigation, route }) {
                   <FontAwesome6 name="plus" size={14} color="#fff" />
                   <Text style={{ color: "#fff", fontWeight: "800" }}>Crear votación</Text>
                 </Pressable>
-              ) : null} 
+              ) : null}
 
               {loadingVotaciones ? (
                 <ActivityIndicator color={colors.primary} />
@@ -2039,22 +2538,33 @@ export default function TripDetailScreen({ navigation, route }) {
                 const opcionesElegidas = votosSeleccionados[votacion.IdVotacion] || [];
                 const enviandoEsteVoto = votandoId === votacion.IdVotacion;
                 const cancelandoEstaVotacion = cancelandoId === votacion.IdVotacion;
-                const esCreador = currentUser && String(currentUser.id) === String(votacion.IdCreador);
+                const esCreador =
+                  currentUser && String(currentUser.id) === String(votacion.IdCreador);
                 const puedeCancelar = esCreador && !finalizada;
-                const estadoVotacion = votacion.Estado || (finalizada ? "cerrada" : "abierta");
-                const estadoLabel = ESTADO_VOTACION_LABEL[estadoVotacion] || estadoVotacion;
+                const estadoVotacion =
+                  votacion.Estado || (finalizada ? "cerrada" : "abierta");
+                const estadoLabel =
+                  ESTADO_VOTACION_LABEL[estadoVotacion] || estadoVotacion;
                 const fechaCierreTexto = formatFechaHoraCierre(votacion.FechaCierre);
 
                 const togglePropuesta = (idPropuesta, tipo) => {
                   if (trip?.hasLeft) return;
-                  setVotosSeleccionados(prev => {
+                  setVotosSeleccionados((prev) => {
                     const actuales = prev[votacion.IdVotacion] || [];
                     if (tipo === "opcion_unica") {
                       return { ...prev, [votacion.IdVotacion]: [idPropuesta] };
                     } else {
                       return actuales.includes(idPropuesta)
-                        ? { ...prev, [votacion.IdVotacion]: actuales.filter(id => id !== idPropuesta) }
-                        : { ...prev, [votacion.IdVotacion]: [...actuales, idPropuesta] };
+                        ? {
+                            ...prev,
+                            [votacion.IdVotacion]: actuales.filter(
+                              (id) => id !== idPropuesta
+                            ),
+                          }
+                        : {
+                            ...prev,
+                            [votacion.IdVotacion]: [...actuales, idPropuesta],
+                          };
                     }
                   });
                 };
@@ -2068,16 +2578,27 @@ export default function TripDetailScreen({ navigation, route }) {
 
                   try {
                     setVotandoId(votacion.IdVotacion);
-                    const resultado = await emitirVoto(votacion.IdVotacion, opcionesElegidas);
+                    const resultado = await emitirVoto(
+                      votacion.IdVotacion,
+                      opcionesElegidas
+                    );
                     avisar(
                       "¡Listo!",
-                      resultado?.detail || "Voto registrado correctamente. ¡Gracias por participar!"
+                      resultado?.detail ||
+                        "Voto registrado correctamente. ¡Gracias por participar!"
                     );
-                    setVotacionesActivas(prev =>
-                      prev.map(v => v.IdVotacion === votacion.IdVotacion ? { ...v, YaVoto: true } : v)
+                    setVotacionesActivas((prev) =>
+                      prev.map((v) =>
+                        v.IdVotacion === votacion.IdVotacion
+                          ? { ...v, YaVoto: true }
+                          : v
+                      )
                     );
                   } catch (error) {
-                    avisar("No se pudo votar", error.message || "Ocurrió un error al registrar tu voto.");
+                    avisar(
+                      "No se pudo votar",
+                      error.message || "Ocurrió un error al registrar tu voto."
+                    );
                   } finally {
                     setVotandoId(null);
                   }
@@ -2087,12 +2608,22 @@ export default function TripDetailScreen({ navigation, route }) {
                   try {
                     setCancelandoId(votacion.IdVotacion);
                     const actualizada = await cancelarVotacion(votacion.IdVotacion);
-                    avisar("Votación cancelada", "La votación se canceló correctamente.");
-                    setVotacionesActivas(prev =>
-                      prev.map(v => v.IdVotacion === votacion.IdVotacion ? { ...v, ...actualizada } : v)
+                    avisar(
+                      "Votación cancelada",
+                      "La votación se canceló correctamente."
+                    );
+                    setVotacionesActivas((prev) =>
+                      prev.map((v) =>
+                        v.IdVotacion === votacion.IdVotacion
+                          ? { ...v, ...actualizada }
+                          : v
+                      )
                     );
                   } catch (error) {
-                    avisar("No se pudo cancelar", error.message || "Ocurrió un error al cancelar la votación.");
+                    avisar(
+                      "No se pudo cancelar",
+                      error.message || "Ocurrió un error al cancelar la votación."
+                    );
                   } finally {
                     setCancelandoId(null);
                   }
@@ -2108,28 +2639,89 @@ export default function TripDetailScreen({ navigation, route }) {
 
                 return (
                   <View key={votacion.IdVotacion} style={styles.sectionCard}>
-                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                      <Text style={[styles.sectionHeading, { fontSize: 18, flex: 1 }]}>{votacion.Titulo}</Text>
-                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                        <StatusPill 
+                    <View
+                      style={{
+                        flexDirection: "row",
+                        justifyContent: "space-between",
+                        alignItems: "flex-start",
+                      }}
+                    >
+                      <Text
+                        style={[
+                          styles.sectionHeading,
+                          { fontSize: 18, flex: 1 },
+                        ]}
+                      >
+                        {votacion.Titulo}
+                      </Text>
+                      <View
+                        style={{
+                          flexDirection: "row",
+                          alignItems: "center",
+                          gap: 6,
+                        }}
+                      >
+                        <StatusPill
                           tone={estadoVotacion}
-                          style={{ paddingHorizontal: 6, paddingVertical: 6, borderRadius: 6 }}
-                          textStyle={{ fontSize: 10, textTransform: 'uppercase' }}
+                          style={{
+                            paddingHorizontal: 6,
+                            paddingVertical: 6,
+                            borderRadius: 6,
+                          }}
+                          textStyle={{
+                            fontSize: 10,
+                            textTransform: "uppercase",
+                          }}
                         >
                           {estadoLabel}
                         </StatusPill>
-                        <View style={{ backgroundColor: votacion.Tipo === 'opcion_unica' ? '#e0f2fe' : '#efe8ff', padding: 6, borderRadius: 6 }}>
-                          <Text style={{ fontSize: 10, fontWeight: '700', color: votacion.Tipo === 'opcion_unica' ? '#0369a1' : '#6b21a8' }}>
-                            {votacion.Tipo === 'opcion_unica' ? 'ÚNICA' : 'MÚLTIPLE'}
+                        <View
+                          style={{
+                            backgroundColor:
+                              votacion.Tipo === "opcion_unica"
+                                ? "#e0f2fe"
+                                : "#efe8ff",
+                            padding: 6,
+                            borderRadius: 6,
+                          }}
+                        >
+                          <Text
+                            style={{
+                              fontSize: 10,
+                              fontWeight: "700",
+                              color:
+                                votacion.Tipo === "opcion_unica"
+                                  ? "#0369a1"
+                                  : "#6b21a8",
+                            }}
+                          >
+                            {votacion.Tipo === "opcion_unica" ? "ÚNICA" : "MÚLTIPLE"}
                           </Text>
                         </View>
                       </View>
                     </View>
 
                     {estadoVotacion === "abierta" && fechaCierreTexto ? (
-                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 6 }}>
-                        <FontAwesome6 name="clock" size={11} color={colors.textSecondary} />
-                        <Text style={{ color: colors.textSecondary, fontSize: 12, fontWeight: '600' }}>
+                      <View
+                        style={{
+                          flexDirection: "row",
+                          alignItems: "center",
+                          gap: 4,
+                          marginTop: 6,
+                        }}
+                      >
+                        <FontAwesome6
+                          name="clock"
+                          size={11}
+                          color={colors.textSecondary}
+                        />
+                        <Text
+                          style={{
+                            color: colors.textSecondary,
+                            fontSize: 12,
+                            fontWeight: "600",
+                          }}
+                        >
                           Cierra: {fechaCierreTexto}
                         </Text>
                       </View>
@@ -2144,52 +2736,105 @@ export default function TripDetailScreen({ navigation, route }) {
                           }
                           if (resultado.error) {
                             return (
-                              <Text style={{ color: colors.danger, fontWeight: '600', fontSize: 13 }}>
+                              <Text
+                                style={{
+                                  color: colors.danger,
+                                  fontWeight: "600",
+                                  fontSize: 13,
+                                }}
+                              >
                                 {resultado.error}
                               </Text>
                             );
                           }
-                          return <ResultadosVotacion resultados={resultado} mostrarGanador={esCerrada} totalParticipantes={participantItems.length} titulo={votacion.Titulo}/>;
+                          return (
+                            <ResultadosVotacion
+                              resultados={resultado}
+                              mostrarGanador={esCerrada}
+                              totalParticipantes={participantItems.length}
+                              titulo={votacion.Titulo}
+                            />
+                          );
                         })()
                       ) : (
                         votacion.Propuestas.map((propuesta) => {
-                        const marcada = opcionesElegidas.includes(propuesta.IdPropuesta);
-                        return (
-                          <Pressable
-                            key={propuesta.IdPropuesta}
-                            disabled={votacion.YaVoto || finalizada}
-                            onPress={() => togglePropuesta(propuesta.IdPropuesta, votacion.Tipo)}
-                            style={{
-                              flexDirection: 'row',
-                              alignItems: 'center',
-                              padding: 12,
-                              borderWidth: 1,
-                              borderColor: marcada ? colors.primary : colors.border,
-                              borderRadius: radii.md,
-                              backgroundColor: marcada ? '#f0f4f8' : colors.surface
-                            }}
-                          >
-                            <View style={{
-                              width: 18, height: 18, borderRadius: votacion.Tipo === 'opcion_unica' ? 9 : 4,
-                              borderWidth: 2, borderColor: marcada ? colors.primary : colors.textMuted,
-                              marginRight: 10, justifyContent: 'center', alignItems: 'center'
-                            }}>
-                              {marcada && <View style={{ width: 10, height: 10, borderRadius: votacion.Tipo === 'opcion_unica' ? 5 : 2, backgroundColor: colors.primary }} />}
-                            </View>
-                            <Text style={{ color: colors.textPrimary }}>{propuesta.Texto}</Text>
-                          </Pressable>
-                        );
+                          const marcada = opcionesElegidas.includes(
+                            propuesta.IdPropuesta
+                          );
+                          return (
+                            <Pressable
+                              key={propuesta.IdPropuesta}
+                              disabled={votacion.YaVoto || finalizada}
+                              onPress={() =>
+                                togglePropuesta(propuesta.IdPropuesta, votacion.Tipo)
+                              }
+                              style={{
+                                flexDirection: "row",
+                                alignItems: "center",
+                                padding: 12,
+                                borderWidth: 1,
+                                borderColor: marcada ? colors.primary : colors.border,
+                                borderRadius: radii.md,
+                                backgroundColor: marcada ? "#f0f4f8" : colors.surface,
+                              }}
+                            >
+                              <View
+                                style={{
+                                  width: 18,
+                                  height: 18,
+                                  borderRadius:
+                                    votacion.Tipo === "opcion_unica" ? 9 : 4,
+                                  borderWidth: 2,
+                                  borderColor: marcada
+                                    ? colors.primary
+                                    : colors.textMuted,
+                                  marginRight: 10,
+                                  justifyContent: "center",
+                                  alignItems: "center",
+                                }}
+                              >
+                                {marcada && (
+                                  <View
+                                    style={{
+                                      width: 10,
+                                      height: 10,
+                                      borderRadius:
+                                        votacion.Tipo === "opcion_unica" ? 5 : 2,
+                                      backgroundColor: colors.primary,
+                                    }}
+                                  />
+                                )}
+                              </View>
+                              <Text style={{ color: colors.textPrimary }}>
+                                {propuesta.Texto}
+                              </Text>
+                            </Pressable>
+                          );
                         })
                       )}
                     </View>
 
                     <View style={{ marginTop: 15 }}>
                       {esCancelada ? (
-                        <Text style={{ color: colors.textMuted, fontWeight: '600', fontSize: 13 }}>
+                        <Text
+                          style={{
+                            color: colors.textMuted,
+                            fontWeight: "600",
+                            fontSize: 13,
+                          }}
+                        >
                           🚫 Esta votación fue cancelada por su creador.
                         </Text>
                       ) : esCerrada ? null : votacion.YaVoto ? (
-                        <Text style={{ color: colors.success, fontWeight: '600', fontSize: 13 }}>✓ Ya registraste tu voto en esta decisión grupal.</Text>
+                        <Text
+                          style={{
+                            color: colors.success,
+                            fontWeight: "600",
+                            fontSize: 13,
+                          }}
+                        >
+                          ✓ Ya registraste tu voto en esta decisión grupal.
+                        </Text>
                       ) : !trip?.hasLeft ? (
                         <PrimaryButton
                           label={enviandoEsteVoto ? "Enviando..." : "Confirmar voto"}
@@ -2204,9 +2849,9 @@ export default function TripDetailScreen({ navigation, route }) {
                           onPress={cancelarEstaVotacion}
                           disabled={cancelandoEstaVotacion}
                           style={{
-                            flexDirection: 'row',
-                            alignItems: 'center',
-                            justifyContent: 'center',
+                            flexDirection: "row",
+                            alignItems: "center",
+                            justifyContent: "center",
                             gap: 6,
                             marginTop: 10,
                             paddingVertical: 10,
@@ -2214,8 +2859,16 @@ export default function TripDetailScreen({ navigation, route }) {
                           }}
                         >
                           <FontAwesome6 name="ban" size={12} color={colors.danger} />
-                          <Text style={{ color: colors.danger, fontWeight: '700', fontSize: 13 }}>
-                            {cancelandoEstaVotacion ? "Cancelando..." : "Cancelar votación"}
+                          <Text
+                            style={{
+                              color: colors.danger,
+                              fontWeight: "700",
+                              fontSize: 13,
+                            }}
+                          >
+                            {cancelandoEstaVotacion
+                              ? "Cancelando..."
+                              : "Cancelar votación"}
                           </Text>
                         </Pressable>
                       ) : null}
@@ -2226,9 +2879,10 @@ export default function TripDetailScreen({ navigation, route }) {
             </View>
           ) : null}
 
+          {/* TAB 6: GRUPO */}
           {activeTab === "grupo" ? (
             <View style={styles.sectionStack}>
-            {!trip?.hasLeft ? (
+              {!trip?.hasLeft ? (
                 <View style={styles.sectionCard}>
                   <ParticipantSearch
                     canInviteExternal={canInviteExternal}
@@ -2241,28 +2895,29 @@ export default function TripDetailScreen({ navigation, route }) {
                   />
                 </View>
               ) : null}
-              
+
               <View style={styles.sectionCard}>
                 <Text style={styles.sectionHeading}>Participantes</Text>
-                <ParticipantList 
-                  onRemove={!trip?.hasLeft ? handleRemoveParticipant : undefined} 
-                  participants={participantesActivos} 
-                  isAdmin={isAdmin && !trip?.hasLeft} 
+                <ParticipantList
+                  onRemove={!trip?.hasLeft ? handleRemoveParticipant : undefined}
+                  participants={participantesActivos}
+                  isAdmin={isAdmin && !trip?.hasLeft}
                 />
               </View>
 
-              {/* Sección de Invitaciones Pendientes (Visible si hay alguna) */}
               {invitadosPendientes.length > 0 ? (
                 <View style={styles.sectionCard}>
                   <Text style={styles.sectionHeading}>Invitaciones pendientes</Text>
-                  <Text style={styles.sectionCopy}>Usuarios que aún no han respondido a la invitación</Text>
-                  <ParticipantList 
-                    participants={invitadosPendientes} 
-                    isAdmin={isAdmin && !trip?.hasLeft} 
+                  <Text style={styles.sectionCopy}>
+                    Usuarios que aún no han respondido a la invitación
+                  </Text>
+                  <ParticipantList
+                    participants={invitadosPendientes}
+                    isAdmin={isAdmin && !trip?.hasLeft}
                   />
                 </View>
               ) : null}
-            
+
               {!trip?.hasLeft ? (
                 <View style={[styles.sectionCard, { marginTop: spacing.md }]}>
                   <Pressable
@@ -2275,11 +2930,15 @@ export default function TripDetailScreen({ navigation, route }) {
                       }
                     }}
                     style={({ pressed }) => [
-                      styles.logoutButton, 
+                      styles.logoutButton,
                       pressed && styles.logoutButtonPressed,
                     ]}
                   >
-                    <FontAwesome6 name="arrow-right-from-bracket" size={16} color={colors.danger} />
+                    <FontAwesome6
+                      name="arrow-right-from-bracket"
+                      size={16}
+                      color={colors.danger}
+                    />
                     <Text style={styles.logoutText}>Abandonar viaje</Text>
                   </Pressable>
                 </View>
@@ -2288,11 +2947,13 @@ export default function TripDetailScreen({ navigation, route }) {
           ) : null}
         </View>
       </ScrollView>
+
       {mutatingParticipants ? (
         <View style={styles.loadingWrap}>
           <ActivityIndicator color={colors.primary} size="large" />
         </View>
       ) : null}
+
       <AddActivityScreen
         dayLabel={activityModalDay?.label}
         tripId={trip?.id}
@@ -2344,8 +3005,10 @@ export default function TripDetailScreen({ navigation, route }) {
         item={infoItemToEdit}
         onItemGuardado={(guardado) => {
           if (infoItemToEdit) {
-            setRepositorioItems((prev) => 
-              prev.map((i) => i.IdItemRepositorio === guardado.IdItemRepositorio ? guardado : i)
+            setRepositorioItems((prev) =>
+              prev.map((i) =>
+                i.IdItemRepositorio === guardado.IdItemRepositorio ? guardado : i
+              )
             );
           } else {
             setRepositorioItems((prev) => [guardado, ...prev]);
@@ -2359,7 +3022,10 @@ export default function TripDetailScreen({ navigation, route }) {
         visible={showOptionsMenu}
         onRequestClose={() => setShowOptionsMenu(false)}
       >
-        <Pressable style={styles.menuOverlay} onPress={() => setShowOptionsMenu(false)}>
+        <Pressable
+          style={styles.menuOverlay}
+          onPress={() => setShowOptionsMenu(false)}
+        >
           <View style={styles.menuContainer}>
             <Pressable
               style={({ pressed }) => [
@@ -2371,7 +3037,11 @@ export default function TripDetailScreen({ navigation, route }) {
                 setShowDeleteModal(true);
               }}
             >
-              <FontAwesome6 name="trash-can" size={14} color={colors.danger || "#ef4444"} />
+              <FontAwesome6
+                name="trash-can"
+                size={14}
+                color={colors.danger || "#ef4444"}
+              />
               <Text style={styles.menuItemText}>Eliminar viaje</Text>
             </Pressable>
           </View>
@@ -2387,23 +3057,28 @@ export default function TripDetailScreen({ navigation, route }) {
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
             <View style={styles.modalIconContainer}>
-              <FontAwesome6 name="trash-can" size={22} color={colors.danger || "#ef4444"} />
+              <FontAwesome6
+                name="trash-can"
+                size={22}
+                color={colors.danger || "#ef4444"}
+              />
             </View>
             <Text style={styles.modalTitle}>¿Dar de baja viaje?</Text>
             <Text style={styles.modalMessage}>
-              Esta acción eliminará el viaje "{trip?.title}". Una vez eliminado, ninguno de los participantes podrá volver a acceder a la información.
+              Esta acción eliminará el viaje "{trip?.title}". Una vez eliminado, ninguno de los
+              participantes podrá volver a acceder a la información.
             </Text>
-            <View style={{ height: 10 }} /> 
+            <View style={{ height: 10 }} />
             <View style={styles.modalActions}>
-              <Pressable 
-                style={[styles.modalButton, styles.modalButtonCancel]} 
-                onPress={() => setShowDeleteModal(false)} 
+              <Pressable
+                style={[styles.modalButton, styles.modalButtonCancel]}
+                onPress={() => setShowDeleteModal(false)}
               >
                 <Text style={styles.modalButtonTextCancel}>Conservar</Text>
               </Pressable>
-              <Pressable 
-                style={[styles.modalButton, styles.modalButtonConfirm]} 
-                onPress={handleConfirmDelete} 
+              <Pressable
+                style={[styles.modalButton, styles.modalButtonConfirm]}
+                onPress={handleConfirmDelete}
               >
                 <Text style={styles.modalButtonTextConfirm}>Eliminar</Text>
               </Pressable>
@@ -2421,11 +3096,16 @@ export default function TripDetailScreen({ navigation, route }) {
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
             <View style={styles.modalIconContainer}>
-              <FontAwesome6 name="trash-can" size={22} color={colors.danger || "#ef4444"} />
+              <FontAwesome6
+                name="trash-can"
+                size={22}
+                color={colors.danger || "#ef4444"}
+              />
             </View>
             <Text style={styles.modalTitle}>¿Eliminar actividad?</Text>
             <Text style={styles.modalMessage}>
-              Se va a eliminar "{activityToDelete?.title}" del itinerario. Esta acción no se puede deshacer.
+              Se va a eliminar "{activityToDelete?.title}" del itinerario. Esta acción no se
+              puede deshacer.
             </Text>
             <View style={{ height: 10 }} />
             <View style={styles.modalActions}>
@@ -2452,13 +3132,27 @@ export default function TripDetailScreen({ navigation, route }) {
         visible={!!activityFeedback}
         onRequestClose={() => setActivityFeedback(null)}
       >
-        <Pressable style={styles.modalOverlay} onPress={() => setActivityFeedback(null)}>
-          <Pressable style={styles.modalContent} onPress={(event) => event.stopPropagation()}>
+        <Pressable
+          style={styles.modalOverlay}
+          onPress={() => setActivityFeedback(null)}
+        >
+          <Pressable
+            style={styles.modalContent}
+            onPress={(event) => event.stopPropagation()}
+          >
             <View style={styles.modalIconContainer}>
               <FontAwesome6
-                name={displayedFeedback?.success ? "circle-check" : "circle-exclamation"}
+                name={
+                  displayedFeedback?.success
+                    ? "circle-check"
+                    : "circle-exclamation"
+                }
                 size={22}
-                color={displayedFeedback?.success ? colors.primary : (colors.danger || "#ef4444")}
+                color={
+                  displayedFeedback?.success
+                    ? colors.primary
+                    : colors.danger || "#ef4444"
+                }
               />
             </View>
             <Text style={styles.modalTitle}>
@@ -2495,21 +3189,14 @@ export default function TripDetailScreen({ navigation, route }) {
               />
             </View>
 
-            <Text style={styles.modalTitle}>
-              Actividad en edición
-            </Text>
-
-            <Text style={styles.modalMessage}>
-              {activityEditMessage}
-            </Text>
+            <Text style={styles.modalTitle}>Actividad en edición</Text>
+            <Text style={styles.modalMessage}>{activityEditMessage}</Text>
 
             <Pressable
               style={styles.activityEditOkButton}
               onPress={() => setActivityEditMessage("")}
             >
-              <Text style={styles.activityEditOkButtonText}>
-                Entendido
-              </Text>
+              <Text style={styles.activityEditOkButtonText}>Entendido</Text>
             </Pressable>
           </View>
         </Pressable>
@@ -2528,7 +3215,8 @@ export default function TripDetailScreen({ navigation, route }) {
             </View>
             <Text style={styles.modalTitle}>Transferir administración</Text>
             <Text style={styles.modalMessage}>
-              Sos el administrador de este viaje. Antes de abandonarlo, debés designar a otro participante como nuevo administrador:
+              Sos el administrador de este viaje. Antes de abandonarlo, debés designar a otro
+              participante como nuevo administrador:
             </Text>
 
             <ScrollView style={{ width: "100%", maxHeight: 150, marginBottom: 15 }}>
@@ -2549,7 +3237,12 @@ export default function TripDetailScreen({ navigation, route }) {
                       borderColor: isSelected ? colors.primary : colors.border,
                     }}
                   >
-                    <Text style={{ fontWeight: isSelected ? "bold" : "normal", color: colors.textPrimary }}>
+                    <Text
+                      style={{
+                        fontWeight: isSelected ? "bold" : "normal",
+                        color: colors.textPrimary,
+                      }}
+                    >
                       {p.nombreCompleto || p.Nombre || p.email}
                     </Text>
                   </Pressable>
@@ -2563,8 +3256,7 @@ export default function TripDetailScreen({ navigation, route }) {
                 onPress={() => {
                   setShowLeaveModal(false);
                   setNuevoAdminId(null);
-                }
-              }
+                }}
               >
                 <Text style={styles.modalButtonTextCancel}>Cancelar</Text>
               </Pressable>
@@ -2671,6 +3363,131 @@ const styles = StyleSheet.create({
     padding: spacing.lg,
     gap: spacing.md,
   },
+
+  /* --- Resumen Screen Styles --- */
+  summaryContainer: {
+    gap: spacing.md,
+  },
+  summaryGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    justifyContent: "space-between",
+    gap: spacing.sm,
+  },
+  summaryCard: {
+    ...surfaces.card,
+    width: "48%",
+    paddingVertical: spacing.lg,
+    paddingHorizontal: spacing.md,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: radii.xl || 18,
+  },
+  summaryIconWrap: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    backgroundColor: colors.surface,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: spacing.xxs,
+  },
+  summaryValue: {
+    ...textStyles.bodyStrong,
+    color: colors.primary,
+    fontSize: 20,
+    fontWeight: "800",
+    textAlign: "center",
+    marginTop: 2,
+  },
+  summaryLabel: {
+    ...textStyles.meta,
+    color: colors.textSecondary,
+    fontSize: 12,
+    marginTop: 2,
+    textAlign: "center",
+  },
+  progressCard: {
+    ...surfaces.card,
+    padding: spacing.lg,
+    borderRadius: radii.xl || 18,
+    gap: spacing.xs,
+  },
+  progressHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  progressTitle: {
+    ...textStyles.bodyStrong,
+    color: colors.primary,
+    fontSize: 16,
+  },
+  progressPercent: {
+    ...textStyles.bodyStrong,
+    color: colors.primary,
+    fontSize: 16,
+    fontWeight: "700",
+  },
+  progressBarTrack: {
+    height: 8,
+    backgroundColor: colors.surfaceAlt || "#ebe6df",
+    borderRadius: 4,
+    overflow: "hidden",
+    marginVertical: 4,
+  },
+  progressBarFill: {
+    height: "100%",
+    backgroundColor: colors.accent,
+    borderRadius: 4,
+  },
+  progressHint: {
+    ...textStyles.meta,
+    color: colors.textSecondary,
+    fontSize: 12,
+    marginTop: 2,
+  },
+  quickAccessStack: {
+    gap: spacing.sm,
+  },
+  quickAccessRow: {
+    ...surfaces.card,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.lg,
+    borderRadius: radii.lg || 16,
+  },
+  quickAccessRowPressed: {
+    opacity: 0.7,
+    backgroundColor: colors.surfaceAlt,
+  },
+  quickAccessLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.md,
+  },
+  quickAccessIconWrap: {
+    width: 38,
+    height: 38,
+    borderRadius: 12,
+    backgroundColor: colors.surface,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  quickAccessTitle: {
+    ...textStyles.bodyStrong,
+    color: colors.primary,
+    fontSize: 15,
+  },
+  quickAccessSub: {
+    ...textStyles.meta,
+    color: colors.textSecondary,
+    fontSize: 12,
+    marginTop: 2,
+  },
+
   itinerarioHeader: {
     flexDirection: "row",
     justifyContent: "flex-end",
@@ -3036,7 +3853,7 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
-    backgroundColor: "rgba(9, 19, 45, 0.7)", 
+    backgroundColor: "rgba(9, 19, 45, 0.7)",
     padding: spacing.xl,
   },
   modalContent: {
@@ -3056,7 +3873,7 @@ const styles = StyleSheet.create({
     width: 56,
     height: 56,
     borderRadius: 28,
-    backgroundColor: "#ffeecf", 
+    backgroundColor: "#ffeecf",
     alignItems: "center",
     justifyContent: "center",
     marginBottom: spacing.md,
@@ -3104,97 +3921,90 @@ const styles = StyleSheet.create({
     fontSize: 14,
   },
   activityEditOkButton: {
-  backgroundColor: colors.primary,
-  borderRadius: radii.md,
-  paddingVertical: spacing.md,
-  paddingHorizontal: spacing.lg,
-  marginTop: spacing.lg,
-  alignItems: "center",
-  justifyContent: "center",
-  width: "100%",
-},
-activityEditOkButtonText: {
-  color: colors.textInverse,
-  fontSize: 15,
-  fontWeight: "700",
-},
-logoutButton: {
-  flexDirection: "row",
-  alignItems: "center",
-  justifyContent: "center",
-  gap: spacing.sm,
-  paddingVertical: spacing.md,
-  borderRadius: radii.md,
-  borderWidth: 1,
-  borderColor: colors.danger,
-  backgroundColor: colors.surface,
-},
-
-logoutButtonPressed: {
-  opacity: 0.7,
-},
-
-logoutText: {
-  ...textStyles.bodyStrong,
-  color: colors.danger,
-},
-readOnlyBanner: {
-  flexDirection: "row",
-  alignItems: "flex-start",
-  gap: spacing.sm,
-  marginHorizontal: spacing.lg,
-  marginTop: spacing.md,
-  padding: spacing.md,
-  borderRadius: radii.md,
-  backgroundColor: colors.warningSurface,
-  borderWidth: 1,
-  borderColor: colors.warning,
-},
-
-readOnlyBannerContent: {
-  flex: 1,
-},
-
-readOnlyBannerTitle: {
-  ...textStyles.bodyStrong,
-  color: colors.primary,
-},
-
-readOnlyBannerText: {
-  ...textStyles.meta,
-  color: colors.textSecondary,
-  marginTop: spacing.xxs,
-},
-
-readOnlyBackButton: {
-  flexDirection: "row",
-  alignItems: "center",
-  justifyContent: "center",
-  gap: spacing.xs,
-  alignSelf: "flex-start",
-  marginTop: spacing.sm,
-  paddingVertical: spacing.xs,
-},
-
-readOnlyBackButtonText: {
-  ...textStyles.bodyStrong,
-  color: colors.primary,
-  fontSize: 13,
-},
-openGoogleMapsButton: {
-  flexDirection: "row",
-  alignItems: "center",
-  justifyContent: "center",
-  gap: spacing.xs,
-  backgroundColor: colors.primary,
-  paddingVertical: spacing.sm,
-  paddingHorizontal: spacing.md,
-  borderRadius: radii.md,
-  marginTop: spacing.xs,
-},
-openGoogleMapsText: {
-  ...textStyles.bodyStrong,
-  color: colors.textInverse,
-  fontSize: 13,
-},
+    backgroundColor: colors.primary,
+    borderRadius: radii.md,
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.lg,
+    marginTop: spacing.lg,
+    alignItems: "center",
+    justifyContent: "center",
+    width: "100%",
+  },
+  activityEditOkButtonText: {
+    color: colors.textInverse,
+    fontSize: 15,
+    fontWeight: "700",
+  },
+  logoutButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: spacing.sm,
+    paddingVertical: spacing.md,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    borderColor: colors.danger,
+    backgroundColor: colors.surface,
+  },
+  logoutButtonPressed: {
+    opacity: 0.7,
+  },
+  logoutText: {
+    ...textStyles.bodyStrong,
+    color: colors.danger,
+  },
+  readOnlyBanner: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: spacing.sm,
+    marginHorizontal: spacing.lg,
+    marginTop: spacing.md,
+    padding: spacing.md,
+    borderRadius: radii.md,
+    backgroundColor: colors.warningSurface,
+    borderWidth: 1,
+    borderColor: colors.warning,
+  },
+  readOnlyBannerContent: {
+    flex: 1,
+  },
+  readOnlyBannerTitle: {
+    ...textStyles.bodyStrong,
+    color: colors.primary,
+  },
+  readOnlyBannerText: {
+    ...textStyles.meta,
+    color: colors.textSecondary,
+    marginTop: spacing.xxs,
+  },
+  readOnlyBackButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: spacing.xs,
+    alignSelf: "flex-start",
+    marginTop: spacing.sm,
+    paddingVertical: spacing.xs,
+  },
+  readOnlyBackButtonText: {
+    ...textStyles.bodyStrong,
+    color: colors.primary,
+    fontSize: 13,
+  },
+  openGoogleMapsButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: spacing.xs,
+    backgroundColor: colors.primary,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+    borderRadius: radii.md,
+    marginTop: spacing.xs,
+  },
+  openGoogleMapsText: {
+    ...textStyles.bodyStrong,
+    color: colors.textInverse,
+    fontSize: 13,
+  },
 });
