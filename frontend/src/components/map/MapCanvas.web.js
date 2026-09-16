@@ -3,21 +3,9 @@ import { ActivityIndicator, StyleSheet, Text, View } from "react-native";
 
 import { colors, radii, spacing, surfaces, textStyles } from "../../theme/tokens";
 import { decodePolyline } from "../../utils/polyline";
+import { buildWebPinIcon } from "./markerAppearance";
 
 const GOOGLE_MAPS_SCRIPT_ID = "cyanea-google-maps-script";
-
-function markerIcon(kind) {
-  switch (kind) {
-    case "tripDestination":
-      return "https://maps.google.com/mapfiles/ms/icons/yellow-dot.png";
-    case "savedPlace":
-      return "https://maps.google.com/mapfiles/ms/icons/blue-dot.png";
-    case "routeStop":
-      return "https://maps.google.com/mapfiles/ms/icons/purple-dot.png";
-    default:
-      return "https://maps.google.com/mapfiles/ms/icons/red-dot.png";
-  }
-}
 
 function computeMarkerKey(markerData) {
   return `${markerData.kind}-${markerData.id ?? markerData.placeId ?? markerData.name}`;
@@ -108,6 +96,10 @@ export default function MapCanvas({
   onPlacePick,
   onViewportChange,
   routePolyline = null,
+  fullscreen = false,
+  topInset = 0,
+  bottomInset = 0,
+  leftInset = 0,
 }) {
   const containerRef = useRef(null);
   const mapRef = useRef(null);
@@ -122,6 +114,9 @@ export default function MapCanvas({
   const highlightedMarkerIdRef = useRef(highlightedMarkerId);
   const highlightTimeoutRef = useRef(null);
   const previousHighlightedKeyRef = useRef(null);
+  const insetsRef = useRef({ top: topInset, bottom: bottomInset, left: leftInset });
+  insetsRef.current = { top: topInset, bottom: bottomInset, left: leftInset };
+  const fullscreenRef = useRef(fullscreen);
   const [status, setStatus] = useState("loading");
   const [error, setError] = useState("");
 
@@ -175,7 +170,9 @@ export default function MapCanvas({
           clickableIcons: true,
           streetViewControl: false,
           mapTypeControl: false,
-          fullscreenControl: true,
+          fullscreenControl: !fullscreenRef.current,
+          zoomControl: true,
+          gestureHandling: fullscreenRef.current ? "greedy" : "auto",
         });
         if (maps.places?.PlacesService) {
           placesServiceRef.current = new maps.places.PlacesService(mapRef.current);
@@ -289,16 +286,15 @@ export default function MapCanvas({
     markers.forEach((markerData) => {
       const key = computeMarkerKey(markerData);
       const isHighlighted = highlightedMarkerIdRef.current === key;
-      const icon = isHighlighted
-        ? { url: markerIcon(markerData.kind), scaledSize: new window.google.maps.Size(50, 50) }
-        : markerIcon(markerData.kind);
+      const icon = buildWebPinIcon(window.google.maps, markerData, { highlighted: isHighlighted });
 
       const marker = new window.google.maps.Marker({
         map: mapRef.current,
         position: { lat: markerData.lat, lng: markerData.lng },
         title: markerData.name,
         icon,
-        zIndex: isHighlighted ? 999 : undefined,
+        zIndex: isHighlighted ? 999 : markerData.kind === "tripDestination" ? 50 : 10,
+        optimized: false,
       });
 
       marker.addListener("click", () => onMarkerPressRef.current?.(markerData));
@@ -314,12 +310,20 @@ export default function MapCanvas({
       .map((marker) => `${marker.kind}:${marker.id ?? marker.placeId ?? marker.name}`)
       .sort()
       .join("|");
-    const shouldAutoAdjustViewport =
-      !hasUserMovedMapRef.current || stableMarkersKey !== lastAutoViewportKeyRef.current;
+    // En pantalla completa no le movemos el mapa al usuario si ya lo movió él (p. ej. al guardar un lugar).
+    const shouldAutoAdjustViewport = fullscreenRef.current
+      ? !hasUserMovedMapRef.current && stableMarkersKey !== lastAutoViewportKeyRef.current
+      : !hasUserMovedMapRef.current || stableMarkersKey !== lastAutoViewportKeyRef.current;
 
     if (shouldAutoAdjustViewport) {
       if (stableMarkers.length > 1) {
-        mapRef.current.fitBounds(bounds, 64);
+        const { top, bottom, left } = insetsRef.current;
+        mapRef.current.fitBounds(bounds, {
+          top: top + 48,
+          bottom: bottom + 48,
+          left: left + 48,
+          right: 48,
+        });
       } else if (stableMarkers.length === 1) {
         mapRef.current.setCenter({ lat: stableMarkers[0].lat, lng: stableMarkers[0].lng });
         mapRef.current.setZoom(12);
@@ -343,8 +347,8 @@ export default function MapCanvas({
       const previousEntry = markerRefs.current.find((entry) => entry.key === previousHighlightedKeyRef.current);
       if (previousEntry) {
         previousEntry.marker.setAnimation(null);
-        previousEntry.marker.setIcon(markerIcon(previousEntry.data.kind));
-        previousEntry.marker.setZIndex(undefined);
+        previousEntry.marker.setIcon(buildWebPinIcon(window.google.maps, previousEntry.data));
+        previousEntry.marker.setZIndex(previousEntry.data.kind === "tripDestination" ? 50 : 10);
       }
     }
 
@@ -359,13 +363,15 @@ export default function MapCanvas({
       return undefined;
     }
 
-    entry.marker.setIcon({
-      url: markerIcon(entry.data.kind),
-      scaledSize: new window.google.maps.Size(50, 50),
-    });
+    entry.marker.setIcon(buildWebPinIcon(window.google.maps, entry.data, { highlighted: true }));
     entry.marker.setZIndex(999);
-    entry.marker.setAnimation(window.google.maps.Animation.BOUNCE);
+    entry.marker.setAnimation(window.google.maps.Animation.DROP);
     mapRef.current.panTo(entry.marker.getPosition());
+    // Compensa el panel (lateral o inferior) para que el pin quede en la zona visible.
+    const { bottom, left } = insetsRef.current;
+    if (bottom || left) {
+      mapRef.current.panBy(-left / 2, bottom / 2);
+    }
 
     highlightTimeoutRef.current = window.setTimeout(() => {
       entry.marker.setAnimation(null);
@@ -382,8 +388,8 @@ export default function MapCanvas({
   }, [highlightedMarkerId, status]);
 
   return (
-    <View style={styles.wrap}>
-      <div ref={containerRef} style={mapDomStyle} />
+    <View style={fullscreen ? styles.fullscreenWrap : styles.wrap}>
+      <div ref={containerRef} style={fullscreen ? fullscreenDomStyle : mapDomStyle} />
 
       {status === "loading" ? (
         <View style={[styles.overlay, styles.feedback]}>
@@ -408,7 +414,15 @@ const mapDomStyle = {
   borderRadius: `${radii.lg}px`,
 };
 
+const fullscreenDomStyle = {
+  width: "100%",
+  height: "100%",
+};
+
 const styles = StyleSheet.create({
+  fullscreenWrap: {
+    ...StyleSheet.absoluteFillObject,
+  },
   wrap: {
     ...surfaces.card,
     overflow: "hidden",

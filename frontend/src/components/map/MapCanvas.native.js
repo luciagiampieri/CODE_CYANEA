@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { StyleSheet, Text, View } from "react-native";
-import MapView, { Marker, Polyline, PROVIDER_GOOGLE } from "react-native-maps";
+import MapView, { Polyline, PROVIDER_GOOGLE } from "react-native-maps";
 import { FontAwesome6 } from "@expo/vector-icons";
 
 import { colors, radii, spacing, surfaces, textStyles } from "../../theme/tokens";
 import { decodePolyline } from "../../utils/polyline";
+import MapPin from "./MapPin";
 
 const DEFAULT_CENTER = {
   latitude: -34.6037,
@@ -26,19 +27,6 @@ function buildInitialRegion(initialCenter) {
   return DEFAULT_CENTER;
 }
 
-function resolveMarkerColor(kind) {
-  switch (kind) {
-    case "tripDestination":
-      return colors.accentStrong;
-    case "savedPlace":
-      return colors.primarySoft;
-    case "routeStop":
-      return colors.primary;
-    default:
-      return colors.danger;
-  }
-}
-
 export default function MapCanvas({
   initialCenter,
   markers = [],
@@ -47,6 +35,10 @@ export default function MapCanvas({
   onPlacePick,
   onViewportChange,
   routePolyline = null,
+  highlightedMarkerId = null,
+  fullscreen = false,
+  topInset = 0,
+  bottomInset = 0,
 }) {
   const mapRef = useRef(null);
   const hasMountedRegionRef = useRef(false);
@@ -76,6 +68,19 @@ export default function MapCanvas({
       animated: true,
     });
   }, [routeCoordinates]);
+
+  // Centra el mapa en el lugar seleccionado (el padding deja el pin fuera del panel).
+  useEffect(() => {
+    if (!highlightedMarkerId || !mapRef.current) return;
+    const target = validMarkers.find(
+      (marker) => `${marker.kind}-${marker.id ?? marker.placeId ?? marker.name}` === highlightedMarkerId
+    );
+    if (!target) return;
+    mapRef.current.animateCamera(
+      { center: { latitude: target.lat, longitude: target.lng } },
+      { duration: 350 }
+    );
+  }, [highlightedMarkerId, validMarkers]);
 
   useEffect(() => {
     if (hasMountedRegionRef.current) return;
@@ -116,11 +121,12 @@ export default function MapCanvas({
   }
 
   return (
-    <View style={styles.wrap}>
-      <View style={styles.mapCard}>
+    <View style={fullscreen ? styles.fullscreenWrap : styles.wrap}>
+      <View style={fullscreen ? styles.fullscreenCard : styles.mapCard}>
         <MapView
           ref={mapRef}
           initialRegion={region}
+          mapPadding={{ top: topInset, right: 0, bottom: bottomInset, left: 0 }}
           provider={PROVIDER_GOOGLE}
           poiClickEnabled
           onPoiClick={handlePoiClick}
@@ -130,18 +136,21 @@ export default function MapCanvas({
           showsCompass
           showsIndoors={false}
           showsTraffic={false}
-          style={styles.map}
+          style={fullscreen ? styles.fullscreenMap : styles.map}
         >
-          {validMarkers.map((marker) => (
-            <Marker
-              key={`${marker.kind}-${marker.id ?? marker.placeId ?? marker.name}`}
-              coordinate={{ latitude: marker.lat, longitude: marker.lng }}
-              onPress={() => onMarkerPress?.(marker)}
-              pinColor={resolveMarkerColor(marker.kind)}
-              title={marker.name}
-              description={marker.address}
-            />
-          ))}
+          {validMarkers.map((marker) => {
+            const key = `${marker.kind}-${marker.id ?? marker.placeId ?? marker.name}`;
+            return (
+              <MapPin
+                key={key}
+                dimmed={Boolean(highlightedMarkerId) && key !== highlightedMarkerId}
+                highlighted={key === highlightedMarkerId}
+                marker={marker}
+                onPress={onMarkerPress}
+                showCallout={!fullscreen}
+              />
+            );
+          })}
 
           {routeCoordinates.length > 0 ? (
             <Polyline
@@ -152,14 +161,16 @@ export default function MapCanvas({
           ) : null}
         </MapView>
 
+        {!fullscreen ? (
         <View pointerEvents="none" style={styles.overlayTop}>
           <View style={styles.hintPill}>
             <FontAwesome6 color={colors.primary} name="hand-pointer" size={12} />
             <Text style={styles.hintText}>Toca un marcador o un punto de interés para ver el detalle</Text>
           </View>
         </View>
+        ) : null}
 
-        {offline ? (
+        {offline && !fullscreen ? (
           <View style={styles.offlineOverlay}>
             <FontAwesome6 color={colors.warning} name="wifi" size={14} />
             <Text style={styles.offlineText}>Sin conexión. El mapa puede no actualizar resultados.</Text>
@@ -167,22 +178,24 @@ export default function MapCanvas({
         ) : null}
       </View>
 
+      {!fullscreen ? (
       <View style={styles.footer}>
         <View style={styles.legendItem}>
           <View style={[styles.legendDot, { backgroundColor: colors.accentStrong }]} />
           <Text style={styles.legendText}>Destino</Text>
         </View>
         <View style={styles.legendItem}>
-          <View style={[styles.legendDot, { backgroundColor: colors.primarySoft }]} />
+          <View style={[styles.legendDot, { backgroundColor: colors.primary }]} />
           <Text style={styles.legendText}>Guardado</Text>
         </View>
         <View style={styles.legendItem}>
-          <View style={[styles.legendDot, { backgroundColor: colors.danger }]} />
+          <View style={[styles.legendDot, styles.legendDotResult]} />
           <Text style={styles.legendText}>Resultado</Text>
         </View>
       </View>
+      ) : null}
 
-      {validMarkers.length === 0 ? (
+      {validMarkers.length === 0 && !fullscreen ? (
         <View style={styles.emptyCard}>
           <Text style={styles.emptyTitle}>Todavía no hay puntos para mostrar.</Text>
           <Text style={styles.emptyCopy}>
@@ -195,6 +208,15 @@ export default function MapCanvas({
 }
 
 const styles = StyleSheet.create({
+  fullscreenWrap: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  fullscreenCard: {
+    flex: 1,
+  },
+  fullscreenMap: {
+    flex: 1,
+  },
   wrap: {
     gap: spacing.md,
   },
@@ -263,6 +285,11 @@ const styles = StyleSheet.create({
     width: 10,
     height: 10,
     borderRadius: 5,
+  },
+  legendDotResult: {
+    backgroundColor: colors.surface,
+    borderWidth: 2,
+    borderColor: colors.primary,
   },
   legendText: {
     ...textStyles.meta,
