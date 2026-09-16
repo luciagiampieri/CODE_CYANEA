@@ -74,3 +74,24 @@ WHERE NOT EXISTS (
     FROM public."CategoriasGastos" cg
     WHERE cg."Nombre" = datos."Nombre"
 );
+
+
+INSERT INTO public."CategoriasChecklist" ("Nombre", "Activo")
+SELECT datos."Nombre", datos."Activo"
+FROM (
+    VALUES
+        ('Documentación', TRUE), 
+        ('Transporte', TRUE),   
+        ('Alojamiento', TRUE),  
+        ('Equipamiento', TRUE),
+        ('Salud', TRUE),   
+        ('Seguros', TRUE),  
+        ('Finanzas', TRUE),  
+        ('Comida', TRUE),
+        ('Otros', TRUE)         
+) AS datos("Nombre", "Activo")
+WHERE NOT EXISTS (
+    SELECT 1
+    FROM public."CategoriasChecklist" cc
+    WHERE cc."Nombre" = datos."Nombre"
+);

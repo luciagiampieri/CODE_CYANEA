@@ -26,6 +26,8 @@ from app.models.item_repositorio import ItemRepositorioViaje
 from app.models.ruta_diaria import RutaDiaria
 from app.models.transferencia_liquidacion import TransferenciaLiquidacion
 from app.models.notificacion import Notificacion
+from app.models.checklist import Checklist
+from app.models.categorias_checklist import CategoriasChecklist
 __all__ = [
     "EstadoInvitacion",
     "EstadoParticipacion",
@@ -53,4 +55,6 @@ __all__ = [
     "RutaDiaria",
     "TransferenciaLiquidacion",
     "Notificacion",
+    "Checklist",
+    "CategoriasChecklist",
 ]
