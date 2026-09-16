@@ -53,6 +53,58 @@ async function authHeaders() {
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
+// --- Errores de la API ---------------------------------------------------------
+
+const tripFinishedListeners = new Set();
+
+/**
+ * Permite reaccionar cuando el backend avisa que el viaje terminó (409
+ * TRIP_FINISHED), p. ej. para recargar el viaje y bloquear la pantalla.
+ * Devuelve la función para desuscribirse.
+ */
+export function onTripFinishedError(listener) {
+  tripFinishedListeners.add(listener);
+  return () => tripFinishedListeners.delete(listener);
+}
+
+function readHeader(headers, name) {
+  if (!headers) return null;
+  if (typeof headers.get === "function") return headers.get(name);
+  const key = Object.keys(headers).find((item) => item.toLowerCase() === name.toLowerCase());
+  return key ? headers[key] : null;
+}
+
+function buildApiError(message, status, headers) {
+  const error = new Error(message);
+  error.status = status;
+  error.code = readHeader(headers, "X-Error-Code");
+  const isTripFinished =
+    error.code === "TRIP_FINISHED" || (status === 409 && /viaje ya finaliz/i.test(message));
+  if (isTripFinished) {
+    error.code = "TRIP_FINISHED";
+    tripFinishedListeners.forEach((listener) => {
+      try {
+        listener(error);
+      } catch {
+        // Un listener roto no debe tapar el error original.
+      }
+    });
+  }
+  return error;
+}
+
+function messageFromBody(body, fallbackMessage) {
+  try {
+    const data = typeof body === "string" ? JSON.parse(body) : body;
+    if (Array.isArray(data?.detail)) {
+      return data.detail.map((item) => item.msg ?? item.message ?? JSON.stringify(item)).join(". ");
+    }
+    return data?.detail || data?.message || fallbackMessage;
+  } catch {
+    return fallbackMessage;
+  }
+}
+
 async function parseResponse(response, fallbackMessage) {
   if (response.ok) {
     return response.json();
@@ -72,7 +124,7 @@ async function parseResponse(response, fallbackMessage) {
     message = fallbackMessage;
   }
 
-  throw new Error(message);
+  throw buildApiError(message, response.status, response.headers);
 }
 
 export async function loginUser(email, password) {
@@ -826,12 +878,8 @@ export async function uploadTripDocument(
     );
 
     if (result.status < 200 || result.status >= 300) {
-      let mensaje = "No se pudo subir el documento";
-      try {
-        const parsed = JSON.parse(result.body);
-        mensaje = parsed.detail || parsed.message || mensaje;
-      } catch (e) {}
-      throw new Error(mensaje);
+      const mensaje = messageFromBody(result.body, "No se pudo subir el documento");
+      throw buildApiError(mensaje, result.status, result.headers);
     }
 
     try {
@@ -1078,12 +1126,8 @@ export async function updateTripDocument(
       );
 
       if (result.status < 200 || result.status >= 300) {
-        let mensaje = "No se pudo actualizar el documento";
-        try {
-          const parsed = JSON.parse(result.body);
-          mensaje = parsed.detail || parsed.message || mensaje;
-        } catch (e) {}
-        throw new Error(mensaje);
+        const mensaje = messageFromBody(result.body, "No se pudo actualizar el documento");
+        throw buildApiError(mensaje, result.status, result.headers);
       }
 
       try {

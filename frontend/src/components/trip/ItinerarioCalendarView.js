@@ -90,6 +90,7 @@ export default function ItinerarioCalendarView({
                     return (
                       <Pressable
                         key={actividad.id}
+                        disabled={!onEditActivity}
                         onPress={() => onEditActivity?.(dia, actividad)}
                         style={[styles.actividad, seSolapa && styles.actividadSolapada]}
                       >
@@ -117,22 +118,30 @@ export default function ItinerarioCalendarView({
                           </Text>
                         ) : null}
 
-                        <View style={styles.actividadAcciones}>
-                          <Pressable
-                            hitSlop={8}
-                            onPress={() => onEditActivity?.(dia, actividad)}
-                            style={styles.actividadAccionBoton}
-                          >
-                            <FontAwesome6 color={colors.primary} name="pen" size={11} />
-                          </Pressable>
-                          <Pressable
-                            hitSlop={8}
-                            onPress={() => onDeleteActivity?.(dia, actividad)}
-                            style={styles.actividadAccionBoton}
-                          >
-                            <FontAwesome6 color={colors.textMuted} name="trash" size={11} />
-                          </Pressable>
-                        </View>
+                        {onEditActivity || onDeleteActivity ? (
+                          <View style={styles.actividadAcciones}>
+                            {onEditActivity ? (
+                              <Pressable
+                                accessibilityLabel={`Editar ${actividad.title}`}
+                                hitSlop={8}
+                                onPress={() => onEditActivity(dia, actividad)}
+                                style={styles.actividadAccionBoton}
+                              >
+                                <FontAwesome6 color={colors.primary} name="pen" size={11} />
+                              </Pressable>
+                            ) : null}
+                            {onDeleteActivity ? (
+                              <Pressable
+                                accessibilityLabel={`Eliminar ${actividad.title}`}
+                                hitSlop={8}
+                                onPress={() => onDeleteActivity(dia, actividad)}
+                                style={styles.actividadAccionBoton}
+                              >
+                                <FontAwesome6 color={colors.textMuted} name="trash" size={11} />
+                              </Pressable>
+                            ) : null}
+                          </View>
+                        ) : null}
                       </Pressable>
                     );
                   })
@@ -140,10 +149,12 @@ export default function ItinerarioCalendarView({
                   <Text style={styles.sinActividades}>Sin actividades agendadas.</Text>
                 )}
 
-                <Pressable onPress={() => onAddActivity?.(dia)} style={styles.agregarBoton}>
-                  <FontAwesome6 color={colors.primary} name="plus" size={11} />
-                  <Text style={styles.agregarTexto}>Agregar</Text>
-                </Pressable>
+                {onAddActivity ? (
+                  <Pressable onPress={() => onAddActivity(dia)} style={styles.agregarBoton}>
+                    <FontAwesome6 color={colors.primary} name="plus" size={11} />
+                    <Text style={styles.agregarTexto}>Agregar</Text>
+                  </Pressable>
+                ) : null}
 
                 {(() => {
                   const actividadesConUbicacion = (dia.actividades ?? []).filter(
@@ -208,7 +219,7 @@ export default function ItinerarioCalendarView({
                         </Text>
                       ) : null}
 
-                      {puedeGenerarRuta ? (
+                      {puedeGenerarRuta && onGenerarRuta ? (
                         <>
                           <View style={styles.modoTransporteWrap}>
                             {MODOS_RUTA.map((modo) => {

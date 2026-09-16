@@ -16,7 +16,7 @@ from app.schemas.checklist import (
 )
 
 from app.services.websocket_manager import manager
-from app.services.trip_access import get_trip_with_relations, require_trip_access, require_trip_edit_access
+from app.services.trip_access import get_trip_with_relations, require_trip_access, require_trip_edit_access, require_trip_not_finished
 
 router = APIRouter()
 
@@ -83,6 +83,7 @@ async def crear_checklist(
         get_trip_with_relations(db, trip_id),
         current_user,
     )
+    require_trip_not_finished(viaje, "la checklist")
 
     nombre_limpio = payload.Nombre.strip()
 
@@ -148,10 +149,11 @@ async def actualizar_checklist(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
 ):
-    require_trip_edit_access(
+    viaje = require_trip_edit_access(
         get_trip_with_relations(db, trip_id),
         current_user,
     )
+    require_trip_not_finished(viaje, "la checklist")
 
     checklist = db.get(Checklist, checklist_id)
 
@@ -209,10 +211,11 @@ async def eliminar_checklist(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
 ):
-    require_trip_edit_access(
+    viaje = require_trip_edit_access(
         get_trip_with_relations(db, trip_id),
         current_user,
     )
+    require_trip_not_finished(viaje, "la checklist")
 
     checklist = db.get(Checklist, checklist_id)
 

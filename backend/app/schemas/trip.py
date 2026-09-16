@@ -209,6 +209,8 @@ class TripDetailRead(TripRead):
     image: str | None = None
     hasCustomCover: bool = False
     defaultCoverImage: str | None = None
+    # Hasta cuándo el admin puede editar los datos generales (FechaFin + 1 mes).
+    infoEditableUntil: date | None = None
 
 
 class TripParticipantUpsert(BaseModel):

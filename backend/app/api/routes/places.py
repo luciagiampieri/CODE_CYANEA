@@ -29,7 +29,7 @@ from app.schemas.place import (
 from app.schemas.trip import ActividadRead, RutaDiariaRead
 from app.services.place_search import get_place_details, search_popular_places, get_trip_allowed_regions, search_nearby_places, CATEGORY_TYPE_MAP, autocomplete_trip_places, resolve_trip_place
 from app.services.route_generation import sincronizar_ruta_tras_cambio_actividad
-from app.services.trip_access import get_trip_with_relations, require_trip_access, require_trip_edit_access
+from app.services.trip_access import get_trip_with_relations, require_trip_access, require_trip_edit_access, require_trip_not_finished
 
 router = APIRouter()
 
@@ -387,7 +387,8 @@ def create_activity_location(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
 ) -> TripPlaceRead:
-    require_trip_edit_access(get_trip_with_relations(db, trip_id), current_user)
+    viaje = require_trip_edit_access(get_trip_with_relations(db, trip_id), current_user)
+    require_trip_not_finished(viaje, "el itinerario")
 
     place = db.scalar(
         select(LugarInteres).where(
@@ -447,7 +448,8 @@ def create_trip_place(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
 ) -> TripPlaceMutationResponse:
-    require_trip_edit_access(get_trip_with_relations(db, trip_id), current_user)
+    viaje = require_trip_edit_access(get_trip_with_relations(db, trip_id), current_user)
+    require_trip_not_finished(viaje, "el itinerario")
 
     place = db.scalar(
         select(LugarInteres).where(LugarInteres.GooglePlaceId == payload.placeId.strip())
@@ -517,7 +519,8 @@ async def schedule_trip_place(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
 ) -> ActividadRead:
-    require_trip_edit_access(get_trip_with_relations(db, trip_id), current_user)
+    viaje = require_trip_edit_access(get_trip_with_relations(db, trip_id), current_user)
+    require_trip_not_finished(viaje, "el itinerario")
     _ensure_trip_days(db, trip_id)
 
     trip_place = db.scalar(

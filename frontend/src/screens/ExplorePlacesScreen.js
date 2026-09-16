@@ -49,6 +49,7 @@ import {
   searchTripPlaces,
 } from "../services/api";
 import { colors, radii, shadows, spacing, textStyles } from "../theme/tokens";
+import { getTripLock } from "../utils/tripLock";
 
 // Altura aproximada de buscador + chips; el mapa la usa como padding superior.
 const TOP_OVERLAY_HEIGHT = 124;
@@ -111,7 +112,8 @@ export default function ExplorePlacesScreen({ navigation, route }) {
   const toastOpacity = useRef(new Animated.Value(0)).current;
   const toastTimeoutRef = useRef(null);
 
-  const readOnly = Boolean(trip?.hasLeft);
+  const lock = useMemo(() => getTripLock(trip), [trip]);
+  const readOnly = !lock.canEdit("itinerario");
 
   // ---------------------------------------------------------------------------
   // Carga
@@ -1023,9 +1025,17 @@ export default function ExplorePlacesScreen({ navigation, route }) {
               />
 
               {readOnly ? (
-                <View style={[styles.banner, styles.bannerWarning]}>
-                  <FontAwesome6 color={colors.warning} name="eye" size={12} />
-                  <Text style={styles.bannerText}>Ya no sos parte de este viaje: solo podés mirar.</Text>
+                <View style={[styles.banner, lock.hasLeft ? styles.bannerWarning : styles.bannerInfo]}>
+                  <FontAwesome6
+                    color={lock.hasLeft ? colors.warning : colors.primary}
+                    name={lock.hasLeft ? "eye" : "flag-checkered"}
+                    size={12}
+                  />
+                  <Text style={styles.bannerText}>
+                    {lock.hasLeft
+                      ? "Ya no sos parte de este viaje: solo podés mirar."
+                      : "El viaje terminó: podés mirar el mapa, pero no guardar ni agendar lugares."}
+                  </Text>
                 </View>
               ) : null}
 
@@ -1139,6 +1149,11 @@ const styles = StyleSheet.create({
     backgroundColor: colors.warningSurface,
     borderWidth: 1,
     borderColor: colors.accentStrong,
+  },
+  bannerInfo: {
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.borderStrong,
   },
   bannerText: {
     ...textStyles.meta,

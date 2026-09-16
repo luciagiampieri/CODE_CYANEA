@@ -1,4 +1,3 @@
-from calendar import monthrange
 from datetime import datetime, timedelta, date
 import logging
 from secrets import token_urlsafe
@@ -63,7 +62,7 @@ from app.services.notifications import (
 )
 from app.services.destination_search import build_destination_image_url, search_destinations, autocomplete_destinations, resolve_destination
 from app.services.place_search import get_place_photo_uri
-from app.services.trip_access import get_trip_with_relations, require_trip_access, require_trip_edit_access
+from app.services.trip_access import get_trip_with_relations, require_trip_access, require_trip_edit_access, require_trip_not_finished, resolve_trip_status, require_trip_info_editable, trip_info_editable_until
 from app.services.liquidacion_service import calcular_balances_participantes
 from app.services.supabase.storage import eliminar_documento_storage, subir_portada_viaje, obtener_url_publica
 
@@ -122,15 +121,6 @@ except (ImportError, ModuleNotFoundError):
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
-
-
-def _add_one_month(fecha: date) -> date:
-    """Suma un mes calendario a una fecha, ajustando meses de distinta longitud
-    (ej. 31 de enero + 1 mes -> 28 o 29 de febrero)."""
-    year = fecha.year + (1 if fecha.month == 12 else 0)
-    month = 1 if fecha.month == 12 else fecha.month + 1
-    day = min(fecha.day, monthrange(year, month)[1])
-    return date(year, month, day)
 
 
 def _require_trip_admin(viaje: Viaje, current_user: Usuario) -> None:
@@ -370,7 +360,7 @@ def _build_trip_detail(
         ) for rel in viaje.Destinos
         ],
         description=viaje.Descripcion,
-        status=viaje.EstadoViaje.Nombre,
+        status=resolve_trip_status(viaje),
         currency=viaje.Moneda,
         startDate=viaje.FechaInicio,
         endDate=viaje.FechaFin,
@@ -425,7 +415,8 @@ def _build_trip_detail(
             for invitacion in invitaciones_visibles
         ],
         invitedEmails=[invitacion.EmailInvitado for invitacion in invitaciones_visibles],
-        hasLeft=has_left 
+        hasLeft=has_left,
+        infoEditableUntil=trip_info_editable_until(viaje),
     )
 
 @router.get("/invitations/pending", response_model=None)
@@ -491,6 +482,9 @@ async def respond_to_invitation(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Esta invitación ya fue respondida previamente."
         )
+
+    if decision == "aceptar":
+        require_trip_not_finished(participacion.Viaje, "la lista de participantes")
 
     nuevo_estado_nombre = "aceptado" if decision == "aceptar" else "rechazado"
     estado_maestro = db.scalar(
@@ -647,9 +641,7 @@ def list_trips(
     hoy = date.today()
 
     def resolver_estado(viaje: Viaje) -> str:
-        if viaje.FechaFin and viaje.FechaFin < hoy:
-            return "finalizado"
-        return viaje.EstadoViaje.Nombre
+        return resolve_trip_status(viaje, hoy)
 
     def resolver_has_left(viaje: Viaje) -> bool:
         participacion_usuario = next(
@@ -724,12 +716,7 @@ async def update_trip(
     viaje = require_trip_edit_access(get_trip_with_relations(db, trip_id), current_user)
     _require_trip_admin(viaje, current_user)
 
-    limite_edicion = _add_one_month(viaje.FechaFin)
-    if date.today() > limite_edicion:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="El plazo para editar la información general de este viaje ha vencido",
-        )
+    require_trip_info_editable(viaje)
 
 
     viaje_ya_comenzo = viaje.FechaInicio <= date.today()
@@ -890,6 +877,7 @@ async def create_activity(
     current_user: Usuario = Depends(get_current_user),
 ) -> ActividadRead:
     viaje = require_trip_edit_access(get_trip_with_relations(db, trip_id), current_user)
+    require_trip_not_finished(viaje, "el itinerario")
 
     dia = db.scalar(
         select(DiaCronograma).where(
@@ -961,6 +949,7 @@ async def update_activity(
     current_user: Usuario = Depends(get_current_user),
 ) -> ActividadRead:
     viaje = require_trip_edit_access(get_trip_with_relations(db, trip_id), current_user)
+    require_trip_not_finished(viaje, "el itinerario")
 
     dia = db.scalar(
         select(DiaCronograma).where(
@@ -1053,6 +1042,7 @@ async def delete_activity(
     current_user: Usuario = Depends(get_current_user),
 ) -> TripMutationResponse:
     viaje = require_trip_edit_access(get_trip_with_relations(db, trip_id), current_user)
+    require_trip_not_finished(viaje, "el itinerario")
 
     dia = db.scalar(
         select(DiaCronograma).where(
@@ -1106,6 +1096,7 @@ async def generate_route(
         )
 
     viaje = require_trip_edit_access(get_trip_with_relations(db, trip_id), current_user)
+    require_trip_not_finished(viaje, "el itinerario")
 
     dia = db.scalar(
         select(DiaCronograma).where(
@@ -1151,6 +1142,7 @@ def add_trip_participant(
 ) -> TripMutationResponse:
     viaje = require_trip_access(get_trip_with_relations(db, trip_id), current_user)
     _require_trip_admin(viaje, current_user)
+    require_trip_not_finished(viaje, "la lista de participantes")
 
     rol_participante = db.scalar(
         select(RolParticipante).where(
@@ -1328,6 +1320,7 @@ def remove_trip_participant(
     """
     viaje = require_trip_access(get_trip_with_relations(db, trip_id), current_user)
     _require_trip_admin(viaje, current_user)
+    require_trip_not_finished(viaje, "la lista de participantes")
 
     if user_id == viaje.IdAdministrador:
         raise HTTPException(
@@ -1417,6 +1410,7 @@ def remove_trip_external_invitation(
 ) -> TripMutationResponse:
     viaje = require_trip_access(get_trip_with_relations(db, trip_id), current_user)
     _require_trip_admin(viaje, current_user)
+    require_trip_not_finished(viaje, "la lista de participantes")
 
     if not payload.email:
         raise HTTPException(status_code=400, detail="Debes enviar el email de la invitación externa")
@@ -1451,6 +1445,7 @@ async def remove_trip_cover(
         )
 
     _require_trip_admin(viaje, current_user)
+    require_trip_info_editable(viaje)
 
     ruta_portada = viaje.UrlPortadaPersonalizada
 
@@ -1495,6 +1490,7 @@ async def upload_trip_cover(
         )
 
     _require_trip_admin(viaje, current_user)
+    require_trip_info_editable(viaje)
 
     extension = (
         (archivo.filename or "").lower().rsplit(".", 1)[-1]
@@ -1780,7 +1776,7 @@ async def create_trip(
             )
             for rel in viaje.Destinos
         ],
-        status=viaje.EstadoViaje.Nombre,
+        status=resolve_trip_status(viaje),
         currency=viaje.Moneda,
         startDate=viaje.FechaInicio,
         endDate=viaje.FechaFin,
@@ -1829,6 +1825,9 @@ async def leave_trip(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="No puedes abandonar un viaje que no está activo",
         )
+
+    # En la base puede seguir "activo" aunque ya pasó la fecha de fin.
+    require_trip_not_finished(viaje, "la lista de participantes")
         
     participacion = db.scalar(
         select(ParticipanteViaje)

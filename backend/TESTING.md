@@ -76,6 +76,21 @@ rápido y aísla los tests de auth de los tests de negocio.
   del viaje para asignar gastos (requiere auth, viaje inexistente, rechazo a
   no-miembros, solo incluye participantes con estado "aceptado" — test de
   regresión del bug de membresía documentado más abajo).
+- `viaje finalizado` (`test_viaje_finalizado.py`): un viaje se considera
+  finalizado desde el día siguiente a `FechaFin` (el último día todavía es
+  editable) o si su estado es "finalizado". Itinerario, lugares, participantes
+  (agregar, expulsar, abandonar, aceptar invitación), checklist, documentación,
+  repositorio y votaciones responden `409` con `X-Error-Code: TRIP_FINISHED`;
+  una invitación se puede seguir rechazando. Un no-admin recibe `403` antes que
+  `409`. Las votaciones abiertas pasan a "cerrada" y exponen resultados. Gastos
+  y liquidaciones siguen habilitados, y el admin puede eliminar el viaje.
+  Lecturas (detalle, documentos) siguen permitidas y el detalle/listado
+  devuelven `status: "finalizado"` (un viaje "cancelado" conserva su estado
+  aunque haya pasado la fecha). Los datos generales y la portada tienen su
+  propio plazo: se pueden editar hasta un mes después de `FechaFin` (inclusive,
+  ajustando meses cortos: 31/1 -> 28/2); al vencer responden `403` con
+  `X-Error-Code: TRIP_EDIT_WINDOW_CLOSED`. El detalle expone ese límite como
+  `infoEditableUntil` para que el front oculte la edición con la misma regla.
 - `votaciones`: creación, validaciones (mínimo de propuestas, fecha futura),
   control de membresía, emisión de voto, rechazo de doble voto.
 - `users`: `/me` (éxito, sin token, token inválido), listado (requiere auth,
