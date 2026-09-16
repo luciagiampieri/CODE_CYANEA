@@ -956,6 +956,58 @@ export async function deleteRepositorioItem(tripId, itemId) {
   return parseResponse(response, "No se pudo eliminar la información");
 }
 
+export async function getChecklistCategories() {
+  const response = await fetch(`${API_BASE_URL}/trips/checklists/categorias`, {
+    headers: await authHeaders(),
+  });
+  return parseResponse(response, "No se pudieron obtener las categorías del checklist");
+}
+
+export async function getChecklists(tripId) {
+  const response = await fetch(`${API_BASE_URL}/trips/${tripId}/checklists`, {
+    headers: await authHeaders(),
+  });
+  return parseResponse(response, "No se pudieron cargar los checklists del viaje");
+}
+
+export async function createChecklist(tripId, payload) {
+  const response = await fetch(`${API_BASE_URL}/trips/${tripId}/checklists`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(await authHeaders()),
+    },
+    body: JSON.stringify(payload),
+  });
+  return parseResponse(response, "No se pudo crear el checklist");
+}
+
+export async function updateChecklist(tripId, checklistId, payload) {
+  const response = await fetch(
+    `${API_BASE_URL}/trips/${tripId}/checklists/${checklistId}`,
+    {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+        ...(await authHeaders()),
+      },
+      body: JSON.stringify(payload),
+    }
+  );
+  return parseResponse(response, "No se pudo actualizar el checklist");
+}
+
+export async function deleteChecklist(tripId, checklistId) {
+  const response = await fetch(
+    `${API_BASE_URL}/trips/${tripId}/checklists/${checklistId}`,
+    {
+      method: "DELETE",
+      headers: await authHeaders(),
+    }
+  );
+  return parseResponse(response, "No se pudo eliminar el checklist");
+}
+
 export async function updateTripDocument(
   tripId,
   documentId,

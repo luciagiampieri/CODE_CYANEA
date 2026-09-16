@@ -11,7 +11,8 @@ from app.api.routes import (
     trips,
     users, 
     votaciones, 
-    notificaciones
+    notificaciones,
+    checklists
 )
 
 api_router = APIRouter()
@@ -27,3 +28,4 @@ api_router.include_router(documentos.router, prefix="/trips", tags=["documentos"
 api_router.include_router(repositorio.router, prefix="/trips", tags=["repositorio"])
 api_router.include_router(places.router, tags=["places"])
 api_router.include_router(notificaciones.router, prefix="/notificaciones", tags=["notificaciones"])
+api_router.include_router(checklists.router, prefix="/trips", tags=["checklists"])

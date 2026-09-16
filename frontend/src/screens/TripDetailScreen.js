@@ -57,6 +57,8 @@ import {
   deleteActivity,
   generateTripRoute,
   leaveTrip,
+  getChecklists,
+  deleteChecklist,
 } from "../services/api";
 import { colors, radii, spacing, surfaces, textStyles } from "../theme/tokens";
 
@@ -71,6 +73,7 @@ import CrearVotacionScreen from "./CreateVotationScreen";
 import DocumentsScreen from "./DocumentsScreen";
 import EditDocumentScreen from "./EditDocumentScreen";
 import GuardarInformacionScreen from "./InformationScreen";
+import CrearChecklistScreen from "./CreateChecklistScreen";
 import useItinerarioViewPreference from "../hooks/useItinerarioViewPreference";
 import useResponsive from "../hooks/useResponsive";
 import ItinerarioViewToggle from "../components/trip/ItinerarioViewToggle";
@@ -295,6 +298,13 @@ export default function TripDetailScreen({ navigation, route }) {
   const [showLeaveModal, setShowLeaveModal] = useState(false);
   const [nuevoAdminId, setNuevoAdminId] = useState(null);
   const [leavingTrip, setLeavingTrip] = useState(false);
+
+  const [checklists, setChecklists] = useState([]);
+  const [loadingChecklists, setLoadingChecklists] = useState(false);
+  const [checklistsError, setChecklistsError] = useState("");
+  const [showCrearChecklistModal, setShowCrearChecklistModal] = useState(false);
+  const [checklistAEditar, setChecklistAEditar] = useState(null);
+  const [eliminandoChecklistId, setEliminandoChecklistId] = useState(null);
 
   const isUserAdmin = useMemo(() => {
     if (!currentUser || !trip?.admin) return false;
@@ -526,6 +536,49 @@ export default function TripDetailScreen({ navigation, route }) {
     }
   }
 
+  async function loadChecklists() {
+    if (!initialTrip?.id) {
+      return;
+    }
+
+    try {
+      setLoadingChecklists(true);
+      setChecklistsError("");
+      const data = await getChecklists(initialTrip.id);
+      setChecklists(data);
+    } catch (error) {
+      setChecklistsError(
+        error.message || "No se pudieron cargar los checklists del viaje."
+      );
+    } finally {
+      setLoadingChecklists(false);
+    }
+  }
+
+  async function eliminarChecklist(checklist) {
+    const ejecutar = async () => {
+      try {
+        setEliminandoChecklistId(checklist.IdChecklist);
+        await deleteChecklist(trip.id, checklist.IdChecklist);
+        setChecklists((prev) => prev.filter((c) => c.IdChecklist !== checklist.IdChecklist));
+      } catch (error) {
+        avisar(
+          "No se pudo eliminar",
+          error.message || "Ocurrió un error al eliminar el checklist."
+        );
+      } finally {
+        setEliminandoChecklistId(null);
+      }
+    };
+
+    confirmar(
+      "Eliminar checklist",
+      `¿Seguro que querés eliminar "${checklist.Nombre}"? Esta acción no se puede deshacer.`,
+      ejecutar
+    );
+  }
+
+
   async function copiarContenido(contenido) {
     try {
       await Clipboard.setStringAsync(contenido);
@@ -647,6 +700,12 @@ export default function TripDetailScreen({ navigation, route }) {
   }, [activeTab, initialTrip?.id]);
 
   useEffect(() => {
+    if (activeTab === "checklist") {
+      loadChecklists();
+    }
+  }, [activeTab, initialTrip?.id]);
+
+  useEffect(() => {
     if (!trip?.id || trip?.hasLeft) return;
 
     let reconnectTimeout = null;
@@ -664,6 +723,11 @@ export default function TripDetailScreen({ navigation, route }) {
 
             if (mensaje.tipo === "documento_actualizado") {
               loadDocumentos();
+              return;
+            }
+
+            if (mensaje.tipo === "checklist_actualizado") {
+              loadChecklists();
               return;
             }
 
@@ -2487,7 +2551,89 @@ export default function TripDetailScreen({ navigation, route }) {
                 <Text style={styles.sectionCopy}>
                   Organiza las cosas pendientes del viaje de forma colaborativa o personal.
                 </Text>
+                {!trip?.hasLeft ? (
+                  <PrimaryButton
+                    icon="plus"
+                    iconPosition="left"
+                    label="Crear tarea"
+                    onPress={() => {
+                      setChecklistAEditar(null);
+                      setShowCrearChecklistModal(true);
+                    }}
+                    style={styles.fullButton}
+                  />
+                ) : null}
               </View>
+
+              {loadingChecklists ? (
+                <ActivityIndicator color={colors.primary} />
+              ) : checklistsError ? (
+                <View style={styles.sectionCard}>
+                  <Text style={styles.sectionCopy}>{checklistsError}</Text>
+                </View>
+              ) : checklists.length === 0 ? (
+                <View style={styles.sectionCard}>
+                  <Text style={styles.sectionCopy}>
+                    Todavía no hay tareas para este viaje. ¡Creá la primera!
+                  </Text>
+                </View>
+              ) : (
+                checklists.map((checklist) => {
+                  const eliminandoEsteChecklist = eliminandoChecklistId === checklist.IdChecklist;
+                  return (
+                    <View key={checklist.IdChecklist} style={[styles.sectionCard, { paddingVertical: spacing.sm }]}>
+                      <View
+                        style={{
+                          flexDirection: "row",
+                          alignItems: "center",
+                          justifyContent: "space-between",
+                        }}
+                      >
+                        <View style={{ flexDirection: "row", alignItems: "center", gap: 10, flex: 1 }}>
+                          <FontAwesome6 
+                            name="circle-check" 
+                            size={18} 
+                            color={checklist.Completada ? colors.success : colors.border} 
+                          />
+                          <View style={{ flex: 1 }}>
+                            <Text style={[styles.sectionHeading, { fontSize: 16 }]} numberOfLines={1}>
+                              {checklist.Nombre}
+                            </Text>
+                            <Text style={[styles.sectionCopy, { fontSize: 12, marginTop: 2 }]}>
+                              <Text style={{ fontWeight: "700" }}>{checklist.CategoriaChecklist?.Nombre || "Otro"}</Text> 
+                              {checklist.Responsables?.length > 0 
+                                ? ` — ${checklist.Responsables.map((r) => r.NombreCompleto.split(' ')[0]).join(", ")}` 
+                                : ""}
+                            </Text>
+                          </View>
+                        </View>
+
+                        {checklist.EsPropio && !trip?.hasLeft ? (
+                          <View style={{ flexDirection: "row", gap: spacing.md, marginLeft: 10 }}>
+                            <Pressable
+                              onPress={() => {
+                                setChecklistAEditar(checklist);
+                                setShowCrearChecklistModal(true);
+                              }}
+                              style={{ padding: 4 }}
+                            >
+                              <FontAwesome6 name="pen" size={13} color={colors.textSecondary} />
+                            </Pressable>
+
+                            <Pressable
+                              onPress={() => eliminarChecklist(checklist)}
+                              disabled={eliminandoEsteChecklist}
+                              style={{ padding: 4, opacity: eliminandoEsteChecklist ? 0.6 : 1 }}
+                            >
+                              <FontAwesome6 name="trash" size={13} color={colors.danger} />
+                            </Pressable>
+                          </View>
+                        ) : null}
+                      </View>
+                    </View>
+                  );
+                })
+              )}
             </View>
           ) : null}
 
@@ -3015,6 +3161,29 @@ export default function TripDetailScreen({ navigation, route }) {
           }
         }}
       />
+      <CrearChecklistScreen
+        visible={showCrearChecklistModal}
+        onClose={() => {
+          setShowCrearChecklistModal(false);
+          setChecklistAEditar(null);
+        }}
+        tripId={trip?.id}
+        checklistToEdit={checklistAEditar}
+        participantes={participantesActivos}
+        onChecklistGuardado={(checklistGuardado, esEdicion) => {
+          if (!checklistGuardado) {
+            loadChecklists();
+            return;
+          }
+          if (esEdicion) {
+            setChecklists((prev) =>
+              prev.map((c) => (c.IdChecklist === checklistGuardado.IdChecklist ? checklistGuardado : c))
+            );
+          } else {
+            setChecklists((prev) => [checklistGuardado, ...prev]);
+          }
+        }}
+      />
 
       <Modal
         animationType="fade"
@@ -3363,8 +3532,6 @@ const styles = StyleSheet.create({
     padding: spacing.lg,
     gap: spacing.md,
   },
-
-  /* --- Resumen Screen Styles --- */
   summaryContainer: {
     gap: spacing.md,
   },
