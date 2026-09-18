@@ -119,7 +119,7 @@ const [soloMisTareas, setSoloMisTareas] = useState(false);
                     testID="checklist-categoria-todas"
                 >
                     <Text style={[styles.chipTexto, mostrandoTodas && styles.chipTextoActivo]}>
-                        Todas ({checklists.length})
+                        Todas ({tareasFiltradas.length})
                     </Text>
                 </Pressable>
 
@@ -139,8 +139,13 @@ const [soloMisTareas, setSoloMisTareas] = useState(false);
                     );
                 })}
             </ScrollView>
-
-            {mostrandoTodas ? (
+            {tareasFiltradas.length === 0 ? (
+                <View style={styles.emptyState}>
+                    <Text style={styles.emptyText}>
+                        No tenés ninguna tarea asignada.
+                    </Text>
+                </View>            
+            ) : mostrandoTodas ? (
                 categorias.map((cat) => (
                     <SeccionCategoria
                         key={cat.id}
