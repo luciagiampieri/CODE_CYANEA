@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import select
+from sqlalchemy import select, func
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 
@@ -23,7 +23,12 @@ router = APIRouter()
 
 @router.get("/checklists/categorias")
 def listar_categorias_checklist(db: Session = Depends(get_db)):
-    categorias = db.query(CategoriasChecklist).filter(CategoriasChecklist.Activo == True).order_by(CategoriasChecklist.Nombre).all()
+    categorias = (
+        db.query(CategoriasChecklist)
+        .filter(CategoriasChecklist.Activo == True)
+        .order_by(CategoriasChecklist.Nombre == "Otros", CategoriasChecklist.Nombre)
+        .all()
+    )
     return categorias
 
 
@@ -91,6 +96,17 @@ async def crear_checklist(
         raise HTTPException(
             status_code=400,
             detail="El nombre de la tarea es obligatorio."
+        )
+
+    tarea_existente = db.query(Checklist).filter(
+        Checklist.IdViaje == trip_id,
+        func.lower(Checklist.Nombre) == nombre_limpio.lower()
+    ).first()
+
+    if tarea_existente:
+        raise HTTPException(
+            status_code=400,
+            detail="Ya existe una tarea con ese nombre en este viaje."
         )
 
     checklist = Checklist(
@@ -177,6 +193,19 @@ async def actualizar_checklist(
                 status_code=400,
                 detail="El nombre de la tarea no puede estar vacío."
             )
+        
+        tarea_existente = db.query(Checklist).filter(
+                Checklist.IdViaje == trip_id,
+                func.lower(Checklist.Nombre) == nombre_limpio.lower(),
+                Checklist.IdChecklist != checklist_id
+            ).first()
+
+        if tarea_existente:
+            raise HTTPException(
+                status_code=400,
+                detail="Ya existe otra tarea con ese nombre en este viaje."
+            )
+        
         checklist.Nombre = nombre_limpio
 
     if payload.IdCategoriaChecklist is not None:
