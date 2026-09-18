@@ -23,6 +23,7 @@ import ParticipantSearch from "../components/trip/ParticipantSearch";
 import ParticipantList from "../components/trip/ParticipantList";
 import ResultadosVotacion from "../components/trip/ResultadosVotacion";
 import DocumentosPorCategoria, { ID_TODAS } from "../components/trip/DocumentsByCategory";
+import ChecklistsByCategory, { ID_TODAS as ID_TODAS_CHECKLIST } from "../components/trip/ChecklistsByCategory";
 import AvatarStack from "../components/ui/AvatarStack";
 import IconCircleButton from "../components/ui/IconCircleButton";
 import MetricCard from "../components/ui/MetricCard";
@@ -310,6 +311,7 @@ export default function TripDetailScreen({ navigation, route }) {
   const [showCrearChecklistModal, setShowCrearChecklistModal] = useState(false);
   const [checklistAEditar, setChecklistAEditar] = useState(null);
   const [eliminandoChecklistId, setEliminandoChecklistId] = useState(null);
+  const [categoriaChecklistFiltro, setCategoriaChecklistFiltro] = useState(ID_TODAS_CHECKLIST);
 
   const isUserAdmin = useMemo(() => {
     if (!currentUser || !trip?.admin) return false;
@@ -2656,68 +2658,22 @@ export default function TripDetailScreen({ navigation, route }) {
                 <View style={styles.sectionCard}>
                   <Text style={styles.sectionCopy}>{checklistsError}</Text>
                 </View>
-              ) : checklists.length === 0 ? (
-                <View style={styles.sectionCard}>
-                  <Text style={styles.sectionCopy}>
-                    Todavía no hay tareas para este viaje. ¡Creá la primera!
-                  </Text>
-                </View>
               ) : (
-                checklists.map((checklist) => {
-                  const eliminandoEsteChecklist = eliminandoChecklistId === checklist.IdChecklist;
-                  return (
-                    <View key={checklist.IdChecklist} style={[styles.sectionCard, { paddingVertical: spacing.sm }]}>
-                      <View
-                        style={{
-                          flexDirection: "row",
-                          alignItems: "center",
-                          justifyContent: "space-between",
-                        }}
-                      >
-                        <View style={{ flexDirection: "row", alignItems: "center", gap: 10, flex: 1 }}>
-                          <FontAwesome6 
-                            name="circle-check" 
-                            size={18} 
-                            color={checklist.Completada ? colors.success : colors.border} 
-                          />
-                          <View style={{ flex: 1 }}>
-                            <Text style={[styles.sectionHeading, { fontSize: 16 }]} numberOfLines={1}>
-                              {checklist.Nombre}
-                            </Text>
-                            <Text style={[styles.sectionCopy, { fontSize: 12, marginTop: 2 }]}>
-                              <Text style={{ fontWeight: "700" }}>{checklist.CategoriaChecklist?.Nombre || "Otro"}</Text> 
-                              {checklist.Responsables?.length > 0 
-                                ? ` — ${checklist.Responsables.map((r) => r.NombreCompleto.split(' ')[0]).join(", ")}` 
-                                : ""}
-                            </Text>
-                          </View>
-                        </View>
-
-                        {checklist.EsPropio && lock.canEdit("checklist") ? (
-                          <View style={{ flexDirection: "row", gap: spacing.md, marginLeft: 10 }}>
-                            <Pressable
-                              onPress={() => {
-                                setChecklistAEditar(checklist);
-                                setShowCrearChecklistModal(true);
-                              }}
-                              style={{ padding: 4 }}
-                            >
-                              <FontAwesome6 name="pen" size={13} color={colors.textSecondary} />
-                            </Pressable>
-
-                            <Pressable
-                              onPress={() => eliminarChecklist(checklist)}
-                              disabled={eliminandoEsteChecklist}
-                              style={{ padding: 4, opacity: eliminandoEsteChecklist ? 0.6 : 1 }}
-                            >
-                              <FontAwesome6 name="trash" size={13} color={colors.danger} />
-                            </Pressable>
-                          </View>
-                        ) : null}
-                      </View>
-                    </View>
-                  );
-                })
+                <View style={{ marginTop: spacing.sm }}>
+                  <ChecklistsByCategory
+                    checklists={checklists}
+                    categoriaFiltro={categoriaChecklistFiltro}
+                    currentUserId={currentUser?.id}
+                    onCategoriaChange={setCategoriaChecklistFiltro}
+                    onEditar={(tarea) => {
+                      setChecklistAEditar(tarea);
+                      setShowCrearChecklistModal(true);
+                    }}
+                    onEliminar={lock.canEdit("checklist") ? eliminarChecklist : undefined}
+                    eliminandoChecklistId={eliminandoChecklistId}
+                    tripHasLeft={!lock.canEdit("checklist")}
+                  />
+                </View>
               )}
             </View>
           ) : null}
