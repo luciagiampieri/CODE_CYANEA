@@ -255,7 +255,7 @@ export default function ProfileScreen({ navigation }) {
                         </Text>
                       ) : null}
                       <Text style={styles.nextTripFechas}>
-                        {formatFechaCorta(proximoViaje.startDate)} - {formatFechaCorta(proximoViaje.endDate)}
+                        {formatFechaCorta(proximoViaje.startDate)} al {formatFechaCorta(proximoViaje.endDate)}
                       </Text>
                     </View>
                   </Pressable>

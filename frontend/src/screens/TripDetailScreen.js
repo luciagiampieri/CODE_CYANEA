@@ -60,6 +60,7 @@ import {
   leaveTrip,
   getChecklists,
   deleteChecklist,
+  toggleChecklistCompletada,
 } from "../services/api";
 import { colors, radii, spacing, surfaces, textStyles } from "../theme/tokens";
 
@@ -242,7 +243,6 @@ export default function TripDetailScreen({ navigation, route }) {
   const { width, isTablet } = useResponsive();
   const isNarrowMobile = !isTablet && width < 430;
   const [trip, setTrip] = useState(initialTrip);
-  // Qué se puede editar según si el viaje terminó o si el usuario lo dejó.
   const lock = useMemo(() => getTripLock(trip), [trip]);
   const [activeTab, setActiveTab] = useState("resumen");
   const [expandedDayId, setExpandedDayId] = useState(
@@ -307,6 +307,7 @@ export default function TripDetailScreen({ navigation, route }) {
   const [checklists, setChecklists] = useState([]);
   const [loadingChecklists, setLoadingChecklists] = useState(false);
   const [checklistsError, setChecklistsError] = useState("");
+  const [categoriaChecklistFiltro, setCategoriaChecklistFiltro] = useState("Todas");
   const [showCrearChecklistModal, setShowCrearChecklistModal] = useState(false);
   const [checklistAEditar, setChecklistAEditar] = useState(null);
   const [eliminandoChecklistId, setEliminandoChecklistId] = useState(null);
@@ -486,8 +487,6 @@ export default function TripDetailScreen({ navigation, route }) {
     }
   }, [initialTrip?.id, initialTrip?.image]);
 
-  // Si el viaje terminó mientras la pantalla estaba abierta, el backend responde
-  // 409 TRIP_FINISHED: recargamos para que la interfaz pase a solo lectura.
   useEffect(() => onTripFinishedError(() => loadTripDetail()), [loadTripDetail]);
 
   const loadSettlement = useCallback(async () => {
@@ -564,6 +563,37 @@ export default function TripDetailScreen({ navigation, route }) {
     }
   }
 
+  async function handleToggleChecklist(checklist) {
+    if (!lock.canEdit("checklist")) return;
+
+    const estadoOriginal = checklist.Completada;
+    const nuevoEstado = !estadoOriginal;
+
+    setChecklists((prev) =>
+      prev.map((c) =>
+        c.IdChecklist === checklist.IdChecklist
+          ? { ...c, Completada: nuevoEstado }
+          : c
+      )
+    );
+
+    try {
+      await toggleChecklistCompletada(trip.id, checklist.IdChecklist, nuevoEstado);
+    } catch (error) {
+      setChecklists((prev) =>
+        prev.map((c) =>
+          c.IdChecklist === checklist.IdChecklist
+            ? { ...c, Completada: estadoOriginal }
+            : c
+        )
+      );
+      avisar(
+        "Error de conexión",
+        error?.message || "No se pudo actualizar el estado de la tarea. Se restauró su estado original."
+      );
+    }
+  }
+
   async function eliminarChecklist(checklist) {
     const ejecutar = async () => {
       try {
@@ -586,7 +616,6 @@ export default function TripDetailScreen({ navigation, route }) {
       ejecutar
     );
   }
-
 
   async function copiarContenido(contenido) {
     try {
@@ -1010,7 +1039,6 @@ export default function TripDetailScreen({ navigation, route }) {
     return participantItems.filter((p) => p.status === "invitado");
   }, [participantItems]);
 
-  // Métricas del Resumen del Viaje
   const tripSummaryMetrics = useMemo(() => {
     let noches = 0;
     let diasFaltan = 0;
@@ -1074,6 +1102,32 @@ export default function TripDetailScreen({ navigation, route }) {
     votacionesActivas,
     participantesActivos,
   ]);
+
+  // Checklist: cálculos de progreso y filtros por categoría
+  const checklistStats = useMemo(() => {
+    const total = checklists.length;
+    const completadas = checklists.filter((c) => c.Completada).length;
+    const porcentaje = total > 0 ? Math.round((completadas / total) * 100) : 0;
+    return { total, completadas, porcentaje };
+  }, [checklists]);
+
+  const checklistCategorias = useMemo(() => {
+    const cats = new Set();
+    checklists.forEach((c) => {
+      const nombreCat = c.CategoriaChecklist?.Nombre || "Otros";
+      cats.add(nombreCat);
+    });
+    return ["Todas", ...Array.from(cats)];
+  }, [checklists]);
+
+  const checklistsFiltradas = useMemo(() => {
+    if (categoriaChecklistFiltro === "Todas") {
+      return checklists;
+    }
+    return checklists.filter(
+      (c) => (c.CategoriaChecklist?.Nombre || "Otros") === categoriaChecklistFiltro
+    );
+  }, [checklists, categoriaChecklistFiltro]);
 
   function handleAddParticipant(user) {
     if (!lock.canEdit("participantes")) return;
@@ -1513,7 +1567,6 @@ export default function TripDetailScreen({ navigation, route }) {
           })}
         </View>
 
-        {/* El aviso va solo en Resumen; en el resto alcanza con el sello y los candados. */}
         {lock.isFinished && !lock.hasLeft && activeTab === "resumen" ? (
           <View style={styles.finishedBanner}>
             <FontAwesome6 name="flag-checkered" size={16} color={colors.primary} />
@@ -1574,7 +1627,6 @@ export default function TripDetailScreen({ navigation, route }) {
           {/* TAB 0: RESUMEN */}
           {activeTab === "resumen" ? (
             <View style={styles.summaryContainer}>
-              {/* Tarjetas de métricas superiores (4 cuadrantes) */}
               <View style={styles.summaryGrid}>
                 <View style={styles.summaryCard}>
                   <View style={styles.summaryIconWrap}>
@@ -1624,7 +1676,6 @@ export default function TripDetailScreen({ navigation, route }) {
                 </View>
               </View>
 
-              {/* Barra de progreso de Organización */}
               <View style={styles.progressCard}>
                 <View style={styles.progressHeader}>
                   <Text style={styles.progressTitle}>Organización del viaje</Text>
@@ -1645,7 +1696,6 @@ export default function TripDetailScreen({ navigation, route }) {
                 </Text>
               </View>
 
-              {/* Tarjetas de Acceso Rápido */}
               <View style={styles.quickAccessStack}>
                 <Pressable
                   style={({ pressed }) => [
@@ -2631,90 +2681,167 @@ export default function TripDetailScreen({ navigation, route }) {
           {/* TAB 4: CHECKLIST */}
           {activeTab === "checklist" ? (
             <View style={styles.sectionStack}>
-              <View style={styles.sectionCard}>
-                <Text style={styles.sectionHeading}>Listas de tareas</Text>
-                <Text style={styles.sectionCopy}>
-                  Organiza las cosas pendientes del viaje de forma colaborativa o personal.
+              {/* 1. Tarjeta de Progreso General */}
+              <View style={styles.checklistProgressCard}>
+                <View style={styles.checklistProgressHeader}>
+                  <Text style={styles.checklistProgressTitle}>Progreso general</Text>
+                  <Text style={styles.checklistProgressPercent}>
+                    {checklistStats.porcentaje}%
+                  </Text>
+                </View>
+                <View style={styles.checklistProgressBarTrack}>
+                  <View
+                    style={[
+                      styles.checklistProgressBarFill,
+                      { width: `${checklistStats.porcentaje}%` },
+                    ]}
+                  />
+                </View>
+                <Text style={styles.checklistProgressSub}>
+                  {checklistStats.completadas} de {checklistStats.total} tareas completadas
                 </Text>
+              </View>
+
+              {/* 2. Chips de Filtro de Categoría */}
+              {checklistCategorias.length > 1 ? (
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={styles.checklistChipsContainer}
+                >
+                  {checklistCategorias.map((cat) => {
+                    const activa = categoriaChecklistFiltro === cat;
+                    return (
+                      <Pressable
+                        key={cat}
+                        onPress={() => setCategoriaChecklistFiltro(cat)}
+                        style={[
+                          styles.checklistFilterChip,
+                          activa && styles.checklistFilterChipActive,
+                        ]}
+                      >
+                        <Text
+                          style={[
+                            styles.checklistFilterChipText,
+                            activa && styles.checklistFilterChipTextActive,
+                          ]}
+                        >
+                          {cat}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </ScrollView>
+              ) : null}
+
+              {/* 3. Encabezado de la lista con Tareas (X) y botón + Agregar */}
+              <View style={styles.checklistHeaderRow}>
+                <Text style={styles.checklistSectionTitle}>
+                  TAREAS ({checklistsFiltradas.length})
+                </Text>
+
                 {lock.canEdit("checklist") ? (
-                  <PrimaryButton
-                    icon="plus"
-                    iconPosition="left"
-                    label="Crear tarea"
+                  <Pressable
+                    style={styles.checklistAddButton}
                     onPress={() => {
                       setChecklistAEditar(null);
                       setShowCrearChecklistModal(true);
                     }}
-                    style={styles.fullButton}
-                  />
+                  >
+                    <Text style={styles.checklistAddButtonText}>+ Agregar</Text>
+                  </Pressable>
                 ) : null}
               </View>
 
+              {/* 4. Lista de Tareas */}
               {loadingChecklists ? (
-                <ActivityIndicator color={colors.primary} />
+                <ActivityIndicator color={colors.primary} style={{ marginTop: spacing.md }} />
               ) : checklistsError ? (
                 <View style={styles.sectionCard}>
                   <Text style={styles.sectionCopy}>{checklistsError}</Text>
                 </View>
-              ) : checklists.length === 0 ? (
+              ) : checklistsFiltradas.length === 0 ? (
                 <View style={styles.sectionCard}>
                   <Text style={styles.sectionCopy}>
-                    Todavía no hay tareas para este viaje. ¡Creá la primera!
+                    {checklists.length === 0
+                      ? "Todavía no hay tareas para este viaje. ¡Creá la primera!"
+                      : "No hay tareas en esta categoría."}
                   </Text>
                 </View>
               ) : (
-                checklists.map((checklist) => {
+                checklistsFiltradas.map((checklist) => {
                   const eliminandoEsteChecklist = eliminandoChecklistId === checklist.IdChecklist;
+                  const esCompletada = checklist.Completada;
+
                   return (
-                    <View key={checklist.IdChecklist} style={[styles.sectionCard, { paddingVertical: spacing.sm }]}>
-                      <View
-                        style={{
-                          flexDirection: "row",
-                          alignItems: "center",
-                          justifyContent: "space-between",
-                        }}
+                    <View
+                      key={checklist.IdChecklist}
+                      style={[
+                        styles.checklistItemCard,
+                        esCompletada && styles.checklistItemCardCompleted,
+                      ]}
+                    >
+                      <Pressable
+                        testID={`toggle-checklist-${checklist.IdChecklist}`}
+                        onPress={() => handleToggleChecklist(checklist)}
+                        disabled={!lock.canEdit("checklist")}
+                        style={styles.checklistItemLeft}
                       >
-                        <View style={{ flexDirection: "row", alignItems: "center", gap: 10, flex: 1 }}>
-                          <FontAwesome6 
-                            name="circle-check" 
-                            size={18} 
-                            color={checklist.Completada ? colors.success : colors.border} 
-                          />
-                          <View style={{ flex: 1 }}>
-                            <Text style={[styles.sectionHeading, { fontSize: 16 }]} numberOfLines={1}>
-                              {checklist.Nombre}
-                            </Text>
-                            <Text style={[styles.sectionCopy, { fontSize: 12, marginTop: 2 }]}>
-                              <Text style={{ fontWeight: "700" }}>{checklist.CategoriaChecklist?.Nombre || "Otro"}</Text> 
-                              {checklist.Responsables?.length > 0 
-                                ? ` — ${checklist.Responsables.map((r) => r.NombreCompleto.split(' ')[0]).join(", ")}` 
-                                : ""}
-                            </Text>
+                        <FontAwesome6
+                          name={esCompletada ? "circle-check" : "circle"}
+                          size={24}
+                          color={esCompletada ? "#10b981" : colors.borderStrong || "#cbd5e1"}
+                        />
+                        <View style={{ flex: 1 }}>
+                          <Text
+                            style={[
+                              styles.checklistItemTitle,
+                              esCompletada && styles.checklistItemTitleCompleted,
+                            ]}
+                            numberOfLines={2}
+                          >
+                            {checklist.Nombre}
+                          </Text>
+
+                          <View style={styles.checklistItemDetailsRow}>
+                            <View style={styles.checklistItemCategoryPill}>
+                              <Text style={styles.checklistItemCategoryPillText}>
+                                {checklist.CategoriaChecklist?.Nombre || "Otros"}
+                              </Text>
+                            </View>
+
+                            {checklist.Responsables?.length > 0 ? (
+                              <Text style={styles.checklistItemResponsablesText}>
+                                → {checklist.Responsables.map((r) => r.NombreCompleto.split(" ")[0]).join(", ")}
+                              </Text>
+                            ) : null}
                           </View>
                         </View>
+                      </Pressable>
 
-                        {checklist.EsPropio && lock.canEdit("checklist") ? (
-                          <View style={{ flexDirection: "row", gap: spacing.md, marginLeft: 10 }}>
-                            <Pressable
-                              onPress={() => {
-                                setChecklistAEditar(checklist);
-                                setShowCrearChecklistModal(true);
-                              }}
-                              style={{ padding: 4 }}
-                            >
-                              <FontAwesome6 name="pen" size={13} color={colors.textSecondary} />
-                            </Pressable>
+                      {checklist.EsPropio && lock.canEdit("checklist") ? (
+                        <View style={styles.checklistItemActions}>
+                          <Pressable
+                            hitSlop={8}
+                            onPress={() => {
+                              setChecklistAEditar(checklist);
+                              setShowCrearChecklistModal(true);
+                            }}
+                            style={{ padding: 4 }}
+                          >
+                            <FontAwesome6 name="pen" size={13} color={colors.textSecondary} />
+                          </Pressable>
 
-                            <Pressable
-                              onPress={() => eliminarChecklist(checklist)}
-                              disabled={eliminandoEsteChecklist}
-                              style={{ padding: 4, opacity: eliminandoEsteChecklist ? 0.6 : 1 }}
-                            >
-                              <FontAwesome6 name="trash" size={13} color={colors.danger} />
-                            </Pressable>
-                          </View>
-                        ) : null}
-                      </View>
+                          <Pressable
+                            hitSlop={8}
+                            onPress={() => eliminarChecklist(checklist)}
+                            disabled={eliminandoEsteChecklist}
+                            style={{ padding: 4, opacity: eliminandoEsteChecklist ? 0.6 : 1 }}
+                          >
+                            <FontAwesome6 name="trash" size={13} color={colors.danger} />
+                          </Pressable>
+                        </View>
+                      ) : null}
                     </View>
                   );
                 })
@@ -4310,5 +4437,149 @@ const styles = StyleSheet.create({
     ...textStyles.bodyStrong,
     color: colors.textInverse,
     fontSize: 13,
+  },
+
+  // Estilos Checklist idénticos al mockup (Foto 1)
+  checklistProgressCard: {
+    backgroundColor: colors.primary,
+    borderRadius: 20,
+    padding: spacing.lg,
+    gap: 8,
+  },
+  checklistProgressHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  checklistProgressTitle: {
+    color: colors.textInverse,
+    fontSize: 17,
+    fontWeight: "700",
+  },
+  checklistProgressPercent: {
+    color: colors.textInverse,
+    fontSize: 26,
+    fontWeight: "800",
+  },
+  checklistProgressBarTrack: {
+    height: 8,
+    backgroundColor: "rgba(255, 255, 255, 0.2)",
+    borderRadius: 4,
+    overflow: "hidden",
+    marginVertical: 4,
+  },
+  checklistProgressBarFill: {
+    height: "100%",
+    backgroundColor: "#facc15",
+    borderRadius: 4,
+  },
+  checklistProgressSub: {
+    color: "#cbd5e1",
+    fontSize: 13,
+    fontWeight: "500",
+  },
+  checklistChipsContainer: {
+    flexDirection: "row",
+    gap: 8,
+    paddingVertical: 4,
+  },
+  checklistFilterChip: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 999,
+    backgroundColor: "#e2e8f0",
+  },
+  checklistFilterChipActive: {
+    backgroundColor: colors.primary,
+  },
+  checklistFilterChipText: {
+    fontSize: 13,
+    color: "#475569",
+    fontWeight: "600",
+  },
+  checklistFilterChipTextActive: {
+    color: colors.textInverse,
+    fontWeight: "700",
+  },
+  checklistHeaderRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginTop: spacing.xs,
+    marginBottom: spacing.xxs,
+  },
+  checklistSectionTitle: {
+    fontSize: 14,
+    fontWeight: "800",
+    color: colors.primary,
+    letterSpacing: 0.5,
+  },
+  checklistAddButton: {
+    backgroundColor: colors.primary,
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+    borderRadius: 999,
+  },
+  checklistAddButtonText: {
+    color: colors.accent,
+    fontSize: 13,
+    fontWeight: "700",
+  },
+  checklistItemCard: {
+    backgroundColor: colors.surface,
+    borderWidth: 1.5,
+    borderColor: "#e2e8f0",
+    borderRadius: 18,
+    padding: spacing.md,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  checklistItemCardCompleted: {
+    backgroundColor: "#f0fdf4",
+    borderColor: "#a7f3d0",
+  },
+  checklistItemLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    flex: 1,
+  },
+  checklistItemTitle: {
+    fontSize: 15,
+    fontWeight: "600",
+    color: "#1e293b",
+  },
+  checklistItemTitleCompleted: {
+    textDecorationLine: "line-through",
+    color: "#64748b",
+  },
+  checklistItemDetailsRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginTop: 5,
+    flexWrap: "wrap",
+  },
+  checklistItemCategoryPill: {
+    backgroundColor: "#f1f5f9",
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 6,
+  },
+  checklistItemCategoryPillText: {
+    fontSize: 11,
+    fontWeight: "600",
+    color: "#64748b",
+  },
+  checklistItemResponsablesText: {
+    fontSize: 12,
+    color: "#64748b",
+  },
+  checklistItemActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+    marginLeft: spacing.sm,
   },
 });

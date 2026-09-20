@@ -225,7 +225,7 @@ export default function CrearChecklistScreen({
                       setNombre(text);
                       limpiarError("nombre");
                     }}
-                    placeholder="Ej: Comprar vuelos de ida y vuelta"
+                    placeholder="Comprar vuelos de ida y vuelta"
                     placeholderTextColor={colors.overlay}
                     maxLength={NOMBRE_MAX_LENGTH}
                   />

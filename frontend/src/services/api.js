@@ -57,11 +57,6 @@ async function authHeaders() {
 
 const tripFinishedListeners = new Set();
 
-/**
- * Permite reaccionar cuando el backend avisa que el viaje terminó (409
- * TRIP_FINISHED), p. ej. para recargar el viaje y bloquear la pantalla.
- * Devuelve la función para desuscribirse.
- */
 export function onTripFinishedError(listener) {
   tripFinishedListeners.add(listener);
   return () => tripFinishedListeners.delete(listener);
@@ -85,9 +80,7 @@ function buildApiError(message, status, headers) {
     tripFinishedListeners.forEach((listener) => {
       try {
         listener(error);
-      } catch {
-        // Un listener roto no debe tapar el error original.
-      }
+      } catch {}
     });
   }
   return error;
@@ -771,7 +764,6 @@ export async function updateActivity(tripId, dayId, activityId, payload) {
   return parseResponse(response, "No se pudo actualizar la actividad");
 }
 
-
 export async function deleteActivity(tripId, dayId, activityId) {
   const response = await fetch(
     `${API_BASE_URL}/trips/${tripId}/days/${dayId}/activities/${activityId}`,
@@ -783,7 +775,6 @@ export async function deleteActivity(tripId, dayId, activityId) {
   return parseResponse(response, "No se pudo eliminar la actividad");
 }
 
-
 export async function deleteTrip(tripId) {
   const response = await fetch(`${API_BASE_URL}/trips/${tripId}`, {
     method: "DELETE",
@@ -793,7 +784,7 @@ export async function deleteTrip(tripId) {
     },
   });
 
-if (response.ok) {
+  if (response.ok) {
     return true; 
   }
 
@@ -890,7 +881,6 @@ export async function uploadTripDocument(
   }
 }
 
-
 export async function getTripDocuments(tripId) {
   const token = await getStoredToken();
 
@@ -901,7 +891,6 @@ export async function getTripDocuments(tripId) {
 
   return parseResponse(response, "No se pudieron cargar los documentos del viaje");
 }
-
 
 export async function downloadTripDocument(tripId, documentId, nombreArchivo) {
   const token = await getStoredToken();
@@ -952,7 +941,6 @@ export async function downloadTripDocument(tripId, documentId, nombreArchivo) {
     );
   }
 }
-
 
 export async function deleteTripDocument(tripId, documentId) {
   const response = await fetch(
@@ -1043,6 +1031,21 @@ export async function updateChecklist(tripId, checklistId, payload) {
     }
   );
   return parseResponse(response, "No se pudo actualizar el checklist");
+}
+
+export async function toggleChecklistCompletada(tripId, checklistId, completada) {
+  const response = await fetch(
+    `${API_BASE_URL}/trips/${tripId}/checklists/${checklistId}/completada`,
+    {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+        ...(await authHeaders()),
+      },
+      body: JSON.stringify({ Completada: completada }),
+    }
+  );
+  return parseResponse(response, "No se pudo actualizar el estado de la tarea");
 }
 
 export async function deleteChecklist(tripId, checklistId) {
@@ -1176,7 +1179,6 @@ export async function leaveTrip(tripId, payload) {
     "No se pudo abandonar el viaje"
   );
 }
-
 
 export async function getNotifications() {
   const response = await fetch(`${API_BASE_URL}/notificaciones`, {
