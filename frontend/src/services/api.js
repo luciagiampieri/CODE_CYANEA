@@ -1280,3 +1280,38 @@ export async function removeTripCover(tripId) {
   });
   return parseResponse(response, "No se pudo quitar la portada personalizada");
 }
+
+// US 57: portada del viaje generada con IA.
+// La generación devuelve una vista previa (no guarda nada); la imagen recién
+// se establece como portada al aceptarla.
+export async function generateTripCoverAI(tripId, prompt) {
+  const response = await fetch(`${API_BASE_URL}/trips/${tripId}/cover/ai/generate`, {
+    method: "POST",
+    headers: { ...(await authHeaders()), "Content-Type": "application/json" },
+    body: JSON.stringify({ prompt: prompt?.trim() || null }),
+  });
+  return parseResponse(response, "No se pudo generar la imagen de portada");
+}
+
+// Vista previa para un viaje que todavía no existe (pantalla de creación).
+export async function generateCoverPreviewAI({ title, destinations, prompt }) {
+  const response = await fetch(`${API_BASE_URL}/trips/cover/ai/preview`, {
+    method: "POST",
+    headers: { ...(await authHeaders()), "Content-Type": "application/json" },
+    body: JSON.stringify({
+      title: title?.trim() || null,
+      destinations: destinations ?? [],
+      prompt: prompt?.trim() || null,
+    }),
+  });
+  return parseResponse(response, "No se pudo generar la imagen de portada");
+}
+
+export async function acceptTripCoverAI(tripId, imageBase64, mimeType) {
+  const response = await fetch(`${API_BASE_URL}/trips/${tripId}/cover/ai/accept`, {
+    method: "POST",
+    headers: { ...(await authHeaders()), "Content-Type": "application/json" },
+    body: JSON.stringify({ imageBase64, mimeType }),
+  });
+  return parseResponse(response, "No se pudo establecer la portada generada");
+}
