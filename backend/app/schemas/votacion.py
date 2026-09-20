@@ -55,6 +55,56 @@ class VotacionCreate(BaseModel):
         return fecha
 
 
+class VotacionUpdate(BaseModel):
+    nombre: str | None = Field(default=None, min_length=1, max_length=150)
+    fechaCierre: datetime | None = None
+    tipo: Literal["opcion_unica", "opcion_multiple"] | None = None
+    propuestas: list[str] | None = None
+
+    @field_validator("nombre")
+    @classmethod
+    def validar_nombre(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        cleaned = value.strip()
+        if not cleaned:
+            raise ValueError("El nombre de la votacion no puede quedar vacio")
+        return cleaned
+
+    @field_validator("propuestas")
+    @classmethod
+    def validar_propuestas(cls, value: list[str] | None) -> list[str] | None:
+        if value is None:
+            return None
+
+        normalizadas: list[str] = []
+        vistas: set[str] = set()
+        for propuesta in value:
+            limpia = (propuesta or "").strip()
+            if not limpia:
+                continue
+            clave = limpia.lower()
+            if clave in vistas:
+                continue
+            vistas.add(clave)
+            normalizadas.append(limpia)
+
+        if len(normalizadas) < 2:
+            raise ValueError("La votacion debe tener al menos dos propuestas validas")
+        return normalizadas
+
+    @field_validator("fechaCierre")
+    @classmethod
+    def validar_fecha_futura(cls, value: datetime | None) -> datetime | None:
+        if value is None:
+            return None
+        ahora = datetime.now(timezone.utc)
+        fecha = value if value.tzinfo is not None else value.replace(tzinfo=timezone.utc)
+        if fecha <= ahora:
+            raise ValueError("La fecha y hora de cierre debe ser futura")
+        return fecha
+
+
 class PropuestaRead(BaseModel):
     IdPropuesta: int
     Texto: str

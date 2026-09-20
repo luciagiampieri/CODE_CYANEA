@@ -6,10 +6,51 @@ from app.models.usuario import Usuario
 from app.models.estado_participacion import EstadoParticipacion
 from app.models.rol_participante import RolParticipante
 from app.models.estado_viaje import EstadoViaje
+from app.models.destino import Destino
+from app.models.destino_viaje import DestinoViaje
 
 from app.core.security import create_access_token, hash_password
 
 from datetime import date as date_type
+
+
+def _crear_viaje_visitado(db_session, usuario, *, estado, fecha_fin, paises, participacion="aceptado"):
+    rol = db_session.query(RolParticipante).filter_by(Nombre="participante").first()
+    estado_participacion = db_session.query(EstadoParticipacion).filter_by(
+        Nombre=participacion
+    ).first()
+    viaje = Viaje(
+        Titulo=f"Viaje {fecha_fin} {paises}",
+        FechaInicio=fecha_fin.replace(year=fecha_fin.year, month=1, day=1),
+        FechaFin=fecha_fin,
+        IdEstadoViaje=estado.IdEstadoViaje,
+        Moneda="ARS",
+        IdAdministrador=usuario.IdUsuario,
+    )
+    db_session.add(viaje)
+    db_session.flush()
+
+    db_session.add(
+        ParticipanteViaje(
+            IdViaje=viaje.IdViaje,
+            IdUsuario=usuario.IdUsuario,
+            IdRolParticipante=rol.IdRolParticipante,
+            IdEstadoParticipacion=estado_participacion.IdEstadoParticipacion,
+        )
+    )
+    for indice, pais in enumerate(paises):
+        destino = Destino(
+            Nombre=f"Destino {indice} {pais}",
+            Pais=pais,
+        )
+        db_session.add(destino)
+        db_session.flush()
+        db_session.add(
+            DestinoViaje(IdViaje=viaje.IdViaje, IdDestino=destino.IdDestino)
+        )
+
+    db_session.commit()
+    return viaje
 
 
 def test_get_me_success(client, auth_headers, usuario_activo):
@@ -255,6 +296,191 @@ def test_list_users_respects_limit(client, db_session, auth_headers):
     response = client.get("/api/v1/users/?limit=2", headers=auth_headers)
     assert response.status_code == 200
     assert len(response.json()) == 2
+
+
+def test_verify_password_correcta_devuelve_valid_true(client, auth_headers):
+    response = client.post(
+        "/api/v1/users/me/verify-password",
+        headers=auth_headers,
+        json={"password": "Password123!"},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"valid": True}
+
+
+def test_verify_password_incorrecta_devuelve_401(client, auth_headers):
+    response = client.post(
+        "/api/v1/users/me/verify-password",
+        headers=auth_headers,
+        json={"password": "PasswordIncorrecta123!"},
+    )
+
+    assert response.status_code == 401
+    assert response.json()["detail"] == "Contraseña incorrecta."
+
+
+def test_verify_password_sin_password_devuelve_400(client, auth_headers):
+    response = client.post(
+        "/api/v1/users/me/verify-password",
+        headers=auth_headers,
+        json={},
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "Debés ingresar tu contraseña."
+
+
+def test_verify_password_requiere_autenticacion(client):
+    response = client.post(
+        "/api/v1/users/me/verify-password",
+        json={"password": "Password123!"},
+    )
+
+    assert response.status_code == 401
+
+
+def test_verify_password_usuario_google_no_requiere_password(
+    client, auth_headers_google
+):
+    response = client.post(
+        "/api/v1/users/me/verify-password",
+        headers=auth_headers_google,
+        json={},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"valid": True}
+
+
+def test_verify_password_usuario_facebook_no_requiere_password(
+    client, auth_headers_facebook
+):
+    response = client.post(
+        "/api/v1/users/me/verify-password",
+        headers=auth_headers_facebook,
+        json={},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"valid": True}
+
+
+def test_get_paises_visitados_deduplica_paises_y_cuenta_viajes(
+    client, db_session, auth_headers, usuario_activo, master_data
+):
+    estado_activo = db_session.query(EstadoViaje).filter_by(Nombre="activo").first()
+
+    _crear_viaje_visitado(
+        db_session,
+        usuario_activo,
+        estado=estado_activo,
+        fecha_fin=date_type(2026, 1, 10),
+        paises=["Argentina", "Chile"],
+    )
+    _crear_viaje_visitado(
+        db_session,
+        usuario_activo,
+        estado=estado_activo,
+        fecha_fin=date_type(2026, 2, 10),
+        paises=["Argentina"],
+    )
+
+    response = client.get(
+        "/api/v1/users/me/paises-visitados",
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "paises": ["Argentina", "Chile"],
+        "totalPaises": 2,
+        "totalViajes": 2,
+    }
+
+
+def test_get_paises_visitados_incluye_viaje_finalizado(
+    client, db_session, auth_headers, usuario_activo, master_data
+):
+    estado_finalizado = db_session.query(EstadoViaje).filter_by(Nombre="finalizado").first()
+    _crear_viaje_visitado(
+        db_session,
+        usuario_activo,
+        estado=estado_finalizado,
+        fecha_fin=date_type(2025, 12, 20),
+        paises=["Brasil"],
+    )
+
+    response = client.get(
+        "/api/v1/users/me/paises-visitados",
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 200
+    assert response.json()["paises"] == ["Brasil"]
+    assert response.json()["totalViajes"] == 1
+
+
+def test_get_paises_visitados_excluye_viajes_no_validos(
+    client, db_session, auth_headers, usuario_activo, master_data
+):
+    estado_activo = db_session.query(EstadoViaje).filter_by(Nombre="activo").first()
+    estado_cancelado = db_session.query(EstadoViaje).filter_by(Nombre="cancelado").first()
+
+    _crear_viaje_visitado(
+        db_session,
+        usuario_activo,
+        estado=estado_activo,
+        fecha_fin=date_type(2026, 9, 20),
+        paises=["Uruguay"],
+    )
+    _crear_viaje_visitado(
+        db_session,
+        usuario_activo,
+        estado=estado_cancelado,
+        fecha_fin=date_type(2025, 5, 10),
+        paises=["Perú"],
+    )
+    _crear_viaje_visitado(
+        db_session,
+        usuario_activo,
+        estado=estado_activo,
+        fecha_fin=date_type(2025, 6, 10),
+        paises=["Bolivia"],
+        participacion="invitado",
+    )
+
+    response = client.get(
+        "/api/v1/users/me/paises-visitados",
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "paises": [],
+        "totalPaises": 0,
+        "totalViajes": 0,
+    }
+
+
+def test_get_paises_visitados_sin_viajes_devuelve_lista_vacia(client, auth_headers):
+    response = client.get(
+        "/api/v1/users/me/paises-visitados",
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "paises": [],
+        "totalPaises": 0,
+        "totalViajes": 0,
+    }
+
+
+def test_get_paises_visitados_requiere_autenticacion(client):
+    response = client.get("/api/v1/users/me/paises-visitados")
+
+    assert response.status_code == 401
 
 
 def test_delete_me_con_password_correcta(

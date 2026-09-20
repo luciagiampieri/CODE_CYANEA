@@ -21,6 +21,7 @@ from app.schemas.votacion import (
     VotacionCreate,
     VotacionRead,
     VotacionResultados,
+    VotacionUpdate,
     VotanteResultado,
 )
 
@@ -454,3 +455,109 @@ def cancelar_votacion(
     )
 
     return _build_votacion_read(db, votacion, current_user.IdUsuario)
+
+
+@router.put("/{id_votacion}", response_model=VotacionRead)
+def editar_votacion(
+    id_votacion: int,
+    payload: VotacionUpdate,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> VotacionRead:
+    votacion = db.scalar(
+        select(Votacion)
+        .options(selectinload(Votacion.Propuestas))
+        .where(Votacion.IdVotacion == id_votacion)
+    )
+    if votacion is None:
+        raise HTTPException(status_code=404, detail="La votación no existe.")
+
+    viaje = require_trip_edit_access(
+        get_trip_with_relations(db, votacion.IdViaje),
+        current_user,
+    )
+    require_trip_not_finished(viaje, "las votaciones")
+
+    if votacion.IdCreador != current_user.IdUsuario:
+        raise HTTPException(
+            status_code=403,
+            detail="Solo el creador de la votación puede editarla.",
+        )
+
+    if _estado(votacion) != "abierta":
+        raise HTTPException(
+            status_code=400,
+            detail="Solo se pueden editar votaciones que están activas.",
+        )
+
+    hay_votos = db.scalar(
+        select(func.count()).select_from(Voto).where(Voto.IdVotacion == id_votacion)
+    ) or 0
+    cambia_propuestas = payload.tipo is not None or payload.propuestas is not None
+    if hay_votos and cambia_propuestas:
+        raise HTTPException(
+            status_code=400,
+            detail="No se pueden modificar las propuestas después de emitir votos.",
+        )
+
+    if payload.nombre is not None:
+        votacion.Titulo = payload.nombre
+    if payload.fechaCierre is not None:
+        votacion.FechaCierre = payload.fechaCierre
+    if payload.tipo is not None:
+        votacion.Tipo = payload.tipo
+    if payload.propuestas is not None:
+        votacion.Propuestas.clear()
+        votacion.Propuestas.extend(
+            Propuesta(IdVotacion=id_votacion, Texto=texto, Orden=indice)
+            for indice, texto in enumerate(payload.propuestas, start=1)
+        )
+
+    db.commit()
+    db.refresh(votacion)
+    background_tasks.add_task(
+        ws_manager.broadcast,
+        votacion.IdViaje,
+        {"tipo": "votacion_actualizada", "idVotacion": votacion.IdVotacion},
+    )
+    return _build_votacion_read(db, votacion, current_user.IdUsuario, viaje)
+
+
+@router.delete("/{id_votacion}")
+def eliminar_votacion(
+    id_votacion: int,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+):
+    votacion = db.get(Votacion, id_votacion)
+    if votacion is None:
+        raise HTTPException(status_code=404, detail="La votación no existe.")
+
+    viaje = require_trip_edit_access(
+        get_trip_with_relations(db, votacion.IdViaje),
+        current_user,
+    )
+    require_trip_not_finished(viaje, "las votaciones")
+
+    if votacion.IdCreador != current_user.IdUsuario:
+        raise HTTPException(
+            status_code=403,
+            detail="Solo el creador de la votación puede eliminarla.",
+        )
+
+    if _estado(votacion) != "abierta":
+        raise HTTPException(
+            status_code=400,
+            detail="Solo se pueden eliminar votaciones que están activas.",
+        )
+
+    db.delete(votacion)
+    db.commit()
+    background_tasks.add_task(
+        ws_manager.broadcast,
+        viaje.IdViaje,
+        {"tipo": "votacion_actualizada", "idVotacion": id_votacion},
+    )
+    return {"message": "Votación eliminada correctamente."}

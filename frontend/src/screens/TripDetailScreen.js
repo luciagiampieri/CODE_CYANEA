@@ -308,7 +308,6 @@ export default function TripDetailScreen({ navigation, route }) {
   const [checklists, setChecklists] = useState([]);
   const [loadingChecklists, setLoadingChecklists] = useState(false);
   const [checklistsError, setChecklistsError] = useState("");
-  const [categoriaChecklistFiltro, setCategoriaChecklistFiltro] = useState("Todas");
   const [showCrearChecklistModal, setShowCrearChecklistModal] = useState(false);
   const [checklistAEditar, setChecklistAEditar] = useState(null);
   const [eliminandoChecklistId, setEliminandoChecklistId] = useState(null);
