@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -134,6 +135,9 @@ async def crear_checklist(
             detail="El nombre de la tarea es obligatorio.",
         )
 
+    _validar_nombre_unico(db, trip_id, nombre_limpio)
+    categoria = _obtener_categoria_activa(db, payload.IdCategoriaChecklist)
+
     checklist = Checklist(
         IdViaje=trip_id,
         IdUsuarioCreador=current_user.IdUsuario,
@@ -262,6 +266,7 @@ async def actualizar_checklist(
                 status_code=400,
                 detail="El nombre de la tarea no puede estar vacío.",
             )
+        _validar_nombre_unico(db, trip_id, nombre_limpio, checklist_id=checklist_id)
         checklist.Nombre = nombre_limpio
 
     if payload.IdCategoriaChecklist is not None:
