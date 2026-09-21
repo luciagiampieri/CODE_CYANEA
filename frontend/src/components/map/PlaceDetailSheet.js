@@ -40,6 +40,8 @@ export default function PlaceDetailSheet({
   saving = false,
   scheduling = false,
   savingAndScheduling = false,
+  embedded = false,
+  readOnly = false,
 }) {
   const [reviewsExpanded, setReviewsExpanded] = useState(false);
 
@@ -47,8 +49,8 @@ export default function PlaceDetailSheet({
 
   const isSearchResult = place.kind === "searchResult";
   const isSavedPlace = place.kind === "savedPlace";
-  const canSave = isSearchResult && !place.alreadySaved;
-  const canSchedule = isSavedPlace || (isSearchResult && place.alreadySaved);
+  const canSave = !readOnly && isSearchResult && !place.alreadySaved;
+  const canSchedule = !readOnly && (isSavedPlace || (isSearchResult && place.alreadySaved));
   const reviewCount = place.reviews?.length ?? 0;
   const visibleCategory = resolveVisibleCategory(place.category);
 
@@ -57,15 +59,17 @@ export default function PlaceDetailSheet({
   }, [place.placeId]);
 
   return (
-    <View style={styles.card}>
+    <View style={embedded ? styles.embedded : styles.card}>
       <View style={styles.header}>
         <View style={styles.headerCopy}>
           <Text style={styles.title}>{place.name}</Text>
           <Text style={styles.address}>{place.address}</Text>
         </View>
-        <Pressable onPress={onClose} style={styles.closeButton}>
-          <FontAwesome6 color={colors.textSecondary} name="xmark" size={16} />
-        </Pressable>
+        {!embedded ? (
+          <Pressable onPress={onClose} style={styles.closeButton}>
+            <FontAwesome6 color={colors.textSecondary} name="xmark" size={16} />
+          </Pressable>
+        ) : null}
       </View>
 
       <View style={styles.metaRow}>
@@ -176,6 +180,10 @@ const styles = StyleSheet.create({
     ...surfaces.card,
     padding: spacing.lg,
     marginTop: spacing.md,
+  },
+  embedded: {
+    paddingHorizontal: spacing.xs,
+    paddingTop: spacing.xs,
   },
   header: {
     flexDirection: "row",

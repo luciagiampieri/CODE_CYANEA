@@ -188,10 +188,16 @@ export default function CrearChecklistScreen({
         }
       );
     } catch (error) {
-      mostrarAlertaConfirmacion(
-        "Error",
-        error?.message || "No se pudo guardar la tarea."
-      );
+      const mensajeError = error?.message || "No se pudo guardar la tarea.";
+      
+      if (mensajeError.includes("Ya existe")) {
+        setErrores((prev) => ({ ...prev, nombre: mensajeError }));
+      } else {
+        mostrarAlertaConfirmacion(
+          "Error",
+          mensajeError
+        );
+      }
     } finally {
       setSaving(false);
     }
@@ -225,7 +231,7 @@ export default function CrearChecklistScreen({
                       setNombre(text);
                       limpiarError("nombre");
                     }}
-                    placeholder="Ej: Comprar vuelos de ida y vuelta"
+                    placeholder="Comprar vuelos de ida y vuelta"
                     placeholderTextColor={colors.overlay}
                     maxLength={NOMBRE_MAX_LENGTH}
                   />

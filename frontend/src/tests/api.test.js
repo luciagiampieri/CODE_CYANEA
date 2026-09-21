@@ -310,3 +310,56 @@ describe("uploadProfilePhoto (rama web)", () => {
     );
   });
 });
+
+
+describe("errores enriquecidos de la API", () => {
+  function mockErrorOnce(status, detail, headers = {}) {
+    global.fetch.mockResolvedValueOnce({
+      ok: false,
+      status,
+      headers: { get: (name) => headers[name] ?? null },
+      json: async () => ({ detail }),
+    });
+  }
+
+  it("el error conserva el status HTTP", async () => {
+    mockErrorOnce(401, "Credenciales inválidas");
+
+    await expect(api.loginUser("ada@mail.com", "mala")).rejects.toMatchObject({
+      message: "Credenciales inválidas",
+      status: 401,
+    });
+  });
+
+  it("un 409 de viaje finalizado lleva el código y avisa a los suscriptores", async () => {
+    const listener = jest.fn();
+    const unsubscribe = api.onTripFinishedError(listener);
+    mockErrorOnce(409, "El viaje ya finalizó: la checklist no se puede modificar.", {
+      "X-Error-Code": "TRIP_FINISHED",
+    });
+
+    await expect(api.loginUser("ada@mail.com", "x")).rejects.toMatchObject({
+      status: 409,
+      code: "TRIP_FINISHED",
+    });
+    expect(listener).toHaveBeenCalledTimes(1);
+
+    unsubscribe();
+    mockErrorOnce(409, "El viaje ya finalizó: la checklist no se puede modificar.");
+    await expect(api.loginUser("ada@mail.com", "x")).rejects.toMatchObject({
+      code: "TRIP_FINISHED",
+    });
+    // Ya desuscripto, no se vuelve a llamar.
+    expect(listener).toHaveBeenCalledTimes(1);
+  });
+
+  it("otros 409 no se confunden con viaje finalizado", async () => {
+    const listener = jest.fn();
+    const unsubscribe = api.onTripFinishedError(listener);
+    mockErrorOnce(409, "Ya existe un usuario con ese email");
+
+    await expect(api.loginUser("ada@mail.com", "x")).rejects.toMatchObject({ status: 409 });
+    expect(listener).not.toHaveBeenCalled();
+    unsubscribe();
+  });
+});

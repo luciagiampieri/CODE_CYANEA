@@ -209,6 +209,8 @@ class TripDetailRead(TripRead):
     image: str | None = None
     hasCustomCover: bool = False
     defaultCoverImage: str | None = None
+    # Hasta cuándo el admin puede editar los datos generales (FechaFin + 1 mes).
+    infoEditableUntil: date | None = None
 
 
 class TripParticipantUpsert(BaseModel):
@@ -237,6 +239,34 @@ class TripParticipantUpsert(BaseModel):
 class TripMutationResponse(BaseModel):
     message: str
     advertencia: str | None = None
+
+
+class TripCoverAIGenerateRequest(BaseModel):
+    # Indicación adicional opcional para orientar la generación (AC2).
+    prompt: str | None = Field(default=None, max_length=300)
+
+
+class TripCoverAIPreviewRequest(BaseModel):
+    """Datos para generar una portada antes de que el viaje exista (creación)."""
+
+    title: str | None = Field(default=None, max_length=150)
+    destinations: list[str] = Field(default_factory=list, max_length=10)
+    prompt: str | None = Field(default=None, max_length=300)
+
+
+class TripCoverAIPreview(BaseModel):
+    imageBase64: str
+    mimeType: str
+
+
+class TripCoverAIAcceptRequest(BaseModel):
+    imageBase64: str = Field(..., min_length=1, max_length=7_000_000)
+    mimeType: str | None = None
+
+
+class TripCoverAIAcceptResponse(BaseModel):
+    message: str
+    image: str | None = None
 
 
 class TripCreate(BaseModel):
@@ -331,4 +361,4 @@ class TripInvitationRead(BaseModel):
 
 class LeaveTripRequest(BaseModel):
     confirmar: bool 
-    nuevoAdministradorId: Optional[int] = None
+    nuevoAdministradorId: Optional[int] = None

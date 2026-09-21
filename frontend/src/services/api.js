@@ -53,6 +53,51 @@ async function authHeaders() {
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
+// --- Errores de la API ---------------------------------------------------------
+
+const tripFinishedListeners = new Set();
+
+export function onTripFinishedError(listener) {
+  tripFinishedListeners.add(listener);
+  return () => tripFinishedListeners.delete(listener);
+}
+
+function readHeader(headers, name) {
+  if (!headers) return null;
+  if (typeof headers.get === "function") return headers.get(name);
+  const key = Object.keys(headers).find((item) => item.toLowerCase() === name.toLowerCase());
+  return key ? headers[key] : null;
+}
+
+function buildApiError(message, status, headers) {
+  const error = new Error(message);
+  error.status = status;
+  error.code = readHeader(headers, "X-Error-Code");
+  const isTripFinished =
+    error.code === "TRIP_FINISHED" || (status === 409 && /viaje ya finaliz/i.test(message));
+  if (isTripFinished) {
+    error.code = "TRIP_FINISHED";
+    tripFinishedListeners.forEach((listener) => {
+      try {
+        listener(error);
+      } catch {}
+    });
+  }
+  return error;
+}
+
+function messageFromBody(body, fallbackMessage) {
+  try {
+    const data = typeof body === "string" ? JSON.parse(body) : body;
+    if (Array.isArray(data?.detail)) {
+      return data.detail.map((item) => item.msg ?? item.message ?? JSON.stringify(item)).join(". ");
+    }
+    return data?.detail || data?.message || fallbackMessage;
+  } catch {
+    return fallbackMessage;
+  }
+}
+
 async function parseResponse(response, fallbackMessage) {
   if (response.ok) {
     return response.json();
@@ -72,7 +117,7 @@ async function parseResponse(response, fallbackMessage) {
     message = fallbackMessage;
   }
 
-  throw new Error(message);
+  throw buildApiError(message, response.status, response.headers);
 }
 
 export async function loginUser(email, password) {
@@ -719,7 +764,6 @@ export async function updateActivity(tripId, dayId, activityId, payload) {
   return parseResponse(response, "No se pudo actualizar la actividad");
 }
 
-
 export async function deleteActivity(tripId, dayId, activityId) {
   const response = await fetch(
     `${API_BASE_URL}/trips/${tripId}/days/${dayId}/activities/${activityId}`,
@@ -731,7 +775,6 @@ export async function deleteActivity(tripId, dayId, activityId) {
   return parseResponse(response, "No se pudo eliminar la actividad");
 }
 
-
 export async function deleteTrip(tripId) {
   const response = await fetch(`${API_BASE_URL}/trips/${tripId}`, {
     method: "DELETE",
@@ -741,7 +784,7 @@ export async function deleteTrip(tripId) {
     },
   });
 
-if (response.ok) {
+  if (response.ok) {
     return true; 
   }
 
@@ -826,12 +869,8 @@ export async function uploadTripDocument(
     );
 
     if (result.status < 200 || result.status >= 300) {
-      let mensaje = "No se pudo subir el documento";
-      try {
-        const parsed = JSON.parse(result.body);
-        mensaje = parsed.detail || parsed.message || mensaje;
-      } catch (e) {}
-      throw new Error(mensaje);
+      const mensaje = messageFromBody(result.body, "No se pudo subir el documento");
+      throw buildApiError(mensaje, result.status, result.headers);
     }
 
     try {
@@ -841,7 +880,6 @@ export async function uploadTripDocument(
     }
   }
 }
-
 
 export async function getTripDocuments(tripId) {
   const token = await getStoredToken();
@@ -853,7 +891,6 @@ export async function getTripDocuments(tripId) {
 
   return parseResponse(response, "No se pudieron cargar los documentos del viaje");
 }
-
 
 export async function downloadTripDocument(tripId, documentId, nombreArchivo) {
   const token = await getStoredToken();
@@ -904,7 +941,6 @@ export async function downloadTripDocument(tripId, documentId, nombreArchivo) {
     );
   }
 }
-
 
 export async function deleteTripDocument(tripId, documentId) {
   const response = await fetch(
@@ -997,6 +1033,21 @@ export async function updateChecklist(tripId, checklistId, payload) {
   return parseResponse(response, "No se pudo actualizar el checklist");
 }
 
+export async function toggleChecklistCompletada(tripId, checklistId, completada) {
+  const response = await fetch(
+    `${API_BASE_URL}/trips/${tripId}/checklists/${checklistId}/completada`,
+    {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+        ...(await authHeaders()),
+      },
+      body: JSON.stringify({ Completada: completada }),
+    }
+  );
+  return parseResponse(response, "No se pudo actualizar el estado de la tarea");
+}
+
 export async function deleteChecklist(tripId, checklistId) {
   const response = await fetch(
     `${API_BASE_URL}/trips/${tripId}/checklists/${checklistId}`,
@@ -1078,12 +1129,8 @@ export async function updateTripDocument(
       );
 
       if (result.status < 200 || result.status >= 300) {
-        let mensaje = "No se pudo actualizar el documento";
-        try {
-          const parsed = JSON.parse(result.body);
-          mensaje = parsed.detail || parsed.message || mensaje;
-        } catch (e) {}
-        throw new Error(mensaje);
+        const mensaje = messageFromBody(result.body, "No se pudo actualizar el documento");
+        throw buildApiError(mensaje, result.status, result.headers);
       }
 
       try {
@@ -1132,7 +1179,6 @@ export async function leaveTrip(tripId, payload) {
     "No se pudo abandonar el viaje"
   );
 }
-
 
 export async function getNotifications() {
   const response = await fetch(`${API_BASE_URL}/notificaciones`, {
@@ -1233,4 +1279,39 @@ export async function removeTripCover(tripId) {
     headers: await authHeaders(),
   });
   return parseResponse(response, "No se pudo quitar la portada personalizada");
+}
+
+// US 57: portada del viaje generada con IA.
+// La generación devuelve una vista previa (no guarda nada); la imagen recién
+// se establece como portada al aceptarla.
+export async function generateTripCoverAI(tripId, prompt) {
+  const response = await fetch(`${API_BASE_URL}/trips/${tripId}/cover/ai/generate`, {
+    method: "POST",
+    headers: { ...(await authHeaders()), "Content-Type": "application/json" },
+    body: JSON.stringify({ prompt: prompt?.trim() || null }),
+  });
+  return parseResponse(response, "No se pudo generar la imagen de portada");
+}
+
+// Vista previa para un viaje que todavía no existe (pantalla de creación).
+export async function generateCoverPreviewAI({ title, destinations, prompt }) {
+  const response = await fetch(`${API_BASE_URL}/trips/cover/ai/preview`, {
+    method: "POST",
+    headers: { ...(await authHeaders()), "Content-Type": "application/json" },
+    body: JSON.stringify({
+      title: title?.trim() || null,
+      destinations: destinations ?? [],
+      prompt: prompt?.trim() || null,
+    }),
+  });
+  return parseResponse(response, "No se pudo generar la imagen de portada");
+}
+
+export async function acceptTripCoverAI(tripId, imageBase64, mimeType) {
+  const response = await fetch(`${API_BASE_URL}/trips/${tripId}/cover/ai/accept`, {
+    method: "POST",
+    headers: { ...(await authHeaders()), "Content-Type": "application/json" },
+    body: JSON.stringify({ imageBase64, mimeType }),
+  });
+  return parseResponse(response, "No se pudo establecer la portada generada");
 }

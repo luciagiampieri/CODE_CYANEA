@@ -375,3 +375,137 @@ def test_cancelar_votacion_conserva_votos_existentes_como_historico(client, db_s
     assert resultados.status_code == 200
     assert resultados.json()["Estado"] == "cancelada"
     assert resultados.json()["TotalVotos"] == 1
+
+
+def test_editar_votacion_actualiza_datos_y_propuestas(client, auth_headers, viaje_con_admin):
+    viaje, _ = viaje_con_admin
+    crear = client.post(
+        "/api/v1/votaciones",
+        json=_payload_votacion(viaje.IdViaje),
+        headers=auth_headers,
+    )
+    id_votacion = crear.json()["IdVotacion"]
+    fecha_cierre = (datetime.now(timezone.utc) + timedelta(days=5)).isoformat()
+
+    response = client.put(
+        f"/api/v1/votaciones/{id_votacion}",
+        json={
+            "nombre": "¿Qué hacemos?",
+            "fechaCierre": fecha_cierre,
+            "tipo": "opcion_multiple",
+            "propuestas": ["Playa", "Museo", "Montaña"],
+        },
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["Titulo"] == "¿Qué hacemos?"
+    assert body["Tipo"] == "opcion_multiple"
+    assert [propuesta["Texto"] for propuesta in body["Propuestas"]] == [
+        "Playa",
+        "Museo",
+        "Montaña",
+    ]
+
+
+def test_editar_votacion_rechaza_usuario_que_no_es_creador(
+    client, db_session, auth_headers, viaje_con_admin
+):
+    viaje, _ = viaje_con_admin
+    crear = client.post(
+        "/api/v1/votaciones",
+        json=_payload_votacion(viaje.IdViaje),
+        headers=auth_headers,
+    )
+    id_votacion = crear.json()["IdVotacion"]
+    _, headers_bob = _crear_usuario_miembro(db_session, viaje)
+
+    response = client.put(
+        f"/api/v1/votaciones/{id_votacion}",
+        json={"nombre": "No autorizado"},
+        headers=headers_bob,
+    )
+
+    assert response.status_code == 403
+    assert response.json()["detail"] == "Solo el creador de la votación puede editarla."
+
+
+def test_editar_votacion_rechaza_cambiar_propuestas_si_ya_hay_votos(
+    client, auth_headers, viaje_con_admin
+):
+    viaje, _ = viaje_con_admin
+    crear = client.post(
+        "/api/v1/votaciones",
+        json=_payload_votacion(viaje.IdViaje),
+        headers=auth_headers,
+    )
+    id_votacion = crear.json()["IdVotacion"]
+    id_propuesta = crear.json()["Propuestas"][0]["IdPropuesta"]
+    client.post(
+        f"/api/v1/votaciones/{id_votacion}/votar",
+        json={"idPropuestas": [id_propuesta]},
+        headers=auth_headers,
+    )
+
+    response = client.put(
+        f"/api/v1/votaciones/{id_votacion}",
+        json={"propuestas": ["Nueva 1", "Nueva 2"]},
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "No se pueden modificar las propuestas después de emitir votos."
+
+
+def test_eliminar_votacion_borra_propuestas_y_votos(
+    client, db_session, auth_headers, viaje_con_admin
+):
+    from app.models.propuesta import Propuesta
+    from app.models.voto import Voto
+
+    viaje, _ = viaje_con_admin
+    crear = client.post(
+        "/api/v1/votaciones",
+        json=_payload_votacion(viaje.IdViaje),
+        headers=auth_headers,
+    )
+    id_votacion = crear.json()["IdVotacion"]
+    id_propuesta = crear.json()["Propuestas"][0]["IdPropuesta"]
+    client.post(
+        f"/api/v1/votaciones/{id_votacion}/votar",
+        json={"idPropuestas": [id_propuesta]},
+        headers=auth_headers,
+    )
+
+    response = client.delete(
+        f"/api/v1/votaciones/{id_votacion}",
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"message": "Votación eliminada correctamente."}
+    assert db_session.get(Votacion, id_votacion) is None
+    assert db_session.query(Propuesta).filter_by(IdVotacion=id_votacion).count() == 0
+    assert db_session.query(Voto).filter_by(IdVotacion=id_votacion).count() == 0
+
+
+def test_eliminar_votacion_rechaza_votacion_cerrada(
+    client, db_session, auth_headers, viaje_con_admin
+):
+    viaje, _ = viaje_con_admin
+    crear = client.post(
+        "/api/v1/votaciones",
+        json=_payload_votacion(viaje.IdViaje),
+        headers=auth_headers,
+    )
+    id_votacion = crear.json()["IdVotacion"]
+    _cerrar_votacion(db_session, id_votacion)
+
+    response = client.delete(
+        f"/api/v1/votaciones/{id_votacion}",
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "Solo se pueden eliminar votaciones que están activas."

@@ -392,6 +392,16 @@ El flujo minimo actual incluye:
 
 ## Estado funcional actual
 
+### Votaciones
+
+- Las votaciones se pueden editar y eliminar solo mientras están abiertas y
+  únicamente por su creador.
+- El título y la fecha de cierre se pueden editar mientras la votación está
+  abierta.
+- El tipo y las propuestas no se pueden modificar después de que exista un
+  voto, para conservar la coherencia del histórico de resultados.
+- Eliminar una votación elimina también sus propuestas y votos relacionados.
+
 Backend:
 
 - listado de viajes

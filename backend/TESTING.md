@@ -58,7 +58,9 @@ rápido y aísla los tests de auth de los tests de negocio.
 ## Cobertura actual
 
 - `auth`: registro (éxito, email duplicado, password débil, sin aceptar
-  términos), login (éxito, password incorrecta, email no confirmado).
+  términos), login (éxito, password incorrecta, email no confirmado), login
+  social con Google/Facebook (usuario existente o nuevo) y registro social
+  con ambos proveedores (persistencia, token y rechazo sin aceptar términos).
 - `trips`: creación, listado, detalle (éxito y no encontrado), actualización,
   eliminación, autenticación requerida, control de admin. Invitaciones:
   listado de invitaciones pendientes (solo estado "invitado", requiere auth),
@@ -76,10 +78,33 @@ rápido y aísla los tests de auth de los tests de negocio.
   del viaje para asignar gastos (requiere auth, viaje inexistente, rechazo a
   no-miembros, solo incluye participantes con estado "aceptado" — test de
   regresión del bug de membresía documentado más abajo).
+- `viaje finalizado` (`test_viaje_finalizado.py`): un viaje se considera
+  finalizado desde el día siguiente a `FechaFin` (el último día todavía es
+  editable) o si su estado es "finalizado". Itinerario, lugares, participantes
+  (agregar, expulsar, abandonar, aceptar invitación), checklist, documentación,
+  repositorio y votaciones responden `409` con `X-Error-Code: TRIP_FINISHED`;
+  una invitación se puede seguir rechazando. Un no-admin recibe `403` antes que
+  `409`. Las votaciones abiertas pasan a "cerrada" y exponen resultados. Gastos
+  y liquidaciones siguen habilitados, y el admin puede eliminar el viaje.
+  Lecturas (detalle, documentos) siguen permitidas y el detalle/listado
+  devuelven `status: "finalizado"` (un viaje "cancelado" conserva su estado
+  aunque haya pasado la fecha). Los datos generales y la portada tienen su
+  propio plazo: se pueden editar hasta un mes después de `FechaFin` (inclusive,
+  ajustando meses cortos: 31/1 -> 28/2); al vencer responden `403` con
+  `X-Error-Code: TRIP_EDIT_WINDOW_CLOSED`. El detalle expone ese límite como
+  `infoEditableUntil` para que el front oculte la edición con la misma regla.
 - `votaciones`: creación, validaciones (mínimo de propuestas, fecha futura),
-  control de membresía, emisión de voto, rechazo de doble voto.
+  control de membresía, emisión de voto, rechazo de doble voto, cancelación,
+  edición y eliminación (permisos del creador, estado abierto, bloqueo de
+  cambios estructurales después de votar y eliminación en cascada).
 - `users`: `/me` (éxito, sin token, token inválido), listado (requiere auth,
-  búsqueda por `q`, exclusión de usuarios inactivos, límite `limit`).
+  búsqueda por `q`, exclusión de usuarios inactivos, límite `limit`), países
+  visitados (deduplicación, conteo de viajes, viajes finalizados y exclusión
+  por estado, fecha o participación), verificación de contraseña (correcta,
+  incorrecta, ausente, autenticación requerida y cuentas sociales).
+- `notificaciones`: listado autenticado y aislado por usuario, orden por fecha,
+  marcado individual (propia, ajena e inexistente) y marcado masivo sin afectar
+  notificaciones de otros usuarios.
 - `monedas`: listado ordenado, listado vacío, búsqueda por código/nombre
   (case-insensitive), búsqueda sin resultados, límite de 20 resultados.
 - `itinerary` (WebSocket): conexión aceptada para admin/participante, rechazo
@@ -106,18 +131,16 @@ rápido y aísla los tests de auth de los tests de negocio.
 - Eliminar y editar gastos: no implementado todavía en el backend (no hay
   endpoint), por lo tanto no hay tests. Agregar cuando se implemente la
   funcionalidad.
-- Eliminar y editar votaciones: idem.
 - Tests end-to-end (frontend + backend integrados): fuera de alcance de este
   sprint, se prioriza cobertura de backend.
 - Reconexión del WebSocket ante desconexiones y múltiples conexiones
   simultáneas (más de dos) al mismo viaje: se probó el caso de una conexión
   adicional recibiendo el broadcast, pero no escenarios con "n" clientes.
-- `GET /trips/search` (autocompletado de destinos vía Google Places): no tiene
-  tests todavía porque llama a una API externa (`httpx.AsyncClient` contra
-  Google Places). Para testearlo sin pegarle a la red real habría que mockear
-  `httpx.AsyncClient.get` (por ejemplo con `respx` o un monkeypatch manual);
-  se dejó afuera de esta ronda porque no es lógica de negocio propia del
-  proyecto, es un simple passthrough a un servicio externo.
+- WebSocket de notificaciones: conexión con token válido, rechazo de token
+  inválido, usuario inactivo o inexistente, limpieza al desconectar y
+  aislamiento del broadcast por usuario. La integración de
+  `broadcast_to_user` con cada flujo de negocio que crea una notificación
+  queda pendiente de una decisión funcional.
 
 ## Hallazgos detectados mediante testing
 

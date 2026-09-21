@@ -283,7 +283,7 @@ def verify_current_password(
     current_user: Usuario = Depends(get_current_user),
 ) -> dict:
     if current_user.ProveedorAutenticacion != "local":
-        return
+        return {"valid": True}
 
     if not payload.password:
         raise HTTPException(

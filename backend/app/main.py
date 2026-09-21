@@ -22,6 +22,8 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    # Permite que el front web lea el código de error (p. ej. TRIP_FINISHED).
+    expose_headers=["X-Error-Code"],
 )
 
 

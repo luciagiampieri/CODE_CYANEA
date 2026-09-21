@@ -1,8 +1,10 @@
-from calendar import monthrange
 from datetime import datetime, timedelta, date
 import logging
 from secrets import token_urlsafe
 from urllib.parse import quote
+
+import base64
+import binascii
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query, File, UploadFile
 from fastapi.responses import RedirectResponse
@@ -39,6 +41,11 @@ from app.schemas.trip import (
     TripExternalInvitationRead,
     TripInvitationRead,
     TripMutationResponse,
+    TripCoverAIAcceptRequest,
+    TripCoverAIAcceptResponse,
+    TripCoverAIGenerateRequest,
+    TripCoverAIPreview,
+    TripCoverAIPreviewRequest,
     TripParticipantRead,
     TripRead,
     TripParticipantUpsert,
@@ -63,9 +70,17 @@ from app.services.notifications import (
 )
 from app.services.destination_search import build_destination_image_url, search_destinations, autocomplete_destinations, resolve_destination
 from app.services.place_search import get_place_photo_uri
-from app.services.trip_access import get_trip_with_relations, require_trip_access, require_trip_edit_access
+from app.services.trip_access import get_trip_with_relations, require_trip_access, require_trip_edit_access, require_trip_not_finished, resolve_trip_status, require_trip_info_editable, trip_info_editable_until
 from app.services.liquidacion_service import calcular_balances_participantes
-from app.services.supabase.storage import eliminar_documento_storage, subir_portada_viaje, obtener_url_publica
+from app.services.supabase.storage import eliminar_documento_storage, subir_portada_viaje, subir_portada_viaje_bytes, obtener_url_publica
+from app.services.cover_ai import (
+    MAX_COVER_BYTES,
+    CoverGenerationError,
+    build_cover_prompt,
+    detect_image_mime,
+    extension_for_mime,
+    generate_cover_image,
+)
 
 ROUTE_GENERATION_AVAILABLE = True
 try:
@@ -122,15 +137,6 @@ except (ImportError, ModuleNotFoundError):
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
-
-
-def _add_one_month(fecha: date) -> date:
-    """Suma un mes calendario a una fecha, ajustando meses de distinta longitud
-    (ej. 31 de enero + 1 mes -> 28 o 29 de febrero)."""
-    year = fecha.year + (1 if fecha.month == 12 else 0)
-    month = 1 if fecha.month == 12 else fecha.month + 1
-    day = min(fecha.day, monthrange(year, month)[1])
-    return date(year, month, day)
 
 
 def _require_trip_admin(viaje: Viaje, current_user: Usuario) -> None:
@@ -370,7 +376,7 @@ def _build_trip_detail(
         ) for rel in viaje.Destinos
         ],
         description=viaje.Descripcion,
-        status=viaje.EstadoViaje.Nombre,
+        status=resolve_trip_status(viaje),
         currency=viaje.Moneda,
         startDate=viaje.FechaInicio,
         endDate=viaje.FechaFin,
@@ -425,8 +431,42 @@ def _build_trip_detail(
             for invitacion in invitaciones_visibles
         ],
         invitedEmails=[invitacion.EmailInvitado for invitacion in invitaciones_visibles],
-        hasLeft=has_left 
+        hasLeft=has_left,
+        infoEditableUntil=trip_info_editable_until(viaje),
     )
+
+@router.post("/cover/ai/preview", response_model=TripCoverAIPreview)
+async def preview_trip_cover_ai(
+    payload: TripCoverAIPreviewRequest,
+    current_user: Usuario = Depends(get_current_user),
+) -> TripCoverAIPreview:
+    """Genera una portada con IA para un viaje que todavía no fue creado.
+
+    Se usa desde la pantalla de creación. No guarda nada: quien crea el viaje
+    será su administrador, y la imagen aceptada se asigna luego con
+    /{trip_id}/cover/ai/accept. Debe declararse antes de las rutas /{trip_id}/...
+    """
+    destinos = [d.strip() for d in payload.destinations if d and d.strip()]
+    titulo = (payload.title or "").strip()
+
+    if not destinos and not titulo:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Ingresa el nombre del viaje o al menos un destino para generar la portada.",
+        )
+
+    prompt = build_cover_prompt(titulo, destinos, payload.prompt)
+
+    try:
+        resultado = await generate_cover_image(prompt)
+    except CoverGenerationError as error:
+        raise HTTPException(status_code=error.status_code, detail=error.message)
+
+    return TripCoverAIPreview(
+        imageBase64=base64.b64encode(resultado.content).decode("ascii"),
+        mimeType=resultado.mime_type,
+    )
+
 
 @router.get("/invitations/pending", response_model=None)
 def get_pending_invitations(
@@ -491,6 +531,9 @@ async def respond_to_invitation(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Esta invitación ya fue respondida previamente."
         )
+
+    if decision == "aceptar":
+        require_trip_not_finished(participacion.Viaje, "la lista de participantes")
 
     nuevo_estado_nombre = "aceptado" if decision == "aceptar" else "rechazado"
     estado_maestro = db.scalar(
@@ -647,9 +690,7 @@ def list_trips(
     hoy = date.today()
 
     def resolver_estado(viaje: Viaje) -> str:
-        if viaje.FechaFin and viaje.FechaFin < hoy:
-            return "finalizado"
-        return viaje.EstadoViaje.Nombre
+        return resolve_trip_status(viaje, hoy)
 
     def resolver_has_left(viaje: Viaje) -> bool:
         participacion_usuario = next(
@@ -724,12 +765,7 @@ async def update_trip(
     viaje = require_trip_edit_access(get_trip_with_relations(db, trip_id), current_user)
     _require_trip_admin(viaje, current_user)
 
-    limite_edicion = _add_one_month(viaje.FechaFin)
-    if date.today() > limite_edicion:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="El plazo para editar la información general de este viaje ha vencido",
-        )
+    require_trip_info_editable(viaje)
 
 
     viaje_ya_comenzo = viaje.FechaInicio <= date.today()
@@ -890,6 +926,7 @@ async def create_activity(
     current_user: Usuario = Depends(get_current_user),
 ) -> ActividadRead:
     viaje = require_trip_edit_access(get_trip_with_relations(db, trip_id), current_user)
+    require_trip_not_finished(viaje, "el itinerario")
 
     dia = db.scalar(
         select(DiaCronograma).where(
@@ -961,6 +998,7 @@ async def update_activity(
     current_user: Usuario = Depends(get_current_user),
 ) -> ActividadRead:
     viaje = require_trip_edit_access(get_trip_with_relations(db, trip_id), current_user)
+    require_trip_not_finished(viaje, "el itinerario")
 
     dia = db.scalar(
         select(DiaCronograma).where(
@@ -1053,6 +1091,7 @@ async def delete_activity(
     current_user: Usuario = Depends(get_current_user),
 ) -> TripMutationResponse:
     viaje = require_trip_edit_access(get_trip_with_relations(db, trip_id), current_user)
+    require_trip_not_finished(viaje, "el itinerario")
 
     dia = db.scalar(
         select(DiaCronograma).where(
@@ -1106,6 +1145,7 @@ async def generate_route(
         )
 
     viaje = require_trip_edit_access(get_trip_with_relations(db, trip_id), current_user)
+    require_trip_not_finished(viaje, "el itinerario")
 
     dia = db.scalar(
         select(DiaCronograma).where(
@@ -1151,6 +1191,7 @@ def add_trip_participant(
 ) -> TripMutationResponse:
     viaje = require_trip_access(get_trip_with_relations(db, trip_id), current_user)
     _require_trip_admin(viaje, current_user)
+    require_trip_not_finished(viaje, "la lista de participantes")
 
     rol_participante = db.scalar(
         select(RolParticipante).where(
@@ -1328,6 +1369,7 @@ def remove_trip_participant(
     """
     viaje = require_trip_access(get_trip_with_relations(db, trip_id), current_user)
     _require_trip_admin(viaje, current_user)
+    require_trip_not_finished(viaje, "la lista de participantes")
 
     if user_id == viaje.IdAdministrador:
         raise HTTPException(
@@ -1417,6 +1459,7 @@ def remove_trip_external_invitation(
 ) -> TripMutationResponse:
     viaje = require_trip_access(get_trip_with_relations(db, trip_id), current_user)
     _require_trip_admin(viaje, current_user)
+    require_trip_not_finished(viaje, "la lista de participantes")
 
     if not payload.email:
         raise HTTPException(status_code=400, detail="Debes enviar el email de la invitación externa")
@@ -1451,6 +1494,7 @@ async def remove_trip_cover(
         )
 
     _require_trip_admin(viaje, current_user)
+    require_trip_info_editable(viaje)
 
     ruta_portada = viaje.UrlPortadaPersonalizada
 
@@ -1495,6 +1539,7 @@ async def upload_trip_cover(
         )
 
     _require_trip_admin(viaje, current_user)
+    require_trip_info_editable(viaje)
 
     extension = (
         (archivo.filename or "").lower().rsplit(".", 1)[-1]
@@ -1544,6 +1589,125 @@ async def upload_trip_cover(
     return TripMutationResponse(
         message="La portada del viaje se actualizó correctamente."
     )
+
+@router.post("/{trip_id}/cover/ai/generate", response_model=TripCoverAIPreview)
+async def generate_trip_cover_ai(
+    trip_id: int,
+    payload: TripCoverAIGenerateRequest,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> TripCoverAIPreview:
+    """Genera una imagen de portada con IA y la devuelve como vista previa.
+
+    No se guarda nada: el usuario decide después si la acepta, la descarta o
+    pide una nueva generación.
+    """
+    viaje = get_trip_with_relations(db, trip_id)
+
+    if viaje is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Viaje no encontrado",
+        )
+
+    _require_trip_admin(viaje, current_user)
+    require_trip_info_editable(viaje)
+
+    destinos = [
+        f"{rel.Destino.Nombre}, {rel.Destino.Pais}" if rel.Destino.Pais else rel.Destino.Nombre
+        for rel in viaje.Destinos
+    ]
+    prompt = build_cover_prompt(viaje.Titulo, destinos, payload.prompt)
+
+    try:
+        resultado = await generate_cover_image(prompt)
+    except CoverGenerationError as error:
+        raise HTTPException(status_code=error.status_code, detail=error.message)
+
+    return TripCoverAIPreview(
+        imageBase64=base64.b64encode(resultado.content).decode("ascii"),
+        mimeType=resultado.mime_type,
+    )
+
+
+@router.post("/{trip_id}/cover/ai/accept", response_model=TripCoverAIAcceptResponse)
+async def accept_trip_cover_ai(
+    trip_id: int,
+    payload: TripCoverAIAcceptRequest,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> TripCoverAIAcceptResponse:
+    """Establece como portada la imagen generada con IA que el usuario aceptó."""
+    viaje = get_trip_with_relations(db, trip_id)
+
+    if viaje is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Viaje no encontrado",
+        )
+
+    _require_trip_admin(viaje, current_user)
+    require_trip_info_editable(viaje)
+
+    imagen_b64 = payload.imageBase64
+    if imagen_b64.startswith("data:") and "," in imagen_b64:
+        imagen_b64 = imagen_b64.split(",", 1)[1]
+
+    try:
+        contenido = base64.b64decode(imagen_b64, validate=True)
+    except (binascii.Error, ValueError):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="La imagen enviada no es válida.",
+        )
+
+    mime = detect_image_mime(contenido)
+    if mime is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Tipo de archivo no permitido. Solo se permiten JPG, JPEG y PNG.",
+        )
+    if len(contenido) > MAX_COVER_BYTES:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail="La imagen supera el tamaño máximo permitido.",
+        )
+
+    ruta_portada_anterior = viaje.UrlPortadaPersonalizada
+
+    try:
+        ruta_storage = subir_portada_viaje_bytes(
+            contenido,
+            viaje.IdViaje,
+            extension_for_mime(mime),
+            mime,
+        )
+
+        viaje.UrlPortadaPersonalizada = ruta_storage
+        db.commit()
+    except Exception:
+        db.rollback()
+
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="No se pudo guardar la nueva portada. Se conservará la portada actual.",
+        )
+
+    if ruta_portada_anterior:
+        try:
+            eliminar_documento_storage(ruta_portada_anterior)
+        except Exception as e:
+            print("ERROR CRÍTICO AL ELIMINAR PORTADA ANTERIOR:", e)
+
+    await _notificar_viaje_actualizado(
+        viaje, "La portada del viaje fue actualizada."
+    )
+
+    return TripCoverAIAcceptResponse(
+        message="La portada del viaje se actualizó correctamente.",
+        image=_trip_image_url(viaje),
+    )
+
 
 @router.post("", response_model=TripRead, status_code=status.HTTP_201_CREATED)
 async def create_trip(
@@ -1780,7 +1944,7 @@ async def create_trip(
             )
             for rel in viaje.Destinos
         ],
-        status=viaje.EstadoViaje.Nombre,
+        status=resolve_trip_status(viaje),
         currency=viaje.Moneda,
         startDate=viaje.FechaInicio,
         endDate=viaje.FechaFin,
@@ -1829,6 +1993,9 @@ async def leave_trip(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="No puedes abandonar un viaje que no está activo",
         )
+
+    # En la base puede seguir "activo" aunque ya pasó la fecha de fin.
+    require_trip_not_finished(viaje, "la lista de participantes")
         
     participacion = db.scalar(
         select(ParticipanteViaje)
@@ -2061,4 +2228,4 @@ async def leave_trip(
 
     return TripMutationResponse(
         message="Has abandonado el viaje correctamente."
-    )
+    )

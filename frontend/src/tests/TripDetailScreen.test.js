@@ -9,6 +9,7 @@ import {
   getTripSettlement,
   getTripDocuments,
   getVotaciones,
+  onTripFinishedError,
 } from "../services/api";
 
 jest.mock("react-native-maps", () => {
@@ -62,6 +63,7 @@ jest.mock("../services/api", () => ({
   getTripSettlement: jest.fn().mockResolvedValue({}),
   getTripParticipants: jest.fn().mockResolvedValue([]),
   getExpenseCategories: jest.fn().mockResolvedValue([]),
+  onTripFinishedError: jest.fn(() => jest.fn()),
 }));
 
 jest.mock("../hooks/useItinerarioViewPreference", () => ({
@@ -342,8 +344,9 @@ describe("US 68 - Abandonar un viaje (Suite completa de tests frontend)", () => 
     );
 
     fireEvent.press(await findByText("Grupo"));
-    fireEvent.press(await findByText("Abandonar viaje"));
 
+    // Con el viaje finalizado la opción directamente no se ofrece.
+    await waitFor(() => expect(queryByText("Abandonar viaje")).toBeNull());
     expect(leaveTrip).not.toHaveBeenCalled();
     expect(queryByText("Transferir administración")).toBeNull();
   });
@@ -458,5 +461,171 @@ describe("US 68 - Abandonar un viaje (Suite completa de tests frontend)", () => 
       fireEvent.press(await findByText("Ver gastos"));
       expect(await findByText("Gastos del viaje")).toBeTruthy();
     });
+  });
+});
+
+describe("Viaje finalizado: solo lectura salvo Gastos", () => {
+  const tripFinalizado = {
+    id: 7,
+    title: "Viaje a Mendoza",
+    destination: "Mendoza, Argentina",
+    status: "finalizado",
+    hasLeft: false,
+    currency: "ARS",
+    startDate: "2026-03-01",
+    endDate: "2026-03-08",
+    admin: { id: 1, nombreCompleto: "Juan Pérez", email: "juan@gmail.com" },
+    participants: [
+      { id: 1, nombreCompleto: "Juan Pérez", role: "administrador", status: "aceptado" },
+      { id: 2, nombreCompleto: "Ana Gómez", role: "participante", status: "aceptado" },
+    ],
+    cronograma: [],
+  };
+
+  const navigation = {
+    goBack: jest.fn(),
+    navigate: jest.fn(),
+    setParams: jest.fn(),
+    addListener: jest.fn(() => jest.fn()),
+  };
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    getCurrentUser.mockResolvedValue({ id: 1, nombre: "Juan", apellido: "Pérez", email: "juan@gmail.com" });
+    getTripDetail.mockResolvedValue(tripFinalizado);
+    getTripPlaces.mockResolvedValue([]);
+    getTripSettlement.mockResolvedValue({
+      Moneda: "ARS",
+      TotalGastosViaje: 30000,
+      ResumenParticipantes: [],
+      Transferencias: [
+        {
+          IdTransferenciaLiquidacion: 1,
+          NombreDeudor: "Ana Gómez",
+          NombreAcreedor: "Juan Pérez",
+          Monto: 15000,
+          Estado: "pendiente",
+        },
+      ],
+    });
+  });
+
+  const renderFinalizado = () =>
+    render(<TripDetailScreen navigation={navigation} route={{ params: { trip: tripFinalizado } }} />);
+
+  test("muestra el sello, el aviso con la fecha y los pagos pendientes", async () => {
+    const { findByText, findAllByText } = await renderFinalizado();
+
+    expect((await findAllByText("Viaje finalizado")).length).toBeGreaterThan(0);
+    expect(await findByText("Este viaje terminó el 8 de marzo")).toBeTruthy();
+    expect(
+      await findByText("Podés consultar todo. Quedan 1 pago pendiente para cerrar las cuentas.")
+    ).toBeTruthy();
+  });
+
+  test("el aviso aparece solo en Resumen", async () => {
+    const { findByText, queryByText, findByLabelText } = await renderFinalizado();
+
+    expect(await findByText("Este viaje terminó el 8 de marzo")).toBeTruthy();
+
+    fireEvent.press(await findByLabelText("Itinerario, solo lectura"));
+    await waitFor(() => expect(queryByText("Este viaje terminó el 8 de marzo")).toBeNull());
+
+    fireEvent.press(await findByLabelText("Gastos, hay pagos pendientes"));
+    await waitFor(() => expect(queryByText("Este viaje terminó el 8 de marzo")).toBeNull());
+
+    // El sello de la portada se mantiene en todas las pestañas.
+    expect(await findByText("Viaje finalizado")).toBeTruthy();
+  });
+
+  test("marca con candado las pestañas bloqueadas y avisa pagos pendientes en Gastos", async () => {
+    const { findByLabelText, findByTestId, queryByLabelText } = await renderFinalizado();
+
+    expect(await findByLabelText("Itinerario, solo lectura")).toBeTruthy();
+    expect(await findByLabelText("Grupo, solo lectura")).toBeTruthy();
+    expect(await findByLabelText("Gastos, hay pagos pendientes")).toBeTruthy();
+    expect(await findByTestId("tab-gastos-pendientes")).toBeTruthy();
+    expect(queryByLabelText("Resumen, solo lectura")).toBeNull();
+  });
+
+  test("Gastos sigue permitiendo cargar y recalcular", async () => {
+    const { findByText } = await renderFinalizado();
+
+    fireEvent.press(await findByText("Ir a Gastos"));
+    expect(await findByText("Agregar gasto")).toBeTruthy();
+    expect(await findByText("Recalcular liquidación")).toBeTruthy();
+  });
+
+  test("oculta las acciones de edición en las secciones bloqueadas", async () => {
+    const { findByText, queryByText, findByLabelText } = await renderFinalizado();
+
+    fireEvent.press(await findByLabelText("Docs, solo lectura"));
+    await waitFor(() => expect(queryByText("Subir documentos")).toBeNull());
+    expect(queryByText("Agregar información")).toBeNull();
+
+    fireEvent.press(await findByLabelText("Checklist, solo lectura"));
+    await waitFor(() => expect(queryByText("Crear tarea")).toBeNull());
+
+    fireEvent.press(await findByLabelText("Grupo, solo lectura"));
+    await waitFor(() => expect(queryByText("Abandonar viaje")).toBeNull());
+
+    fireEvent.press(await findByLabelText("Itinerario, solo lectura"));
+    expect(await findByText("Ver mapa del viaje")).toBeTruthy();
+    expect(queryByText("Explorar destinos de interés")).toBeNull();
+  });
+
+  test("el admin puede editar los datos del viaje durante el mes posterior", async () => {
+    getTripDetail.mockResolvedValue({ ...tripFinalizado, infoEditableUntil: "2099-04-08" });
+    const { findByLabelText, findByText } = await render(
+      <TripDetailScreen
+        navigation={navigation}
+        route={{ params: { trip: { ...tripFinalizado, infoEditableUntil: "2099-04-08" } } }}
+      />
+    );
+
+    fireEvent.press(await findByLabelText("Editar viaje"));
+    expect(navigation.navigate).toHaveBeenCalledWith("EditarViaje", { tripId: 7 });
+    expect(
+      await findByText("Como admin, podés editar los datos del viaje hasta el 8 de abril.")
+    ).toBeTruthy();
+  });
+
+  test("vencido el mes, el lápiz desaparece", async () => {
+    getTripDetail.mockResolvedValue({ ...tripFinalizado, infoEditableUntil: "2026-04-08" });
+    const { findByText, queryByLabelText, queryByText } = await render(
+      <TripDetailScreen
+        navigation={navigation}
+        route={{ params: { trip: { ...tripFinalizado, infoEditableUntil: "2026-04-08" } } }}
+      />
+    );
+
+    expect(await findByText("Este viaje terminó el 8 de marzo")).toBeTruthy();
+    // Esperamos a que cargue el usuario, para que el chequeo de admin ya haya corrido.
+    await waitFor(() => expect(getCurrentUser).toHaveBeenCalled());
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(queryByLabelText("Editar viaje")).toBeNull();
+    expect(queryByText(/podés editar los datos del viaje/)).toBeNull();
+  });
+
+  test("un participante que no es admin nunca ve el lápiz", async () => {
+    getCurrentUser.mockResolvedValue({ id: 2, nombre: "Ana", apellido: "Gómez", email: "ana@gmail.com" });
+    getTripDetail.mockResolvedValue({ ...tripFinalizado, infoEditableUntil: "2099-04-08" });
+    const { findByText, queryByLabelText } = await render(
+      <TripDetailScreen
+        navigation={navigation}
+        route={{ params: { trip: { ...tripFinalizado, infoEditableUntil: "2099-04-08" } } }}
+      />
+    );
+
+    expect(await findByText("Este viaje terminó el 8 de marzo")).toBeTruthy();
+    // Esperamos a que cargue el usuario, para que el chequeo de admin ya haya corrido.
+    await waitFor(() => expect(getCurrentUser).toHaveBeenCalled());
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(queryByLabelText("Editar viaje")).toBeNull();
+  });
+
+  test("se suscribe a los avisos de viaje finalizado del backend", async () => {
+    await renderFinalizado();
+    await waitFor(() => expect(onTripFinishedError).toHaveBeenCalled());
   });
 });

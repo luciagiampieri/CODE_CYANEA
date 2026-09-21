@@ -61,6 +61,7 @@ describe("HU 23 - ItinerarioCalendarView", () => {
             ruta: null,
           },
         ]}
+        onGenerarRuta={jest.fn()}
       />
     );
 
@@ -124,5 +125,40 @@ describe("HU 23 - ItinerarioCalendarView", () => {
         "Todavia no hay una ruta generada para este dia. Generala para visualizar el recorrido en el mapa."
       )
     ).toBeNull();
+  });
+
+  it("en solo lectura no muestra agregar, editar, eliminar ni generar ruta", async () => {
+    const { queryByText, queryByLabelText, getByText } = await render(
+      <ItinerarioCalendarView
+        dias={[
+          {
+            ...baseDay,
+            actividades: [actividadA, actividadB],
+            ruta: null,
+          },
+        ]}
+      />
+    );
+
+    expect(getByText(actividadA.title)).toBeTruthy();
+    expect(queryByText("Agregar")).toBeNull();
+    expect(queryByText("Generar ruta")).toBeNull();
+    expect(queryByLabelText(`Editar ${actividadA.title}`)).toBeNull();
+    expect(queryByLabelText(`Eliminar ${actividadA.title}`)).toBeNull();
+  });
+
+  it("con permisos muestra las acciones de cada actividad", async () => {
+    const { getByText, getByLabelText } = await render(
+      <ItinerarioCalendarView
+        dias={[{ ...baseDay, actividades: [actividadA], ruta: null }]}
+        onAddActivity={jest.fn()}
+        onEditActivity={jest.fn()}
+        onDeleteActivity={jest.fn()}
+      />
+    );
+
+    expect(getByText("Agregar")).toBeTruthy();
+    expect(getByLabelText(`Editar ${actividadA.title}`)).toBeTruthy();
+    expect(getByLabelText(`Eliminar ${actividadA.title}`)).toBeTruthy();
   });
 });

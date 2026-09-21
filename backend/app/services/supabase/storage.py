@@ -60,6 +60,25 @@ def subir_portada_viaje(archivo: UploadFile, trip_id: int) -> str:
     return subir_documento(archivo, ruta_archivo)
 
 
+def subir_portada_viaje_bytes(
+    contenido: bytes,
+    trip_id: int,
+    extension: str,
+    content_type: str,
+) -> str:
+    """Sube al bucket una portada ya en memoria (p. ej. generada con IA)."""
+    timestamp = datetime.utcnow().strftime("%Y%m%d%H%M%S")
+    ruta_limpia = _normalizar_ruta(f"trip-covers/{trip_id}/{timestamp}-portada-ia.{extension}")
+
+    supabase.storage.from_(settings.supabase_bucket).upload(
+        path=ruta_limpia,
+        file=contenido,
+        file_options={"content-type": content_type},
+    )
+
+    return ruta_limpia
+
+
 def obtener_url_publica(ruta_archivo: str) -> str:
     return supabase.storage.from_(settings.supabase_bucket).get_public_url(ruta_archivo)
 

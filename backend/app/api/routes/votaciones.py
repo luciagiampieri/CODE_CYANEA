@@ -21,10 +21,11 @@ from app.schemas.votacion import (
     VotacionCreate,
     VotacionRead,
     VotacionResultados,
+    VotacionUpdate,
     VotanteResultado,
 )
 
-from app.services.trip_access import get_trip_with_relations, require_trip_access, require_trip_edit_access
+from app.services.trip_access import get_trip_with_relations, require_trip_access, require_trip_edit_access, require_trip_not_finished, is_trip_finished
 
 router = APIRouter()
 
@@ -37,9 +38,12 @@ def _aware(fecha: datetime) -> datetime:
     return fecha if fecha.tzinfo is not None else fecha.replace(tzinfo=timezone.utc)
 
 
-def _estado(votacion: Votacion) -> str:
+def _estado(votacion: Votacion, viaje: Viaje | None = None) -> str:
     if votacion.FechaCancelacion is not None:
         return "cancelada"
+    # Cuando el viaje termina, las votaciones abiertas se cierran solas.
+    if viaje is not None and is_trip_finished(viaje):
+        return "cerrada"
     return "cerrada" if _aware(votacion.FechaCierre) <= _ahora_utc() else "abierta"
 
 
@@ -49,7 +53,7 @@ def _tipo_str(votacion: Votacion) -> str:
 
 
 def _build_votacion_read(
-    db: Session, votacion: Votacion, current_user_id: int
+    db: Session, votacion: Votacion, current_user_id: int, viaje: Viaje | None = None
 ) -> VotacionRead:
     ya_voto = (
         db.scalar(
@@ -71,7 +75,7 @@ def _build_votacion_read(
         Titulo=votacion.Titulo,
         Tipo=_tipo_str(votacion),
         FechaCierre=_aware(votacion.FechaCierre),
-        Estado=_estado(votacion),
+        Estado=_estado(votacion, viaje),
         YaVoto=ya_voto,
         Propuestas=[
             PropuestaRead(IdPropuesta=p.IdPropuesta, Texto=p.Texto) for p in propuestas
@@ -104,7 +108,9 @@ def _votantes_por_propuesta(
     return votantes_por_propuesta
 
 
-def _calcular_resultados(db: Session, votacion: Votacion, current_user_id: int) -> VotacionResultados:
+def _calcular_resultados(
+    db: Session, votacion: Votacion, current_user_id: int, viaje: Viaje | None = None
+) -> VotacionResultados:
     filas = db.execute(
         select(Voto.IdPropuesta, func.count(Voto.IdVoto))
         .where(Voto.IdVotacion == votacion.IdVotacion)
@@ -155,7 +161,7 @@ def _calcular_resultados(db: Session, votacion: Votacion, current_user_id: int) 
         Titulo=votacion.Titulo,
         Tipo=_tipo_str(votacion),
         FechaCierre=_aware(votacion.FechaCierre),
-        Estado=_estado(votacion),
+        Estado=_estado(votacion, viaje),
         TotalVotantes=total_votantes,
         TotalVotos=total_votos,
         Resultados=resultados,
@@ -177,6 +183,7 @@ def crear_votacion(
         get_trip_with_relations(db, payload.idViaje),
         current_user,
     )
+    require_trip_not_finished(viaje, "las votaciones")
 
     votacion = Votacion(
         IdViaje=payload.idViaje,
@@ -242,7 +249,7 @@ def listar_votaciones(
         consulta.order_by(Votacion.FechaCreacion.desc())
     ).all()
 
-    return [_build_votacion_read(db, v, current_user.IdUsuario) for v in votaciones]
+    return [_build_votacion_read(db, v, current_user.IdUsuario, viaje) for v in votaciones]
 
 
 @router.get("/{id_votacion}/resultados", response_model=VotacionResultados)
@@ -282,13 +289,13 @@ def resultados_votacion(
             detail="No puedes acceder a esta votación porque fue creada después de abandonar el viaje.",
         )
 
-    if _estado(votacion) not in ("cerrada", "cancelada"):
+    if _estado(votacion, viaje) not in ("cerrada", "cancelada"):
         raise HTTPException(
             status_code=400,
             detail="Los resultados solo están disponibles cuando la votación finalizó o fue cancelada.",
         )
 
-    return _calcular_resultados(db, votacion, current_user.IdUsuario)
+    return _calcular_resultados(db, votacion, current_user.IdUsuario, viaje)
 
 
 @router.get("/{id_votacion}/progreso", response_model=VotacionResultados)
@@ -329,13 +336,13 @@ def progreso_votacion(
             detail="No puedes acceder a esta votación porque fue creada después de abandonar el viaje.",
         )
 
-    if _estado(votacion) != "abierta":
+    if _estado(votacion, viaje) != "abierta":
         raise HTTPException(
             status_code=400,
             detail="El progreso solo está disponible mientras la votación sigue abierta.",
         )
 
-    return _calcular_resultados(db, votacion, current_user.IdUsuario)
+    return _calcular_resultados(db, votacion, current_user.IdUsuario, viaje)
 
 
 class VotoRequest(BaseModel):
@@ -358,6 +365,7 @@ def emitir_voto(
         get_trip_with_relations(db, votacion.IdViaje),
         current_user,
     )
+    require_trip_not_finished(viaje, "las votaciones")
 
     if votacion.FechaCancelacion is not None:
         raise HTTPException(status_code=400, detail="La votación fue cancelada.")
@@ -422,6 +430,7 @@ def cancelar_votacion(
         get_trip_with_relations(db, votacion.IdViaje),
         current_user,
     )
+    require_trip_not_finished(viaje, "las votaciones")
 
     if votacion.IdCreador != current_user.IdUsuario:
         raise HTTPException(
@@ -446,3 +455,109 @@ def cancelar_votacion(
     )
 
     return _build_votacion_read(db, votacion, current_user.IdUsuario)
+
+
+@router.put("/{id_votacion}", response_model=VotacionRead)
+def editar_votacion(
+    id_votacion: int,
+    payload: VotacionUpdate,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> VotacionRead:
+    votacion = db.scalar(
+        select(Votacion)
+        .options(selectinload(Votacion.Propuestas))
+        .where(Votacion.IdVotacion == id_votacion)
+    )
+    if votacion is None:
+        raise HTTPException(status_code=404, detail="La votación no existe.")
+
+    viaje = require_trip_edit_access(
+        get_trip_with_relations(db, votacion.IdViaje),
+        current_user,
+    )
+    require_trip_not_finished(viaje, "las votaciones")
+
+    if votacion.IdCreador != current_user.IdUsuario:
+        raise HTTPException(
+            status_code=403,
+            detail="Solo el creador de la votación puede editarla.",
+        )
+
+    if _estado(votacion) != "abierta":
+        raise HTTPException(
+            status_code=400,
+            detail="Solo se pueden editar votaciones que están activas.",
+        )
+
+    hay_votos = db.scalar(
+        select(func.count()).select_from(Voto).where(Voto.IdVotacion == id_votacion)
+    ) or 0
+    cambia_propuestas = payload.tipo is not None or payload.propuestas is not None
+    if hay_votos and cambia_propuestas:
+        raise HTTPException(
+            status_code=400,
+            detail="No se pueden modificar las propuestas después de emitir votos.",
+        )
+
+    if payload.nombre is not None:
+        votacion.Titulo = payload.nombre
+    if payload.fechaCierre is not None:
+        votacion.FechaCierre = payload.fechaCierre
+    if payload.tipo is not None:
+        votacion.Tipo = payload.tipo
+    if payload.propuestas is not None:
+        votacion.Propuestas.clear()
+        votacion.Propuestas.extend(
+            Propuesta(IdVotacion=id_votacion, Texto=texto, Orden=indice)
+            for indice, texto in enumerate(payload.propuestas, start=1)
+        )
+
+    db.commit()
+    db.refresh(votacion)
+    background_tasks.add_task(
+        ws_manager.broadcast,
+        votacion.IdViaje,
+        {"tipo": "votacion_actualizada", "idVotacion": votacion.IdVotacion},
+    )
+    return _build_votacion_read(db, votacion, current_user.IdUsuario, viaje)
+
+
+@router.delete("/{id_votacion}")
+def eliminar_votacion(
+    id_votacion: int,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+):
+    votacion = db.get(Votacion, id_votacion)
+    if votacion is None:
+        raise HTTPException(status_code=404, detail="La votación no existe.")
+
+    viaje = require_trip_edit_access(
+        get_trip_with_relations(db, votacion.IdViaje),
+        current_user,
+    )
+    require_trip_not_finished(viaje, "las votaciones")
+
+    if votacion.IdCreador != current_user.IdUsuario:
+        raise HTTPException(
+            status_code=403,
+            detail="Solo el creador de la votación puede eliminarla.",
+        )
+
+    if _estado(votacion) != "abierta":
+        raise HTTPException(
+            status_code=400,
+            detail="Solo se pueden eliminar votaciones que están activas.",
+        )
+
+    db.delete(votacion)
+    db.commit()
+    background_tasks.add_task(
+        ws_manager.broadcast,
+        viaje.IdViaje,
+        {"tipo": "votacion_actualizada", "idVotacion": id_votacion},
+    )
+    return {"message": "Votación eliminada correctamente."}

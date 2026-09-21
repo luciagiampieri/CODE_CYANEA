@@ -29,8 +29,9 @@ import ParticipantSearch from "../components/trip/ParticipantSearch";
 import CurrencySelector from "../components/trip/CurrencySelector";
 import IconCircleButton from "../components/ui/IconCircleButton";
 import PrimaryButton from "../components/ui/PrimaryButton";
+import AICoverGenerator from "../components/trip/AICoverGenerator";
 import useResponsive from "../hooks/useResponsive";
-import { createTrip, getCurrentUser, getCurrencies, searchDestinations, resolveDestination, uploadTripCover, getUsers } from "../services/api.js";
+import { createTrip, getCurrentUser, getUsers, getCurrencies, searchDestinations, resolveDestination, uploadTripCover, generateCoverPreviewAI, acceptTripCoverAI} from "../services/api.js";
 import { colors, radii, spacing, surfaces, textStyles } from "../theme/tokens";
 import * as ImagePicker from "expo-image-picker";
 
@@ -267,6 +268,7 @@ export default function CreateTripScreen({ navigation }) {
   const [hasSearchedDestinations, setHasSearchedDestinations] = useState(false);
   const [coverImage, setCoverImage] = useState(null);
   const [coverError, setCoverError] = useState("");
+  const [aiCover, setAiCover] = useState(null); // { imageBase64, mimeType } generada con IA, se aplica al crear
 
   // Refs de los TextInput de texto libre. Se usan para sacarles el foco
   // explícitamente antes de abrir cualquier modal/picker, así el teclado
@@ -325,11 +327,33 @@ export default function CreateTripScreen({ navigation }) {
       mimeType: asset.mimeType || (extension === "png" ? "image/png" : "image/jpeg"),
       file: asset.file,
     });
+    setAiCover(null); // una sola portada personalizada: la de galería reemplaza a la de IA
   }
 
   function handleRemoveCoverImage() {
     setCoverImage(null);
     setCoverError("");
+  }
+
+  // US 57: en la creación el viaje todavía no existe, así que la imagen aceptada se
+  // guarda en memoria y se asigna como portada apenas se crea el viaje.
+  function handleGenerateAiCover(prompt) {
+    return generateCoverPreviewAI({
+      title: form.title,
+      destinations: form.destinations.map((d) => (d.country ? `${d.name}, ${d.country}` : d.name)),
+      prompt,
+    });
+  }
+
+  async function handleAcceptAiCover(preview) {
+    setAiCover(preview);
+    setCoverImage(null); // la de IA reemplaza a una imagen de galería elegida antes
+    setCoverError("");
+    return "Portada generada seleccionada. Se aplicará al crear el viaje.";
+  }
+
+  function handleRemoveAiCover() {
+    setAiCover(null);
   }
 
   function makeSessionToken() {
@@ -676,6 +700,19 @@ export default function CreateTripScreen({ navigation }) {
         }
       }
 
+      if (aiCover) {
+        try {
+          await acceptTripCoverAI(createdTrip.id, aiCover.imageBase64, aiCover.mimeType);
+        } catch (aiError) {
+          setSubmitStatus("success");
+          setSubmitMessage(
+            `El viaje se creó, pero no se pudo asignar la portada generada (${aiError.message}). Se usará la portada predeterminada.`
+          );
+          navigation.navigate("Tabs", { screen: "Inicio" });
+          return;
+        }
+      }
+
       setSubmitStatus("success");
       setSubmitMessage("Viaje creado correctamente.");
       navigation.navigate("Tabs", { screen: "Inicio" });
@@ -868,6 +905,16 @@ export default function CreateTripScreen({ navigation }) {
                           <Text style={styles.coverPreviewBadge}>Imagen personalizada</Text>
                         </View>
                       </ImageBackground>
+                    ) : aiCover ? (
+                      <ImageBackground
+                        source={{ uri: `data:${aiCover.mimeType};base64,${aiCover.imageBase64}` }}
+                        imageStyle={styles.coverPreviewImage}
+                        style={styles.coverPreview}
+                      >
+                        <View style={styles.coverPreviewOverlay}>
+                          <Text style={styles.coverPreviewBadge}>Portada generada con IA</Text>
+                        </View>
+                      </ImageBackground>
                     ) : primaryDestination?.imageUrl ? (
                       <ImageBackground source={{ uri: primaryDestination.imageUrl }} imageStyle={styles.coverPreviewImage} style={styles.coverPreview}>
                         <View style={styles.coverPreviewOverlay}>
@@ -894,9 +941,20 @@ export default function CreateTripScreen({ navigation }) {
                           <Text style={styles.coverActionTextSecondary}>Cancelar selección</Text>
                         </Pressable>
                       ) : null}
+
+                      {aiCover ? (
+                        <Pressable onPress={handleRemoveAiCover} style={styles.coverActionButtonSecondary}>
+                          <Text style={styles.coverActionTextSecondary}>Quitar imagen de IA</Text>
+                        </Pressable>
+                      ) : null}
                     </View>
 
                     {coverError ? <Text style={styles.fieldError}>{coverError}</Text> : null}
+
+                    <AICoverGenerator
+                      generate={handleGenerateAiCover}
+                      onAccept={handleAcceptAiCover}
+                    />
                   </View>
                 </View>
               )}

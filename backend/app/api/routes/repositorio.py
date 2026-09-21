@@ -11,7 +11,7 @@ from app.schemas.repositorio import (
     ItemRepositorioRead,
     ItemRepositorioUpdate,
 )
-from app.services.trip_access import get_trip_with_relations, require_trip_access, require_trip_edit_access
+from app.services.trip_access import get_trip_with_relations, require_trip_access, require_trip_edit_access, require_trip_not_finished
 from app.models.participante_viaje import ParticipanteViaje
 
 router = APIRouter()
@@ -64,6 +64,7 @@ def crear_item_repositorio(
         get_trip_with_relations(db, trip_id),
         current_user,
     )
+    require_trip_not_finished(viaje, "el repositorio")
 
     item = ItemRepositorioViaje(
         IdViaje=trip_id,
@@ -147,6 +148,7 @@ def editar_item_repositorio(
             get_trip_with_relations(db, trip_id),
             current_user,
         )
+    require_trip_not_finished(viaje, "el repositorio")
 
     item = _obtener_item_visible(db, trip_id, item_id, current_user)
 
@@ -182,6 +184,7 @@ def eliminar_item_repositorio(
                 get_trip_with_relations(db, trip_id),
                 current_user,
             )
+    require_trip_not_finished(viaje, "el repositorio")
 
     item = _obtener_item_visible(db, trip_id, item_id, current_user)
 

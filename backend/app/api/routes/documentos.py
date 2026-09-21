@@ -29,7 +29,7 @@ from app.services.supabase.storage import (
 )
 
 from app.services.websocket_manager import manager
-from app.services.trip_access import get_trip_with_relations, require_trip_access, require_trip_edit_access
+from app.services.trip_access import get_trip_with_relations, require_trip_access, require_trip_edit_access, require_trip_not_finished
 
 router = APIRouter()
 
@@ -91,6 +91,7 @@ async def subir_documento_viaje(
         get_trip_with_relations(db, trip_id),
         current_user,
     )
+    require_trip_not_finished(viaje, "la documentación")
 
     categoria = db.get(
         CategoriaDocumento,
@@ -252,6 +253,7 @@ async def editar_o_reemplazar_documento_viaje(
         get_trip_with_relations(db, trip_id),
         current_user,
     )
+    require_trip_not_finished(viaje, "la documentación")
 
     documento = _obtener_documento_del_viaje(db, trip_id, document_id, current_user)
 
@@ -426,6 +428,7 @@ async def eliminar_documento_viaje(
         get_trip_with_relations(db, trip_id),
         current_user,
     )
+    require_trip_not_finished(viaje, "la documentación")
 
     documento = _obtener_documento_del_viaje(db, trip_id, document_id, current_user)
 
