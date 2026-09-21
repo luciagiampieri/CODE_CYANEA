@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import {
     View,
     Text,
@@ -13,6 +13,7 @@ import {
     Platform,
     KeyboardAvoidingView,
     TouchableOpacity,
+    Animated, 
 } from "react-native";
 
 import * as DocumentPicker from "expo-document-picker";
@@ -41,6 +42,15 @@ function mostrarAlertaConfirmacion(titulo, mensaje, onAceptar) {
     }
 }
 
+const ICONOS_CATEGORIAS_DOCUMENTOS = {
+    Vuelos: "plane",
+    Alojamiento: "hotel",
+    Excursiones: "map-location-dot",
+    Seguros: "shield-halved",
+    Documentación: "id-card",
+    Otros: "ellipsis",
+};
+
 
 export default function DocumentsScreen({ visible, onClose, tripId, onDocumentoSubido }) {
 
@@ -64,6 +74,15 @@ export default function DocumentsScreen({ visible, onClose, tripId, onDocumentoS
         (c) => c.IdCategoriaDocumento === idCategoria
     );
 
+    const slideAnimCategoria = useRef(new Animated.Value(300)).current;
+
+    useEffect(() => {
+        if (modalCategoriaVisible) {
+            Animated.timing(slideAnimCategoria, { toValue: 0, duration: 250, useNativeDriver: true }).start();
+        } else {
+            slideAnimCategoria.setValue(300);
+        }
+    }, [modalCategoriaVisible]);
 
     useEffect(() => {
         async function cargarCategorias() {
@@ -198,7 +217,6 @@ export default function DocumentsScreen({ visible, onClose, tripId, onDocumentoS
 
 
     return (
-        <>
             <Modal animationType="slide" transparent visible={visible} onRequestClose={onClose}>
                 <View style={styles.overlay}>
                     <View style={styles.sheet}>
@@ -273,7 +291,7 @@ export default function DocumentsScreen({ visible, onClose, tripId, onDocumentoS
                                     >
                                         <View style={styles.dropdownLeftContent}>
                                             <FontAwesome6
-                                                name="tags"
+                                                name={categoriaSeleccionada ? ICONOS_CATEGORIAS_DOCUMENTOS[categoriaSeleccionada.Nombre] || "tags" : "tags"}
                                                 size={14}
                                                 color={categoriaSeleccionada ? colors.primary : colors.overlay}
                                                 style={{ marginRight: 10, width: 18, textAlign: "center" }}
@@ -324,67 +342,62 @@ export default function DocumentsScreen({ visible, onClose, tripId, onDocumentoS
                             )}
                         </ScrollView>
                     </View>
-                </View>
-            </Modal>
 
-            <Modal
-                visible={modalCategoriaVisible}
-                transparent
-                animationType="fade"
-                onRequestClose={() => setModalCategoriaVisible(false)}
-            >
-                <Pressable
-                    style={styles.modalOverlayC}
-                    onPress={() => setModalCategoriaVisible(false)}
-                >
-                    <Pressable style={styles.modalContainerC} onPress={(e) => e.stopPropagation?.()}>
-                        <View style={styles.modalHeaderC}>
-                            <Text style={styles.modalTitleC}>Seleccionar categoría</Text>
-                            <Pressable onPress={() => setModalCategoriaVisible(false)} hitSlop={10} testID="close-category-modal">
-                                <FontAwesome6 name="xmark" size={18} color={colors.textMuted} />
-                            </Pressable>
+                    {modalCategoriaVisible && (
+                        <View style={styles.modalOverlayC}>
+                            <Pressable
+                                style={StyleSheet.absoluteFill}
+                                onPress={() => setModalCategoriaVisible(false)}
+                            />
+                            <Animated.View style={[styles.bottomSheetC, { transform: [{ translateY: slideAnimCategoria }] }]}>
+                                <View style={styles.modalHeaderC}>
+                                    <Text style={styles.modalTitleC}>Seleccionar categoría</Text>
+                                    <TouchableOpacity onPress={() => setModalCategoriaVisible(false)} hitSlop={10} testID="close-category-modal">
+                                        <FontAwesome6 name="xmark" size={20} color={colors.textMuted} />
+                                    </TouchableOpacity>
+                                </View>
+
+                                <FlatList
+                                    data={categorias}
+                                    keyExtractor={(item) => item.IdCategoriaDocumento.toString()}
+                                    renderItem={({ item, index }) => {
+                                        const esActivo = idCategoria === item.IdCategoriaDocumento;
+                                        const esElUltimo = index === categorias.length - 1;
+                                        return (
+                                            <TouchableOpacity
+                                                style={[styles.modalItemC, esActivo && styles.modalItemActiveC, esElUltimo && { borderBottomWidth: 0 }]}
+                                                onPress={() => {
+                                                    setIdCategoria(item.IdCategoriaDocumento);
+                                                    limpiarError("categoria");
+                                                    setModalCategoriaVisible(false);
+                                                }}
+                                            >
+                                                <View style={{ flexDirection: "row", alignItems: "center", flex: 1 }}>
+                                                    <FontAwesome6
+                                                        name={ICONOS_CATEGORIAS_DOCUMENTOS[item.Nombre] || "tags"}
+                                                        size={16}
+                                                        color={esActivo ? colors.primary : "#4b5563"}
+                                                        style={{ marginRight: 12, width: 24, textAlign: "center" }}
+                                                    />
+                                                    <Text style={[styles.modalItemTextC, esActivo && styles.modalItemTextActiveC]}>
+                                                        {item.Nombre}
+                                                    </Text>
+                                                </View>
+                                                {esActivo && (
+                                                    <FontAwesome6 name="check" size={14} color={colors.primary} />
+                                                )}
+                                            </TouchableOpacity>
+                                        );
+                                    }}
+                                    ListEmptyComponent={
+                                        <Text style={styles.emptyTextC}>No hay categorías disponibles.</Text>
+                                    }
+                                />
+                            </Animated.View>
                         </View>
-
-                        <FlatList
-                            data={categorias}
-                            keyExtractor={(item) => item.IdCategoriaDocumento.toString()}
-                            renderItem={({ item, index }) => {
-                                const esActivo = idCategoria === item.IdCategoriaDocumento;
-                                const esElUltimo = index === categorias.length - 1;
-                                return (
-                                    <Pressable
-                                        style={[styles.modalItemC, esActivo && styles.modalItemActiveC, esElUltimo && { borderBottomWidth: 0 }]}
-                                        onPress={() => {
-                                            setIdCategoria(item.IdCategoriaDocumento);
-                                            limpiarError("categoria");
-                                            setModalCategoriaVisible(false);
-                                        }}
-                                    >
-                                        <View style={{ flexDirection: "row", alignItems: "center", flex: 1 }}>
-                                            <FontAwesome6
-                                                name="tags"
-                                                size={15}
-                                                color={esActivo ? colors.primary : colors.textSecondary}
-                                                style={{ marginRight: 12, width: 20, textAlign: "center" }}
-                                            />
-                                            <Text style={[styles.modalItemTextC, esActivo && styles.modalItemTextActiveC]}>
-                                                {item.Nombre}
-                                            </Text>
-                                        </View>
-                                        {esActivo && (
-                                            <FontAwesome6 name="check" size={13} color={colors.primary} />
-                                        )}
-                                    </Pressable>
-                                );
-                            }}
-                            ListEmptyComponent={
-                                <Text style={styles.emptyTextC}>No hay categorías disponibles.</Text>
-                            }
-                        />
-                    </Pressable>
-                </Pressable>
+                    )}
+                </View>                
             </Modal>
-        </>
     );
 }
 
@@ -554,19 +567,21 @@ const styles = StyleSheet.create({
         fontWeight: "700",
     },
     modalOverlayC: {
-        flex: 1,
+        position: "absolute",
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
         backgroundColor: "rgba(0,0,0,0.4)",
-        justifyContent: "center",
-        alignItems: "center",
-        padding: spacing.lg,
+        justifyContent: "flex-end",
+        elevation: 999,
     },
-    modalContainerC: {
+    bottomSheetC: {
         backgroundColor: colors.surface,
-        width: "100%",
-        maxWidth: 480,
+        borderTopLeftRadius: radii.xl || 24,
+        borderTopRightRadius: radii.xl || 24,
+        padding: 20,
         maxHeight: "70%",
-        borderRadius: radii.md,
-        padding: spacing.lg,
     },
     modalHeaderC: {
         flexDirection: "row",

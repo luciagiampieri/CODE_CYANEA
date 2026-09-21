@@ -3028,8 +3028,9 @@ export default function TripDetailScreen({ navigation, route }) {
           {/* TAB 6: GRUPO */}
           {activeTab === "grupo" ? (
             <View style={styles.sectionStack}>
-              {!trip?.hasLeft ? (
+              {!trip?.hasLeft && isAdmin ? (
                 <View style={styles.sectionCard}>
+                  <Text style={styles.sectionHeading}>Agregar participantes</Text>
                   <ParticipantSearch
                     canInviteExternal={canInviteExternal}
                     message={participantMessage}
@@ -3736,18 +3737,20 @@ const styles = StyleSheet.create({
   },
   agendaContent: {
     flex: 1,
+    minWidth: 0,
   },
   agendaActions: {
     flexDirection: "row",
     alignItems: "center",
     gap: spacing.xs,
+    flexShrink: 0,
   },
   agendaActionButton: {
     padding: spacing.xs,
     marginTop: 2,
   },
   agendaHeaderRow: {
-    flexDirection: "row",
+    flexDirection: "column",
     alignItems: "center",
     gap: spacing.xs,
   },

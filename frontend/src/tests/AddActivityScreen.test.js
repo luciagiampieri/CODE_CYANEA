@@ -25,21 +25,34 @@ const baseProps = {
   onCancelEdit: jest.fn(),
 };
 
-
 async function llenarFormularioValido(utils, overrides = {}) {
-  const { nombre = "Visita al museo", inicio = "10:00", fin = "12:00" } = overrides;
+  const {
+    nombre = "Visita al museo",
+    inicio = "10:00",
+    fin = "12:00",
+  } = overrides;
 
   await act(async () => {
-    fireEvent.changeText(utils.getByPlaceholderText("Visita al museo"), nombre);
+    fireEvent.changeText(
+      utils.getByPlaceholderText("Visita al museo"),
+      nombre
+    );
   });
+
   await act(async () => {
-    fireEvent.changeText(utils.getByPlaceholderText("10:00"), inicio);
+    fireEvent.changeText(
+      utils.getAllByPlaceholderText("HH:MM")[0],
+      inicio
+    );
   });
+
   await act(async () => {
-    fireEvent.changeText(utils.getByPlaceholderText("12:00"), fin);
+    fireEvent.changeText(
+      utils.getAllByPlaceholderText("HH:MM")[1],
+      fin
+    );
   });
 }
-
 
 async function press(utils, texto) {
   await act(async () => {
@@ -47,14 +60,12 @@ async function press(utils, texto) {
   });
 }
 
-
 async function pressSubmit(utils, texto) {
   await act(async () => {
     const matches = utils.getAllByText(texto);
     fireEvent.press(matches[matches.length - 1]);
   });
 }
-
 
 describe("AddActivityScreen", () => {
   it("muestra error si se intenta guardar sin nombre", async () => {
@@ -136,15 +147,29 @@ describe("AddActivityScreen", () => {
 
   it("permite elegir un ícono manualmente y deja de autodetectarlo", async () => {
     const onSubmit = jest.fn().mockResolvedValue();
-    const utils = await render(<AddActivityScreen {...baseProps} onSubmit={onSubmit} />);
+    const utils = await render(
+      <AddActivityScreen {...baseProps} onSubmit={onSubmit} />
+    );
 
+    // Abrir selector de íconos
+    await press(utils, "Otro");
+
+    // Elegir Hotel
     await press(utils, "Hotel");
 
-    await llenarFormularioValido(utils, { nombre: "Cena en el restaurante" });
+    await llenarFormularioValido(utils, {
+      nombre: "Cena en el restaurante",
+    });
+
     await pressSubmit(utils, "Agregar actividad");
 
     await waitFor(() => expect(onSubmit).toHaveBeenCalled());
-    expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ icono: "building" }));
+
+    expect(onSubmit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        icono: "building",
+      })
+    );
   });
 
   it("precarga los datos de la actividad cuando se edita una existente", async () => {

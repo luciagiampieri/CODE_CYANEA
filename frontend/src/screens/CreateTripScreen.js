@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, useRef  } from "react";
+import { useEffect, useMemo, useState, useRef, forwardRef } from "react";
 import { FontAwesome6 } from "@expo/vector-icons";
 import {
   ImageBackground,
@@ -10,20 +10,41 @@ import {
   Text,
   TextInput,
   View,
+  Modal,
+  FlatList,
+  TouchableOpacity,
+  TouchableWithoutFeedback,
+  Keyboard,
+  ActivityIndicator,
+  useWindowDimensions,
 } from "react-native";
-import DateTimePicker from "@react-native-community/datetimepicker";
+
+import { LocaleConfig } from "react-native-calendars";
+import DatePickerModal from "../components/ui/DatePickerModal";
+import {toYMD, parseYMD, getTodayIso, formatDateDisplay} from "../utils/dates";
 
 import ScreenContainer from "../components/layout/ScreenContainer";
 import ParticipantList from "../components/trip/ParticipantList";
 import ParticipantSearch from "../components/trip/ParticipantSearch";
 import CurrencySelector from "../components/trip/CurrencySelector";
 import IconCircleButton from "../components/ui/IconCircleButton";
-import MetricCard from "../components/ui/MetricCard";
 import PrimaryButton from "../components/ui/PrimaryButton";
 import useResponsive from "../hooks/useResponsive";
-import { createTrip, getCurrentUser, getUsers, getCurrencies, searchDestinations, resolveDestination, uploadTripCover} from "../services/api.js";
+import { createTrip, getCurrentUser, getCurrencies, searchDestinations, resolveDestination, uploadTripCover, getUsers } from "../services/api.js";
 import { colors, radii, spacing, surfaces, textStyles } from "../theme/tokens";
 import * as ImagePicker from "expo-image-picker";
+
+const MONTH_NAMES_ES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
+
+// Configuración del calendario en Español (react-native-calendars)
+LocaleConfig.locales['es'] = {
+  monthNames: MONTH_NAMES_ES,
+  monthNamesShort: ['Ene.', 'Feb.', 'Mar.', 'Abr.', 'May.', 'Jun.', 'Jul.', 'Ago.', 'Sep.', 'Oct.', 'Nov.', 'Dic.'],
+  dayNames: ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'],
+  dayNamesShort: ['Dom.', 'Lun.', 'Mar.', 'Mié.', 'Jue.', 'Vie.', 'Sáb.'],
+  today: 'Hoy'
+};
+LocaleConfig.defaultLocale = 'es';
 
 const initialForm = {
   title: "",
@@ -45,14 +66,183 @@ function getEmailLabel(email) {
   return email.split("@")[0].replace(/[._-]+/g, " ");
 }
 
-function getTodayIso() {
-  const today = new Date();
-  const month = String(today.getMonth() + 1).padStart(2, "0");
-  const day = String(today.getDate()).padStart(2, "0");
-  return `${today.getFullYear()}-${month}-${day}`;
+function DestinationPickerModal({
+  visible,
+  onClose,
+  search,
+  onSearchChange,
+  options,
+  searching,
+  hasSearched,
+  onSelect,
+  selectedDestinations,
+  onRemoveSelected,
+  resolving,
+}) {
+  const showEmptyState = search.trim().length < 2 && selectedDestinations.length === 0;
+
+  return (
+    <Modal visible={visible} animationType="slide" onRequestClose={onClose} transparent={false}>
+      <ScreenContainer fullWidth padded={false}>
+        <KeyboardAvoidingView
+          style={styles.flex}
+          behavior={Platform.OS === "ios" ? "padding" : undefined}
+        >
+          <View style={styles.pickerHeader}>
+            <TouchableOpacity onPress={onClose} hitSlop={12} style={styles.pickerBackButton}>
+              <FontAwesome6 name="chevron-left" size={16} color={colors.primary} />
+            </TouchableOpacity>
+            <Text style={styles.pickerTitle}>Agregar destino</Text>
+            <View style={styles.pickerHeaderRight}>
+              {selectedDestinations.length > 0 ? (
+                <View style={styles.pickerCountBadge}>
+                  <Text style={styles.pickerCountBadgeText}>{selectedDestinations.length}</Text>
+                </View>
+              ) : null}
+            </View>
+          </View>
+
+          {/* Tocar cualquier zona vacía cierra el teclado, igual que en el resto de la pantalla */}
+          <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
+            <View style={styles.flex}>
+              <View style={styles.pickerSearchBox}>
+                <FontAwesome6 name="magnifying-glass" size={14} color={colors.textMuted} />
+                <TextInput
+                  value={search}
+                  onChangeText={onSearchChange}
+                  placeholder="Buscar ciudad o país..."
+                  placeholderTextColor={colors.textMuted}
+                  style={styles.pickerSearchInput}
+                  autoFocus
+                  returnKeyType="search"
+                />
+                {resolving ? (
+                  <ActivityIndicator size="small" color={colors.primary} />
+                ) : search.length > 0 ? (
+                  <Pressable onPress={() => onSearchChange("")} hitSlop={10}>
+                    <FontAwesome6 name="circle-xmark" size={16} color={colors.textMuted} />
+                  </Pressable>
+                ) : null}
+              </View>
+
+              {selectedDestinations.length > 0 && (
+                <View style={styles.pickerSelectedSection}>
+                  <Text style={styles.pickerSelectedLabel}>
+                    Destinos seleccionados ({selectedDestinations.length})
+                  </Text>
+                  <ScrollView
+                    horizontal
+                    showsHorizontalScrollIndicator={false}
+                    contentContainerStyle={styles.pickerChipsRow}
+                    keyboardShouldPersistTaps="handled"
+                  >
+                    {selectedDestinations.map((d, index) => (
+                      <View key={`${d.name}-${d.country}-${index}`} style={styles.pickerChip}>
+                        <FontAwesome6 name="location-dot" size={11} color={colors.primary} />
+                        <Text style={styles.pickerChipText} numberOfLines={1}>{d.name}</Text>
+                        <Pressable onPress={() => onRemoveSelected(d)} hitSlop={10}>
+                          <FontAwesome6 name="xmark" size={11} color={colors.primary} />
+                        </Pressable>
+                      </View>
+                    ))}
+                  </ScrollView>
+                </View>
+              )}
+
+              <View style={styles.pickerListContainer}>
+                {showEmptyState ? (
+                  <View style={styles.pickerEmptyState}>
+                    <View style={styles.pickerEmptyIconCircle}>
+                      <FontAwesome6 name="earth-americas" size={22} color={colors.primary} />
+                    </View>
+                    <Text style={styles.pickerEmptyTitle}>Buscá tu próximo destino</Text>
+                    <Text style={styles.pickerEmptyText}>
+                      Escribí al menos 2 letras del nombre de una ciudad o país.
+                    </Text>
+                  </View>
+                ) : search.trim().length < 2 ? (
+                  <View style={styles.pickerStatusRow}>
+                    <Text style={styles.destinationStatusText}>Escribí al menos 2 letras para buscar.</Text>
+                  </View>
+                ) : searching ? (
+                  <View style={styles.pickerStatusRow}>
+                    <ActivityIndicator size="small" color={colors.primary} />
+                    <Text style={styles.destinationStatusText}>Buscando destinos...</Text>
+                  </View>
+                ) : options.length > 0 ? (
+                  <FlatList
+                    data={options}
+                    keyExtractor={(item, index) => `${item.name}-${item.country}-${index}`}
+                    keyboardShouldPersistTaps="handled"
+                    contentContainerStyle={styles.pickerListContent}
+                    renderItem={({ item }) => {
+                      const isSelected = selectedDestinations.some(
+                        (d) =>
+                          (item.placeId && d.placeId === item.placeId) ||
+                          (d.name === item.name && d.country === item.country)
+                      );
+                      return (
+                        <TouchableOpacity
+                          onPress={() => onSelect(item)}
+                          style={[styles.destinationItem, isSelected && styles.destinationItemActive]}
+                        >
+                          <View style={{ flexDirection: "row", alignItems: "center", flex: 1 }}>
+                            <View style={[styles.destinationIconCircle, isSelected && styles.destinationIconCircleActive]}>
+                              <FontAwesome6
+                                name="location-dot"
+                                size={14}
+                                color={isSelected ? colors.textInverse : colors.primary}
+                              />
+                            </View>
+                            <View style={{ flex: 1, marginLeft: 12 }}>
+                              <Text
+                                style={[styles.destinationName, isSelected && styles.destinationNameActive]}
+                                numberOfLines={1}
+                              >
+                                {item.name}
+                              </Text>
+                              <Text style={styles.destinationCountry} numberOfLines={1}>{item.country}</Text>
+                            </View>
+                          </View>
+                          <FontAwesome6
+                            name={isSelected ? "check" : "plus"}
+                            size={14}
+                            color={isSelected ? colors.primary : colors.textMuted}
+                          />
+                        </TouchableOpacity>
+                      );
+                    }}
+                  />
+                ) : hasSearched ? (
+                  <View style={styles.pickerEmptyState}>
+                    <View style={styles.pickerEmptyIconCircle}>
+                      <FontAwesome6 name="magnifying-glass" size={20} color={colors.textMuted} />
+                    </View>
+                    <Text style={styles.pickerEmptyTitle}>Sin resultados</Text>
+                    <Text style={styles.pickerEmptyText}>
+                      No encontramos destinos para "{search.trim()}"
+                    </Text>
+                  </View>
+                ) : null}
+              </View>
+            </View>
+          </TouchableWithoutFeedback>
+
+          <View style={styles.pickerFooter}>
+            <PrimaryButton
+              label={selectedDestinations.length > 0 ? "Listo" : "Cerrar"}
+              onPress={onClose}
+            />
+          </View>
+        </KeyboardAvoidingView>
+      </ScreenContainer>
+    </Modal>
+  );
 }
 
 export default function CreateTripScreen({ navigation }) {
+  const [step, setStep] = useState(1); // Control del paso actual (1, 2, 3)
+
   const [currentUser, setCurrentUser] = useState(null);
   const [userOptions, setUserOptions] = useState([]);
   const [selectedParticipants, setSelectedParticipants] = useState([]);
@@ -69,13 +259,26 @@ export default function CreateTripScreen({ navigation }) {
   const [currencies, setCurrencies] = useState([]);
   const [destinationSearch, setDestinationSearch] = useState("");
   const [destinationOptions, setDestinationOptions] = useState([]);
+  const [showDestinationPicker, setShowDestinationPicker] = useState(false);
   const primaryDestination = form.destinations[0] ?? null;
   const [resolvingDestination, setResolvingDestination] = useState(false);
   const sessionTokenRef = useRef(makeSessionToken());
   const [searchingDestinations, setSearchingDestinations] = useState(false);
   const [hasSearchedDestinations, setHasSearchedDestinations] = useState(false);
-  const [coverImage, setCoverImage] = useState(null); // { uri, fileName, mimeType, file? }
+  const [coverImage, setCoverImage] = useState(null);
   const [coverError, setCoverError] = useState("");
+
+  // Refs de los TextInput de texto libre. Se usan para sacarles el foco
+  // explícitamente antes de abrir cualquier modal/picker, así el teclado
+  // no se queda abierto "fantasma" cuando el modal se cierra (fix #2).
+  const titleInputRef = useRef(null);
+  const descriptionInputRef = useRef(null);
+
+  function dismissAllInputs() {
+    Keyboard.dismiss();
+    titleInputRef.current?.blur();
+    descriptionInputRef.current?.blur();
+  }
 
   const ALLOWED_COVER_EXTENSIONS = ["jpg", "jpeg", "png"];
 
@@ -120,7 +323,7 @@ export default function CreateTripScreen({ navigation }) {
       uri: asset.uri,
       fileName: asset.fileName || `portada.${extension}`,
       mimeType: asset.mimeType || (extension === "png" ? "image/png" : "image/jpeg"),
-      file: asset.file, // presente solo en web
+      file: asset.file,
     });
   }
 
@@ -145,8 +348,32 @@ export default function CreateTripScreen({ navigation }) {
     loadCurrentUser();
   }, []);
 
-
   const lastQueryLengthRef = useRef(0);
+
+  useEffect(() => {
+    let active = true;
+    const query = participantSearch.trim();
+
+    if (query.length < 2) {
+      setUserOptions([]);
+      return;
+    }
+
+    const timeout = setTimeout(async () => {
+      try {
+        const results = await getUsers(query);
+        if (active) setUserOptions(Array.isArray(results) ? results : []);
+      } catch (error) {
+        console.warn("Error buscando usuarios:", error.message);
+        if (active) setUserOptions([]);
+      }
+    }, 250);
+
+    return () => {
+      active = false;
+      clearTimeout(timeout);
+    };
+  }, [participantSearch]);
 
   useEffect(() => {
     let active = true;
@@ -160,11 +387,8 @@ export default function CreateTripScreen({ navigation }) {
       return;
     }
 
-    // Si es la primera vez que cruzamos el umbral de 2 caracteres
-    // (o venimos de estar vacío), buscamos ya, sin esperar debounce.
     const isFirstSearch = lastQueryLengthRef.current < 2;
     lastQueryLengthRef.current = queryLimpia.length;
-
     const delay = isFirstSearch ? 0 : 150;
 
     setSearchingDestinations(true);
@@ -199,11 +423,9 @@ export default function CreateTripScreen({ navigation }) {
         const data = await getCurrencies();
         setCurrencies(data);
       } catch (error) {
-        console.log("Error cargando monedas:", error);
         setCurrencies([]);
       }
     }
-
     loadCurrencies();
   }, []);
 
@@ -252,6 +474,23 @@ export default function CreateTripScreen({ navigation }) {
     if (errors[name]) {
       setErrors((current) => ({ ...current, [name]: null }));
     }
+  }
+
+  // Cambio de fechas de ida / vuelta. Si la fecha de ida pasa a ser posterior
+  // a la de vuelta ya elegida, se limpia la de vuelta para no dejar un rango inválido.
+  function handleDateChange(name, value) {
+    setForm((current) => {
+      const next = { ...current, [name]: value };
+      if (name === "startDate" && current.endDate && current.endDate < value) {
+        next.endDate = "";
+      }
+      return next;
+    });
+    setErrors((current) => ({
+      ...current,
+      [name]: null,
+      ...(name === "startDate" ? { endDate: null } : {}),
+    }));
   }
 
   function handleParticipantSearchChange(value) {
@@ -317,12 +556,55 @@ export default function CreateTripScreen({ navigation }) {
     }));
   }
 
-  function validateForm() {
+  async function addDestination(suggestion) {
+    const alreadyAdded = form.destinations.some((d) => d.placeId === suggestion.placeId);
+    if (alreadyAdded) return;
+
+    setDestinationSearch("");
+    setDestinationOptions([]);
+    setResolvingDestination(true);
+    try {
+      const full = await resolveDestination(suggestion.placeId, sessionTokenRef.current);
+      setForm((current) => ({
+        ...current,
+        destinations: [...current.destinations, full],
+      }));
+      if (errors.destinations) {
+        setErrors((current) => ({ ...current, destinations: null }));
+      }
+      sessionTokenRef.current = makeSessionToken();
+    } catch {
+      setErrors((current) => ({ ...current, destinations: "No se pudo agregar ese destino, probá de nuevo." }));
+    } finally {
+      setResolvingDestination(false);
+    }
+  }
+
+  function removeDestination(destinationToRemove) {
+    setForm((current) => ({
+      ...current,
+      destinations: current.destinations.filter(
+        (item) => !(item.name === destinationToRemove.name && item.country === destinationToRemove.country)
+      ),
+    }));
+  }
+
+  function closeDestinationPicker() {
+    setShowDestinationPicker(false);
+    setDestinationSearch("");
+    setDestinationOptions([]);
+  }
+
+  // Validaciones por cada paso
+  function validateStep1() {
     const localErrors = {};
     if (!form.title.trim()) localErrors.title = "El título del viaje no puede quedar vacío.";
-    if (form.destinations.length === 0) localErrors.destinations = "Al menos un destino es requerido.";
     if (!form.startDate.trim()) localErrors.startDate = "La fecha de inicio es obligatoria.";
-    if (!form.endDate.trim()) localErrors.endDate = "La fecha de finalización es obligatoria.";
+    if (!form.endDate.trim()) {
+      localErrors.endDate = form.startDate.trim()
+        ? "La fecha de finalización es obligatoria."
+        : "Primero elegí la fecha de ida.";
+    }
     if (!form.currency.trim()) localErrors.currency = "La moneda es obligatoria.";
 
     if (form.startDate && form.startDate < getTodayIso()) {
@@ -339,37 +621,34 @@ export default function CreateTripScreen({ navigation }) {
     return Object.keys(localErrors).length === 0;
   }
 
+  function validateStep2() {
+    const localErrors = {};
+    if (form.destinations.length === 0) {
+      localErrors.destinations = "Al menos un destino es requerido.";
+    }
+    setErrors(localErrors);
+    return Object.keys(localErrors).length === 0;
+  }
 
-  async function addDestination(suggestion) {
-    const alreadyAdded = form.destinations.some(
-      (d) => d.placeId === suggestion.placeId
-    );
-    if (alreadyAdded) return;
-
-    setDestinationSearch("");
-    setDestinationOptions([]);
-    setResolvingDestination(true);
-    try {
-      const full = await resolveDestination(suggestion.placeId, sessionTokenRef.current);
-      setForm((current) => ({
-        ...current,
-        destinations: [...current.destinations, full],
-      }));
-      sessionTokenRef.current = makeSessionToken(); // cerramos la sesión de búsqueda
-    } catch {
-      setErrors((current) => ({ ...current, destinations: "No se pudo agregar ese destino, probá de nuevo." }));
-    } finally {
-      setResolvingDestination(false);
+  function handleNext() {
+    dismissAllInputs();
+    if (step === 1 && validateStep1()) {
+      setStep(2);
+    } else if (step === 2 && validateStep2()) {
+      setStep(3);
     }
   }
- 
-  async function handleSubmit() {
-    if (!validateForm()) {
-      setSubmitStatus("error");
-      setSubmitMessage("Por favor, corrige los errores del formulario.");
-      return;
-    }
 
+  function handleBack() {
+    dismissAllInputs();
+    if (step > 1) {
+      setStep(step - 1);
+    } else {
+      navigation.goBack();
+    }
+  }
+
+  async function handleSubmit() {
     setSubmitStatus("submitting");
     setSubmitMessage("");
     try {
@@ -408,175 +687,191 @@ export default function CreateTripScreen({ navigation }) {
 
   return (
     <ScreenContainer fullWidth padded={false}>
-      <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "height" : undefined} style={styles.flex}
-      keyboardVerticalOffset={0}>
-        <ScrollView contentContainerStyle={styles.scrollContent}
-         showsVerticalScrollIndicator={false}
-         keyboardShouldPersistTaps="always"
-         keyboardDismissMode="none">
-          <View style={styles.hero}>
-            <View style={styles.heroTopRow}>
-              <IconCircleButton icon="arrow-left" onPress={() => navigation.goBack()} tone="light" />
-            </View>
-            <Text style={styles.heroTitle}>Nuevo Viaje</Text>
-            <Text style={styles.heroCopy}>Organizá tu próxima aventura en equipo.</Text>
-          </View>
+      <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
+        <KeyboardAvoidingView
+          behavior={Platform.OS === "ios" ? "padding" : "height"}
+          style={styles.flex}
+          keyboardVerticalOffset={Platform.OS === "ios" ? 64 : 0}
+        >
+          <ScrollView
+            contentContainerStyle={styles.scrollContent}
+            showsVerticalScrollIndicator={false}
+            keyboardShouldPersistTaps="handled"
+          >
+            {/* Header / Banner Azul Superior */}
+            <View style={styles.hero}>
+              <View style={styles.heroTopRow}>
+                <IconCircleButton icon="arrow-left" onPress={handleBack} tone="light" />
+              </View>
+              <Text style={styles.heroTitle}>Nuevo Viaje</Text>
+              <Text style={styles.heroCopy}>Paso {step} de 3</Text>
 
-          <View style={styles.body}>
-            <View style={styles.metricsRow}>
-              <MetricCard label="Personas" value={Math.max(1, participantItems.length + 1)} />
-              <MetricCard label="Destinos" value={form.destinations.length} />
-              <MetricCard label="Fechas" value={form.startDate && form.endDate ? 2 : 0} />
+              {/* Indicador de pasos (Stepper Visual) */}
+              <View style={styles.stepperDots}>
+                <View style={[styles.dot, step >= 1 && styles.dotActive]} />
+                <View style={[styles.dot, step >= 2 && styles.dotActive]} />
+                <View style={[styles.dot, step >= 3 && styles.dotActive]} />
+              </View>
             </View>
 
-            <View style={styles.sectionHeader}>
-              <Text style={styles.sectionLabel}>Configuración</Text>
-              <Text style={styles.sectionTitle}>Completa la información base del viaje</Text>
-            </View>
-
-            <View style={[styles.contentLayout, isDesktop && styles.contentLayoutDesktop]}>
-              <View style={[styles.mainColumn, isDesktop && styles.mainColumnDesktop]}>
+            <View style={styles.body}>
+              {/* PASO 1: DATOS BÁSICOS Y FECHAS */}
+              {step === 1 && (
                 <View style={styles.card}>
-                  <Text style={styles.cardTitle}>Información del viaje</Text>
+                  <Text style={styles.cardTitle}>Información Básica</Text>
 
-                  <View style={[styles.row, isTablet && styles.rowTablet]}>
-                    <Field
-                      error={errors.title}
-                      label="Título"
-                      onChange={handleInputChange}
-                      placeholder="Escapada a Córdoba"
-                      value={form.title}
-                      name="title"
-                    />
-                  </View>
-                  
                   <Field
+                    ref={titleInputRef}
+                    error={errors.title}
+                    label="Título del viaje *"
+                    name="title"
+                    onChange={handleInputChange}
+                    placeholder="Ej: Escapada a Bariloche"
+                    value={form.title}
+                  />
+
+                  <Field
+                    ref={descriptionInputRef}
                     error={errors.description}
                     label="Descripción"
                     multiline
                     name="description"
                     onChange={handleInputChange}
-                    placeholder="Notas del viaje, idea general o resumen para el grupo."
+                    placeholder="Notas, idea general o resumen para los participantes..."
                     value={form.description}
                   />
 
-                  <View style={[styles.field, styles.destinationSection]}>
-                    <Text style={styles.fieldLabel}>Agregar destino</Text>
-
-                    <TextInput
-                      value={destinationSearch}
-                      onChangeText={setDestinationSearch}
-                      placeholder="Ej: Córdoba, Bariloche, Chile..."
-                      placeholderTextColor={colors.textMuted}
-                      style={styles.input}
+                  <View style={[styles.row, isTablet && styles.rowTablet]}>
+                    {/* Fecha de ida: desde hoy (inclusive) en adelante */}
+                    <DateField
+                      error={errors.startDate}
+                      label="Fecha de ida *"
+                      minDate={parseYMD(getTodayIso(), 0)}
+                      onChange={handleDateChange}
+                      onOpenPicker={() => {
+                        dismissAllInputs();
+                        setShowStartPicker(true);
+                      }}
+                      pickerVisible={showStartPicker}
+                      pickerValue={form.startDate}
+                      fieldName="startDate"
+                      setPickerVisible={setShowStartPicker}
                     />
-                    {errors.destinations ? <Text style={styles.fieldError}>{errors.destinations}</Text> : null}
 
-                    {destinationSearch.trim().length >= 2 && (
-                      <View style={styles.destinationResults}>
-                        {searchingDestinations ? (
-                          <View style={styles.destinationStatusRow}>
-                            <Text style={styles.destinationStatusText}>Buscando destinos...</Text>
-                          </View>
-                        ) : destinationOptions.length > 0 ? (
-                          <ScrollView nestedScrollEnabled keyboardShouldPersistTaps="handled">
-                            {destinationOptions.map((item, index) => (
-                              <Pressable
-                                key={`${item.name}-${item.country}-${index}`}
-                                onPress={() => addDestination(item)}
-                                style={styles.destinationItem}
-                              >
-                                <View style={{ flexDirection: "row", alignItems: "center" }}>
-                                  <FontAwesome6 name="location-dot" size={15} color={colors.primary} />
-                                  <View style={{ marginLeft: 10 }}>
-                                    <Text style={styles.destinationName}>{item.name}</Text>
-                                    <Text style={styles.destinationCountry}>{item.country}</Text>
-                                  </View>
-                                </View>
-                              </Pressable>
-                            ))}
-                          </ScrollView>
-                        ) : hasSearchedDestinations ? (
-                          <View style={styles.destinationStatusRow}>
-                            <FontAwesome6 name="magnifying-glass" size={14} color={colors.textMuted} />
-                            <Text style={styles.destinationStatusText}>
-                              No encontramos destinos para "{destinationSearch.trim()}"
-                            </Text>
-                          </View>
-                        ) : null}
-                      </View>
-                    )}
+                    {/* Fecha de vuelta: requiere fecha de ida, y desde ese mismo día (inclusive) en adelante */}
+                    <DateField
+                      error={errors.endDate}
+                      label="Fecha de vuelta *"
+                      disabled={!form.startDate}
+                      disabledText="Elegí primero la fecha de ida"
+                      minDate={form.startDate ? parseYMD(form.startDate, 0) : undefined}
+                      onChange={handleDateChange}
+                      onOpenPicker={() => {
+                        dismissAllInputs();
+                        if (!form.startDate) {
+                          setErrors((current) => ({
+                            ...current,
+                            endDate: "Primero elegí la fecha de ida.",
+                          }));
+                          return;
+                        }
+                        setShowEndPicker(true);
+                      }}
+                      pickerVisible={showEndPicker}
+                      pickerValue={form.endDate}
+                      fieldName="endDate"
+                      setPickerVisible={setShowEndPicker}
+                    />
                   </View>
 
-                  <View style={styles.selectedDestinationsContainer}>
-                    <Text style={styles.fieldLabel}>Destinos seleccionados ({form.destinations.length})</Text>
+                  <CurrencySelector
+                    currencies={currencies}
+                    selectedCurrency={form.currency}
+                    onSelectCurrency={(code) => handleInputChange("currency", code)}
+                    error={errors.currency}
+                    onOpen={dismissAllInputs}
+                  />
+                </View>
+              )}
 
-                    <ScrollView
-                      style={styles.selectedDestinationsScroll}
-                      nestedScrollEnabled
-                      showsVerticalScrollIndicator={true}
+              {/* PASO 2: DESTINOS Y PORTADA */}
+              {step === 2 && (
+                <View style={styles.card}>
+                  <Text style={styles.cardTitle}>Destinos y Portada</Text>
+
+                  <View style={[styles.field, styles.destinationSection]}>
+                    <Text style={styles.fieldLabel}>Destino *</Text>
+
+                    <TouchableOpacity
+                      style={[styles.dropdownButton, errors.destinations && styles.inputError]}
+                      onPress={() => {
+                        dismissAllInputs();
+                        setShowDestinationPicker(true);
+                      }}
                     >
-                      {form.destinations.map((d, index) => (
-                        <View 
-                          key={`${d.name}-${d.country}-${index}`} 
-                          style={styles.destinationCurrencyRow}
+                      <View style={styles.dropdownLeftContent}>
+                        <FontAwesome6
+                          name="location-dot"
+                          size={14}
+                          color={form.destinations.length ? colors.primary : colors.textMuted}
+                          style={{ marginRight: 10 }}
+                        />
+                        <Text
+                          style={form.destinations.length ? styles.dropdownText : styles.dropdownPlaceholder}
+                          numberOfLines={1}
                         >
-
-                          <View style={{ flex: 1 }}>
-                            <Text style={styles.destinationChipText}>
-                              {d.name}
-                            </Text>
-
-                            <Text style={styles.destinationCountry}>
-                              {d.country}
-                            </Text>
-                          </View>
-
-                          <Pressable
-                            onPress={() => {
-                              setForm((current) => ({
-                                ...current,
-                                destinations: current.destinations.filter(
-                                  (item) =>
-                                    !(item.name === d.name && item.country === d.country)
-                                ),
-                              }));
-                            }}
-                            hitSlop={15}
-                          >
-                            <FontAwesome6 
-                              name="xmark" 
-                              size={14} 
-                              color={colors.danger || "#FF3B30"} 
-                            />
-                          </Pressable>
-
-                        </View>
-                      ))}
-                    </ScrollView>
+                          {form.destinations.length
+                            ? `${form.destinations.length} destino${form.destinations.length > 1 ? "s" : ""} seleccionado${form.destinations.length > 1 ? "s" : ""}`
+                            : "Buscar ciudad o país..."}
+                        </Text>
+                      </View>
+                      <FontAwesome6 name="chevron-right" size={14} color={colors.textMuted} />
+                    </TouchableOpacity>
+                    {errors.destinations ? <Text style={styles.fieldError}>{errors.destinations}</Text> : null}
                   </View>
 
+                  {form.destinations.length > 0 && (
+                    <View style={styles.selectedDestinationsContainer}>
+                      <Text style={styles.fieldLabel}>Destinos seleccionados ({form.destinations.length})</Text>
+
+                      <ScrollView style={styles.selectedDestinationsScroll} nestedScrollEnabled showsVerticalScrollIndicator={true}>
+                        {form.destinations.map((d, index) => (
+                          <View key={`${d.name}-${d.country}-${index}`} style={styles.destinationCurrencyRow}>
+                            <View style={styles.destinationRowIconCircle}>
+                              <FontAwesome6 name="location-dot" size={14} color={colors.primary} />
+                            </View>
+                            <View style={{ flex: 1, marginLeft: 12 }}>
+                              <Text style={styles.destinationChipText} numberOfLines={1}>{d.name}</Text>
+                              <Text style={styles.destinationCountry} numberOfLines={1}>{d.country}</Text>
+                            </View>
+
+                            <Pressable
+                              onPress={() => removeDestination(d)}
+                              hitSlop={15}
+                              style={styles.destinationRemoveButton}
+                            >
+                              <FontAwesome6 name="xmark" size={12} color={colors.danger || "#FF3B30"} />
+                            </Pressable>
+                          </View>
+                        ))}
+                      </ScrollView>
+                    </View>
+                  )}
+
+                  {/* PORTADA DEL VIAJE */}
                   <View style={styles.coverPreviewSection}>
                     <Text style={styles.fieldLabel}>Portada del viaje</Text>
 
                     {coverImage ? (
-                      <ImageBackground
-                        source={{ uri: coverImage.uri }}
-                        imageStyle={styles.coverPreviewImage}
-                        style={styles.coverPreview}
-                      >
+                      <ImageBackground source={{ uri: coverImage.uri }} imageStyle={styles.coverPreviewImage} style={styles.coverPreview}>
                         <View style={styles.coverPreviewOverlay}>
-                          <Text style={styles.coverPreviewBadge}>Imagen seleccionada</Text>
+                          <Text style={styles.coverPreviewBadge}>Imagen personalizada</Text>
                         </View>
                       </ImageBackground>
                     ) : primaryDestination?.imageUrl ? (
-                      <ImageBackground
-                        source={{ uri: primaryDestination.imageUrl }}
-                        imageStyle={styles.coverPreviewImage}
-                        style={styles.coverPreview}
-                      >
+                      <ImageBackground source={{ uri: primaryDestination.imageUrl }} imageStyle={styles.coverPreviewImage} style={styles.coverPreview}>
                         <View style={styles.coverPreviewOverlay}>
-                          <Text style={styles.coverPreviewBadge}>Primer destino seleccionado</Text>
+                          <Text style={styles.coverPreviewBadge}>Primer destino</Text>
                           <Text style={styles.coverPreviewTitle}>{primaryDestination.name}</Text>
                           <Text style={styles.coverPreviewSubtitle}>{primaryDestination.country}</Text>
                         </View>
@@ -591,9 +886,7 @@ export default function CreateTripScreen({ navigation }) {
                     <View style={styles.coverActionsRow}>
                       <Pressable onPress={handlePickCoverImage} style={styles.coverActionButton}>
                         <FontAwesome6 name="image" size={13} color={colors.primary} />
-                        <Text style={styles.coverActionText}>
-                          {coverImage ? "Cambiar imagen" : "Elegir de la galería"}
-                        </Text>
+                        <Text style={styles.coverActionText}>{coverImage ? "Cambiar imagen" : "Elegir de la galería"}</Text>
                       </Pressable>
 
                       {coverImage ? (
@@ -605,54 +898,14 @@ export default function CreateTripScreen({ navigation }) {
 
                     {coverError ? <Text style={styles.fieldError}>{coverError}</Text> : null}
                   </View>
-                  <View style={[styles.row, isTablet && styles.rowTablet]}>
-                    <DateField
-                      error={errors.startDate}
-                      label="Fecha ida"
-                      minDate={new Date(`${getTodayIso()}T12:00:00`)}
-                      onChange={handleInputChange}
-                      onOpenPicker={() => setShowStartPicker(true)}
-                      pickerVisible={showStartPicker}
-                      pickerValue={form.startDate}
-                      fieldName="startDate"
-                      setPickerVisible={setShowStartPicker}
-                    />
-                    <DateField
-                      error={errors.endDate}
-                      label="Fecha vuelta"
-                      onChange={handleInputChange}
-                      onOpenPicker={() => setShowEndPicker(true)}
-                      pickerVisible={showEndPicker}
-                      pickerValue={form.endDate}
-                      fieldName="endDate"
-                      setPickerVisible={setShowEndPicker}
-                      minDate={form.startDate ? new Date(`${form.startDate}T12:00:00`) : new Date()}
-                    />
-                  </View>
-
-                  <CurrencySelector
-                    currencies={currencies}
-                    selectedCurrency={form.currency}
-                    onSelectCurrency={(code) => handleInputChange("currency", code)}
-                    error={errors.currency}
-                  />
-
-                  <View style={styles.ownerCard}>
-                    <Text style={styles.ownerLabel}>Administrador</Text>
-                    {currentUser ? (
-                      <>
-                        <Text style={styles.ownerName}>{currentUser.nombreCompleto}</Text>
-                        <Text style={styles.ownerMeta}>@{currentUser.nombreUsuario} · {currentUser.email}</Text>
-                      </>
-                    ) : (
-                      <Text style={styles.ownerMeta}>No se pudo resolver el usuario actual.</Text>
-                    )}
-                  </View>
                 </View>
-              </View>
+              )}
 
-              <View style={[styles.sideColumn, isDesktop && styles.sideColumnDesktop]}>
+              {/* PASO 3: PARTICIPANTES Y CONFIRMACIÓN */}
+              {step === 3 && (
                 <View style={styles.card}>
+                  <Text style={styles.cardTitle}>Invitar participantes (Opcional)</Text>
+
                   <ParticipantSearch
                     canInviteExternal={canInviteExternal}
                     message={inviteMessage}
@@ -662,42 +915,81 @@ export default function CreateTripScreen({ navigation }) {
                     search={participantSearch}
                     suggestions={selectableUsers}
                   />
-                </View>
 
-                <View style={styles.card}>
                   <ParticipantList onRemove={removeParticipant} participants={participantItems} />
+
+                  <View style={styles.ownerCard}>
+                    <Text style={styles.ownerLabel}>Administrador del viaje</Text>
+                    {currentUser ? (
+                      <>
+                        <Text style={styles.ownerName}>{currentUser.nombreCompleto}</Text>
+                        <Text style={styles.ownerMeta}>@{currentUser.nombreUsuario} · {currentUser.email}</Text>
+                      </>
+                    ) : (
+                      <Text style={styles.ownerMeta}>Cargando usuario...</Text>
+                    )}
+                  </View>
                 </View>
+              )}
+
+              {submitMessage ? (
+                <Text style={[styles.submitMessage, submitStatus === "error" ? styles.submitError : styles.submitSuccess]}>
+                  {submitMessage}
+                </Text>
+              ) : null}
+
+              {/* BOTONES DE NAVEGACIÓN ENTRE PASOS */}
+              <View style={styles.actions}>
+                {step < 3 ? (
+                  <PrimaryButton label="Siguiente" onPress={handleNext} style={styles.actionPrimary} />
+                ) : (
+                  <PrimaryButton
+                    disabled={!currentUser}
+                    label={submitStatus === "submitting" ? "Creando..." : "Crear viaje"}
+                    loading={submitStatus === "submitting"}
+                    onPress={handleSubmit}
+                    style={styles.actionPrimary}
+                  />
+                )}
+
+                <PrimaryButton
+                  label={step === 1 ? "Cancelar" : "Anterior"}
+                  onPress={handleBack}
+                  variant="secondary"
+                  style={styles.actionSecondary}
+                />
               </View>
             </View>
+          </ScrollView>
+        </KeyboardAvoidingView>
+      </TouchableWithoutFeedback>
 
-            {submitMessage ? (
-              <Text style={[styles.submitMessage, submitStatus === "error" ? styles.submitError : styles.submitSuccess]}>
-                {submitMessage}
-              </Text>
-            ) : null}
-
-            <View style={styles.actions}>
-              <PrimaryButton
-                disabled={!currentUser}
-                label={submitStatus === "submitting" ? "Creando..." : "Crear viaje"}
-                loading={submitStatus === "submitting"}
-                onPress={handleSubmit}
-                style={styles.actionPrimary}
-              />
-              <PrimaryButton label="Cancelar" onPress={() => navigation.goBack()} variant="secondary" style={styles.actionSecondary} />
-            </View>
-          </View>
-        </ScrollView>
-      </KeyboardAvoidingView>
+      <DestinationPickerModal
+        visible={showDestinationPicker}
+        onClose={closeDestinationPicker}
+        search={destinationSearch}
+        onSearchChange={setDestinationSearch}
+        options={destinationOptions}
+        searching={searchingDestinations}
+        hasSearched={hasSearchedDestinations}
+        onSelect={addDestination}
+        selectedDestinations={form.destinations}
+        onRemoveSelected={removeDestination}
+        resolving={resolvingDestination}
+      />
     </ScreenContainer>
   );
 }
 
-function Field({ label, name, onChange, value, placeholder, multiline = false, error = null }) {
+const Field = forwardRef(function Field(
+  { label, name, onChange, value, placeholder, multiline = false, error = null },
+  ref
+) {
   return (
     <View style={styles.field}>
       <Text style={styles.fieldLabel}>{label}</Text>
       <TextInput
+        ref={ref}
         multiline={multiline}
         onChangeText={(text) => onChange(name, text)}
         placeholder={placeholder}
@@ -708,7 +1000,7 @@ function Field({ label, name, onChange, value, placeholder, multiline = false, e
       {error ? <Text style={styles.fieldError}>{error}</Text> : null}
     </View>
   );
-}
+});
 
 function DateField({
   label,
@@ -720,59 +1012,66 @@ function DateField({
   onOpenPicker,
   error,
   minDate,
+  disabled = false,
+  disabledText = "",
 }) {
+  const minYMD = minDate ? toYMD(minDate) : null;
+  const cleanLabel = label.replace(/\s*\*$/, "");
+
   return (
     <View style={styles.field}>
-      <Text style={[styles.fieldLabel]}>
-        {label}
-      </Text>
+      <Text style={styles.fieldLabel}>{label}</Text>
       {Platform.OS === "web" ? (
-        <View style={[styles.input, error && styles.inputError, { justifyContent: 'center', paddingVertical: 0 }]}>
+        <View
+          style={[
+            styles.input,
+            error && styles.inputError,
+            disabled && styles.dateButtonDisabled,
+            { justifyContent: "center", paddingVertical: 0 },
+          ]}
+        >
           <input
             type="date"
-            min={minDate ? minDate.toISOString().split("T")[0] : undefined}
+            disabled={disabled}
+            min={minYMD ?? undefined}
             value={pickerValue || ""}
             onChange={(e) => onChange(fieldName, e.target.value)}
-            style={{ 
-              border: 'none', 
-              width: '100%', 
-              outline: 'none',
-              backgroundColor: 'transparent',
-              fontFamily: 'inherit',
-              fontSize: '16px',
-              color: 'inherit',
-              cursor: 'pointer'
+            style={{
+              border: "none",
+              width: "100%",
+              outline: "none",
+              backgroundColor: "transparent",
+              fontFamily: "inherit",
+              fontSize: "16px",
+              color: "inherit",
+              cursor: disabled ? "not-allowed" : "pointer",
             }}
           />
         </View>
       ) : (
         <>
-          <Pressable 
-          onPress={onOpenPicker} 
-          style={[styles.dateButton, error && styles.inputError]}
+          <Pressable
+            onPress={onOpenPicker}
+            style={[styles.dateButton, error && styles.inputError, disabled && styles.dateButtonDisabled]}
           >
             <Text style={[styles.dateButtonText, !pickerValue && styles.datePlaceholder]}>
-              {pickerValue || "Seleccionar fecha"}
+              {pickerValue
+                ? formatDateDisplay(pickerValue)
+                : disabled && disabledText
+                  ? disabledText
+                  : "Seleccionar fecha"}
             </Text>
-            <FontAwesome6 color={colors.textPrimary} name="calendar" size={14} />
+            <FontAwesome6 color={disabled ? colors.textMuted : colors.textPrimary} name="calendar" size={14} />
           </Pressable>
-          
-          {pickerVisible && (
-            <DateTimePicker
-              mode="date"
-              minimumDate={minDate}
-              value={pickerValue ? new Date(`${pickerValue}T12:00:00`) : (minDate || new Date())}
-              onChange={(event, selectedDate) => {
-                setPickerVisible(false);
-                if (selectedDate) {
-                  const year = selectedDate.getFullYear();
-                  const month = String(selectedDate.getMonth() + 1).padStart(2, "0");
-                  const day = String(selectedDate.getDate()).padStart(2, "0");
-                  onChange(fieldName, `${year}-${month}-${day}`);
-                }
-              }}
-            />
-          )}
+
+          <DatePickerModal
+            visible={pickerVisible}
+            onClose={() => setPickerVisible(false)}
+            title={cleanLabel}
+            value={pickerValue}
+            onChange={(ymd) => onChange(fieldName, ymd)}
+            minDate={minDate}
+          />
         </>
       )}
       {error ? <Text style={styles.fieldError}>{error}</Text> : null}
@@ -785,77 +1084,62 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   scrollContent: {
-    paddingBottom: 140,
+    flexGrow: 1,
   },
   hero: {
     backgroundColor: colors.primary,
     paddingHorizontal: spacing.lg,
-    paddingTop: spacing.sm,
-    paddingBottom: spacing.xl,
-    borderBottomLeftRadius: 32,
-    borderBottomRightRadius: 32,
+    paddingTop: spacing.xxs,
+    paddingBottom: spacing.sm,
+    borderBottomLeftRadius: 20,
+    borderBottomRightRadius: 20,
     alignItems: "center",
   },
   heroTopRow: {
     flexDirection: "row",
     alignItems: "center",
     alignSelf: "flex-start",
+    gap: 8,
+  },
+  heroBackLabel: {
+    ...textStyles.bodyStrong,
+    color: colors.textInverse,
+    fontSize: 13,
   },
   heroTitle: {
     ...textStyles.tripTitle,
     color: colors.textInverse,
-    fontSize: 26,
-    marginTop: spacing.xs,
+    fontSize: 24,
+    marginTop: 2,
     textAlign: "center",
   },
   heroCopy: {
     ...textStyles.body,
     color: "rgba(255,255,255,0.8)",
-    marginTop: spacing.xs,
+    marginTop: 2,
     textAlign: "center",
+    fontSize: 12,
+  },
+  stepperDots: {
+    flexDirection: "row",
+    gap: 6,
+    marginTop: spacing.xxs,
+  },
+  dot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: "rgba(255,255,255,0.3)",
+  },
+  dotActive: {
+    backgroundColor: "#FFFFFF",
+    width: 16,
   },
   body: {
     backgroundColor: colors.background,
     paddingHorizontal: spacing.lg,
-    paddingTop: spacing.lg,
-  },
-  metricsRow: {
-    flexDirection: "row",
-    gap: spacing.sm,
-  },
-  sectionHeader: {
-    marginTop: spacing.xl,
-    marginBottom: spacing.md,
-  },
-  sectionLabel: {
-    ...textStyles.sectionLabel,
-    color: colors.textMuted,
-    fontSize: 13,
-  },
-  sectionTitle: {
-    ...textStyles.tripTitle,
-    color: colors.primary,
-    fontSize: 24,
-    marginTop: spacing.xs,
-  },
-  contentLayout: {
-    gap: spacing.lg,
-  },
-  contentLayoutDesktop: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-  },
-  mainColumn: {
-    gap: spacing.lg,
-  },
-  mainColumnDesktop: {
-    flex: 1.1,
-  },
-  sideColumn: {
-    gap: spacing.lg,
-  },
-  sideColumnDesktop: {
-    flex: 0.9,
+    paddingTop: spacing.md,
+    paddingBottom: spacing.xl,
   },
   card: {
     ...surfaces.card,
@@ -865,7 +1149,7 @@ const styles = StyleSheet.create({
   cardTitle: {
     ...textStyles.tripTitle,
     color: colors.primary,
-    fontSize: 22,
+    fontSize: 20,
   },
   row: {
     gap: spacing.md,
@@ -875,11 +1159,12 @@ const styles = StyleSheet.create({
   },
   field: {
     flex: 1,
+    gap: spacing.xs,
   },
   fieldLabel: {
     ...textStyles.label,
     color: colors.primary,
-    marginBottom: spacing.xs,
+    marginBottom: 0,
   },
   input: {
     minHeight: 52,
@@ -893,7 +1178,7 @@ const styles = StyleSheet.create({
     ...textStyles.body,
   },
   inputMultiline: {
-    minHeight: 110,
+    minHeight: 100,
     textAlignVertical: "top",
   },
   inputError: {
@@ -915,6 +1200,10 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     flexDirection: "row",
   },
+  dateButtonDisabled: {
+    opacity: 0.55,
+    backgroundColor: colors.surfaceMuted,
+  },
   dateButtonText: {
     ...textStyles.body,
     color: colors.textPrimary,
@@ -922,33 +1211,29 @@ const styles = StyleSheet.create({
   datePlaceholder: {
     color: colors.textMuted,
   },
-  currencySection: {
-    marginTop: spacing.xs,
-  },
-  currencyRow: {
-    flexDirection: "row",
-    gap: spacing.sm,
-    flexWrap: "wrap",
-    marginTop: spacing.xs,
-  },
-  currencyChip: {
+  dropdownButton: {
+    minHeight: 52,
     borderWidth: 1,
     borderColor: colors.border,
     borderRadius: radii.md,
     backgroundColor: colors.surface,
     paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
   },
-  currencyChipSelected: {
-    backgroundColor: colors.primary,
-    borderColor: colors.primary,
+  dropdownLeftContent: {
+    flexDirection: "row",
+    alignItems: "center",
+    flex: 1,
   },
-  currencyChipText: {
-    ...textStyles.bodyStrong,
-    color: colors.primary,
+  dropdownPlaceholder: {
+    ...textStyles.body,
+    color: colors.textMuted,
   },
-  currencyChipTextSelected: {
-    color: colors.textInverse,
+  dropdownText: {
+    ...textStyles.body,
+    color: colors.textPrimary,
   },
   ownerCard: {
     borderWidth: 1,
@@ -973,7 +1258,7 @@ const styles = StyleSheet.create({
   },
   submitMessage: {
     ...textStyles.bodyStrong,
-    marginTop: spacing.lg,
+    marginTop: spacing.md,
   },
   submitError: {
     color: colors.danger,
@@ -984,7 +1269,8 @@ const styles = StyleSheet.create({
   actions: {
     flexDirection: Platform.OS === "web" ? "row" : "column",
     gap: spacing.md,
-    marginTop: spacing.xl,
+    marginTop: spacing.lg,
+    marginBottom: spacing.sm,
   },
   actionPrimary: {
     flex: 1,
@@ -992,29 +1278,37 @@ const styles = StyleSheet.create({
   actionSecondary: {
     flex: 1,
   },
-  destinationResults: {
-    maxHeight: 220,
-    marginTop: 8,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: radii.md,
-    backgroundColor: colors.surface,
-    position: "absolute",
-    top: 85, 
-    left: 0,
-    right: 0,
-    zIndex: 30,
-    elevation: 10,
-  },
   destinationItem: {
-    paddingHorizontal: 14,
-    paddingVertical: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.sm + 4,
     borderBottomWidth: 1,
-    borderBottomColor: "#ECECEC",
+    borderBottomColor: "#f5f5f5",
+  },
+  destinationItemActive: {
+    backgroundColor: colors.primarySoft ? `${colors.primarySoft}22` : "#f0f4f8",
+    borderRadius: radii.sm || 8,
+  },
+  destinationIconCircle: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.primarySoft ? `${colors.primarySoft}33` : "#eef2ff",
+  },
+  destinationIconCircleActive: {
+    backgroundColor: colors.primary,
   },
   destinationName: {
     ...textStyles.bodyStrong,
     color: colors.textPrimary,
+  },
+  destinationNameActive: {
+    color: colors.primary,
+    fontWeight: "700",
   },
   destinationCountry: {
     ...textStyles.meta,
@@ -1022,11 +1316,10 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   selectedDestinationsContainer: {
-    zIndex: 1,
+    gap: spacing.xs,
   },
   selectedDestinationsScroll: {
-    maxHeight: 170,
-    marginTop: spacing.sm,
+    maxHeight: 190,
   },
   destinationCurrencyRow: {
     flexDirection: "row",
@@ -1035,34 +1328,45 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
     borderRadius: radii.md,
     backgroundColor: colors.surface,
-    paddingHorizontal: spacing.md,
+    paddingHorizontal: spacing.sm,
     paddingVertical: spacing.sm,
-    marginBottom: spacing.sm,
+    marginBottom: spacing.xs,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.04,
+    shadowRadius: 2,
+    elevation: 1,
+  },
+  destinationRowIconCircle: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.primarySoft ? `${colors.primarySoft}33` : "#eef2ff",
+  },
+  destinationRemoveButton: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.danger ? `${colors.danger}14` : "rgba(255,59,48,0.08)",
+    marginLeft: spacing.xs,
   },
   destinationChipText: {
     ...textStyles.bodyStrong,
     fontSize: 14,
     color: colors.primary,
   },
-  toggleButton: {
-    marginTop: 4,
-    paddingVertical: 4,
-  },
-  showMoreText: {
-    ...textStyles.bodyStrong,
-    color: colors.primary,
-    fontSize: 13,
-  },
   destinationSection: {
-    marginTop: spacing.lg,
-    position: "relative",
-    zIndex: 20,
+    gap: spacing.xs,
   },
   coverPreviewSection: {
-    marginTop: spacing.md,
+    gap: spacing.xs,
   },
   coverPreview: {
-    minHeight: 180,
+    minHeight: 160,
     borderRadius: radii.lg,
     overflow: "hidden",
     justifyContent: "flex-end",
@@ -1071,30 +1375,23 @@ const styles = StyleSheet.create({
     borderRadius: radii.lg,
   },
   coverPreviewOverlay: {
-    padding: spacing.lg,
+    padding: spacing.md,
     backgroundColor: "rgba(19, 39, 80, 0.42)",
   },
   coverPreviewBadge: {
     ...textStyles.label,
     color: colors.accent,
-    marginBottom: spacing.xs,
+    marginBottom: spacing.xxs,
   },
   coverPreviewTitle: {
     ...textStyles.tripTitle,
     color: colors.textInverse,
-    fontSize: 24,
+    fontSize: 22,
   },
   coverPreviewSubtitle: {
     ...textStyles.body,
     color: "#edf2ff",
-    marginTop: spacing.xxs,
-  },
-  destinationStatusRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    paddingHorizontal: 14,
-    paddingVertical: 14,
+    marginTop: 2,
   },
   destinationStatusText: {
     ...textStyles.meta,
@@ -1113,7 +1410,7 @@ const styles = StyleSheet.create({
   coverActionsRow: {
     flexDirection: "row",
     gap: spacing.sm,
-    marginTop: spacing.sm,
+    marginTop: 4,
   },
   coverActionButton: {
     flexDirection: "row",
@@ -1140,5 +1437,153 @@ const styles = StyleSheet.create({
     ...textStyles.bodyStrong,
     color: colors.danger || "#FF3B30",
     fontSize: 13,
+  },
+  modalOverlay: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: "rgba(0, 0, 0, 0.5)",
+  },
+  pickerHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.md,
+    paddingBottom: spacing.sm,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
+  pickerBackButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    width: 70,
+  },
+  pickerBackText: {
+    ...textStyles.body,
+    color: colors.primary,
+    fontWeight: "600",
+  },
+  pickerTitle: {
+    ...textStyles.bodyStrong,
+    fontSize: 17,
+    color: colors.primary,
+  },
+  pickerHeaderRight: {
+    width: 70,
+    alignItems: "flex-end",
+  },
+  pickerCountBadge: {
+    minWidth: 24,
+    height: 24,
+    borderRadius: 12,
+    paddingHorizontal: 6,
+    backgroundColor: colors.primary,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  pickerCountBadgeText: {
+    ...textStyles.meta,
+    color: colors.textInverse,
+    fontWeight: "700",
+    fontSize: 12,
+  },
+  pickerSearchBox: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    marginHorizontal: spacing.lg,
+    marginTop: spacing.md,
+    marginBottom: spacing.sm,
+    minHeight: 48,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radii.md,
+    backgroundColor: colors.surface,
+    paddingHorizontal: spacing.md,
+  },
+  pickerSearchInput: {
+    flex: 1,
+    ...textStyles.body,
+    color: colors.textPrimary,
+  },
+  pickerSelectedSection: {
+    marginBottom: spacing.sm,
+  },
+  pickerSelectedLabel: {
+    ...textStyles.meta,
+    color: colors.textSecondary,
+    paddingHorizontal: spacing.lg,
+    marginBottom: spacing.xs,
+  },
+  pickerChipsRow: {
+    flexDirection: "row",
+    gap: 8,
+    paddingHorizontal: spacing.lg,
+  },
+  pickerChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: colors.primarySoft ? `${colors.primarySoft}33` : "#eef2ff",
+    borderRadius: 20,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    maxWidth: 180,
+  },
+  pickerChipText: {
+    ...textStyles.meta,
+    color: colors.primary,
+    fontWeight: "600",
+  },
+  pickerListContainer: {
+    flex: 1,
+    marginHorizontal: spacing.lg,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radii.md,
+    backgroundColor: colors.surface,
+    overflow: "hidden",
+  },
+  pickerListContent: {
+    paddingHorizontal: spacing.xs,
+  },
+  pickerStatusRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    padding: spacing.md,
+  },
+  pickerEmptyState: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: spacing.xl,
+    paddingVertical: spacing.xl,
+    gap: spacing.xs,
+  },
+  pickerEmptyIconCircle: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.primarySoft ? `${colors.primarySoft}33` : "#eef2ff",
+    marginBottom: spacing.xs,
+  },
+  pickerEmptyTitle: {
+    ...textStyles.bodyStrong,
+    color: colors.textPrimary,
+  },
+  pickerEmptyText: {
+    ...textStyles.meta,
+    color: colors.textSecondary,
+    textAlign: "center",
+  },
+  pickerFooter: {
+    padding: spacing.lg,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
   },
 });

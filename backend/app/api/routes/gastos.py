@@ -63,7 +63,7 @@ def _validar_participantes_activos(
             detail="Uno o más participantes no están activos o no pertenecen al viaje.",
         )
 
-@router.post("/")
+@router.post("")
 def create_gasto(data: GastoCreate, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)):
 
     viaje = require_trip_edit_access(

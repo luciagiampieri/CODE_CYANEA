@@ -243,7 +243,7 @@ def get_paises_visitados(
     )
 
 
-@router.get("/", response_model=list[UsuarioRead])
+@router.get("", response_model=list[UsuarioRead])
 def list_users(
     q: str | None = Query(default=None),
     limit: int = Query(default=8, ge=1, le=20),
