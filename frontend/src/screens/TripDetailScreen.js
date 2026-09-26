@@ -239,6 +239,29 @@ function formatMoney(amount, currency) {
   }).format(numeric);
 }
 
+// Calcula el centro geográfico (centroide) de un conjunto de marcadores,
+// para que el mapa del popup quede bien centrado sobre todo el recorrido
+// en lugar de solo sobre el primer punto.
+function computeCenterFromMarkers(markers) {
+  if (!Array.isArray(markers) || markers.length === 0) return undefined;
+
+  const puntosValidos = markers.filter(
+    (m) => typeof m?.lat === "number" && typeof m?.lng === "number"
+  );
+
+  if (puntosValidos.length === 0) return undefined;
+
+  const suma = puntosValidos.reduce(
+    (acc, m) => ({ lat: acc.lat + m.lat, lng: acc.lng + m.lng }),
+    { lat: 0, lng: 0 }
+  );
+
+  return {
+    lat: suma.lat / puntosValidos.length,
+    lng: suma.lng / puntosValidos.length,
+  };
+}
+
 export default function TripDetailScreen({ navigation, route }) {
   const initialTrip = normalizeTrip(route.params?.trip);
   const { width, isTablet } = useResponsive();
@@ -1247,7 +1270,8 @@ export default function TripDetailScreen({ navigation, route }) {
   const [activityFeedback, setActivityFeedback] = useState(null);
   const [displayedFeedback, setDisplayedFeedback] = useState(null);
   const [generandoRutaDayId, setGenerandoRutaDayId] = useState(null);
-  const [diaConMapaVisible, setDiaConMapaVisible] = useState(null);
+  // Guardamos todo lo necesario para el popup del mapa en un solo estado.
+  const [mapaModalData, setMapaModalData] = useState(null);
   const [modoTransporteDayId, setModoTransporteDayId] = useState({});
 
   const MODOS_RUTA = [
@@ -1991,65 +2015,25 @@ export default function TripDetailScreen({ navigation, route }) {
                                   {ruta.polilineaCodificada ? (
                                     <Pressable
                                       onPress={() =>
-                                        setDiaConMapaVisible((current) =>
-                                          current === dayId ? null : dayId
-                                        )
+                                        setMapaModalData({
+                                          dayId,
+                                          ruta,
+                                          routeMarkers,
+                                          actividadesConUbicacion,
+                                        })
                                       }
                                       style={styles.routeMapToggle}
                                     >
                                       <FontAwesome6
                                         color={colors.primary}
-                                        name={
-                                          diaConMapaVisible === dayId
-                                            ? "chevron-up"
-                                            : "map-location-dot"
-                                        }
+                                        name="map-location-dot"
                                         size={12}
                                       />
                                       <Text style={styles.routeMapToggleText}>
-                                        {diaConMapaVisible === dayId
-                                          ? "Ocultar mapa"
-                                          : "Ver mapa"}
+                                        Ver mapa
                                       </Text>
                                     </Pressable>
                                   ) : null}
-                                </View>
-                              ) : null}
-
-                              {ruta && diaConMapaVisible === dayId ? (
-                                <View style={styles.routeMapWrap}>
-                                  <MapCanvas
-                                    initialCenter={
-                                      routeMarkers[0]
-                                        ? {
-                                            lat: routeMarkers[0].lat,
-                                            lng: routeMarkers[0].lng,
-                                          }
-                                        : undefined
-                                    }
-                                    markers={routeMarkers}
-                                    routePolyline={ruta.polilineaCodificada}
-                                  />
-
-                                  <Pressable
-                                    style={styles.openGoogleMapsButton}
-                                    onPress={() =>
-                                      abrirGoogleMaps(
-                                        dayId,
-                                        actividadesConUbicacion,
-                                        ruta
-                                      )
-                                    }
-                                  >
-                                    <FontAwesome6
-                                      name="map-location-dot"
-                                      size={14}
-                                      color={colors.textInverse}
-                                    />
-                                    <Text style={styles.openGoogleMapsText}>
-                                      Abrir en Google Maps
-                                    </Text>
-                                  </Pressable>
                                 </View>
                               ) : null}
 
@@ -3376,6 +3360,80 @@ export default function TripDetailScreen({ navigation, route }) {
         }}
       />
 
+      {/*
+        Popup del mapa de recorrido diario.
+        Ahora usa el mismo lenguaje visual que el resto de los popups de la
+        pantalla (fondo semitransparente + tarjeta centrada con bordes
+        redondeados), en lugar de una pantalla completa deslizante.
+        Se sigue renderizando FUERA del ScrollView: en Android, un MapView
+        (react-native-maps) anidado dentro de un ScrollView puede inicializarse
+        y disparar sus eventos (onMapReady/onMapLoaded) sin llegar a componer
+        los tiles, mostrando un rectángulo blanco. Al vivir en un Modal, el mapa
+        queda en una jerarquía nativa separada y se renderiza correctamente.
+      */}
+      <Modal
+        animationType="fade"
+        transparent
+        visible={!!mapaModalData}
+        onRequestClose={() => setMapaModalData(null)}
+      >
+        <Pressable
+          style={styles.mapPopupOverlay}
+          onPress={() => setMapaModalData(null)}
+        >
+          <Pressable
+            style={styles.mapPopupCard}
+            onPress={(event) => event.stopPropagation()}
+          >
+            <View style={styles.mapPopupHeader}>
+              <Text style={[styles.sectionHeading, { fontSize: 18 }]}>
+                Recorrido del día
+              </Text>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Cerrar mapa"
+                hitSlop={8}
+                onPress={() => setMapaModalData(null)}
+                style={styles.mapPopupCloseButton}
+              >
+                <FontAwesome6 name="xmark" size={16} color={colors.textSecondary} />
+              </Pressable>
+            </View>
+
+            {mapaModalData ? (
+              <>
+                <View style={styles.mapPopupMapWrapper}>
+                  <MapCanvas
+                    fullscreen
+                    initialCenter={computeCenterFromMarkers(mapaModalData.routeMarkers)}
+                    markers={mapaModalData.routeMarkers}
+                    routePolyline={mapaModalData.ruta.polilineaCodificada}
+                  />
+                </View>
+
+                <Pressable
+                  style={styles.openGoogleMapsButton}
+                  onPress={() =>
+                    abrirGoogleMaps(
+                      mapaModalData.dayId,
+                      mapaModalData.actividadesConUbicacion,
+                      mapaModalData.ruta
+                    )
+                  }
+                >
+                  <FontAwesome6
+                    name="map-location-dot"
+                    size={14}
+                    color={colors.textInverse}
+                  />
+                  <Text style={styles.openGoogleMapsText}>Abrir en Google Maps</Text>
+                </Pressable>
+              </>
+            ) : null}
+          </Pressable>
+        </Pressable>
+      </Modal>
+
       <Modal
         animationType="fade"
         transparent={true}
@@ -4403,6 +4461,43 @@ const styles = StyleSheet.create({
     color: colors.primary,
     fontSize: 13,
   },
+  // Popup del mapa: mismo lenguaje visual que modalOverlay/modalContent,
+  // pero más ancho/alto para que el mapa tenga espacio real.
+  mapPopupOverlay: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: "rgba(9, 19, 45, 0.7)",
+    padding: spacing.lg,
+  },
+  mapPopupCard: {
+    backgroundColor: colors.surface,
+    borderRadius: radii.xl,
+    padding: spacing.lg,
+    width: "100%",
+    maxWidth: 480,
+    elevation: 5,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+  },
+  mapPopupHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: spacing.md,
+  },
+  mapPopupCloseButton: {
+    padding: spacing.xs,
+  },
+  mapPopupMapWrapper: {
+    width: "100%",
+    height: 360,
+    borderRadius: radii.lg || 16,
+    overflow: "hidden",
+    backgroundColor: colors.surfaceAlt,
+  },
   openGoogleMapsButton: {
     flexDirection: "row",
     alignItems: "center",
@@ -4412,7 +4507,7 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.sm,
     paddingHorizontal: spacing.md,
     borderRadius: radii.md,
-    marginTop: spacing.xs,
+    marginTop: spacing.md,
   },
   openGoogleMapsText: {
     ...textStyles.bodyStrong,
