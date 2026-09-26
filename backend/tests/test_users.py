@@ -431,7 +431,7 @@ def test_get_paises_visitados_excluye_viajes_no_validos(
         db_session,
         usuario_activo,
         estado=estado_activo,
-        fecha_fin=date_type(2026, 9, 20),
+        fecha_fin=date_type(2027, 9, 26),
         paises=["Uruguay"],
     )
     _crear_viaje_visitado(

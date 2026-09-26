@@ -32,6 +32,34 @@ jest.mock("expo-image-picker", () => ({
   launchImageLibraryAsync: jest.fn(),
 }));
 
+jest.mock("../components/ui/DatePickerModal", () => {
+  const ReactActual = require("react");
+  const { Pressable, Text } = require("react-native");
+
+  return function MockDatePickerModal({
+    visible,
+    title,
+    onChange,
+  }) {
+    if (!visible) return null;
+
+    return ReactActual.createElement(
+      Pressable,
+      {
+        testID: `mock-date-picker-${title}`,
+        onPress: () => {
+          const year = mockPickerDate.getFullYear();
+          const month = String(mockPickerDate.getMonth() + 1).padStart(2, "0");
+          const day = String(mockPickerDate.getDate()).padStart(2, "0");
+
+          onChange(`${year}-${month}-${day}`);
+        },
+      },
+      ReactActual.createElement(Text, null, `Seleccionar ${title} (mock)`)
+    );
+  };
+});
+
 resolveDestination.mockResolvedValue({
   name: "Bariloche",
   country: "Argentina",
@@ -78,22 +106,41 @@ async function press(getters, texto) {
 
 async function renderPantallaCargada() {
   const utils = await render(<CreateTripScreen navigation={navigation} />);
-  await waitFor(() => expect(utils.getByText("Ada Lovelace")).toBeTruthy());
+
+  await waitFor(() =>
+    expect(utils.getByText("Información Básica")).toBeTruthy()
+  );
+
   return utils;
 }
 
-
 async function completarFechas(utils) {
-
+  // Fecha de ida
   await act(async () => {
     fireEvent.press(utils.getAllByText("Seleccionar fecha")[0]);
   });
-  await press(utils, "Confirmar fecha (mock)");
 
+  await press(utils, "Seleccionar Fecha de ida (mock)");
+
+  // Fecha de vuelta
   await press(utils, "Seleccionar fecha");
-  await press(utils, "Confirmar fecha (mock)");
+
+  await press(utils, "Seleccionar Fecha de vuelta (mock)");
 }
 
+async function irAlPaso2(utils) {
+  await press(utils, "Siguiente");
+  await waitFor(() =>
+    expect(utils.getByText("Destinos y Portada")).toBeTruthy()
+  );
+}
+
+async function irAlPaso3(utils) {
+  await press(utils, "Siguiente");
+  await waitFor(() =>
+    expect(utils.getByText("Invitar participantes (Opcional)")).toBeTruthy()
+  );
+}
 
 describe("US - Crear viaje (CreateTripScreen)", () => {
   beforeEach(() => {
@@ -120,34 +167,159 @@ describe("US - Crear viaje (CreateTripScreen)", () => {
   });
 
   it("carga y muestra los datos del administrador (usuario actual)", async () => {
+    searchDestinations.mockResolvedValue([
+      {
+        name: "Bariloche",
+        country: "Argentina",
+        placeId: "google:bariloche-id",
+      },
+    ]);
+
+    resolveDestination.mockResolvedValue({
+      name: "Bariloche",
+      country: "Argentina",
+      provinceState: "Río Negro",
+      lat: -41.1335,
+      lng: -71.3103,
+      placeId: "google:bariloche-id",
+      imageUrl: "https://example.com/bariloche.jpg",
+    });
+
     const utils = await renderPantallaCargada();
+
+    // PASO 1
+    await act(async () => {
+      fireEvent.changeText(
+        utils.getByPlaceholderText("Ej: Escapada a Bariloche"),
+        "Viaje de prueba"
+      );
+    });
+
+    await completarFechas(utils);
+
+    // Ir al paso 2
+    await press(utils, "Siguiente");
+
+    await waitFor(() =>
+      expect(utils.getByText("Destinos y Portada")).toBeTruthy()
+    );
+
+    // Agregar destino
+    await press(utils, "Buscar ciudad o país...");
+
+    await act(async () => {
+      fireEvent.changeText(
+        utils.getByPlaceholderText("Buscar ciudad o país..."),
+        "Bariloche"
+      );
+    });
+
+    await waitFor(() =>
+      expect(utils.getByText("Bariloche")).toBeTruthy()
+    );
+
+    await press(utils, "Bariloche");
+
+    await waitFor(() =>
+      expect(resolveDestination).toHaveBeenCalledWith(
+        "google:bariloche-id",
+        expect.any(String)
+      )
+    );
+
+    // Ahora puede avanzar al paso 3
+    await press(utils, "Siguiente");
+
+    await waitFor(() =>
+      expect(
+        utils.getByText("Invitar participantes (Opcional)")
+      ).toBeTruthy()
+    );
 
     expect(utils.getByText("Ada Lovelace")).toBeTruthy();
-    expect(utils.getByText("@adalovelace · ada@mail.com")).toBeTruthy();
+
+    expect(
+      utils.getByText("@adalovelace · ada@mail.com")
+    ).toBeTruthy();
   });
 
-  it("muestra los errores de validación si se envía el formulario vacío", async () => {
+  it("muestra los errores de validación al avanzar con los datos obligatorios vacíos", async () => {
     const utils = await renderPantallaCargada();
 
-    await press(utils, "Crear viaje");
+    await press(utils, "Siguiente");
 
-    expect(utils.getByText("El título del viaje no puede quedar vacío.")).toBeTruthy();
-    expect(utils.getByText("Al menos un destino es requerido.")).toBeTruthy();
-    expect(utils.getByText("La fecha de inicio es obligatoria.")).toBeTruthy();
-    expect(utils.getByText("La fecha de finalización es obligatoria.")).toBeTruthy();
+    expect(
+      utils.getByText("El título del viaje no puede quedar vacío.")
+    ).toBeTruthy();
+
+    expect(
+      utils.getByText("La fecha de inicio es obligatoria.")
+    ).toBeTruthy();
+
+    expect(
+      utils.getByText("Primero elegí la fecha de ida.")
+    ).toBeTruthy();
+
+    expect(utils.queryByText("Destinos y Portada")).toBeNull();
+
+    expect(createTrip).not.toHaveBeenCalled();
+
+    await act(async () => {
+      fireEvent.changeText(
+        utils.getByPlaceholderText("Ej: Escapada a Bariloche"),
+        "Viaje de prueba"
+      );
+    });
+
+    await completarFechas(utils);
+
+    await press(utils, "Siguiente");
+
+    await waitFor(() =>
+      expect(utils.getByText("Destinos y Portada")).toBeTruthy()
+    );
+
+    await press(utils, "Siguiente");
+
+    expect(
+      utils.getByText("Al menos un destino es requerido.")
+    ).toBeTruthy();
+
+    expect(
+      utils.queryByText("Invitar participantes (Opcional)")
+    ).toBeNull();
+
     expect(createTrip).not.toHaveBeenCalled();
   });
 
-  it("informa que no se puede crear un viaje con fecha de inicio pasada", async () => {
+  it("informa que no se puede avanzar con una fecha de inicio pasada", async () => {
     mockPickerDate = new Date(Date.now() - 24 * 60 * 60 * 1000);
+
     const utils = await renderPantallaCargada();
 
-    await completarFechas(utils);
-    await press(utils, "Crear viaje");
+    await act(async () => {
+      fireEvent.changeText(
+        utils.getByPlaceholderText("Ej: Escapada a Bariloche"),
+        "Viaje de prueba"
+      );
+    });
+
+    await act(async () => {
+      fireEvent.press(utils.getAllByText("Seleccionar fecha")[0]);
+    });
+
+    await press(utils, "Seleccionar Fecha de ida (mock)");
+
+    await press(utils, "Siguiente");
 
     expect(
-      utils.getByText("La fecha de inicio no puede ser anterior a la fecha actual.")
+      utils.getByText(
+        "La fecha de inicio no puede ser anterior a la fecha actual."
+      )
     ).toBeTruthy();
+
+    expect(utils.getByText("Información Básica")).toBeTruthy();
+    expect(utils.queryByText("Destinos y Portada")).toBeNull();
     expect(createTrip).not.toHaveBeenCalled();
   });
 
@@ -172,15 +344,38 @@ describe("US - Crear viaje (CreateTripScreen)", () => {
 
     const utils = await renderPantallaCargada();
 
+    // Completar paso 1 y avanzar al paso 2
     await act(async () => {
       fireEvent.changeText(
-        utils.getByPlaceholderText("Ej: Córdoba, Bariloche, Chile..."),
+        utils.getByPlaceholderText("Ej: Escapada a Bariloche"),
+        "Viaje de prueba"
+      );
+    });
+
+    await completarFechas(utils);
+
+    await press(utils, "Siguiente");
+
+    await waitFor(() =>
+      expect(utils.getByText("Destinos y Portada")).toBeTruthy()
+    );
+
+    // Abrir el buscador de destinos
+    await press(utils, "Buscar ciudad o país...");
+
+    // Buscar Bariloche
+    await act(async () => {
+      fireEvent.changeText(
+        utils.getByPlaceholderText("Buscar ciudad o país..."),
         "Bariloche"
       );
     });
 
-    await waitFor(() => expect(utils.getByText("Bariloche")).toBeTruthy());
+    await waitFor(() =>
+      expect(utils.getByText("Bariloche")).toBeTruthy()
+    );
 
+    // Seleccionar el destino
     await press(utils, "Bariloche");
 
     await waitFor(() => {
@@ -190,7 +385,11 @@ describe("US - Crear viaje (CreateTripScreen)", () => {
       );
     });
 
-    expect(utils.getByText("Destinos seleccionados (1)")).toBeTruthy();
+    expect(
+      utils.getAllByText("Destinos seleccionados (1)").length
+    ).toBeGreaterThan(0);
+
+    expect(utils.getAllByText("Bariloche").length).toBeGreaterThan(0);
   });
 
   it("crea el viaje correctamente con datos válidos y navega al inicio", async () => {
@@ -214,21 +413,35 @@ describe("US - Crear viaje (CreateTripScreen)", () => {
 
     const utils = await renderPantallaCargada();
 
+    // PASO 1: información básica
     await act(async () => {
       fireEvent.changeText(
-        utils.getByPlaceholderText("Escapada a Córdoba"),
+        utils.getByPlaceholderText("Ej: Escapada a Bariloche"),
         "Viaje de egresados"
       );
     });
 
+    await completarFechas(utils);
+
+    await press(utils, "Siguiente");
+
+    await waitFor(() =>
+      expect(utils.getByText("Destinos y Portada")).toBeTruthy()
+    );
+
+    // PASO 2: agregar destino
+    await press(utils, "Buscar ciudad o país...");
+
     await act(async () => {
       fireEvent.changeText(
-        utils.getByPlaceholderText("Ej: Córdoba, Bariloche, Chile..."),
+        utils.getByPlaceholderText("Buscar ciudad o país..."),
         "Bariloche"
       );
     });
 
-    await waitFor(() => expect(utils.getByText("Bariloche")).toBeTruthy());
+    await waitFor(() =>
+      expect(utils.getByText("Bariloche")).toBeTruthy()
+    );
 
     await press(utils, "Bariloche");
 
@@ -239,8 +452,16 @@ describe("US - Crear viaje (CreateTripScreen)", () => {
       );
     });
 
-    await completarFechas(utils);
+    // Avanzar al paso 3
+    await press(utils, "Siguiente");
 
+    await waitFor(() =>
+      expect(
+        utils.getByText("Invitar participantes (Opcional)")
+      ).toBeTruthy()
+    );
+
+    // PASO 3: crear viaje
     await press(utils, "Crear viaje");
 
     await waitFor(() => {
@@ -298,28 +519,58 @@ describe("US - Crear viaje (CreateTripScreen)", () => {
 
     const utils = await renderPantallaCargada();
 
+    // PASO 1: información básica
     await act(async () => {
       fireEvent.changeText(
-        utils.getByPlaceholderText("Escapada a Córdoba"),
+        utils.getByPlaceholderText("Ej: Escapada a Bariloche"),
         "Viaje de egresados"
       );
     });
 
+    await completarFechas(utils);
+
+    await press(utils, "Siguiente");
+
+    await waitFor(() =>
+      expect(utils.getByText("Destinos y Portada")).toBeTruthy()
+    );
+
+    // PASO 2: agregar destino
+    await press(utils, "Buscar ciudad o país...");
+
     await act(async () => {
       fireEvent.changeText(
-        utils.getByPlaceholderText("Ej: Córdoba, Bariloche, Chile..."),
+        utils.getByPlaceholderText("Buscar ciudad o país..."),
         "Bariloche"
       );
     });
 
-    await waitFor(() => expect(utils.getByText("Bariloche")).toBeTruthy());
+    await waitFor(() =>
+      expect(utils.getByText("Bariloche")).toBeTruthy()
+    );
 
     await press(utils, "Bariloche");
 
-    await completarFechas(utils);
+    await waitFor(() => {
+      expect(resolveDestination).toHaveBeenCalledWith(
+        "google:bariloche-id",
+        expect.any(String)
+      );
+    });
 
+    // Avanzar al paso 3
+    await press(utils, "Siguiente");
+
+    await waitFor(() =>
+      expect(
+        utils.getByText("Invitar participantes (Opcional)")
+      ).toBeTruthy()
+    );
+
+    // Intentar crear el viaje
     await press(utils, "Crear viaje");
 
+    // Se muestra el error devuelto por el servidor
     await waitFor(() => {
       expect(
         utils.getByText("No se pudo crear el viaje.")
@@ -352,15 +603,37 @@ describe("US - Crear viaje (CreateTripScreen)", () => {
 
     const utils = await renderPantallaCargada();
 
+    // PASO 1: completar información básica
     await act(async () => {
       fireEvent.changeText(
-        utils.getByPlaceholderText("Ej: Córdoba, Bariloche, Chile..."),
+        utils.getByPlaceholderText("Ej: Escapada a Bariloche"),
+        "Viaje de prueba"
+      );
+    });
+
+    await completarFechas(utils);
+
+    await press(utils, "Siguiente");
+
+    await waitFor(() =>
+      expect(utils.getByText("Destinos y Portada")).toBeTruthy()
+    );
+
+    // PASO 2: abrir buscador de destinos
+    await press(utils, "Buscar ciudad o país...");
+
+    await act(async () => {
+      fireEvent.changeText(
+        utils.getByPlaceholderText("Buscar ciudad o país..."),
         "Bariloche"
       );
     });
 
-    await waitFor(() => expect(utils.getByText("Bariloche")).toBeTruthy());
+    await waitFor(() =>
+      expect(utils.getByText("Bariloche")).toBeTruthy()
+    );
 
+    // Intentar agregar el destino
     await press(utils, "Bariloche");
 
     await waitFor(() => {
@@ -370,8 +643,6 @@ describe("US - Crear viaje (CreateTripScreen)", () => {
         )
       ).toBeTruthy();
     });
-
-    expect(utils.getByText("Destinos seleccionados (0)")).toBeTruthy();
   });
 
   it("crea el viaje y sube la portada JPG seleccionada", async () => {
@@ -406,32 +677,62 @@ describe("US - Crear viaje (CreateTripScreen)", () => {
 
     const utils = await renderPantallaCargada();
 
-    await press(utils, "Elegir de la galería");
-
-    await waitFor(() => {
-      expect(utils.getByText("Imagen seleccionada")).toBeTruthy();
-    });
-
+    // PASO 1: información básica
     await act(async () => {
       fireEvent.changeText(
-        utils.getByPlaceholderText("Escapada a Córdoba"),
+        utils.getByPlaceholderText("Ej: Escapada a Bariloche"),
         "Viaje de egresados"
       );
     });
 
+    await completarFechas(utils);
+
+    await press(utils, "Siguiente");
+
+    await waitFor(() =>
+      expect(utils.getByText("Destinos y Portada")).toBeTruthy()
+    );
+
+    // PASO 2: agregar destino
+    await press(utils, "Buscar ciudad o país...");
+
     await act(async () => {
       fireEvent.changeText(
-        utils.getByPlaceholderText("Ej: Córdoba, Bariloche, Chile..."),
+        utils.getByPlaceholderText("Buscar ciudad o país..."),
         "Bariloche"
       );
     });
 
-    await waitFor(() => expect(utils.getByText("Bariloche")).toBeTruthy());
+    await waitFor(() =>
+      expect(utils.getByText("Bariloche")).toBeTruthy()
+    );
 
     await press(utils, "Bariloche");
 
-    await completarFechas(utils);
+    await waitFor(() => {
+      expect(resolveDestination).toHaveBeenCalledWith(
+        "google:bariloche-id",
+        expect.any(String)
+      );
+    });
 
+    // Seleccionar portada
+    await press(utils, "Elegir de la galería");
+
+    await waitFor(() => {
+      expect(utils.getByText("Imagen personalizada")).toBeTruthy();
+    });
+
+    // Avanzar al paso 3
+    await press(utils, "Siguiente");
+
+    await waitFor(() =>
+      expect(
+        utils.getByText("Invitar participantes (Opcional)")
+      ).toBeTruthy()
+    );
+
+    // Crear viaje
     await press(utils, "Crear viaje");
 
     await waitFor(() => {
@@ -471,10 +772,27 @@ describe("US - Crear viaje (CreateTripScreen)", () => {
 
     const utils = await renderPantallaCargada();
 
+    // PASO 1: completar información básica
+    await act(async () => {
+      fireEvent.changeText(
+        utils.getByPlaceholderText("Ej: Escapada a Bariloche"),
+        "Viaje de prueba"
+      );
+    });
+
+    await completarFechas(utils);
+
+    await press(utils, "Siguiente");
+
+    await waitFor(() =>
+      expect(utils.getByText("Destinos y Portada")).toBeTruthy()
+    );
+
+    // Seleccionar portada
     await press(utils, "Elegir de la galería");
 
     await waitFor(() => {
-      expect(utils.getByText("Imagen seleccionada")).toBeTruthy();
+      expect(utils.getByText("Imagen personalizada")).toBeTruthy();
     });
 
     expect(ImagePicker.launchImageLibraryAsync).toHaveBeenCalledWith({
@@ -482,7 +800,9 @@ describe("US - Crear viaje (CreateTripScreen)", () => {
       quality: 0.9,
     });
 
-    expect(utils.queryByText(/Tipo de archivo no permitido/)).toBeNull();
+    expect(
+      utils.queryByText(/Tipo de archivo no permitido/)
+    ).toBeNull();
   });
 
   it("rechaza una portada con formato no permitido", async () => {
@@ -499,6 +819,23 @@ describe("US - Crear viaje (CreateTripScreen)", () => {
 
     const utils = await renderPantallaCargada();
 
+    // PASO 1: completar información básica
+    await act(async () => {
+      fireEvent.changeText(
+        utils.getByPlaceholderText("Ej: Escapada a Bariloche"),
+        "Viaje de prueba"
+      );
+    });
+
+    await completarFechas(utils);
+
+    await press(utils, "Siguiente");
+
+    await waitFor(() =>
+      expect(utils.getByText("Destinos y Portada")).toBeTruthy()
+    );
+
+    // Intentar seleccionar una portada GIF
     await press(utils, "Elegir de la galería");
 
     await waitFor(() => {
@@ -509,7 +846,7 @@ describe("US - Crear viaje (CreateTripScreen)", () => {
       ).toBeTruthy();
     });
 
-    expect(utils.queryByText("Imagen seleccionada")).toBeNull();
+    expect(utils.queryByText("Imagen personalizada")).toBeNull();
     expect(uploadTripCover).not.toHaveBeenCalled();
   });
 
@@ -527,16 +864,36 @@ describe("US - Crear viaje (CreateTripScreen)", () => {
 
     const utils = await renderPantallaCargada();
 
+    // PASO 1: completar información básica
+    await act(async () => {
+      fireEvent.changeText(
+        utils.getByPlaceholderText("Ej: Escapada a Bariloche"),
+        "Viaje de prueba"
+      );
+    });
+
+    await completarFechas(utils);
+
+    await press(utils, "Siguiente");
+
+    await waitFor(() =>
+      expect(utils.getByText("Destinos y Portada")).toBeTruthy()
+    );
+
+    // Seleccionar portada JPG
     await press(utils, "Elegir de la galería");
 
     await waitFor(() => {
-      expect(utils.getByText("Imagen seleccionada")).toBeTruthy();
+      expect(utils.getByText("Imagen personalizada")).toBeTruthy();
     });
 
+    // Cancelar la selección
     await press(utils, "Cancelar selección");
 
-    expect(utils.queryByText("Imagen seleccionada")).toBeNull();
-    expect(utils.getByText("Se usará una portada predeterminada")).toBeTruthy();
+    expect(utils.queryByText("Imagen personalizada")).toBeNull();
+    expect(
+      utils.getByText("Se usará una portada predeterminada")
+    ).toBeTruthy();
   });
 
   it("informa si se deniega el permiso para acceder a la galería", async () => {
@@ -547,6 +904,23 @@ describe("US - Crear viaje (CreateTripScreen)", () => {
 
     const utils = await renderPantallaCargada();
 
+    // PASO 1: completar información básica
+    await act(async () => {
+      fireEvent.changeText(
+        utils.getByPlaceholderText("Ej: Escapada a Bariloche"),
+        "Viaje de prueba"
+      );
+    });
+
+    await completarFechas(utils);
+
+    await press(utils, "Siguiente");
+
+    await waitFor(() =>
+      expect(utils.getByText("Destinos y Portada")).toBeTruthy()
+    );
+
+    // Intentar seleccionar una portada
     await press(utils, "Elegir de la galería");
 
     await waitFor(() => {

@@ -18,8 +18,9 @@ import ScreenContainer from "../components/layout/ScreenContainer";
 import IconCircleButton from "../components/ui/IconCircleButton";
 import MetricCard from "../components/ui/MetricCard";
 import PrimaryButton from "../components/ui/PrimaryButton";
+import AICoverGenerator from "../components/trip/AICoverGenerator";
 import useResponsive from "../hooks/useResponsive";
-import { getTripDetail, updateTrip, searchDestinations, uploadTripCover, removeTripCover } from "../services/api.js";
+import { getTripDetail, updateTrip, searchDestinations, uploadTripCover, removeTripCover, generateTripCoverAI, acceptTripCoverAI } from "../services/api.js";
 import { colors, radii, spacing, surfaces, textStyles } from "../theme/tokens";
 
 import * as ImagePicker from "expo-image-picker";
@@ -179,6 +180,18 @@ export default function EditTripScreen({ navigation, route }) {
 
     function handleCancelRemoveCover() {
       setRemoveCoverRequested(false);
+    }
+
+    // US 57: la imagen generada con IA se guarda como portada apenas se acepta.
+    async function handleAcceptAiCover(preview) {
+      const result = await acceptTripCoverAI(tripId, preview.imageBase64, preview.mimeType);
+      // La portada ya quedó guardada en el servidor: se descartan las selecciones locales pendientes.
+      setCoverImage(null);
+      setCoverError("");
+      setRemoveCoverRequested(false);
+      setHasCustomCover(true);
+      setCurrentCoverUrl(result.image ?? null);
+      return result.message;
     }
 
     function handleInputChange(name, value) {
@@ -553,6 +566,11 @@ export default function EditTripScreen({ navigation, route }) {
                 </View>
 
                 {coverError ? <Text style={styles.fieldError}>{coverError}</Text> : null}
+
+                <AICoverGenerator
+                  generate={(prompt) => generateTripCoverAI(tripId, prompt)}
+                  onAccept={handleAcceptAiCover}
+                />
               </View>
 
 

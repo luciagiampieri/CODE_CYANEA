@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import {
     View,
     Text,
@@ -6,26 +6,30 @@ import {
     ScrollView,
     TextInput,
     TouchableOpacity,
-    ActivityIndicator,
     Alert,
     Platform,
     Modal,
+    Pressable,
+    Keyboard,
+    KeyboardAvoidingView,
 } from "react-native";
 
-import DateTimePicker from "@react-native-community/datetimepicker";
 import { FontAwesome6 } from "@expo/vector-icons";
+import DatePickerModal from "../components/ui/DatePickerModal";     
+import { toYMD, parseYMD, getTodayIso } from "../utils/dates";     
+
+
 import PrimaryButton from "../components/ui/PrimaryButton";
 import { createVotacion } from "../services/api";
 import { colors, shadows, textStyles, radii, spacing } from "../theme/tokens";
-
+import DateTimePicker from "@react-native-community/datetimepicker";
 
 function fechaDefault() {
     const d = new Date();
-    d.setDate(d.getDate() + 1);
-    d.setSeconds(0, 0);
+    d.setDate(d.getDate());
+    d.setHours(23, 59, 0, 0); 
     return d;
 }
-
 
 function toDatetimeLocal(date) {
     const pad = (n) => String(n).padStart(2, "0");
@@ -35,7 +39,6 @@ function toDatetimeLocal(date) {
     );
 }
 
-
 export default function CrearVotacionScreen({ visible, onClose, IdViaje, onVotacionCreada }) {
     const [titulo, setTitulo] = useState("");
     const [tipo, setTipo] = useState("opcion_unica"); 
@@ -43,14 +46,35 @@ export default function CrearVotacionScreen({ visible, onClose, IdViaje, onVotac
     const [propuestas, setPropuestas] = useState(["", ""]); 
     const [errores, setErrores] = useState({});
     const [saving, setSaving] = useState(false);
-    const [mostrarFecha, setMostrarFecha] = useState(false);
-    const [mostrarHora, setMostrarHora] = useState(false);
+    
+    // Estados para controlar los modales
+    const [mostrarCalendario, setMostrarCalendario] = useState(false);
+    const [mostrarSelectorHora, setMostrarSelectorHora] = useState(false);
+
+    const [tempDate, setTempDate] = useState(new Date());
+
+    const scrollRef = useRef(null);
+    const contentY = useRef(0);
+    const fieldY = useRef({});
+
+    function scrollToField(key) {
+        // Delay para esperar a que el teclado termine de aparecer
+        setTimeout(() => {
+            const y = fieldY.current[key];
+            if (y == null) return;
+            scrollRef.current?.scrollTo({
+                y: Math.max(contentY.current + y - 80, 0),
+                animated: true,
+            });
+        }, 300);
+    }
 
     useEffect(() => {
         if (!visible) return;
         setTitulo("");
         setTipo("opcion_unica");
-        setFechaCierre(fechaDefault());
+        const def = fechaDefault();
+        setFechaCierre(def);
         setPropuestas(["", ""]);
         setErrores({});
     }, [visible]);
@@ -131,11 +155,42 @@ export default function CrearVotacionScreen({ visible, onClose, IdViaje, onVotac
         }
     }
 
+    function commitHora(date) {
+        const nueva = new Date(fechaCierre);
+        nueva.setHours(date.getHours(), date.getMinutes(), 0, 0);
+        setFechaCierre(nueva);
+    }
+
+    function handleTimeChange(event, selectedDate) {
+        if (Platform.OS === "android") {
+            setMostrarSelectorHora(false);
+            if (event.type === "set" && selectedDate) commitHora(selectedDate);
+            return;
+        }
+        // iOS: solo guarda el valor temporal; se confirma con "Listo"
+        if (selectedDate) setTempDate(selectedDate);
+    }
+
+    function confirmarHora() {
+        commitHora(tempDate);
+        setMostrarSelectorHora(false);
+    }
+
     return (
         <Modal animationType="slide" transparent visible={visible} onRequestClose={onClose}>
+            <KeyboardAvoidingView
+                style={{ flex: 1 }}
+                behavior={Platform.OS === "ios" ? "padding" : undefined}
+            >
             <View style={styles.overlay}>
                 <View style={styles.sheet}>
-                    <ScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+                    <ScrollView 
+                        ref={scrollRef}
+                        keyboardShouldPersistTaps="handled"
+                        keyboardDismissMode="on-drag"
+                        showsVerticalScrollIndicator={false}
+                        contentContainerStyle={{ paddingBottom: spacing.xl }}
+                    >
                         <View style={styles.headerRow}>
                             <Text style={styles.title}>Nueva votación</Text>
                             <TouchableOpacity onPress={onClose} testID="cerrar-votacion-modal">
@@ -143,9 +198,19 @@ export default function CrearVotacionScreen({ visible, onClose, IdViaje, onVotac
                             </TouchableOpacity>
                         </View>
 
-                        <View style={styles.content}>
+                        <View 
+                            style={styles.content}
+                            onLayout={(e) => {
+                                contentY.current = e.nativeEvent.layout.y;
+                            }}
+                        >
                             <Text style={styles.label}>Nombre descriptivo</Text>
-                            <View style={styles.inputBox}>
+                            <View 
+                                style={styles.inputBox}
+                                onLayout={(e) => {
+                                    fieldY.current.titulo = e.nativeEvent.layout.y;
+                                }}
+                            >
                                 <FontAwesome6 name="pen" size={14} color={colors.overlay} />
                                 <TextInput
                                     style={styles.input}
@@ -153,6 +218,7 @@ export default function CrearVotacionScreen({ visible, onClose, IdViaje, onVotac
                                     placeholderTextColor={colors.overlay} 
                                     value={titulo}
                                     onChangeText={setTitulo}
+                                    onFocus={() => scrollToField("titulo")}
                                     maxLength={150}
                                 />
                             </View>
@@ -199,47 +265,93 @@ export default function CrearVotacionScreen({ visible, onClose, IdViaje, onVotac
                                             if (!e.target.value) return;
                                             setFechaCierre(new Date(e.target.value));
                                         }}
-                                        style={{ border: "none", width: "100%", outline: "none", background: "transparent", fontFamily: "fontFamilies.sans" }}
+                                        style={{ border: "none", width: "100%", outline: "none", background: "transparent", fontFamily: "inherit", fontSize: "16px", color: 'inherit', cursor: 'pointer' }}
                                     />
                                 </View>
                             ) : (
                                 <>
-                                    <TouchableOpacity style={styles.dateBox} onPress={() => setMostrarFecha(true)}>
-                                        <FontAwesome6 name="calendar" size={15} color={colors.primary} />
-                                        <Text style={styles.input}>{fechaCierreTexto()}</Text>
-                                    </TouchableOpacity>
-
-                                    {mostrarFecha && (
-                                        <DateTimePicker
-                                            value={fechaCierre}
-                                            mode="date"
-                                            minimumDate={new Date()}
-                                            onChange={(e, date) => {
-                                                setMostrarFecha(false);
-                                                if (date) {
-                                                    const nueva = new Date(fechaCierre);
-                                                    nueva.setFullYear(date.getFullYear(), date.getMonth(), date.getDate());
-                                                    setFechaCierre(nueva);
-                                                    setMostrarHora(true);
-                                                }
+                                    {/* Botón combinado para abrir Calendario o Selector Táctil de Hora */}
+                                    <View style={[styles.dateBoxContainer, errores.fechaCierre && styles.inputError]}>
+                                        <Pressable 
+                                            style={styles.dateButtonPart} 
+                                            onPress={() => {
+                                                Keyboard.dismiss();
+                                                setMostrarCalendario(true);
                                             }}
-                                        />
-                                    )}
+                                        >
+                                            <FontAwesome6 name="calendar" size={15} color={colors.primary} />
+                                            <Text style={styles.inputText}>{fechaCierreTexto().split(",")[0] || fechaCierreTexto()}</Text>
+                                        </Pressable>
 
-                                    {mostrarHora && (
+                                        <View style={styles.dateDivider} />
+
+                                        <Pressable 
+                                            style={styles.timeButtonPart} 
+                                            onPress={() => {
+                                                Keyboard.dismiss();
+                                                setTempDate(new Date(fechaCierre));
+                                                setMostrarSelectorHora(true);
+                                            }}
+                                        >
+                                            <FontAwesome6 name="clock" size={15} color={colors.primary} />
+                                            <Text style={styles.inputText}>
+                                                {String(fechaCierre.getHours()).padStart(2, "0")}:{String(fechaCierre.getMinutes()).padStart(2, "0")}
+                                            </Text>
+                                        </Pressable>
+                                    </View>
+
+                                    {/* Modal Calendario Estándar */}
+                                    <DatePickerModal
+                                        visible={mostrarCalendario}
+                                        onClose={() => setMostrarCalendario(false)}
+                                        title="Fecha de cierre"
+                                        value={toYMD(fechaCierre)}
+                                        onChange={(ymd) => {
+                                            // Solo actualiza año/mes/día — la hora ya seteada en fechaCierre
+                                            // (por el selector de hora aparte) se mantiene intacta.
+                                            const [year, month, day] = ymd.split("-").map(Number);
+                                            const nueva = new Date(fechaCierre);
+                                            nueva.setFullYear(year, month - 1, day);
+                                            setFechaCierre(nueva);
+                                        }}
+                                        minDate={parseYMD(getTodayIso(), 0)}
+                                    />
+
+                                    {mostrarSelectorHora && Platform.OS === "ios" ? (
+                                        <Modal
+                                            transparent
+                                            animationType="fade"
+                                            visible={mostrarSelectorHora}
+                                            onRequestClose={() => setMostrarSelectorHora(false)}
+                                        >
+                                            <Pressable
+                                                style={styles.modalOverlayCalendar}
+                                                onPress={() => setMostrarSelectorHora(false)}
+                                            >
+                                                <Pressable style={styles.timePickerContainer} onPress={(e) => e.stopPropagation()}>
+                                                    <DateTimePicker
+                                                        mode="time"
+                                                        value={tempDate}
+                                                        onChange={handleTimeChange}
+                                                        is24Hour={true}
+                                                        display="spinner"
+                                                        style={{ width: 220, height: 160 }}
+                                                    />
+                                                    <Pressable style={styles.timePickerDone} onPress={confirmarHora}>
+                                                        <Text style={styles.timePickerDoneText}>Listo</Text>
+                                                    </Pressable>
+                                                </Pressable>
+                                            </Pressable>
+                                        </Modal>
+                                    ) : mostrarSelectorHora ? (
                                         <DateTimePicker
-                                            value={fechaCierre}
                                             mode="time"
-                                            onChange={(e, date) => {
-                                                setMostrarHora(false);
-                                                if (date) {
-                                                    const nueva = new Date(fechaCierre);
-                                                    nueva.setHours(date.getHours(), date.getMinutes(), 0, 0);
-                                                    setFechaCierre(nueva);
-                                                }
-                                            }}
+                                            value={tempDate}
+                                            onChange={handleTimeChange}
+                                            is24Hour={true}
+                                            display="default"
                                         />
-                                    )}
+                                    ) : null}
                                 </>
                             )}
                             {errores.fechaCierre && <Text style={styles.error}>{errores.fechaCierre}</Text>}
@@ -253,7 +365,13 @@ export default function CrearVotacionScreen({ visible, onClose, IdViaje, onVotac
                             </View>
 
                             {propuestas.map((propuesta, index) => (
-                                <View key={index} style={styles.propuestaRow}>
+                                <View
+                                    key={index}
+                                    style={styles.propuestaRow}
+                                    onLayout={(e) => {
+                                        fieldY.current[`propuesta-${index}`] = e.nativeEvent.layout.y;
+                                    }}
+                                >
                                     <View style={[styles.inputBox, { flex: 1, marginBottom: 0 }]}>
                                         <Text style={styles.propuestaIndex}>{index + 1}</Text>
                                         <TextInput
@@ -262,6 +380,7 @@ export default function CrearVotacionScreen({ visible, onClose, IdViaje, onVotac
                                             placeholderTextColor={colors.overlay} 
                                             value={propuesta}
                                             onChangeText={(val) => actualizarPropuesta(index, val)}
+                                            onFocus={() => scrollToField(`propuesta-${index}`)}
                                             maxLength={255}
                                         />
                                     </View>
@@ -292,10 +411,10 @@ export default function CrearVotacionScreen({ visible, onClose, IdViaje, onVotac
                     </ScrollView>
                 </View>
             </View>
+            </KeyboardAvoidingView>
         </Modal>
     );
 }
-
 
 const styles = StyleSheet.create({
     overlay: {
@@ -350,6 +469,45 @@ const styles = StyleSheet.create({
         fontWeight: "700",
         ...textStyles.body,
     },
+    inputText: {
+        color: colors.overlayStrong,
+        fontWeight: "700",
+        ...textStyles.body,
+        fontSize: 13,
+    },
+    dateBoxContainer: {
+        minHeight: 48,
+        borderWidth: 1,
+        borderColor: colors.border || "#dfe3ea",
+        borderRadius: radii.md || 12,
+        backgroundColor: colors.surface,
+        flexDirection: "row",
+        alignItems: "center",
+        overflow: "hidden",
+    },
+    dateButtonPart: {
+        flex: 1.3,
+        flexDirection: "row",
+        alignItems: "center",
+        paddingHorizontal: 12,
+        gap: 8,
+        height: "100%",
+        paddingVertical: 12,
+    },
+    timeButtonPart: {
+        flex: 1,
+        flexDirection: "row",
+        alignItems: "center",
+        paddingHorizontal: 12,
+        gap: 8,
+        height: "100%",
+        paddingVertical: 12,
+    },
+    dateDivider: {
+        width: 1,
+        height: "60%",
+        backgroundColor: colors.border || "#dfe3ea",
+    },
     dateBox: {
         minHeight: 48,
         borderWidth: 1,
@@ -360,6 +518,9 @@ const styles = StyleSheet.create({
         flexDirection: "row",
         gap: 10,
         alignItems: "center",
+    },
+    inputError: {
+        borderColor: colors.danger,
     },
     submitButton: {
         marginTop: spacing.lg,
@@ -439,4 +600,27 @@ const styles = StyleSheet.create({
         alignItems: "center",
     },
     removeButtonDisabled: { opacity: 0.5 },
+    modalOverlayCalendar: {
+        flex: 1,
+        justifyContent: "center",
+        alignItems: "center",
+        backgroundColor: "rgba(0, 0, 0, 0.5)",
+    },
+   timePickerContainer: {
+        backgroundColor: colors.surface,
+        borderRadius: radii.md,
+        padding: spacing.lg,
+        alignItems: "center",
+        minWidth: 260,
+    },
+    timePickerDone: {
+        marginTop: spacing.sm,
+        paddingVertical: spacing.sm,
+        paddingHorizontal: spacing.lg,
+    },
+    timePickerDoneText: {
+        ...textStyles.body,
+        color: colors.primary,
+        fontWeight: "700",
+    },
 });

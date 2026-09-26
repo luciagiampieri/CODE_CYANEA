@@ -14,6 +14,7 @@
       }
     },
     "android": {
+      "package": "com.ticigaticasteam.cyanea",
       "adaptiveIcon": {
         "backgroundColor": "#1e3e7b"
       }
@@ -28,6 +29,12 @@
       "expo-sqlite",
       "expo-web-browser",
       "expo-font",
+      [
+        "react-native-maps",
+        {
+          "androidGoogleMapsApiKey": "AIzaSyC7CYPXZxfbrReuj82aWaTQ0oxrm8E5LAE"
+        }
+      ],
       [
         "expo-image-picker",
         {

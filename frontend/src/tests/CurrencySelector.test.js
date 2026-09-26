@@ -17,25 +17,25 @@ const baseProps = {
 
 async function abrirBuscador(utils) {
   await act(async () => {
-    fireEvent(utils.getByPlaceholderText("Buscar moneda..."), "focus");
+    fireEvent.press(utils.getByText("Seleccionar moneda..."));
   });
 }
 
 describe("CurrencySelector", () => {
-  it("muestra el input vacío cuando no hay moneda seleccionada y está cerrado", async () => {
-    const { getByPlaceholderText } = await render(<CurrencySelector {...baseProps} />);
+  it("muestra el placeholder cuando no hay moneda seleccionada y está cerrado", async () => {
+    const { getByText } = await render(
+      <CurrencySelector {...baseProps} />
+    );
 
-    expect(getByPlaceholderText("Buscar moneda...").props.value).toBe("");
+    expect(getByText("Seleccionar moneda...")).toBeTruthy();
   });
 
   it("muestra 'Nombre (Código)' de la moneda seleccionada cuando está cerrado", async () => {
-    const { getByPlaceholderText } = await render(
+    const { getByText } = await render(
       <CurrencySelector {...baseProps} selectedCurrency="USD" />
     );
 
-    expect(getByPlaceholderText("Buscar moneda...").props.value).toBe(
-      "Dólar estadounidense (USD)"
-    );
+    expect(getByText("Dólar estadounidense (USD)")).toBeTruthy();
   });
 
   it("al hacer foco, abre el listado con todas las monedas", async () => {

@@ -49,6 +49,14 @@ class Settings(BaseSettings):
     supabase_url: str = ""
     supabase_service_key: str = ""
     supabase_bucket: str = "trip-documents"
+
+    # Generación de imágenes con IA (portada de viaje, US 57)
+    cloudflare_account_id: str | None = None
+    cloudflare_api_token: str | None = None
+    ai_image_model: str = "@cf/black-forest-labs/flux-1-schnell"
+    # Si es True no se llama a ningún servicio externo: devuelve una imagen de prueba.
+    ai_cover_mock: bool = False
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
