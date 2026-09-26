@@ -1112,24 +1112,6 @@ export default function TripDetailScreen({ navigation, route }) {
     return { total, completadas, porcentaje };
   }, [checklists]);
 
-  const checklistCategorias = useMemo(() => {
-    const cats = new Set();
-    checklists.forEach((c) => {
-      const nombreCat = c.CategoriaChecklist?.Nombre || "Otros";
-      cats.add(nombreCat);
-    });
-    return ["Todas", ...Array.from(cats)];
-  }, [checklists]);
-
-  const checklistsFiltradas = useMemo(() => {
-    if (categoriaChecklistFiltro === "Todas") {
-      return checklists;
-    }
-    return checklists.filter(
-      (c) => (c.CategoriaChecklist?.Nombre || "Otros") === categoriaChecklistFiltro
-    );
-  }, [checklists, categoriaChecklistFiltro]);
-
   function handleAddParticipant(user) {
     if (!lock.canEdit("participantes")) return;
     persistAddParticipant({ userId: user.id });
@@ -2703,42 +2685,10 @@ export default function TripDetailScreen({ navigation, route }) {
                 </Text>
               </View>
 
-              {/* 2. Chips de Filtro de Categoría */}
-              {checklistCategorias.length > 1 ? (
-                <ScrollView
-                  horizontal
-                  showsHorizontalScrollIndicator={false}
-                  contentContainerStyle={styles.checklistChipsContainer}
-                >
-                  {checklistCategorias.map((cat) => {
-                    const activa = categoriaChecklistFiltro === cat;
-                    return (
-                      <Pressable
-                        key={cat}
-                        onPress={() => setCategoriaChecklistFiltro(cat)}
-                        style={[
-                          styles.checklistFilterChip,
-                          activa && styles.checklistFilterChipActive,
-                        ]}
-                      >
-                        <Text
-                          style={[
-                            styles.checklistFilterChipText,
-                            activa && styles.checklistFilterChipTextActive,
-                          ]}
-                        >
-                          {cat}
-                        </Text>
-                      </Pressable>
-                    );
-                  })}
-                </ScrollView>
-              ) : null}
-
-              {/* 3. Encabezado de la lista con Tareas (X) y botón + Agregar */}
+              {/* 2. Encabezado de la lista con Tareas (X) y botón + Agregar */}
               <View style={styles.checklistHeaderRow}>
                 <Text style={styles.checklistSectionTitle}>
-                  TAREAS ({checklistsFiltradas.length})
+                  TAREAS ({checklists.length})
                 </Text>
 
                 {lock.canEdit("checklist") ? (
@@ -2754,75 +2704,29 @@ export default function TripDetailScreen({ navigation, route }) {
                 ) : null}
               </View>
 
-              {/* 4. Lista de Tareas */}
+              {/* 3. Lista de tareas (filtros por categoría y "Mis tareas" incluidos) */}
               {loadingChecklists ? (
                 <ActivityIndicator color={colors.primary} style={{ marginTop: spacing.md }} />
               ) : checklistsError ? (
                 <View style={styles.sectionCard}>
                   <Text style={styles.sectionCopy}>{checklistsError}</Text>
                 </View>
-              ) : checklists.length === 0 ? (
-                <View style={styles.sectionCard}>
-                  <Text style={styles.sectionCopy}>
-                    Todavía no hay tareas para este viaje. ¡Creá la primera!
-                  </Text>
-                </View>
               ) : (
-                checklists.map((checklist) => {
-                  const eliminandoEsteChecklist = eliminandoChecklistId === checklist.IdChecklist;
-                  return (
-                    <View key={checklist.IdChecklist} style={[styles.sectionCard, { paddingVertical: spacing.sm }]}>
-                      <View
-                        style={{
-                          flexDirection: "row",
-                          alignItems: "center",
-                          justifyContent: "space-between",
-                        }}
-                      >
-                        <View style={{ flexDirection: "row", alignItems: "center", gap: 10, flex: 1 }}>
-                          <FontAwesome6 
-                            name="circle-check" 
-                            size={18} 
-                            color={checklist.Completada ? colors.success : colors.border} 
-                          />
-                          <View style={{ flex: 1 }}>
-                            <Text style={[styles.sectionHeading, { fontSize: 16 }]} numberOfLines={1}>
-                              {checklist.Nombre}
-                            </Text>
-                            <Text style={[styles.sectionCopy, { fontSize: 12, marginTop: 2 }]}>
-                              <Text style={{ fontWeight: "700" }}>{checklist.CategoriaChecklist?.Nombre || "Otro"}</Text> 
-                              {checklist.Responsables?.length > 0 
-                                ? ` — ${checklist.Responsables.map((r) => r.NombreCompleto.split(' ')[0]).join(", ")}` 
-                                : ""}
-                            </Text>
-                          </View>
-                        </View>
-
-                        {checklist.EsPropio && lock.canEdit("checklist") ? (
-                          <View style={{ flexDirection: "row", gap: spacing.md, marginLeft: 10 }}>
-                            <Pressable
-                              onPress={() => {
-                                setChecklistAEditar(checklist);
-                                setShowCrearChecklistModal(true);
-                              }}
-                              style={{ padding: 4 }}
-                            >
-                              <FontAwesome6 name="pen" size={13} color={colors.textSecondary} />
-                            </Pressable>
-
-                            <Pressable
-                              onPress={() => eliminarChecklist(checklist)}
-                              disabled={eliminandoEsteChecklist}
-                              style={{ padding: 4, opacity: eliminandoEsteChecklist ? 0.6 : 1 }}
-                            >
-                              <FontAwesome6 name="trash" size={13} color={colors.danger} />
-                            </Pressable>
-                          </View>
-                        ) : null}
-                      </View>
-                    </View>
-                  );
-                })
+                <ChecklistsByCategory
+                  checklists={checklists}
+                  categoriaFiltro={categoriaChecklistFiltro}
+                  onCategoriaChange={setCategoriaChecklistFiltro}
+                  onEditar={(checklist) => {
+                    setChecklistAEditar(checklist);
+                    setShowCrearChecklistModal(true);
+                  }}
+                  onEliminar={eliminarChecklist}
+                  onToggle={handleToggleChecklist}
+                  puedeCompletar={lock.canEdit("checklist")}
+                  eliminandoChecklistId={eliminandoChecklistId}
+                  tripHasLeft={!lock.canEdit("checklist")}
+                  currentUserId={currentUser?.id}
+                />
               )}
             </View>
           ) : null}
@@ -4417,7 +4321,6 @@ const styles = StyleSheet.create({
     fontSize: 13,
   },
 
-  // Estilos Checklist idénticos al mockup (Foto 1)
   checklistProgressCard: {
     backgroundColor: colors.primary,
     borderRadius: 20,

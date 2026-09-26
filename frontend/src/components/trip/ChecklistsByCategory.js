@@ -13,6 +13,8 @@ export default function ChecklistsByCategory({
     onCategoriaChange,
     onEditar,
     onEliminar,
+    onToggle,
+    puedeCompletar = true,
     eliminandoChecklistId = null,
     tripHasLeft = false,
     currentUserId,
@@ -152,6 +154,8 @@ const [soloMisTareas, setSoloMisTareas] = useState(false);
                         categoria={cat}
                         onEditar={onEditar}
                         onEliminar={onEliminar}
+                        onToggle={onToggle}
+                        puedeCompletar={puedeCompletar}
                         eliminandoChecklistId={eliminandoChecklistId}
                         tripHasLeft={tripHasLeft}
                     />
@@ -161,6 +165,8 @@ const [soloMisTareas, setSoloMisTareas] = useState(false);
                     categoria={categoriaSeleccionada}
                     onEditar={onEditar}
                     onEliminar={onEliminar}
+                    onToggle={onToggle}
+                    puedeCompletar={puedeCompletar}
                     eliminandoChecklistId={eliminandoChecklistId}
                     tripHasLeft={tripHasLeft}
                     ocultarTitulo 
@@ -179,6 +185,8 @@ function SeccionCategoria({
     categoria,
     onEditar,
     onEliminar,
+    onToggle,
+    puedeCompletar,
     eliminandoChecklistId,
     tripHasLeft,
     ocultarTitulo,
@@ -201,6 +209,8 @@ function SeccionCategoria({
                         tarea={tarea}
                         onEditar={onEditar}
                         onEliminar={onEliminar}
+                        onToggle={onToggle}
+                        puedeCompletar={puedeCompletar}
                         eliminando={eliminandoChecklistId === tarea.IdChecklist}
                         tripHasLeft={tripHasLeft}
                     />
@@ -211,9 +221,10 @@ function SeccionCategoria({
 }
 
 
-function ChecklistCard({ tarea, onEditar, onEliminar, eliminando, tripHasLeft }) {
+function ChecklistCard({ tarea, onEditar, onEliminar, onToggle, puedeCompletar, eliminando, tripHasLeft }) {
+    const esCompletada = !!tarea.Completada;
     return (
-        <View style={[styles.card, { paddingVertical: spacing.sm }]}>
+        <View style={[styles.card, { paddingVertical: spacing.sm }, esCompletada && styles.cardCompletada]}>
             <View
                 style={{
                     flexDirection: "row",
@@ -221,14 +232,24 @@ function ChecklistCard({ tarea, onEditar, onEliminar, eliminando, tripHasLeft })
                     justifyContent: "space-between",
                 }}
             >
-                <View style={{ flexDirection: "row", alignItems: "center", gap: 10, flex: 1 }}>
+                <Pressable
+                    testID={`toggle-checklist-${tarea.IdChecklist}`}
+                    onPress={() => onToggle?.(tarea)}
+                    disabled={!onToggle || !puedeCompletar}
+                    accessibilityRole="checkbox"
+                    accessibilityState={{ checked: esCompletada, disabled: !puedeCompletar }}
+                    style={{ flexDirection: "row", alignItems: "center", gap: 10, flex: 1 }}
+                >
                     <FontAwesome6
-                        name="circle-check"
-                        size={18}
-                        color={tarea.Completada ? colors.success : colors.border}
+                        name={esCompletada ? "circle-check" : "circle"}
+                        size={22}
+                        color={esCompletada ? colors.success : colors.border}
                     />
                     <View style={{ flex: 1 }}>
-                        <Text style={[styles.cardNombre, { fontSize: 16 }]} numberOfLines={1}>
+                        <Text
+                            style={[styles.cardNombre, { fontSize: 16 }, esCompletada && styles.cardNombreCompletada]}
+                            numberOfLines={1}
+                        >
                             {tarea.Nombre}
                         </Text>
                         <Text style={[styles.cardMeta, { fontSize: 12, marginTop: 2 }]}>
@@ -240,7 +261,7 @@ function ChecklistCard({ tarea, onEditar, onEliminar, eliminando, tripHasLeft })
                                 : ""}
                         </Text>
                     </View>
-                </View>
+                </Pressable>
 
                 {tarea.EsPropio && !tripHasLeft ? (
                     <View style={{ flexDirection: "row", gap: spacing.md, marginLeft: 10 }}>
@@ -323,6 +344,13 @@ const styles = StyleSheet.create({
     cardNombre: {
         ...textStyles.bodyStrong,
         color: colors.textPrimary,
+    },
+    cardCompletada: {
+        opacity: 0.75,
+    },
+    cardNombreCompletada: {
+        textDecorationLine: "line-through",
+        color: colors.textSecondary,
     },
     cardMeta: {
         ...textStyles.body,

@@ -56,7 +56,7 @@ export default function TripCard({ trip, onPress, compact = false }) {
               <View />
               <View style={styles.badgeStack}>
                 {badges.map((badge) => (
-                  <StatusPill key={badge.tone} tone={badge.tone}>
+                  <StatusPill key={badge.tone} tone={badge.tone} style={styles.badge}>
                     {badge.label}
                   </StatusPill>
                 ))}
@@ -211,5 +211,8 @@ const styles = StyleSheet.create({
   badgeStack: {
     gap: spacing.xxs,
     alignItems: "flex-end",
+  },
+  badge: {
+    alignSelf: "flex-end",
   },
 });
