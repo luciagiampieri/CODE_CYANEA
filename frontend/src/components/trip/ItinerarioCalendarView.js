@@ -7,6 +7,7 @@ import useResponsive from "../../hooks/useResponsive";
 import { colors, radii, spacing, surfaces, textStyles } from "../../theme/tokens";
 import { calcularActividadesSolapadas } from "../../utils/itinerarioOverlaps";
 import { buildRouteMarkers } from "../../utils/routeMarkers";
+import { getRouteHint } from "../../utils/routeMessages";
 
 const ANCHO_MINIMO_COLUMNA = 240;
 const MAXIMO_COLUMNAS = 4;
@@ -16,14 +17,6 @@ const MODOS_RUTA = [
   { valor: "driving", label: "Auto", icono: "car" },
   { valor: "bicycling", label: "Bici", icono: "person-biking" },
 ];
-
-function getRouteAvailabilityMessage(puedeGenerarRuta) {
-  if (puedeGenerarRuta) {
-    return "Todavia no hay una ruta generada para este dia. Generala para visualizar el recorrido en el mapa.";
-  }
-
-  return "Todavia no hay una ruta generada para este dia. Agrega 2 o mas actividades con ubicacion para poder visualizar el recorrido en el mapa.";
-}
 
 export default function ItinerarioCalendarView({
   dias,
@@ -213,11 +206,16 @@ export default function ItinerarioCalendarView({
                         </View>
                       ) : null}
 
-                      {!dia.ruta ? (
-                        <Text style={styles.routeHint}>
-                          {getRouteAvailabilityMessage(puedeGenerarRuta)}
-                        </Text>
-                      ) : null}
+                      {(() => {
+                        const routeHint = getRouteHint({
+                          hasRoute: Boolean(dia.ruta),
+                          activitiesWithLocation: actividadesConUbicacion.length,
+                          canEdit: typeof onGenerarRuta === "function",
+                        });
+                        return routeHint ? (
+                          <Text style={styles.routeHint}>{routeHint}</Text>
+                        ) : null;
+                      })()}
 
                       {puedeGenerarRuta && onGenerarRuta ? (
                         <>

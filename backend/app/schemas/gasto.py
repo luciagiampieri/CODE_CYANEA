@@ -45,6 +45,20 @@ class GastoCreate(BaseModel):
     DetalleMontosPersonalizados: Optional[list[ParticipanteDivisionCreate]] = []
 
 
+class GastoListItemRead(BaseModel):
+    """Gasto tal como se muestra en el listado del viaje."""
+
+    IdGasto: int
+    Nombre: str
+    Monto: Decimal
+    FechaGasto: date
+    IdCategoria: int
+    NombreCategoria: str
+    IdPagador: int
+    IdUsuarioPagador: int
+    NombrePagador: str
+
+
 class GastoRead(BaseModel):
     IdGasto: int
     IdViaje: int
@@ -65,6 +79,3 @@ class GastoRead(BaseModel):
     model_config = {
         "from_attributes": True
     }
-
-
-

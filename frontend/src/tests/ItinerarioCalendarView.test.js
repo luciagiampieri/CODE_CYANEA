@@ -67,7 +67,7 @@ describe("HU 23 - ItinerarioCalendarView", () => {
 
     expect(
       getByText(
-        "Todavia no hay una ruta generada para este dia. Generala para visualizar el recorrido en el mapa."
+        "Todavía no hay recorrido para este día. Elegí cómo se van a mover y generalo para verlo en el mapa."
       )
     ).toBeTruthy();
     expect(getByText("Generar ruta")).toBeTruthy();
@@ -89,7 +89,7 @@ describe("HU 23 - ItinerarioCalendarView", () => {
 
     expect(
       getByText(
-        "Todavia no hay una ruta generada para este dia. Agrega 2 o mas actividades con ubicacion para poder visualizar el recorrido en el mapa."
+        "Todavía no hay un recorrido generado para este día."
       )
     ).toBeTruthy();
     expect(queryByText("Generar ruta")).toBeNull();
@@ -122,7 +122,7 @@ describe("HU 23 - ItinerarioCalendarView", () => {
     });
     expect(
       queryByText(
-        "Todavia no hay una ruta generada para este dia. Generala para visualizar el recorrido en el mapa."
+        "Todavía no hay recorrido para este día. Elegí cómo se van a mover y generalo para verlo en el mapa."
       )
     ).toBeNull();
   });

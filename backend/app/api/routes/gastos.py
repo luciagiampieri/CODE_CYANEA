@@ -1,9 +1,9 @@
 from datetime import date
 from decimal import Decimal
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from app.api.deps import get_current_user
 from app.db.session import get_db
@@ -15,7 +15,8 @@ from app.schemas.gasto import (
     GastoCreate,
     CategoriasGastosRead,
     ParticipantesGastosRead,
-    GastoRead
+    GastoRead,
+    GastoListItemRead,
 )
 from app.models.gasto import TipoDivisionEnum
 from app.models.viaje import Viaje
@@ -273,6 +274,50 @@ def get_categories(
             Nombre=categoria.Nombre
         )
         for categoria in categorias
+    ]
+
+
+@router.get("/trips/{trip_id}", response_model=list[GastoListItemRead])
+def list_trip_gastos(
+    trip_id: int,
+    categoria: int | None = Query(
+        default=None,
+        description="Filtra por IdCategoria. Si se omite, devuelve todos los gastos.",
+    ),
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+):
+    """Listado de gastos del viaje, del más reciente al más antiguo."""
+
+    require_trip_access(get_trip_with_relations(db, trip_id), current_user)
+
+    query = (
+        select(Gasto)
+        .options(
+            selectinload(Gasto.Categoria),
+            selectinload(Gasto.Pagador).selectinload(ParticipanteViaje.Usuario),
+        )
+        .where(Gasto.IdViaje == trip_id)
+        .order_by(Gasto.FechaGasto.desc(), Gasto.FechaCreacion.desc(), Gasto.IdGasto.desc())
+    )
+    if categoria is not None:
+        query = query.where(Gasto.IdCategoria == categoria)
+
+    gastos = db.scalars(query).all()
+
+    return [
+        GastoListItemRead(
+            IdGasto=gasto.IdGasto,
+            Nombre=gasto.Nombre,
+            Monto=gasto.Monto,
+            FechaGasto=gasto.FechaGasto,
+            IdCategoria=gasto.IdCategoria,
+            NombreCategoria=gasto.Categoria.Nombre,
+            IdPagador=gasto.IdPagador,
+            IdUsuarioPagador=gasto.Pagador.IdUsuario,
+            NombrePagador=_actor_display_name(gasto.Pagador.Usuario),
+        )
+        for gasto in gastos
     ]
 
 
