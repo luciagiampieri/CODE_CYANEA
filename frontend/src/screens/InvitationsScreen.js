@@ -117,6 +117,8 @@ export default function InvitationsScreen({ navigation }) {
       await loadData();
     } catch (error) {
       Alert.alert("Atención", error.message || "Ocurrió un error al procesar la invitación.");
+      // Si la invitación fue cancelada mientras tanto, se recarga para que desaparezca.
+      await loadData();
     } finally {
       setSubmitting(false);
     }

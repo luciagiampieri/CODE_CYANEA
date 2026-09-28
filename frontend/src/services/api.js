@@ -385,6 +385,26 @@ export async function removeTripExternalInvitation(tripId, email) {
   return parseResponse(response, "No se pudo quitar la invitación externa");
 }
 
+// HU 71: listado de invitaciones enviadas (solo administrador del viaje).
+// `estado` es opcional: "pendiente" | "aceptada" | "rechazada".
+export async function getSentInvitations(tripId, estado) {
+  const query = estado ? `?estado=${encodeURIComponent(estado)}` : "";
+  const response = await fetch(`${API_BASE_URL}/trips/${tripId}/invitations/sent${query}`, {
+    headers: await authHeaders(),
+    cache: "no-store",
+  });
+  return parseResponse(response, "No se pudieron obtener las invitaciones enviadas");
+}
+
+// HU 72: cancelar una invitación pendiente (solo administrador del viaje).
+export async function cancelSentInvitation(tripId, userId) {
+  const response = await fetch(`${API_BASE_URL}/trips/${tripId}/invitations/${userId}/cancel`, {
+    method: "POST",
+    headers: await authHeaders(),
+  });
+  return parseResponse(response, "No se pudo cancelar la invitación");
+}
+
 export async function getUsers(search = "", limit = 8) {
   const params = new URLSearchParams();
   if (search.trim()) params.set("q", search.trim());
@@ -588,6 +608,17 @@ export async function getExpenseCategories() {
     response,
     "No se pudieron obtener las categorías"
   );
+}
+
+// Listado de gastos del viaje, del más reciente al más antiguo.
+// `categoria` (IdCategoria) es opcional; el filtro de la UI se resuelve en el cliente.
+export async function getTripExpenses(tripId, categoria) {
+  const query = categoria ? `?categoria=${encodeURIComponent(categoria)}` : "";
+  const response = await fetch(`${API_BASE_URL}/gastos/trips/${tripId}${query}`, {
+    headers: await authHeaders(),
+    cache: "no-store",
+  });
+  return parseResponse(response, "No se pudieron obtener los gastos del viaje");
 }
 
 export async function getTripParticipants(tripId) {

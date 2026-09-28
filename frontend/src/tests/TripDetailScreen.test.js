@@ -10,6 +10,10 @@ import {
   getTripDocuments,
   getVotaciones,
   onTripFinishedError,
+  getSentInvitations,
+  cancelSentInvitation,
+  getTripExpenses,
+  getExpenseCategories,
 } from "../services/api";
 
 jest.mock("react-native-maps", () => {
@@ -63,6 +67,9 @@ jest.mock("../services/api", () => ({
   getTripSettlement: jest.fn().mockResolvedValue({}),
   getTripParticipants: jest.fn().mockResolvedValue([]),
   getExpenseCategories: jest.fn().mockResolvedValue([]),
+  getSentInvitations: jest.fn().mockResolvedValue([]),
+  cancelSentInvitation: jest.fn(),
+  getTripExpenses: jest.fn().mockResolvedValue([]),
   onTripFinishedError: jest.fn(() => jest.fn()),
 }));
 
@@ -459,7 +466,7 @@ describe("US 68 - Abandonar un viaje (Suite completa de tests frontend)", () => 
       );
 
       fireEvent.press(await findByText("Ver gastos"));
-      expect(await findByText("Gastos del viaje")).toBeTruthy();
+      expect(await findByText("Total gastado")).toBeTruthy();
     });
   });
 });
@@ -627,5 +634,313 @@ describe("Viaje finalizado: solo lectura salvo Gastos", () => {
   test("se suscribe a los avisos de viaje finalizado del backend", async () => {
     await renderFinalizado();
     await waitFor(() => expect(onTripFinishedError).toHaveBeenCalled());
+  });
+});
+
+describe("HU 71 - Tab Grupo: invitaciones enviadas", () => {
+  const navigation = {
+    goBack: jest.fn(),
+    navigate: jest.fn(),
+    setParams: jest.fn(),
+    addListener: jest.fn(() => jest.fn()),
+  };
+  const tripBase = {
+    id: 1,
+    title: "Viaje a Bariloche",
+    status: "activo",
+    hasLeft: false,
+    currency: "ARS",
+    startDate: "2099-12-01",
+    endDate: "2099-12-10",
+    admin: { id: 1, nombreCompleto: "Juan Pérez", email: "juan@gmail.com" },
+    participants: [
+      { id: 1, nombreCompleto: "Juan Pérez", role: "administrador", status: "aceptado" },
+      { id: 2, nombreCompleto: "Carlos Gómez", role: "participante", status: "aceptado" },
+      { id: 3, nombreCompleto: "Pepa Pérez", role: "participante", status: "invitado" },
+    ],
+    cronograma: [],
+  };
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    getTripDetail.mockResolvedValue(tripBase);
+    getTripPlaces.mockResolvedValue([]);
+    getSentInvitations.mockResolvedValue([
+      {
+        userId: 3,
+        nombreUsuario: "pepa",
+        nombreCompleto: "Pepa Pérez",
+        status: "pendiente",
+        invitedAt: "2099-09-28T10:00:00",
+        respondedAt: null,
+      },
+    ]);
+  });
+
+  test("el administrador puede ver el listado de invitaciones enviadas", async () => {
+    getCurrentUser.mockResolvedValue({ id: 1, nombre: "Juan", apellido: "Pérez" });
+    const { findByText, findByTestId } = await render(
+      <TripDetailScreen navigation={navigation} route={{ params: { trip: tripBase } }} />
+    );
+
+    fireEvent.press(await findByText("Grupo"));
+    fireEvent.press(await findByTestId("group-view-invitaciones"));
+
+    expect(await findByText("@pepa")).toBeTruthy();
+    expect(getSentInvitations).toHaveBeenCalledWith(1);
+  });
+
+  test("un participante no administrador no ve el selector de invitaciones", async () => {
+    getCurrentUser.mockResolvedValue({ id: 2, nombre: "Carlos", apellido: "Gómez" });
+    const { findByText, queryByTestId } = await render(
+      <TripDetailScreen navigation={navigation} route={{ params: { trip: tripBase } }} />
+    );
+
+    fireEvent.press(await findByText("Grupo"));
+
+    expect(await findByText("Invitación pendiente")).toBeTruthy();
+    expect(queryByTestId("group-view-invitaciones")).toBeNull();
+    expect(getSentInvitations).not.toHaveBeenCalled();
+  });
+});
+
+
+describe("HU 72 - Cancelar invitación enviada", () => {
+  const navigation = {
+    goBack: jest.fn(),
+    navigate: jest.fn(),
+    setParams: jest.fn(),
+    addListener: jest.fn(() => jest.fn()),
+  };
+  const trip = {
+    id: 1,
+    title: "Viaje a Bariloche",
+    status: "activo",
+    hasLeft: false,
+    currency: "ARS",
+    startDate: "2099-12-01",
+    endDate: "2099-12-10",
+    admin: { id: 1, nombreCompleto: "Juan Pérez", email: "juan@gmail.com" },
+    participants: [
+      { id: 1, nombreCompleto: "Juan Pérez", role: "administrador", status: "aceptado" },
+      { id: 3, nombreCompleto: "Pepa Pérez", role: "participante", status: "invitado" },
+    ],
+    cronograma: [],
+  };
+
+  async function abrirInvitaciones() {
+    const utils = await render(
+      <TripDetailScreen navigation={navigation} route={{ params: { trip } }} />
+    );
+    fireEvent.press(await utils.findByText("Grupo"));
+    fireEvent.press(await utils.findByTestId("group-view-invitaciones"));
+    return utils;
+  }
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    getCurrentUser.mockResolvedValue({ id: 1, nombre: "Juan", apellido: "Pérez" });
+    getTripDetail.mockResolvedValue(trip);
+    getTripPlaces.mockResolvedValue([]);
+    getSentInvitations.mockResolvedValue([
+      {
+        userId: 3,
+        nombreUsuario: "pepa",
+        nombreCompleto: "Pepa Pérez",
+        status: "pendiente",
+        invitedAt: "2099-09-28T10:00:00",
+        respondedAt: null,
+      },
+    ]);
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  test("pide confirmación, cancela y muestra el mensaje de confirmación", async () => {
+    cancelSentInvitation.mockResolvedValueOnce({ message: "Invitación cancelada correctamente" });
+    jest.spyOn(Alert, "alert").mockImplementation((titulo, mensaje, botones) => {
+      botones?.find((boton) => boton.text === "Confirmar")?.onPress?.();
+    });
+
+    const { findByTestId } = await abrirInvitaciones();
+    fireEvent.press(await findByTestId("sent-invitation-cancel-3"));
+
+    expect(Alert.alert).toHaveBeenCalledWith(
+      "Cancelar invitación",
+      "¿Seguro que querés cancelar la invitación de @pepa?",
+      expect.any(Array)
+    );
+    await waitFor(() => expect(cancelSentInvitation).toHaveBeenCalledWith(1, 3));
+    await waitFor(() =>
+      expect(Alert.alert).toHaveBeenCalledWith(
+        "Invitación cancelada",
+        "Invitación cancelada correctamente"
+      )
+    );
+  });
+
+  test("si se vuelve atrás en la confirmación, la invitación no se cancela", async () => {
+    jest.spyOn(Alert, "alert").mockImplementation((titulo, mensaje, botones) => {
+      botones?.find((boton) => boton.text === "Volver")?.onPress?.();
+    });
+
+    const { findByTestId } = await abrirInvitaciones();
+    fireEvent.press(await findByTestId("sent-invitation-cancel-3"));
+
+    expect(Alert.alert).toHaveBeenCalled();
+    expect(cancelSentInvitation).not.toHaveBeenCalled();
+    expect(await findByTestId("sent-invitation-3")).toBeTruthy();
+  });
+
+  test("si el backend rechaza la cancelación, muestra el motivo", async () => {
+    cancelSentInvitation.mockRejectedValueOnce(
+      new Error("Solo se pueden cancelar invitaciones pendientes")
+    );
+    jest.spyOn(Alert, "alert").mockImplementation((titulo, mensaje, botones) => {
+      botones?.find((boton) => boton.text === "Confirmar")?.onPress?.();
+    });
+
+    const { findByTestId } = await abrirInvitaciones();
+    fireEvent.press(await findByTestId("sent-invitation-cancel-3"));
+
+    await waitFor(() =>
+      expect(Alert.alert).toHaveBeenCalledWith(
+        "No se pudo cancelar",
+        "Solo se pueden cancelar invitaciones pendientes"
+      )
+    );
+  });
+});
+
+
+describe("Tab Gastos rediseñado", () => {
+  const navigation = {
+    goBack: jest.fn(),
+    navigate: jest.fn(),
+    setParams: jest.fn(),
+    addListener: jest.fn(() => jest.fn()),
+  };
+  const trip = {
+    id: 9,
+    title: "Viaje a Córdoba",
+    status: "activo",
+    hasLeft: false,
+    currency: "ARS",
+    startDate: "2099-12-01",
+    endDate: "2099-12-10",
+    admin: { id: 1, nombreCompleto: "Lucia Giampieri", email: "lucia@test.com" },
+    participants: [
+      { id: 1, nombreCompleto: "Lucia Giampieri", role: "administrador", status: "aceptado" },
+      { id: 2, nombreCompleto: "Daniela F", role: "participante", status: "aceptado" },
+    ],
+    cronograma: [],
+  };
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    getCurrentUser.mockResolvedValue({ id: 1, nombre: "Lucia", apellido: "Giampieri" });
+    getTripDetail.mockResolvedValue(trip);
+    getTripPlaces.mockResolvedValue([]);
+    getTripSettlement.mockResolvedValue({
+      Moneda: "ARS",
+      TotalGastosViaje: 1100,
+      ResumenParticipantes: [
+        {
+          IdParticipanteViaje: 20,
+          IdUsuario: 2,
+          NombreCompleto: "Daniela F",
+          TotalPagado: 1100,
+          GastoIndividual: 1000,
+          BalanceOriginal: 100,
+          BalancePendiente: 100,
+        },
+        {
+          IdParticipanteViaje: 10,
+          IdUsuario: 1,
+          NombreCompleto: "Lucia Giampieri",
+          TotalPagado: 0,
+          GastoIndividual: 100,
+          BalanceOriginal: -100,
+          BalancePendiente: -100,
+        },
+      ],
+      Transferencias: [
+        {
+          IdTransferenciaLiquidacion: 5,
+          IdParticipanteDeudor: 10,
+          IdParticipanteAcreedor: 20,
+          NombreDeudor: "Lucia Giampieri",
+          NombreAcreedor: "Daniela F",
+          Monto: 100,
+          Estado: "pendiente",
+        },
+      ],
+    });
+  });
+
+  test("muestra el saldo del usuario y lleva a sus transferencias", async () => {
+    const { findByText, findByTestId } = await render(
+      <TripDetailScreen navigation={navigation} route={{ params: { trip } }} />
+    );
+
+    fireEvent.press(await findByText("Gastos"));
+
+    expect(await findByText("Tu saldo")).toBeTruthy();
+    fireEvent.press(await findByTestId("gastos-view-saldos"));
+    expect(await findByTestId("balance-10")).toBeTruthy();
+
+    fireEvent.press(await findByTestId("expense-my-balance"));
+
+    expect(await findByTestId("transfer-pay-5")).toBeTruthy();
+    expect(await findByText("Vos")).toBeTruthy();
+  });
+
+  test("abre por defecto el listado de gastos y permite filtrar por categoría", async () => {
+    getExpenseCategories.mockResolvedValue([
+      { IdCategoria: 1, Nombre: "Comida y Bebida" },
+      { IdCategoria: 2, Nombre: "Transporte" },
+    ]);
+    getTripExpenses.mockResolvedValue([
+      {
+        IdGasto: 31,
+        Nombre: "Taxi",
+        Monto: 40,
+        FechaGasto: "2099-09-03",
+        IdCategoria: 2,
+        NombreCategoria: "Transporte",
+        IdPagador: 20,
+        IdUsuarioPagador: 2,
+        NombrePagador: "Daniela F",
+      },
+      {
+        IdGasto: 30,
+        Nombre: "Cena",
+        Monto: 100,
+        FechaGasto: "2099-09-02",
+        IdCategoria: 1,
+        NombreCategoria: "Comida y Bebida",
+        IdPagador: 10,
+        IdUsuarioPagador: 1,
+        NombrePagador: "Lucia Giampieri",
+      },
+    ]);
+
+    const { findByText, findByTestId, queryByTestId } = await render(
+      <TripDetailScreen navigation={navigation} route={{ params: { trip } }} />
+    );
+
+    fireEvent.press(await findByText("Gastos"));
+
+    expect(await findByTestId("expense-30")).toBeTruthy();
+    expect(await findByTestId("expense-31")).toBeTruthy();
+    expect(getTripExpenses).toHaveBeenCalledWith(9);
+
+    fireEvent.press(await findByTestId("expense-filter-open"));
+    fireEvent.press(await findByTestId("expense-filter-1"));
+
+    await waitFor(() => expect(queryByTestId("expense-31")).toBeNull());
+    expect(await findByTestId("expense-30")).toBeTruthy();
   });
 });

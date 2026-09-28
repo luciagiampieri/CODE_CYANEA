@@ -20,6 +20,7 @@ class NotificationType(StrEnum):
     RECORDATORIO_ACTIVIDAD = "recordatorio_actividad"
     RECORDATORIO_RESERVA = "recordatorio_reserva"
     PARTICIPANTE_EXPULSADO = "participante_expulsado"
+    INVITACION_CANCELADA = "invitacion_cancelada"
 
 
 @dataclass(slots=True)
@@ -51,6 +52,7 @@ class NotificationService:
         NotificationType.RECORDATORIO_ACTIVIDAD: "RecibeEmailsRecordatoriosActividad",
         NotificationType.RECORDATORIO_RESERVA: "RecibeEmailsRecordatoriosReserva",
         NotificationType.PARTICIPANTE_EXPULSADO: "RecibeEmailsCambiosViaje",
+        NotificationType.INVITACION_CANCELADA: "RecibeEmailsCambiosViaje",
     }
     _push_preferences = {
         NotificationType.NUEVA_VOTACION: "RecibePushNuevaVotacion",
@@ -60,6 +62,7 @@ class NotificationService:
         NotificationType.RECORDATORIO_ACTIVIDAD: "RecibePushRecordatoriosActividad",
         NotificationType.RECORDATORIO_RESERVA: "RecibePushRecordatoriosReserva",
         NotificationType.PARTICIPANTE_EXPULSADO: "RecibePushCambiosViaje",
+        NotificationType.INVITACION_CANCELADA: "RecibePushCambiosViaje",
     }
 
     def __init__(self, mail_service: MailService) -> None:

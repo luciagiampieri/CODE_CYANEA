@@ -20,14 +20,19 @@ import {
 import ScreenContainer from "../components/layout/ScreenContainer";
 import MapCanvas from "../components/map/MapCanvas";
 import ParticipantSearch from "../components/trip/ParticipantSearch";
-import ParticipantList from "../components/trip/ParticipantList";
+import GroupMemberList from "../components/trip/GroupMemberList";
+import ExpenseSummaryCard from "../components/trip/ExpenseSummaryCard";
+import ExpenseList from "../components/trip/ExpenseList";
+import SettlementBalances from "../components/trip/SettlementBalances";
+import SettlementTransfers from "../components/trip/SettlementTransfers";
+import SentInvitationsList from "../components/trip/SentInvitationsList";
 import ResultadosVotacion from "../components/trip/ResultadosVotacion";
 import DocumentosPorCategoria, { ID_TODAS } from "../components/trip/DocumentsByCategory";
 import ChecklistsByCategory, { ID_TODAS as ID_TODAS_CHECKLIST } from "../components/trip/ChecklistsByCategory";
 import AvatarStack from "../components/ui/AvatarStack";
 import IconCircleButton from "../components/ui/IconCircleButton";
-import MetricCard from "../components/ui/MetricCard";
 import PrimaryButton from "../components/ui/PrimaryButton";
+import SegmentedControl from "../components/ui/SegmentedControl";
 import StatusPill from "../components/ui/StatusPill";
 import {
   addTripParticipant,
@@ -42,6 +47,8 @@ import {
   getResultadosVotacion,
   getProgresoVotacion,
   getUsers,
+  getSentInvitations,
+  cancelSentInvitation,
   markSettlementTransferPaid,
   removeTripExternalInvitation,
   removeTripParticipant,
@@ -50,6 +57,7 @@ import {
   updateActivity,
   getTripParticipants,
   getExpenseCategories,
+  getTripExpenses,
   getTripDocuments,
   downloadTripDocument,
   deleteTripDocument,
@@ -83,6 +91,8 @@ import ItinerarioViewToggle from "../components/trip/ItinerarioViewToggle";
 import ItinerarioCalendarView from "../components/trip/ItinerarioCalendarView";
 import { buildRouteMarkers } from "../utils/routeMarkers";
 import { getTripLock } from "../utils/tripLock";
+import { getRouteHint } from "../utils/routeMessages";
+import { formatMoney } from "../utils/money";
 
 const tabs = [
   { id: "resumen", label: "Resumen", icon: "chart-pie" },
@@ -225,19 +235,6 @@ function confirmar(titulo, mensaje, onConfirmar) {
   }
 }
 
-function formatMoney(amount, currency) {
-  const numeric = Number(amount ?? 0);
-  if (Number.isNaN(numeric)) {
-    return `${currency || "ARS"} 0,00`;
-  }
-
-  return new Intl.NumberFormat("es-AR", {
-    style: "currency",
-    currency: currency || "ARS",
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 2,
-  }).format(numeric);
-}
 
 // Calcula el centro geográfico (centroide) de un conjunto de marcadores,
 // para que el mapa del popup quede bien centrado sobre todo el recorrido
@@ -265,7 +262,6 @@ function computeCenterFromMarkers(markers) {
 export default function TripDetailScreen({ navigation, route }) {
   const initialTrip = normalizeTrip(route.params?.trip);
   const { width, isTablet } = useResponsive();
-  const isNarrowMobile = !isTablet && width < 430;
   const [trip, setTrip] = useState(initialTrip);
   const lock = useMemo(() => getTripLock(trip), [trip]);
   const [activeTab, setActiveTab] = useState("resumen");
@@ -486,6 +482,45 @@ export default function TripDetailScreen({ navigation, route }) {
     () => pendingTransfers.reduce((acc, item) => acc + Number(item.Monto ?? 0), 0),
     [pendingTransfers]
   );
+
+  // Tab Gastos: vista activa y saldo del usuario actual (null si no figura).
+  const [gastosView, setGastosView] = useState("gastos");
+  const [expenses, setExpenses] = useState([]);
+  const [expenseCategories, setExpenseCategories] = useState([]);
+  const [expensesLoading, setExpensesLoading] = useState(false);
+  const [expensesError, setExpensesError] = useState("");
+
+  const loadExpenses = useCallback(async () => {
+    if (!initialTrip?.id) return;
+    try {
+      setExpensesLoading(true);
+      setExpensesError("");
+      const [data, categorias] = await Promise.all([
+        getTripExpenses(initialTrip.id),
+        getExpenseCategories().catch(() => []),
+      ]);
+      setExpenses(Array.isArray(data) ? data : []);
+      if (Array.isArray(categorias) && categorias.length) setExpenseCategories(categorias);
+    } catch (error) {
+      console.warn("Error al obtener los gastos del viaje:", error?.message);
+      setExpensesError("No pudimos cargar los gastos del viaje.");
+    } finally {
+      setExpensesLoading(false);
+    }
+  }, [initialTrip?.id]);
+
+  useEffect(() => {
+    if (activeTab === "gastos") {
+      loadExpenses();
+    }
+  }, [activeTab, loadExpenses]);
+  const mySettlementBalance = useMemo(() => {
+    if (!currentUser || !settlement?.ResumenParticipantes) return null;
+    const mine = settlement.ResumenParticipantes.find(
+      (item) => String(item.IdUsuario) === String(currentUser.id)
+    );
+    return mine ? Number(mine.BalancePendiente ?? 0) : null;
+  }, [currentUser, settlement]);
 
   const loadTripDetail = useCallback(async () => {
     if (!initialTrip?.id) {
@@ -1063,6 +1098,77 @@ export default function TripDetailScreen({ navigation, route }) {
     return participantItems.filter((p) => p.status === "invitado");
   }, [participantItems]);
 
+  // Tab "Grupo": vista activa (solo admin) y panel de búsqueda para invitar.
+  const [groupView, setGroupView] = useState("participantes");
+  const [showInvitePanel, setShowInvitePanel] = useState(false);
+  const canInviteToGroup = isAdmin && lock.canEdit("participantes");
+
+  // Quien no es admin no ve el listado de invitaciones: los invitados
+  // pendientes se muestran dentro de la lista del grupo.
+  const groupMembersForViewer = useMemo(
+    () => [...participantesActivos, ...invitadosPendientes],
+    [participantesActivos, invitadosPendientes]
+  );
+
+  // HU 71 - Invitaciones enviadas (solo administrador).
+  const [sentInvitations, setSentInvitations] = useState([]);
+  const [sentInvitationsLoading, setSentInvitationsLoading] = useState(false);
+  const [sentInvitationsError, setSentInvitationsError] = useState("");
+
+  const pendingSentInvitationsCount = useMemo(
+    () => sentInvitations.filter((invitation) => invitation.status === "pendiente").length,
+    [sentInvitations]
+  );
+
+  const loadSentInvitations = useCallback(async () => {
+    if (!trip?.id || !isAdmin) return;
+    try {
+      setSentInvitationsLoading(true);
+      setSentInvitationsError("");
+      const data = await getSentInvitations(trip.id);
+      setSentInvitations(Array.isArray(data) ? data : []);
+    } catch (error) {
+      console.warn("Error al obtener invitaciones enviadas:", error?.status, error?.message);
+      setSentInvitationsError("No pudimos cargar las invitaciones enviadas.");
+    } finally {
+      setSentInvitationsLoading(false);
+    }
+  }, [trip?.id, isAdmin]);
+
+  // Se recarga al entrar a "Grupo" y cada vez que cambia la lista de
+  // participantes (por ejemplo, después de invitar a alguien).
+  useEffect(() => {
+    if (activeTab === "grupo" && isAdmin) {
+      loadSentInvitations();
+    }
+  }, [activeTab, isAdmin, loadSentInvitations, trip?.participants]);
+
+  function handleCancelSentInvitation(invitation) {
+    if (!lock.canEdit("participantes") || !trip?.id) return;
+    confirmar(
+      "Cancelar invitación",
+      `¿Seguro que querés cancelar la invitación de @${invitation.nombreUsuario}?`,
+      async () => {
+        try {
+          setMutatingParticipants(true);
+          const resultado = await cancelSentInvitation(trip.id, invitation.userId);
+          avisar(
+            "Invitación cancelada",
+            resultado?.message || "Invitación cancelada correctamente"
+          );
+          await loadTripDetail();
+        } catch (error) {
+          // Puede pasar si el invitado respondió mientras tanto: se avisa y
+          // se recarga el listado para mostrar el estado real.
+          avisar("No se pudo cancelar", error.message || "No se pudo cancelar la invitación.");
+          await loadSentInvitations();
+        } finally {
+          setMutatingParticipants(false);
+        }
+      }
+    );
+  }
+
   const tripSummaryMetrics = useMemo(() => {
     let noches = 0;
     let diasFaltan = 0;
@@ -1153,6 +1259,8 @@ export default function TripDetailScreen({ navigation, route }) {
       await addTripParticipant(trip.id, payload);
       setParticipantSearch("");
       setUserOptions([]);
+      // Mostrar la invitación recién enviada en su listado.
+      if (payload.userId && isAdmin) setGroupView("invitaciones");
       await loadTripDetail();
     } catch (error) {
       setParticipantMessage(error.message || "No se pudo agregar el participante.");
@@ -1261,14 +1369,6 @@ export default function TripDetailScreen({ navigation, route }) {
     { valor: "driving", label: "Auto", icono: "car" },
     { valor: "bicycling", label: "Bici", icono: "person-biking" },
   ];
-
-  function getRouteAvailabilityMessage(puedeGenerarRuta) {
-    if (puedeGenerarRuta) {
-      return "Todavia no hay una ruta generada para este dia. Generala para visualizar el recorrido en el mapa.";
-    }
-
-    return "Todavia no hay una ruta generada para este dia. Agrega al menos 2 actividades con ubicacion para poder visualizar el recorrido en el mapa.";
-  }
 
   function resolverModoDelDia(dayId, ruta) {
     return modoTransporteDayId[dayId] ?? ruta?.modo ?? "walking";
@@ -1597,7 +1697,10 @@ export default function TripDetailScreen({ navigation, route }) {
               ) : null}
               <Pressable
                 accessibilityRole="button"
-                onPress={() => setActiveTab("gastos")}
+                onPress={() => {
+                  setGastosView("transferencias");
+                  setActiveTab("gastos");
+                }}
                 style={({ pressed }) => [styles.readOnlyBackButton, pressed && { opacity: 0.6 }]}
               >
                 <Text style={styles.readOnlyBackButtonText}>Ir a Gastos</Text>
@@ -1978,6 +2081,11 @@ export default function TripDetailScreen({ navigation, route }) {
                           const generando = generandoRutaDayId === dayId;
                           const routeMarkers = buildRouteMarkers(actividades, ruta);
                           const modoSeleccionado = resolverModoDelDia(dayId, ruta);
+                          const routeHint = getRouteHint({
+                            hasRoute: Boolean(ruta),
+                            activitiesWithLocation: actividadesConUbicacion.length,
+                            canEdit: lock.canEdit("itinerario"),
+                          });
 
                           return (
                             <View style={styles.routeSection}>
@@ -2019,10 +2127,8 @@ export default function TripDetailScreen({ navigation, route }) {
                                 </View>
                               ) : null}
 
-                              {!ruta ? (
-                                <Text style={styles.routeHint}>
-                                  {getRouteAvailabilityMessage(puedeGenerarRuta)}
-                                </Text>
+                              {routeHint ? (
+                                <Text style={styles.routeHint}>{routeHint}</Text>
                               ) : null}
 
                               {puedeGenerarRuta && lock.canEdit("itinerario") ? (
@@ -2098,12 +2204,7 @@ export default function TripDetailScreen({ navigation, route }) {
                                     </Text>
                                   </Pressable>
                                 </>
-                              ) : (
-                                <Text style={styles.routeHint}>
-                                  Agrega al menos 2 actividades con ubicación para generar una
-                                  ruta automática.
-                                </Text>
-                              )}
+                              ) : null}
                             </View>
                           );
                         })()}
@@ -2169,211 +2270,67 @@ export default function TripDetailScreen({ navigation, route }) {
           {activeTab === "gastos" ? (
             <View style={styles.sectionStack}>
               <View style={styles.sectionCard}>
-                <Text style={styles.sectionHeading}>Gastos del viaje</Text>
-                <Text style={styles.sectionCopy}>
-                  Moneda base: {trip.currency}. Puedes cargar nuevos gastos o revisar el balance
-                  del grupo.
-                </Text>
-                {lock.canEdit("gastos") ? (
-                  <PrimaryButton
-                    icon="plus"
-                    iconPosition="left"
-                    label="Agregar gasto"
-                    onPress={() => setShowAddGastoModal(true)}
-                    style={styles.fullButton}
-                  />
-                ) : null}
+                <ExpenseSummaryCard
+                  canAddExpense={lock.canEdit("gastos")}
+                  canRebuild={lock.canEdit("gastos")}
+                  currency={settlement?.Moneda ?? trip.currency}
+                  error={settlementError}
+                  loading={loadingSettlement}
+                  mySaldo={mySettlementBalance}
+                  onAddExpense={() => setShowAddGastoModal(true)}
+                  onRebuild={handleRebuildSettlement}
+                  onShowMyTransfers={() => setGastosView("transferencias")}
+                  pendingTotal={totalPendienteLiquidacion}
+                  rebuilding={loadingSettlement}
+                  totalSpent={settlement?.TotalGastosViaje ?? 0}
+                />
               </View>
 
-              <View style={styles.sectionCard}>
-                <Text style={styles.sectionHeading}>Balance general</Text>
-                <Text style={styles.sectionCopy}>
-                  El sistema calcula automáticamente las deudas netas y propone la menor
-                  cantidad posible de transferencias.
-                </Text>
-                {lock.canEdit("gastos") ? (
-                  <PrimaryButton
-                    icon="rotate"
-                    iconPosition="left"
-                    label="Recalcular liquidación"
-                    loading={loadingSettlement}
-                    onPress={handleRebuildSettlement}
-                    style={styles.fullButton}
-                    variant="secondary"
-                  />
-                ) : null}
-                {settlementError ? (
-                  <Text style={styles.settlementError}>{settlementError}</Text>
-                ) : null}
-              </View>
-
-              <View style={styles.sectionCard}>
-                <View style={styles.settlementHeaderRow}>
-                  <Text style={styles.sectionHeading}>Resumen financiero</Text>
-                  {loadingSettlement ? <ActivityIndicator color={colors.primary} /> : null}
-                </View>
-                <Text style={styles.sectionCopy}>
-                  El estado de cuenta se recalcula con cada gasto nuevo y refleja tanto lo pagado
-                  como el gasto individual asignado.
-                </Text>
-                <View
-                  style={[
-                    styles.metricsRow,
-                    isNarrowMobile ? styles.metricsRowCompact : null,
+              <View style={[styles.sectionCard, styles.groupCard]}>
+                <SegmentedControl
+                  onChange={setGastosView}
+                  options={[
+                    { id: "gastos", label: "Gastos" },
+                    { id: "saldos", label: "Saldos" },
+                    {
+                      id: "transferencias",
+                      label: "Transferencias",
+                      badge: pendingTransfers.length,
+                    },
                   ]}
-                >
-                  <MetricCard
-                    label="Total gastado"
-                    style={isNarrowMobile ? styles.metricCardHalf : null}
-                    valueStyle={isNarrowMobile ? styles.metricValueCompact : null}
-                    value={formatMoney(
-                      settlement?.TotalGastosViaje ?? 0,
-                      settlement?.Moneda ?? trip.currency
-                    )}
-                  />
-                  <MetricCard
-                    label="Por saldar"
-                    style={isNarrowMobile ? styles.metricCardHalf : null}
-                    valueStyle={isNarrowMobile ? styles.metricValueCompact : null}
-                    value={formatMoney(
-                      totalPendienteLiquidacion,
-                      settlement?.Moneda ?? trip.currency
-                    )}
-                  />
-                  <MetricCard
-                    label="Participantes"
-                    style={isNarrowMobile ? styles.metricCardFull : null}
-                    valueStyle={isNarrowMobile ? styles.metricValueCompact : null}
-                    value={String(settlement?.ResumenParticipantes?.length ?? 0)}
-                  />
-                </View>
-              </View>
+                  testID="gastos-view"
+                  value={gastosView}
+                />
 
-              <View style={styles.sectionCard}>
-                <View style={styles.settlementHeaderRow}>
-                  <Text style={styles.sectionHeading}>Resumen por participante</Text>
-                  {loadingSettlement ? <ActivityIndicator color={colors.primary} /> : null}
-                </View>
-                {settlement?.ResumenParticipantes?.length ? (
-                  <View style={styles.settlementList}>
-                    {settlement.ResumenParticipantes.map((item) => {
-                      const balancePendiente = Number(item.BalancePendiente ?? 0);
-                      const esAcreedor = balancePendiente > 0;
-                      const esDeudor = balancePendiente < 0;
-                      return (
-                        <View
-                          key={item.IdParticipanteViaje}
-                          style={styles.settlementRow}
-                        >
-                          <View style={styles.settlementPerson}>
-                            <Text style={styles.settlementPersonName}>
-                              {item.NombreCompleto}
-                            </Text>
-                            <Text style={styles.settlementPersonMeta}>
-                              Pagó: {formatMoney(item.TotalPagado, settlement.Moneda)} · Gasto
-                              individual:{" "}
-                              {formatMoney(item.GastoIndividual, settlement.Moneda)}
-                            </Text>
-                            <Text style={styles.settlementPersonMeta}>
-                              Saldo neto:{" "}
-                              {formatMoney(item.BalanceOriginal, settlement.Moneda)}
-                            </Text>
-                          </View>
-                          <View style={styles.settlementRight}>
-                            <View
-                              style={[
-                                styles.settlementBadge,
-                                esAcreedor
-                                  ? styles.settlementBadgeSuccess
-                                  : esDeudor
-                                  ? styles.settlementBadgeWarning
-                                  : styles.settlementBadgeNeutral,
-                              ]}
-                            >
-                              <Text style={styles.settlementBadgeText}>
-                                {esAcreedor
-                                  ? "Debe cobrar"
-                                  : esDeudor
-                                  ? "Debe pagar"
-                                  : "Saldado"}
-                              </Text>
-                            </View>
-                            <Text style={styles.settlementAmount}>
-                              {formatMoney(item.BalancePendiente, settlement.Moneda)}
-                            </Text>
-                          </View>
-                        </View>
-                      );
-                    })}
-                  </View>
-                ) : !loadingSettlement ? (
-                  <Text style={styles.sectionCopy}>
-                    Todavía no hay participantes aceptados para calcular la liquidación.
-                  </Text>
-                ) : null}
-              </View>
-
-              <View style={styles.sectionCard}>
-                <Text style={styles.sectionHeading}>Plan de liquidación</Text>
-                {settlement?.Transferencias?.length ? (
-                  <View style={styles.settlementList}>
-                    {settlement.Transferencias.map((transfer) => {
-                      const pendiente = transfer.Estado === "pendiente";
-                      return (
-                        <View
-                          key={transfer.IdTransferenciaLiquidacion}
-                          style={styles.transferCard}
-                        >
-                          <View style={styles.transferHeader}>
-                            <View style={styles.transferTextWrap}>
-                              <Text style={styles.transferTitle}>
-                                {transfer.NombreDeudor} paga a {transfer.NombreAcreedor}
-                              </Text>
-                              <Text style={styles.transferMeta}>
-                                {formatMoney(transfer.Monto, settlement.Moneda)}
-                              </Text>
-                            </View>
-                            <View
-                              style={[
-                                styles.settlementBadge,
-                                pendiente
-                                  ? styles.settlementBadgeWarning
-                                  : styles.settlementBadgeSuccess,
-                              ]}
-                            >
-                              <Text style={styles.settlementBadgeText}>
-                                {pendiente ? "Pendiente" : "Realizada"}
-                              </Text>
-                            </View>
-                          </View>
-
-                          <PrimaryButton
-                            icon={pendiente ? "check" : "arrow-rotate-left"}
-                            iconPosition="left"
-                            label={
-                              pendiente ? "Marcar como realizada" : "Volver a pendiente"
-                            }
-                            loading={
-                              updatingTransferId === transfer.IdTransferenciaLiquidacion
-                            }
-                            onPress={() =>
-                              handleMarkTransferPaid(
-                                transfer.IdTransferenciaLiquidacion,
-                                pendiente
-                              )
-                            }
-                            style={styles.transferButton}
-                            variant={pendiente ? "primary" : "secondary"}
-                          />
-                        </View>
-                      );
-                    })}
-                  </View>
-                ) : !loadingSettlement ? (
-                  <Text style={styles.sectionCopy}>
-                    No hay deudas pendientes. El grupo está balanceado.
-                  </Text>
-                ) : null}
+                {gastosView === "gastos" ? (
+                  <ExpenseList
+                    categories={expenseCategories}
+                    currency={settlement?.Moneda ?? trip.currency}
+                    currentUserId={currentUser?.id}
+                    error={expensesError}
+                    expenses={expenses}
+                    loading={expensesLoading}
+                    onRetry={loadExpenses}
+                  />
+                ) : gastosView === "transferencias" ? (
+                  <SettlementTransfers
+                    balances={settlement?.ResumenParticipantes ?? []}
+                    canUpdate={lock.canEdit("gastos")}
+                    currency={settlement?.Moneda ?? trip.currency}
+                    currentUserId={currentUser?.id}
+                    loading={loadingSettlement}
+                    onToggle={handleMarkTransferPaid}
+                    transfers={settlement?.Transferencias ?? []}
+                    updatingTransferId={updatingTransferId}
+                  />
+                ) : (
+                  <SettlementBalances
+                    balances={settlement?.ResumenParticipantes ?? []}
+                    currency={settlement?.Moneda ?? trip.currency}
+                    currentUserId={currentUser?.id}
+                    loading={loadingSettlement}
+                  />
+                )}
               </View>
             </View>
           ) : null}
@@ -3106,42 +3063,88 @@ export default function TripDetailScreen({ navigation, route }) {
           {/* TAB 6: GRUPO */}
           {activeTab === "grupo" ? (
             <View style={styles.sectionStack}>
-              {isAdmin && lock.canEdit("participantes") ? (
-                <View style={styles.sectionCard}>
-                  <Text style={styles.sectionHeading}>Agregar participantes</Text>
+              <View style={[styles.sectionCard, styles.groupCard]}>
+                <View style={styles.groupHeaderRow}>
+                  <Text style={styles.sectionHeading}>Grupo del viaje</Text>
+                  {canInviteToGroup ? (
+                    <Pressable
+                      accessibilityRole="button"
+                      onPress={() => {
+                        setShowInvitePanel((prev) => !prev);
+                        setParticipantSearch("");
+                        setParticipantMessage("");
+                      }}
+                      style={[styles.inviteToggle, showInvitePanel && styles.inviteToggleOpen]}
+                      testID="group-invite-toggle"
+                    >
+                      <FontAwesome6
+                        color={showInvitePanel ? colors.primary : colors.textInverse}
+                        name={showInvitePanel ? "xmark" : "user-plus"}
+                        size={12}
+                      />
+                      <Text
+                        style={[
+                          styles.inviteToggleText,
+                          showInvitePanel && styles.inviteToggleTextOpen,
+                        ]}
+                      >
+                        {showInvitePanel ? "Cerrar" : "Invitar"}
+                      </Text>
+                    </Pressable>
+                  ) : null}
+                </View>
+
+                {canInviteToGroup && showInvitePanel ? (
                   <ParticipantSearch
+                    autoFocus
                     canInviteExternal={canInviteExternal}
                     message={participantMessage}
                     onInviteExternal={handleAddExternalInvite}
                     onSearchChange={setParticipantSearch}
                     onSelectUser={handleAddParticipant}
                     search={participantSearch}
+                    showLabel={false}
                     suggestions={selectableUsers}
                   />
-                </View>
-              ) : null}
+                ) : null}
 
-              <View style={styles.sectionCard}>
-                <Text style={styles.sectionHeading}>Participantes</Text>
-                <ParticipantList
-                  onRemove={lock.canEdit("participantes") ? handleRemoveParticipant : undefined}
-                  participants={participantesActivos}
-                  isAdmin={isAdmin && lock.canEdit("participantes")}
-                />
-              </View>
-
-              {invitadosPendientes.length > 0 ? (
-                <View style={styles.sectionCard}>
-                  <Text style={styles.sectionHeading}>Invitaciones pendientes</Text>
-                  <Text style={styles.sectionCopy}>
-                    Usuarios que aún no han respondido a la invitación
-                  </Text>
-                  <ParticipantList
-                    participants={invitadosPendientes}
-                    isAdmin={isAdmin && lock.canEdit("participantes")}
+                {isAdmin ? (
+                  <SegmentedControl
+                    onChange={setGroupView}
+                    options={[
+                      {
+                        id: "participantes",
+                        label: `Participantes · ${participantesActivos.length}`,
+                      },
+                      {
+                        id: "invitaciones",
+                        label: "Invitaciones",
+                        badge: pendingSentInvitationsCount,
+                      },
+                    ]}
+                    testID="group-view"
+                    value={groupView}
                   />
-                </View>
-              ) : null}
+                ) : null}
+
+                {isAdmin && groupView === "invitaciones" ? (
+                  <SentInvitationsList
+                    invitations={sentInvitations}
+                    loading={sentInvitationsLoading}
+                    error={sentInvitationsError}
+                    onRetry={loadSentInvitations}
+                    onCancel={
+                      lock.canEdit("participantes") ? handleCancelSentInvitation : undefined
+                    }
+                  />
+                ) : (
+                  <GroupMemberList
+                    canManage={isAdmin && lock.canEdit("participantes")}
+                    members={isAdmin ? participantesActivos : groupMembersForViewer}
+                    onRemove={handleRemoveParticipant}
+                  />
+                )}
+              </View>
 
               {lock.canEdit("participantes") ? (
                 <View style={[styles.sectionCard, { marginTop: spacing.md }]}>
@@ -3197,6 +3200,7 @@ export default function TripDetailScreen({ navigation, route }) {
         onClose={() => setShowAddGastoModal(false)}
         onGastoCreado={() => {
           loadSettlement();
+          loadExpenses();
         }}
       />
       <CrearVotacionScreen
@@ -4013,25 +4017,6 @@ const styles = StyleSheet.create({
     ...surfaces.card,
     padding: spacing.lg,
   },
-  metricsRow: {
-    flexDirection: "row",
-    gap: spacing.sm,
-    marginTop: spacing.md,
-  },
-  metricsRowCompact: {
-    flexWrap: "wrap",
-  },
-  metricCardHalf: {
-    flexBasis: "48%",
-    minWidth: 0,
-  },
-  metricCardFull: {
-    flexBasis: "100%",
-    minWidth: 0,
-  },
-  metricValueCompact: {
-    fontSize: 18,
-  },
   sectionHeading: {
     ...textStyles.tripTitle,
     color: colors.primary,
@@ -4042,99 +4027,41 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
     marginTop: spacing.sm,
   },
-  settlementHeaderRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: spacing.sm,
-  },
-  settlementList: {
-    marginTop: spacing.md,
-    gap: spacing.sm,
-  },
-  settlementRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
+  groupCard: {
     gap: spacing.md,
-    paddingVertical: spacing.sm,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
   },
-  settlementPerson: {
-    flex: 1,
-    minWidth: 0,
+  groupHeaderRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: spacing.sm,
   },
-  settlementPersonName: {
-    ...textStyles.bodyStrong,
-    color: colors.primary,
-  },
-  settlementPersonMeta: {
-    ...textStyles.meta,
-    color: colors.textSecondary,
-    marginTop: spacing.xxs,
-  },
-  settlementRight: {
-    alignItems: "flex-end",
-    gap: spacing.xs,
-  },
-  settlementBadge: {
-    paddingHorizontal: spacing.sm,
-    paddingVertical: 6,
+  inviteToggle: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
     borderRadius: radii.pill,
+    backgroundColor: colors.primary,
+    borderWidth: 1,
+    borderColor: colors.primary,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 7,
   },
-  settlementBadgeSuccess: {
-    backgroundColor: colors.successSurface,
+  inviteToggleOpen: {
+    backgroundColor: colors.surface,
   },
-  settlementBadgeWarning: {
-    backgroundColor: colors.warningSurface,
-  },
-  settlementBadgeNeutral: {
-    backgroundColor: colors.surfaceAlt,
-  },
-  settlementBadgeText: {
+  inviteToggleText: {
     ...textStyles.meta,
-    color: colors.primaryStrong,
-    fontSize: 12,
+    color: colors.textInverse,
+    fontWeight: "700",
   },
-  settlementAmount: {
-    ...textStyles.bodyStrong,
+  inviteToggleTextOpen: {
     color: colors.primary,
   },
   settlementError: {
     ...textStyles.meta,
     color: colors.danger,
     marginTop: spacing.sm,
-  },
-  transferCard: {
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: radii.md,
-    padding: spacing.md,
-    gap: spacing.sm,
-    backgroundColor: colors.surfaceMuted,
-  },
-  transferHeader: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    justifyContent: "space-between",
-    gap: spacing.sm,
-  },
-  transferTextWrap: {
-    flex: 1,
-    minWidth: 0,
-  },
-  transferTitle: {
-    ...textStyles.bodyStrong,
-    color: colors.primary,
-  },
-  transferMeta: {
-    ...textStyles.body,
-    color: colors.textSecondary,
-    marginTop: spacing.xxs,
-  },
-  transferButton: {
-    minHeight: 46,
   },
   fullButton: {
     marginTop: spacing.lg,

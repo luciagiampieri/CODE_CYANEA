@@ -1,6 +1,12 @@
 import { render, waitFor, fireEvent } from "@testing-library/react-native";
 import InvitationsScreen from "../screens/InvitationsScreen";
-import { getNotifications, getPendingInvitations, markNotificationAsRead } from "../services/api";
+import { Alert } from "react-native";
+import {
+  getNotifications,
+  getPendingInvitations,
+  markNotificationAsRead,
+  respondToInvitation,
+} from "../services/api";
 
 const mockGoBack = jest.fn();
 
@@ -101,5 +107,69 @@ describe("US 68 - Notificaciones por abandono de viaje (Frontend Tests)", () => 
     await waitFor(() => {
       expect(markNotificationAsRead).toHaveBeenCalledWith(103);
     });
+  });
+});
+
+describe("HU 72 - Invitación cancelada (vista del invitado)", () => {
+  const invitacionPendiente = {
+    tripId: 5,
+    title: "Viaje a Salta",
+    destinations: [],
+    status: "invitado",
+    role: "participante",
+  };
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    jest.spyOn(Alert, "alert").mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  test("muestra la notificación de invitación cancelada", async () => {
+    getPendingInvitations.mockResolvedValue([]);
+    getNotifications.mockResolvedValue([
+      {
+        id: 7,
+        titulo: "Invitación cancelada",
+        mensaje: "Lucia Giampieri canceló tu invitación al viaje 'Viaje a Salta'.",
+        fechaCreacion: "2026-09-28T10:00:00Z",
+        leida: false,
+        tipo: "invitacion_cancelada",
+      },
+    ]);
+
+    const { findByText } = await render(<InvitationsScreen navigation={{ goBack: jest.fn() }} />);
+
+    expect(await findByText("Invitación cancelada")).toBeTruthy();
+    expect(
+      await findByText("Lucia Giampieri canceló tu invitación al viaje 'Viaje a Salta'.")
+    ).toBeTruthy();
+  });
+
+  test("si la invitación fue cancelada al intentar aceptarla, avisa y la quita del listado", async () => {
+    getPendingInvitations
+      .mockResolvedValueOnce([invitacionPendiente])
+      .mockResolvedValueOnce([]);
+    getNotifications.mockResolvedValue([]);
+    respondToInvitation.mockRejectedValueOnce(
+      new Error("Esta invitación fue cancelada por el administrador del viaje.")
+    );
+
+    const { findByText, queryByText } = await render(
+      <InvitationsScreen navigation={{ goBack: jest.fn() }} />
+    );
+
+    fireEvent.press(await findByText("Unirme"));
+
+    await waitFor(() =>
+      expect(Alert.alert).toHaveBeenCalledWith(
+        "Atención",
+        "Esta invitación fue cancelada por el administrador del viaje."
+      )
+    );
+    await waitFor(() => expect(queryByText("Viaje a Salta")).toBeNull());
   });
 });

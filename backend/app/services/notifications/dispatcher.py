@@ -28,6 +28,9 @@ class TripNotificationEvent:
     id_viaje: int
     id_usuario_actor: int | None = None
     data: dict[str, Any] = field(default_factory=dict)
+    # Si es False, el push no incluye tripId y al tocarlo no se abre el viaje
+    # (por ejemplo, cuando el destinatario ya no tiene acceso a ese viaje).
+    abre_viaje: bool = True
 
 
 async def dispatch_trip_notification(
@@ -39,6 +42,40 @@ async def dispatch_trip_notification(
 
     try:
         recipients = _load_trip_recipients(db, event.id_viaje, event.id_usuario_actor)
+    except Exception:
+        logger.exception("No se pudieron obtener los destinatarios del viaje %s", event.id_viaje)
+        return []
+
+    return await _dispatch_to_recipients(db, event, recipients, push_client)
+
+
+async def dispatch_user_notification(
+    db: Session,
+    event: TripNotificationEvent,
+    recipients: list[Usuario],
+    push_client: ExpoPushClient | None = None,
+) -> list[Notificacion]:
+    """Igual que `dispatch_trip_notification`, pero para destinatarios puntuales.
+
+    Se usa cuando el aviso no es para todo el grupo del viaje, por ejemplo
+    al cancelar la invitación de un usuario que todavía no forma parte del viaje.
+    """
+
+    return await _dispatch_to_recipients(
+        db,
+        event,
+        [recipient for recipient in recipients if recipient is not None and recipient.Activo],
+        push_client,
+    )
+
+
+async def _dispatch_to_recipients(
+    db: Session,
+    event: TripNotificationEvent,
+    recipients: list[Usuario],
+    push_client: ExpoPushClient | None,
+) -> list[Notificacion]:
+    try:
         if not recipients:
             return []
 
@@ -151,7 +188,7 @@ async def _send_push_notifications(
             "data": {
                 "tipo": event.tipo,
                 "notificationType": event.notification_type.value,
-                "tripId": event.id_viaje,
+                **({"tripId": event.id_viaje} if event.abre_viaje else {}),
                 **event.data,
             },
         }

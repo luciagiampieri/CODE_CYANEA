@@ -1,5 +1,9 @@
 from app.services.notifications.activity_reminders import scan_and_dispatch_activity_reminders
-from app.services.notifications.dispatcher import TripNotificationEvent, dispatch_trip_notification
+from app.services.notifications.dispatcher import (
+    TripNotificationEvent,
+    dispatch_trip_notification,
+    dispatch_user_notification,
+)
 from app.services.notifications.invitation_email_sender import InvitationEmailSender
 from app.services.notifications.push import ExpoPushClient, ExpoPushTicket
 from app.services.notifications.service import (
@@ -16,6 +20,7 @@ __all__ = [
     "InvitationEmailSender",
     "TripNotificationEvent",
     "dispatch_trip_notification",
+    "dispatch_user_notification",
     "scan_and_dispatch_activity_reminders",
     "NotificationDispatchResult",
     "NotificationMessage",

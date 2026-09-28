@@ -49,6 +49,7 @@ from app.schemas.trip import (
     TripParticipantRead,
     TripRead,
     TripParticipantUpsert,
+    TripSentInvitationRead,
     TripUpdate,
     TripUpdateResponse,
     InvitationResponse,
@@ -68,6 +69,7 @@ from app.services.notifications import (
     NotificationType,
     TripNotificationEvent,
     dispatch_trip_notification,
+    dispatch_user_notification,
     get_notification_service,
 )
 from app.services.destination_search import build_destination_image_url, search_destinations, autocomplete_destinations, resolve_destination
@@ -531,6 +533,12 @@ async def respond_to_invitation(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="No se encontró una invitación para este viaje."
+        )
+
+    if participacion.EstadoParticipacion.Nombre == "cancelada":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Esta invitación fue cancelada por el administrador del viaje."
         )
 
     if participacion.EstadoParticipacion.Nombre != "invitado":
@@ -1301,6 +1309,16 @@ def add_trip_participant(
         )
         if existente is not None:
 
+            if existente.EstadoParticipacion.Nombre == "cancelada":
+                # HU 72: una invitación cancelada se puede volver a enviar.
+                existente.IdEstadoParticipacion = estado_invitado.IdEstadoParticipacion
+                existente.InvitadoPor = current_user.IdUsuario
+                existente.IdRolParticipante = rol_participante.IdRolParticipante
+                existente.FechaInvitacion = datetime.now()
+                existente.FechaRespuesta = None
+                db.commit()
+                return TripMutationResponse(message="Participante agregado correctamente")
+
             if existente.EstadoParticipacion.Nombre in {"expulsado", "salio"}:
                 existente.IdEstadoParticipacion = estado_invitado.IdEstadoParticipacion
                 existente.InvitadoPor = current_user.IdUsuario
@@ -1545,6 +1563,147 @@ def remove_trip_external_invitation(
     db.delete(invitacion)
     db.commit()
     return TripMutationResponse(message="Invitación externa eliminada correctamente")
+
+
+# HU 71 - Visualizar invitaciones enviadas.
+# Las invitaciones a usuarios registrados viven en ParticipantesViajes; su
+# EstadoParticipacion se traduce al estado de la invitacion que ve el admin.
+ESTADO_PARTICIPACION_A_ESTADO_INVITACION = {
+    "invitado": "pendiente",
+    "aceptado": "aceptada",
+    "rechazado": "rechazada",
+}
+ESTADO_INVITACION_A_ESTADO_PARTICIPACION = {
+    valor: clave for clave, valor in ESTADO_PARTICIPACION_A_ESTADO_INVITACION.items()
+}
+
+
+@router.get("/{trip_id}/invitations/sent", response_model=list[TripSentInvitationRead])
+def list_sent_invitations(
+    trip_id: int,
+    estado: str | None = Query(
+        default=None,
+        description="Filtra por estado de la invitacion: pendiente, aceptada o rechazada",
+    ),
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> list[TripSentInvitationRead]:
+    viaje = require_trip_access(get_trip_with_relations(db, trip_id), current_user)
+    if viaje.IdAdministrador != current_user.IdUsuario:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Solo el administrador del viaje puede ver las invitaciones enviadas",
+        )
+
+    if estado is not None:
+        estado = estado.strip().lower()
+        if estado not in ESTADO_INVITACION_A_ESTADO_PARTICIPACION:
+            raise HTTPException(
+                status_code=422,
+                detail="Estado inválido. Valores posibles: pendiente, aceptada, rechazada",
+            )
+
+    invitaciones = [
+        participacion
+        for participacion in viaje.Participantes
+        if participacion.IdUsuario != viaje.IdAdministrador
+        and participacion.EstadoParticipacion.Nombre in ESTADO_PARTICIPACION_A_ESTADO_INVITACION
+        and (
+            estado is None
+            or participacion.EstadoParticipacion.Nombre
+            == ESTADO_INVITACION_A_ESTADO_PARTICIPACION[estado]
+        )
+    ]
+    # CA: ordenadas de la mas reciente a la mas antigua.
+    invitaciones.sort(key=lambda item: item.FechaInvitacion, reverse=True)
+
+    return [
+        TripSentInvitationRead(
+            userId=participacion.Usuario.IdUsuario,
+            nombreUsuario=participacion.Usuario.NombreUsuario,
+            nombreCompleto=f"{participacion.Usuario.Nombre} {participacion.Usuario.Apellido}".strip(),
+            fotoUrl=participacion.Usuario.FotoUrl,
+            status=ESTADO_PARTICIPACION_A_ESTADO_INVITACION[participacion.EstadoParticipacion.Nombre],
+            invitedAt=participacion.FechaInvitacion,
+            respondedAt=participacion.FechaRespuesta,
+        )
+        for participacion in invitaciones
+    ]
+
+
+# HU 72 - Cancelar invitación enviada.
+@router.post(
+    "/{trip_id}/invitations/{user_id}/cancel",
+    response_model=TripMutationResponse,
+)
+async def cancel_sent_invitation(
+    trip_id: int,
+    user_id: int,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> TripMutationResponse:
+    viaje = require_trip_access(get_trip_with_relations(db, trip_id), current_user)
+    if viaje.IdAdministrador != current_user.IdUsuario:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Solo el administrador del viaje puede cancelar invitaciones",
+        )
+    require_trip_not_finished(viaje, "la lista de participantes")
+
+    participacion = next(
+        (
+            participacion
+            for participacion in viaje.Participantes
+            if participacion.IdUsuario == user_id
+        ),
+        None,
+    )
+    if participacion is None or user_id == viaje.IdAdministrador:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No se encontró una invitación para ese usuario en este viaje",
+        )
+
+    if participacion.EstadoParticipacion.Nombre != "invitado":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Solo se pueden cancelar invitaciones pendientes",
+        )
+
+    estado_cancelada = db.scalar(
+        select(EstadoParticipacion).where(
+            EstadoParticipacion.Nombre == "cancelada",
+            EstadoParticipacion.Activo.is_(True),
+        )
+    )
+    if estado_cancelada is None:
+        raise HTTPException(status_code=500, detail="Faltan datos maestros requeridos")
+
+    usuario_invitado = participacion.Usuario
+    participacion.IdEstadoParticipacion = estado_cancelada.IdEstadoParticipacion
+    participacion.FechaRespuesta = datetime.now()
+    db.commit()
+
+    # CA 5: aviso interno (+ push si el usuario lo tiene habilitado). Un error
+    # al notificar no revierte la cancelación: el dispatcher lo registra y sigue.
+    await dispatch_user_notification(
+        db,
+        TripNotificationEvent(
+            notification_type=NotificationType.INVITACION_CANCELADA,
+            tipo="invitacion_cancelada",
+            titulo="Invitación cancelada",
+            mensaje=(
+                f"{_actor_display_name(current_user)} canceló tu invitación "
+                f"al viaje '{viaje.Titulo}'."
+            ),
+            id_viaje=viaje.IdViaje,
+            id_usuario_actor=current_user.IdUsuario,
+            abre_viaje=False,
+        ),
+        [usuario_invitado],
+    )
+
+    return TripMutationResponse(message="Invitación cancelada correctamente")
 
 
 @router.delete("/{trip_id}/cover", response_model=TripMutationResponse)

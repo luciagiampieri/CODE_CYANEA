@@ -12,15 +12,18 @@ export default function ParticipantSearch({
   canInviteExternal,
   onInviteExternal,
   message,
+  showLabel = true,
+  autoFocus = false,
 }) {
   return (
     <View style={styles.container}>
-      <Text style={styles.label}>Participantes</Text>
+      {showLabel ? <Text style={styles.label}>Participantes</Text> : null}
       <View style={styles.inputShell}>
         <FontAwesome6 color={colors.overlayStrong} name="magnifying-glass" size={14} style={styles.leadingIcon} />
         <TextInput
           autoCapitalize="none"
           autoCorrect={false}
+          autoFocus={autoFocus}
           onChangeText={onSearchChange}
           placeholder="Busca por nombre o correo"
           placeholderTextColor={colors.overlayStrong}

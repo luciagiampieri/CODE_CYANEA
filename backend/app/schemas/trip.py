@@ -1,5 +1,5 @@
 from datetime import date, datetime, time as time_type
-from typing import Optional
+from typing import Literal, Optional
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -357,6 +357,18 @@ class TripInvitationRead(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class TripSentInvitationRead(BaseModel):
+    """Invitacion enviada por el administrador a un usuario registrado (HU 71)."""
+
+    userId: int
+    nombreUsuario: str
+    nombreCompleto: str
+    fotoUrl: str | None = None
+    status: Literal["pendiente", "aceptada", "rechazada"]
+    invitedAt: datetime
+    respondedAt: datetime | None = None
 
 
 class LeaveTripRequest(BaseModel):

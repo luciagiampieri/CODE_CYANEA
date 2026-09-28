@@ -14,20 +14,20 @@ Cyanea es una aplicacion para organizacion colaborativa de viajes grupales.
 
 Alcance actual del MVP:
 
-- creacion de viajes
-- incorporacion de participantes registrados
-- invitaciones externas por correo
-- estructura base para viajes, usuarios, participaciones e invitaciones
-- frontend unico con Expo para mobile y web
-- backend FastAPI
-- persistencia en PostgreSQL
+- Creacion de viajes
+- Incorporacion de participantes registrados
+- Invitaciones externas por correo
+- Estructura base para viajes, usuarios, participaciones e invitaciones
+- Frontend unico con Expo para mobile y web
+- Backend FastAPI
+- Persistencia en PostgreSQL
 
 Fuera de alcance por ahora:
 
-- autenticacion real
-- pagos reales
-- venta de pasajes o reservas
-- integraciones externas complejas
+- Autenticacion real
+- Pagos reales
+- Venta de pasajes o reservas
+- Integraciones externas complejas
 
 ## Stack tecnologico
 
@@ -97,10 +97,10 @@ Reglas estructurales vigentes:
 
 - `frontend/` es el unico frontend activo del proyecto
 - `frontend-ant/` queda solo como respaldo y referencia visual/funcional
-- no crear carpetas paralelas tipo `frontend-mobile/`, `frontend-web/` o similares
-- no continuar nuevas funcionalidades en `frontend-ant/`
-- el backend activo es solo `backend/` con FastAPI
-- no reintroducir restos de backend Node/Express
+- No crear carpetas paralelas tipo `frontend-mobile/`, `frontend-web/` o similares
+- No continuar nuevas funcionalidades en `frontend-ant/`
+- El backend activo es solo `backend/` con FastAPI
+- No reintroducir restos de backend Node/Express
 
 ## Instalacion local
 
@@ -183,16 +183,16 @@ npm run android
 
 Build Android nativa en carpetas sincronizadas:
 
-- si el repositorio esta dentro de OneDrive y Gradle falla con `AccessDeniedException` sobre `frontend/android/app/build`, ejecutar la build con `CYANEA_ANDROID_BUILD_ROOT` apuntando a una carpeta local fuera de OneDrive, por ejemplo `$env:TEMP\cyanea-android-build`
+- Si el repositorio esta dentro de OneDrive y Gradle falla con `AccessDeniedException` sobre `frontend/android/app/build`, ejecutar la build con `CYANEA_ANDROID_BUILD_ROOT` apuntando a una carpeta local fuera de OneDrive, por ejemplo `$env:TEMP\cyanea-android-build`
 - `frontend/android/build.gradle` solo redirige el `buildDir` del modulo `:app` cuando esa variable esta definida; el root Android y los modulos de dependencias conservan su `buildDir` para no romper autolinking ni React Native Codegen
-- si la development build Android abre Metro pero falla con `Compiling JS failed` sobre `transform.bytecode=1`, levantar Expo con `CYANEA_DISABLE_HERMES_BYTECODE=1`; `frontend/metro.config.js` conserva Hermes y solo quita `transform.bytecode` de las URLs servidas por Metro en desarrollo
+- Si la development build Android abre Metro pero falla con `Compiling JS failed` sobre `transform.bytecode=1`, levantar Expo con `CYANEA_DISABLE_HERMES_BYTECODE=1`; `frontend/metro.config.js` conserva Hermes y solo quita `transform.bytecode` de las URLs servidas por Metro en desarrollo
 
 Notas del frontend Expo:
 
 - `npm run web` levanta el frontend en `http://localhost:8081`
-- los scripts ya incluyen `EXPO_NO_METRO_WORKSPACE_ROOT=1`
-- mantener `react` y `react-dom` exactamente en la misma version
-- el proyecto EAS activo del frontend es `@lcorrea87s-team/cyanea` con `extra.eas.projectId=0dddd612-ef66-4470-9a77-ce206f823efd`; `frontend/eas.json` define perfiles `development` y `production`
+- Los scripts ya incluyen `EXPO_NO_METRO_WORKSPACE_ROOT=1`
+- Mantener `react` y `react-dom` exactamente en la misma version
+- El proyecto EAS activo del frontend es `@lcorrea87s-team/cyanea` con `extra.eas.projectId=0dddd612-ef66-4470-9a77-ce206f823efd`; `frontend/eas.json` define perfiles `development` y `production`
 
 ### 4. Base de datos
 
@@ -220,9 +220,9 @@ Respetar el modelo de dominio en espanol. No introducir nombres tipo `trip_id`, 
 
 ### Tablas
 
-- nombre en espanol
-- nombre en plural
-- ejemplos:
+- Nombre en espanol
+- Nombre en plural
+- Ejemplos:
   - `Usuarios`
   - `Viajes`
   - `ParticipantesViajes`
@@ -230,9 +230,9 @@ Respetar el modelo de dominio en espanol. No introducir nombres tipo `trip_id`, 
 
 ### Columnas
 
-- nombre en espanol
-- formato camelCase con inicial mayuscula en persistencia actual del proyecto
-- ejemplos:
+- Nombre en espanol
+- Formato camelCase con inicial mayuscula en persistencia actual del proyecto
+- Ejemplos:
   - `IdViaje`
   - `IdUsuario`
   - `FechaCreacion`
@@ -240,9 +240,9 @@ Respetar el modelo de dominio en espanol. No introducir nombres tipo `trip_id`, 
 
 ### Normalizacion
 
-- mantener estructura normalizada
-- no persistir estados o roles funcionales como texto libre si existe tabla maestra
-- relaciones por ids a tablas maestras cuando corresponda
+- Mantener estructura normalizada
+- No persistir estados o roles funcionales como texto libre si existe tabla maestra
+- Relaciones por ids a tablas maestras cuando corresponda
 
 ### Tablas maestras actuales
 
@@ -261,30 +261,31 @@ Datos maestros y seed:
 
 Reglas vigentes para la HU de balance y liquidacion:
 
-- el balance neto de cada participante se calcula siempre desde `Gastos` y `ParticipantesGastos`
-- no persistir balances derivados por participante
-- la persistencia se hace por version de liquidacion en:
+- El balance neto de cada participante se calcula siempre desde `Gastos` y `ParticipantesGastos`
+- No persistir balances derivados por participante
+- La persistencia se hace por version de liquidacion en:
   - `LiquidacionesViajes`
   - `TransferenciasLiquidaciones`
   - `EstadosTransferenciasLiquidaciones`
-- una liquidacion representa un plan ejecutable de transferencias para un viaje en un momento dado
-- cuando cambian los gastos del viaje se invalida la liquidacion activa anterior y se genera una nueva version
-- marcar una transferencia como realizada solo cambia su estado dentro de la liquidacion activa; no modifica los gastos base
-- la UI de esta HU se muestra dentro del tab `Gastos` del detalle del viaje, no en una pantalla paralela
-- el contrato `GET /trips/{trip_id}/settlement` concentra el resumen financiero del viaje para la solapa `Gastos`, incluyendo total gastado del viaje, gasto individual asignado por participante, total pagado por participante y saldo neto/pendiente
+- Una liquidacion representa un plan ejecutable de transferencias para un viaje en un momento dado
+- Cuando cambian los gastos del viaje se invalida la liquidacion activa anterior y se genera una nueva version
+- Marcar una transferencia como realizada solo cambia su estado dentro de la liquidacion activa; no modifica los gastos base
+- La UI de esta HU se muestra dentro del tab `Gastos` del detalle del viaje, no en una pantalla paralela
+- El contrato `GET /trips/{trip_id}/settlement` concentra el resumen financiero del viaje para la solapa `Gastos`, incluyendo total gastado del viaje, gasto individual asignado por participante, total pagado por participante y saldo neto/pendiente
+
 
 ## Integraciones externas
 
-- ninguna integracion externa no esencial debe impedir los flujos base del dominio
-- si falla la resolucion automatica de portada, lugares o metadata externa, el viaje debe poder crearse o actualizarse igual, degradando funcionalidad en forma controlada y registrando warning
+- Ninguna integracion externa no esencial debe impedir los flujos base del dominio
+- Si falla la resolucion automatica de portada, lugares o metadata externa, el viaje debe poder crearse o actualizarse igual, degradando funcionalidad en forma controlada y registrando warning
 
 ## Convenciones de scripts SQL
 
-- carpeta base: `backend/scripts/sql/`
-- un script por tabla o estructura principal
-- prefijo numerico para ordenar ejecucion
-- incluir script agregador `run_all.sql`
-- los scripts deben ser idempotentes cuando sea razonable
+- Carpeta base: `backend/scripts/sql/`
+- Un script por tabla o estructura principal
+- Prefijo numerico para ordenar ejecucion
+- Incluir script agregador `run_all.sql`
+- Los scripts deben ser idempotentes cuando sea razonable
 
 Orden actual:
 
@@ -305,29 +306,29 @@ Orden actual:
 ## Convenciones de backend
 
 - FastAPI expone rutas en `backend/app/api/routes/`
-- modelos ORM en `backend/app/models/`
-- schemas pydantic en `backend/app/schemas/`
-- acceso a base en `backend/app/db/`
-- servicios reutilizables en `backend/app/services/`
-- el modulo de mail es compartido y debe servir para invitaciones, notificaciones futuras, recuperacion de password y casos similares
-- las notificaciones funcionales por correo deben pasar por un servicio central `NotificationService` en `backend/app/services/notifications/`
-- aunque la pantalla de perfil todavia no exista, las preferencias y el consentimiento de email se modelan desde `Usuarios` y deben viajar en `/users/me`
-- la foto de perfil del usuario se almacena en Supabase Storage dentro del bucket configurado, bajo el prefijo `profile-photos/`, y la URL resultante se persiste en `Usuarios.FotoUrl`
-- la busqueda de destinos para alta y edicion de viaje se resuelve desde backend contra Google Places y se configura con `GOOGLE_MAPS_API_KEY`
+- Modelos ORM en `backend/app/models/`
+- Schemas pydantic en `backend/app/schemas/`
+- Acceso a base en `backend/app/db/`
+- Servicios reutilizables en `backend/app/services/`
+- El modulo de mail es compartido y debe servir para invitaciones, notificaciones futuras, recuperacion de password y casos similares
+- Las notificaciones funcionales por correo deben pasar por un servicio central `NotificationService` en `backend/app/services/notifications/`
+- Aunque la pantalla de perfil todavia no exista, las preferencias y el consentimiento de email se modelan desde `Usuarios` y deben viajar en `/users/me`
+- La foto de perfil del usuario se almacena en Supabase Storage dentro del bucket configurado, bajo el prefijo `profile-photos/`, y la URL resultante se persiste en `Usuarios.FotoUrl`
+- La busqueda de destinos para alta y edicion de viaje se resuelve desde backend contra Google Places y se configura con `GOOGLE_MAPS_API_KEY`
 - `GOOGLE_MAPS_API_KEY` es una credencial server-side del backend para Google Places/Directions; no debe reutilizar una key restringida a Android o a referrers web, porque Google bloquea esas llamadas desde FastAPI
-- la portada visual del viaje se resuelve desde Google Places usando el primer destino seleccionado como referencia
-- el backend persiste `Viajes.GooglePlaceIdPortada` y expone la imagen por proxy propio para no exponer la API key de Google en el frontend
-- la exploracion de lugares de interes del viaje usa Google Places para busqueda y Google Maps JavaScript en web para visualizacion interactiva
-- en mobile nativo Expo, la fase 1 de parity usa `react-native-maps` en `frontend/src/components/map/MapCanvas.native.js`; la logica de busqueda, detalle y recomendados sigue centralizada en backend
-- en mobile nativo Expo, la fase 2 de parity habilita seleccion de POIs desde el mapa nativo con `onPoiClick` y presenta recomendados en formato bottom-sheet en lugar de panel lateral
-- el ranking de atracciones populares en exploracion se calcula dinamicamente desde Google Places segun el centro visible del mapa
-- el ranking de atracciones populares en exploracion debe presentarse en un panel lateral o modal dedicado, no intercalado en el flujo principal de seleccion y guardado de lugares
-- los componentes del feature de mapa viven en `frontend/src/components/map/`
-- la HU 23 de visualizacion de recorridos se considera cerrada cuando:
+- La portada visual del viaje se resuelve desde Google Places usando el primer destino seleccionado como referencia
+- El backend persiste `Viajes.GooglePlaceIdPortada` y expone la imagen por proxy propio para no exponer la API key de Google en el frontend
+- La exploracion de lugares de interes del viaje usa Google Places para busqueda y Google Maps JavaScript en web para visualizacion interactiva
+- En mobile nativo Expo, la fase 1 de parity usa `react-native-maps` en `frontend/src/components/map/MapCanvas.native.js`; la logica de busqueda, detalle y recomendados sigue centralizada en backend
+- En mobile nativo Expo, la fase 2 de parity habilita seleccion de POIs desde el mapa nativo con `onPoiClick` y presenta recomendados en formato bottom-sheet en lugar de panel lateral
+- El ranking de atracciones populares en exploracion se calcula dinamicamente desde Google Places segun el centro visible del mapa
+- El ranking de atracciones populares en exploracion debe presentarse en un panel lateral o modal dedicado, no intercalado en el flujo principal de seleccion y guardado de lugares
+- Los componentes del feature de mapa viven en `frontend/src/components/map/`
+- La HU 23 de visualizacion de recorridos se considera cerrada cuando:
   - la ruta generada puede abrirse en un mapa interactivo desde el dia correspondiente del itinerario
   - si no existe una ruta generada para ese dia, no debe mostrarse el mapa ni el CTA de visualizacion
   - en ausencia de ruta, la UI debe mostrar un mensaje informativo explicito indicando que todavia no hay un recorrido disponible y, cuando corresponda, que primero se debe generar la ruta o completar actividades con ubicacion
-- el flujo vigente del feature es:
+- El flujo vigente del feature es:
   - buscar lugar con Google Places
   - al seleccionar un lugar, consultar Place Details para cargar rating y reseñas on-demand
   - guardar lugar en el viaje
@@ -338,10 +339,10 @@ Orden actual:
 
 ### Convenciones de notificaciones
 
-- el consentimiento general de notificaciones por email se persiste en `Usuarios.ConsienteNotificacionesEmail`
-- el consentimiento general de notificaciones push se persiste en `Usuarios.ConsienteNotificacionesPush`
-- las preferencias iniciales por tipo tambien se persisten en `Usuarios`
-- flags actuales:
+- El consentimiento general de notificaciones por email se persiste en `Usuarios.ConsienteNotificacionesEmail`
+- El consentimiento general de notificaciones push se persiste en `Usuarios.ConsienteNotificacionesPush`
+- Las preferencias iniciales por tipo tambien se persisten en `Usuarios`
+- Flags actuales:
   - `RecibeEmailsNuevaVotacion`
   - `RecibeEmailsCambiosViaje`
   - `RecibeEmailsNuevosGastos`
@@ -354,90 +355,90 @@ Orden actual:
   - `RecibePushRecordatoriosDeuda`
   - `RecibePushRecordatoriosActividad`
   - `RecibePushRecordatoriosReserva`
-- el backend no debe enviar notificaciones funcionales si el usuario no esta activo, no confirmo email, no otorgo consentimiento o desactivo el tipo correspondiente
-- en Expo Go para Android no se inicializa `expo-notifications` para push remotas, porque Expo Go no soporta esa funcionalidad desde SDK 53; las pruebas reales de token push requieren una development build o app nativa instalada
-- en Android, la development build para push remotas requiere Firebase/FCM configurado con `google-services.json` correspondiente al package `com.ticigaticasteam.cyanea`, referenciado desde `expo.android.googleServicesFile`, y una recompilacion nativa; sin ese archivo `expo-notifications` no puede obtener el token Expo Push
+- El backend no debe enviar notificaciones funcionales si el usuario no esta activo, no confirmo email, no otorgo consentimiento o desactivo el tipo correspondiente
+- En Expo Go para Android no se inicializa `expo-notifications` para push remotas, porque Expo Go no soporta esa funcionalidad desde SDK 53; las pruebas reales de token push requieren una development build o app nativa instalada
+- En Android, la development build para push remotas requiere Firebase/FCM configurado con `google-services.json` correspondiente al package `com.ticigaticasteam.cyanea`, referenciado desde `expo.android.googleServicesFile`, y una recompilacion nativa; sin ese archivo `expo-notifications` no puede obtener el token Expo Push
 - `frontend/app.json` espera `frontend/google-services.json` para builds Android con push; ese archivo y `GoogleService-Info.plist` no se versionan, usar `frontend/google-services.example.json` solo como referencia de ubicacion/forma
-- el proyecto nativo Android aplica `com.google.gms.google-services` con classpath `com.google.gms:google-services:4.5.0`; al recompilar localmente copiar `frontend/google-services.json` a `frontend/android/app/google-services.json`
-- las credenciales FCM V1 de Expo/EAS estan asignadas en `@lcorrea87s-team/cyanea` para `com.ticigaticasteam.cyanea`, usando la service account de Firebase `cyanea-8aba1`; si cambia el `projectId` de EAS hay que regenerar el Expo Push Token en el dispositivo y actualizar `TokensPushUsuarios`
-- para pruebas locales de push en development build Android, si Metro/Hermes falla al cargar el bundle con bytecode, usar `CYANEA_DISABLE_HERMES_BYTECODE=1` al levantar Expo; no reemplaza la prueba posterior de una build productiva
-- los tokens push de Expo se persisten en `TokensPushUsuarios`; el frontend solo debe registrarlos despues de obtener permiso explicito del sistema y el backend debe desactivarlos si el usuario revoca `ConsienteNotificacionesPush`
-- los links incluidos en correos de notificacion deben resolverse desde `MAIL_FRONTEND_BASE_URL`
-- las notificaciones push funcionales se despachan desde el backend mediante el dispatcher central `dispatch_trip_notification`; los endpoints de dominio solo deben construir el evento y no llamar directamente a Expo
-- el despacho push usa Expo Push API (`EXPO_PUSH_URL`) en lotes de hasta 100 mensajes; `EXPO_PUSH_ACCESS_TOKEN` es opcional y `PUSH_ENABLED=false` desactiva el envio externo sin desactivar las notificaciones internas
-- los eventos de viaje deben registrar siempre notificacion interna en `Notificaciones`; el envio push es complementario, respeta consentimiento, usuario activo, email confirmado, preferencias por tipo y tokens activos
-- si Expo devuelve `DeviceNotRegistered`, el token en `TokensPushUsuarios` se desactiva con `FechaBaja`; otros errores de push se registran como warning/error y no bloquean la operacion principal del dominio
-- los gastos nuevos usan `NotificationType.NUEVO_GASTO`; los recordatorios de deuda/liquidacion usan `NotificationType.RECORDATORIO_DEUDA` y se configuran por separado
-- los recordatorios de inicio de actividades usan `NotificationType.RECORDATORIO_ACTIVIDAD`; el scheduler de FastAPI escanea actividades proximas segun `ACTIVITY_REMINDER_MINUTES_BEFORE` y registra envios en `RecordatoriosActividadesNotificados` para no duplicar avisos
-- la respuesta a una push en mobile se resuelve desde `frontend/src/services/notificationNavigation.js`; el payload debe incluir `tripId` y, si corresponde, `eventType`, `activityId`, `expenseId` o `votingId` para abrir `TripDetail` en la solapa adecuada
+- El proyecto nativo Android aplica `com.google.gms.google-services` con classpath `com.google.gms:google-services:4.5.0`; al recompilar localmente copiar `frontend/google-services.json` a `frontend/android/app/google-services.json`
+- Las credenciales FCM V1 de Expo/EAS estan asignadas en `@lcorrea87s-team/cyanea` para `com.ticigaticasteam.cyanea`, usando la service account de Firebase `cyanea-8aba1`; si cambia el `projectId` de EAS hay que regenerar el Expo Push Token en el dispositivo y actualizar `TokensPushUsuarios`
+- Para pruebas locales de push en development build Android, si Metro/Hermes falla al cargar el bundle con bytecode, usar `CYANEA_DISABLE_HERMES_BYTECODE=1` al levantar Expo; no reemplaza la prueba posterior de una build productiva
+- Los tokens push de Expo se persisten en `TokensPushUsuarios`; el frontend solo debe registrarlos despues de obtener permiso explicito del sistema y el backend debe desactivarlos si el usuario revoca `ConsienteNotificacionesPush`
+- Los links incluidos en correos de notificacion deben resolverse desde `MAIL_FRONTEND_BASE_URL`
+- Las notificaciones push funcionales se despachan desde el backend mediante el dispatcher central `dispatch_trip_notification`; los endpoints de dominio solo deben construir el evento y no llamar directamente a Expo
+- El despacho push usa Expo Push API (`EXPO_PUSH_URL`) en lotes de hasta 100 mensajes; `EXPO_PUSH_ACCESS_TOKEN` es opcional y `PUSH_ENABLED=false` desactiva el envio externo sin desactivar las notificaciones internas
+- Los eventos de viaje deben registrar siempre notificacion interna en `Notificaciones`; el envio push es complementario, respeta consentimiento, usuario activo, email confirmado, preferencias por tipo y tokens activos
+- Si Expo devuelve `DeviceNotRegistered`, el token en `TokensPushUsuarios` se desactiva con `FechaBaja`; otros errores de push se registran como warning/error y no bloquean la operacion principal del dominio
+- Los gastos nuevos usan `NotificationType.NUEVO_GASTO`; los recordatorios de deuda/liquidacion usan `NotificationType.RECORDATORIO_DEUDA` y se configuran por separado
+- Los recordatorios de inicio de actividades usan `NotificationType.RECORDATORIO_ACTIVIDAD`; el scheduler de FastAPI escanea actividades proximas segun `ACTIVITY_REMINDER_MINUTES_BEFORE` y registra envios en `RecordatoriosActividadesNotificados` para no duplicar avisos
+- La respuesta a una push en mobile se resuelve desde `frontend/src/services/notificationNavigation.js`; el payload debe incluir `tripId` y, si corresponde, `eventType`, `activityId`, `expenseId` o `votingId` para abrir `TripDetail` en la solapa adecuada
 
 ### Checklist de incorporacion push/FCM
 
 Para retomar o replicar la configuracion de push Android:
 
-- subir al repo `frontend/eas.json`, los cambios de `frontend/app.json`, `frontend/google-services.example.json`, `.gitignore`, `frontend/.gitignore`, migraciones/modelos/servicios de notificaciones y `backend/.env.example`
-- no subir `frontend/google-services.json`, `GoogleService-Info.plist`, service account JSON de Firebase, `.env`, `frontend/android/`, `cyfb/`, caches ni logs
-- cada integrante que compile Android debe obtener su `frontend/google-services.json` desde Firebase para el package `com.ticigaticasteam.cyanea`
-- las credenciales FCM V1 se administran desde EAS con `npx eas-cli credentials -p android`; usar `NODE_OPTIONS=--use-system-ca` si la red local agrega certificados self-signed
-- el proyecto EAS activo es `@lcorrea87s-team/cyanea`; verificar con `npx eas-cli project:info`
-- despues de cambiar `extra.eas.projectId` o credenciales FCM, regenerar el Expo Push Token en cada dispositivo: desactivar y activar push en la app, o reinstalar si no se renueva
-- para Android emulador, `frontend/.env` debe apuntar al backend con `EXPO_PUBLIC_API_BASE_URL=http://10.0.2.2:8000/api/v1`; para web local usar `http://127.0.0.1:8000/api/v1`
-- verificar en base que `TokensPushUsuarios` tenga solo tokens activos vigentes y que los tokens anteriores queden con `Activo=false` y `FechaBaja`
-- probar punta a punta creando una notificacion de viaje con `dispatch_trip_notification`; Expo debe responder ticket `status=ok`
-- si Expo responde `InvalidCredentials`, revisar que el token se haya emitido con el `projectId` EAS actual y que FCM V1 este asignado al package correcto
+- Subir al repo `frontend/eas.json`, los cambios de `frontend/app.json`, `frontend/google-services.example.json`, `.gitignore`, `frontend/.gitignore`, migraciones/modelos/servicios de notificaciones y `backend/.env.example`
+- No subir `frontend/google-services.json`, `GoogleService-Info.plist`, service account JSON de Firebase, `.env`, `frontend/android/`, `cyfb/`, caches ni logs
+- Cada integrante que compile Android debe obtener su `frontend/google-services.json` desde Firebase para el package `com.ticigaticasteam.cyanea`
+- Las credenciales FCM V1 se administran desde EAS con `npx eas-cli credentials -p android`; usar `NODE_OPTIONS=--use-system-ca` si la red local agrega certificados self-signed
+- El proyecto EAS activo es `@lcorrea87s-team/cyanea`; verificar con `npx eas-cli project:info`
+- Despues de cambiar `extra.eas.projectId` o credenciales FCM, regenerar el Expo Push Token en cada dispositivo: desactivar y activar push en la app, o reinstalar si no se renueva
+- Para Android emulador, `frontend/.env` debe apuntar al backend con `EXPO_PUBLIC_API_BASE_URL=http://10.0.2.2:8000/api/v1`; para web local usar `http://127.0.0.1:8000/api/v1`
+- Verificar en base que `TokensPushUsuarios` tenga solo tokens activos vigentes y que los tokens anteriores queden con `Activo=false` y `FechaBaja`
+- Probar punta a punta creando una notificacion de viaje con `dispatch_trip_notification`; Expo debe responder ticket `status=ok`
+- Si Expo responde `InvalidCredentials`, revisar que el token se haya emitido con el `projectId` EAS actual y que FCM V1 este asignado al package correcto
 
 ## Convenciones de frontend
 
 ### Regla estructural
 
-- el frontend activo vive en `frontend/`
-- no crear variantes paralelas del mismo frontend
-- la navegacion principal vive en `frontend/src/navigation/`
-- las pantallas completas viven en `frontend/src/screens/`
-- los componentes reutilizables viven en `frontend/src/components/`
-- el acceso HTTP vive en `frontend/src/services/api.js`
-- los tokens de diseno viven en `frontend/src/theme/tokens.js`
-- antes de crear estilos nuevos para una pantalla, revisar si el patron ya puede resolverse con componentes base como `PrimaryButton`, `Avatar`, `AvatarStack`, `IconCircleButton`, `MetricCard`, `AuthSwitch` o `StatusPill`
+- El frontend activo vive en `frontend/`
+- No crear variantes paralelas del mismo frontend
+- La navegacion principal vive en `frontend/src/navigation/`
+- Las pantallas completas viven en `frontend/src/screens/`
+- Los componentes reutilizables viven en `frontend/src/components/`
+- El acceso HTTP vive en `frontend/src/services/api.js`
+- Los tokens de diseno viven en `frontend/src/theme/tokens.js`
+- Antes de crear estilos nuevos para una pantalla, revisar si el patron ya puede resolverse con componentes base como `PrimaryButton`, `Avatar`, `AvatarStack`, `IconCircleButton`, `MetricCard`, `AuthSwitch` o `StatusPill`
 
 ### Estilo e identidad visual
 
-- color primario: `#1e3e7b`
-- color acento: `#ffec80`
-- estilo limpio, profesional y mobile-first
-- en Expo no se usa un `styles.css` global; la identidad visual debe centralizarse en tokens compartidos y helpers de estilo
-- evitar hardcodear colores, radios o espaciados por componente si ya existe token equivalente
-- los módulos de infraestructura nativa con dependencias exclusivas de dispositivo, como SQLite offline, deben resolverse con archivos por plataforma (`*.native.js` / `*.web.js`) para no romper el bundle web
-- la interfaz activa toma como referencia una app de viajes mobile-first con header azul profundo, superficies marfil y tarjetas con imagen protagonista
-- usar serif editorial para wordmark de marca, titulos grandes de pantalla, nombres de viajes y valores KPI
-- usar sans para labels, formularios, navegacion, metadata, tabs y acciones
-- los avatares del grupo deben mostrarse en formato circular, con borde claro y posibilidad de stack solapado
-- los CTAs primarios usan fondo azul y texto blanco; el manteca se reserva para acentos, badges, FABs y highlights
-- login y registro comparten shell visual con cabecera azul, superficie marfil y selector segmentado `Iniciar sesion / Crear cuenta`
-- la home base usa saludo superior, KPI cards, cards de viaje con imagen, badge de estado, fecha, avatares y progreso, mas un FAB para crear viaje
-- el detalle de viaje usa hero con imagen, acciones circulares flotantes, stack de avatares, tabs secundarios visuales y cards de agenda por dia
-- las estadisticas de viajes del perfil solo consideran viajes cuya fecha de inicio ya llego; los años futuros no se muestran como filtros
+- Color primario: `#1e3e7b`
+- Color acento: `#ffec80`
+- Estilo limpio, profesional y mobile-first
+- En Expo no se usa un `styles.css` global; la identidad visual debe centralizarse en tokens compartidos y helpers de estilo
+- Evitar hardcodear colores, radios o espaciados por componente si ya existe token equivalente
+- Los módulos de infraestructura nativa con dependencias exclusivas de dispositivo, como SQLite offline, deben resolverse con archivos por plataforma (`*.native.js` / `*.web.js`) para no romper el bundle web
+- La interfaz activa toma como referencia una app de viajes mobile-first con header azul profundo, superficies marfil y tarjetas con imagen protagonista
+- Usar serif editorial para wordmark de marca, titulos grandes de pantalla, nombres de viajes y valores KPI
+- Usar sans para labels, formularios, navegacion, metadata, tabs y acciones
+- Los avatares del grupo deben mostrarse en formato circular, con borde claro y posibilidad de stack solapado
+- Los CTAs primarios usan fondo azul y texto blanco; el manteca se reserva para acentos, badges, FABs y highlights
+- Login y registro comparten shell visual con cabecera azul, superficie marfil y selector segmentado `Iniciar sesion / Crear cuenta`
+- La home base usa saludo superior, KPI cards, cards de viaje con imagen, badge de estado, fecha, avatares y progreso, mas un FAB para crear viaje
+- El detalle de viaje usa hero con imagen, acciones circulares flotantes, stack de avatares, tabs secundarios visuales y cards de agenda por dia
+- Las estadisticas de viajes del perfil solo consideran viajes cuya fecha de inicio ya llego; los años futuros no se muestran como filtros
 
 ### Responsive
 
-- el frontend nuevo se construye con enfoque mobile-first
-- debe funcionar en mobile y web
-- en pantallas amplias, el layout debe aprovechar ancho sin estirarse en exceso
-- usar hooks o helpers responsive compartidos, no condicionales dispersos por toda la app
+- El frontend nuevo se construye con enfoque mobile-first
+- Debe funcionar en mobile y web
+- En pantallas amplias, el layout debe aprovechar ancho sin estirarse en exceso
+- Usar hooks o helpers responsive compartidos, no condicionales dispersos por toda la app
 
 ### Navegacion
 
-- usar React Navigation para la navegacion principal del frontend Expo
-- no reintroducir `react-router-dom` en el frontend activo
+- Usar React Navigation para la navegacion principal del frontend Expo
+- No reintroducir `react-router-dom` en el frontend activo
 
 ### Componentes del dominio viaje
 
 El flujo minimo actual incluye:
 
-- home de viajes
-- alta de viaje
-- buscador predictivo de participantes registrados
-- invitacion externa por correo desde el mismo flujo
-- lista unica de participantes agregados, distinguiendo registrados vs invitados pendientes
+- Home de viajes
+- Alta de viaje
+- Buscador predictivo de participantes registrados
+- Invitacion externa por correo desde el mismo flujo
+- Lista unica de participantes agregados, distinguiendo registrados vs invitados pendientes
 
 ## Estado funcional actual
 
@@ -453,29 +454,25 @@ El flujo minimo actual incluye:
 
 Backend:
 
-- listado de viajes
-- alta de viaje
-- listado de usuarios
-- el usuario actual se resuelve desde la autenticación vigente; no documentar ni asumir usuarios hardcodeados
-- invitaciones externas persistidas y preparadas para envio de mail
+- Listado de viajes
+- Alta de viaje
+- Listado de usuarios
+- El usuario actual se resuelve desde la autenticación vigente; no documentar ni asumir usuarios hardcodeados
+- Invitaciones externas persistidas y preparadas para envio de mail
 
 Frontend activo:
 
-- home en Expo
-- tabs base del producto
-- pantalla de perfil con lectura y edicion de nombre, apellido, nombre de usuario y foto
-- pantalla de nuevo viaje en Expo
-- busqueda de usuarios contra backend
-- agregado de participantes registrados
-- invitacion externa desde el mismo buscador
+- Home en Expo
+- Tabs base del producto
+- Pantalla de perfil con lectura y edicion de nombre, apellido, nombre de usuario y foto
+- Pantalla de nuevo viaje en Expo
+- Busqueda de usuarios contra backend
+- Agregado de participantes registrados
+- Invitacion externa desde el mismo buscador
 
-Frontend de resguardo:
-
-- `frontend-ant/` conserva el frontend anterior en React + Vite
-- usarlo solo como referencia al migrar algun componente faltante
 
 ## Reglas de colaboracion
 
-- antes de cambiar stack, estructura o criterio visual base, conversar el cambio
-- si se toma una nueva convencion, actualizar este archivo en el mismo trabajo
-- no dejar decisiones arquitectonicas relevantes solo en chat o commits
+- Antes de cambiar stack, estructura o criterio visual base, conversar el cambio
+- Si se toma una nueva convencion, actualizar este archivo en el mismo trabajo
+- No dejar decisiones arquitectonicas relevantes solo en chat o commits
