@@ -3,7 +3,7 @@ import secrets
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
 from pydantic import BaseModel
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.orm import Session, selectinload
 
 from app.core.security import verify_password, hash_password
@@ -13,6 +13,7 @@ from app.models.destino_viaje import DestinoViaje
 from app.models.estado_participacion import EstadoParticipacion
 from app.models.estado_viaje import EstadoViaje
 from app.models.participante_viaje import ParticipanteViaje
+from app.models.token_push_usuario import TokenPushUsuario
 from app.models.usuario import Usuario
 from app.models.viaje import Viaje
 from app.models.rol_participante import RolParticipante
@@ -20,6 +21,8 @@ from app.schemas.usuario import (
     UsuarioPhotoUploadResponse,
     UsuarioProfileRead,
     UsuarioProfileUpdate,
+    UsuarioPushTokenResponse,
+    UsuarioPushTokenUpsert,
     UsuarioRead,
     UsuarioDeleteRequest
 )
@@ -46,10 +49,19 @@ def _serializar_usuario_actual(usuario: Usuario) -> UsuarioProfileRead:
         fotoUrl=usuario.FotoUrl,
         proveedorAutenticacion=usuario.ProveedorAutenticacion,
         consienteNotificacionesEmail=usuario.ConsienteNotificacionesEmail,
+        consienteNotificacionesPush=usuario.ConsienteNotificacionesPush,
         recibeEmailsNuevaVotacion=usuario.RecibeEmailsNuevaVotacion,
         recibeEmailsCambiosViaje=usuario.RecibeEmailsCambiosViaje,
+        recibeEmailsNuevosGastos=usuario.RecibeEmailsNuevosGastos,
         recibeEmailsRecordatoriosDeuda=usuario.RecibeEmailsRecordatoriosDeuda,
+        recibeEmailsRecordatoriosActividad=usuario.RecibeEmailsRecordatoriosActividad,
         recibeEmailsRecordatoriosReserva=usuario.RecibeEmailsRecordatoriosReserva,
+        recibePushNuevaVotacion=usuario.RecibePushNuevaVotacion,
+        recibePushCambiosViaje=usuario.RecibePushCambiosViaje,
+        recibePushNuevosGastos=usuario.RecibePushNuevosGastos,
+        recibePushRecordatoriosDeuda=usuario.RecibePushRecordatoriosDeuda,
+        recibePushRecordatoriosActividad=usuario.RecibePushRecordatoriosActividad,
+        recibePushRecordatoriosReserva=usuario.RecibePushRecordatoriosReserva,
     )
 
 
@@ -66,10 +78,19 @@ def _anonimizar_usuario(usuario: Usuario) -> None:
     usuario.HashedPassword = hash_password(secrets.token_urlsafe(24))
 
     usuario.ConsienteNotificacionesEmail = False
+    usuario.ConsienteNotificacionesPush = False
     usuario.RecibeEmailsNuevaVotacion = False
     usuario.RecibeEmailsCambiosViaje = False
+    usuario.RecibeEmailsNuevosGastos = False
     usuario.RecibeEmailsRecordatoriosDeuda = False
+    usuario.RecibeEmailsRecordatoriosActividad = False
     usuario.RecibeEmailsRecordatoriosReserva = False
+    usuario.RecibePushNuevaVotacion = False
+    usuario.RecibePushCambiosViaje = False
+    usuario.RecibePushNuevosGastos = False
+    usuario.RecibePushRecordatoriosDeuda = False
+    usuario.RecibePushRecordatoriosActividad = False
+    usuario.RecibePushRecordatoriosReserva = False
 
     usuario.Activo = False
     usuario.FechaBaja = datetime.now(timezone.utc)
@@ -158,19 +179,108 @@ def update_me(
     # la pantalla de "Cuenta" (que no los envía).
     if payload.consienteNotificacionesEmail is not None:
         current_user.ConsienteNotificacionesEmail = payload.consienteNotificacionesEmail
+    if payload.consienteNotificacionesPush is not None:
+        current_user.ConsienteNotificacionesPush = payload.consienteNotificacionesPush
+        if not payload.consienteNotificacionesPush:
+            db.execute(
+                update(TokenPushUsuario)
+                .where(TokenPushUsuario.IdUsuario == current_user.IdUsuario)
+                .values(Activo=False, FechaBaja=datetime.now(timezone.utc))
+            )
     if payload.recibeEmailsNuevaVotacion is not None:
         current_user.RecibeEmailsNuevaVotacion = payload.recibeEmailsNuevaVotacion
     if payload.recibeEmailsCambiosViaje is not None:
         current_user.RecibeEmailsCambiosViaje = payload.recibeEmailsCambiosViaje
+    if payload.recibeEmailsNuevosGastos is not None:
+        current_user.RecibeEmailsNuevosGastos = payload.recibeEmailsNuevosGastos
     if payload.recibeEmailsRecordatoriosDeuda is not None:
         current_user.RecibeEmailsRecordatoriosDeuda = payload.recibeEmailsRecordatoriosDeuda
+    if payload.recibeEmailsRecordatoriosActividad is not None:
+        current_user.RecibeEmailsRecordatoriosActividad = payload.recibeEmailsRecordatoriosActividad
     if payload.recibeEmailsRecordatoriosReserva is not None:
         current_user.RecibeEmailsRecordatoriosReserva = payload.recibeEmailsRecordatoriosReserva
+    if payload.recibePushNuevaVotacion is not None:
+        current_user.RecibePushNuevaVotacion = payload.recibePushNuevaVotacion
+    if payload.recibePushCambiosViaje is not None:
+        current_user.RecibePushCambiosViaje = payload.recibePushCambiosViaje
+    if payload.recibePushNuevosGastos is not None:
+        current_user.RecibePushNuevosGastos = payload.recibePushNuevosGastos
+    if payload.recibePushRecordatoriosDeuda is not None:
+        current_user.RecibePushRecordatoriosDeuda = payload.recibePushRecordatoriosDeuda
+    if payload.recibePushRecordatoriosActividad is not None:
+        current_user.RecibePushRecordatoriosActividad = payload.recibePushRecordatoriosActividad
+    if payload.recibePushRecordatoriosReserva is not None:
+        current_user.RecibePushRecordatoriosReserva = payload.recibePushRecordatoriosReserva
 
     db.commit()
     db.refresh(current_user)
 
     return _serializar_usuario_actual(current_user)
+
+
+@router.post("/me/push-tokens", response_model=UsuarioPushTokenResponse)
+def upsert_push_token(
+    payload: UsuarioPushTokenUpsert,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> UsuarioPushTokenResponse:
+    if not current_user.ConsienteNotificacionesPush:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Debes activar las notificaciones push antes de registrar el dispositivo.",
+        )
+
+    token_limpio = payload.token.strip()
+    plataforma = payload.plataforma.strip().lower()
+    dispositivo_id = payload.dispositivoId.strip() if payload.dispositivoId else None
+
+    token = db.scalar(select(TokenPushUsuario).where(TokenPushUsuario.Token == token_limpio))
+
+    if token is None:
+        token = TokenPushUsuario(
+            IdUsuario=current_user.IdUsuario,
+            Token=token_limpio,
+            Plataforma=plataforma,
+            DispositivoId=dispositivo_id,
+        )
+        db.add(token)
+    else:
+        token.IdUsuario = current_user.IdUsuario
+        token.Plataforma = plataforma
+        token.DispositivoId = dispositivo_id
+        token.Activo = True
+        token.FechaBaja = None
+
+    db.commit()
+    db.refresh(token)
+
+    return UsuarioPushTokenResponse(
+        id=token.IdTokenPushUsuario,
+        token=token.Token,
+        plataforma=token.Plataforma,
+        activo=token.Activo,
+    )
+
+
+@router.post("/me/push-tokens/revoke")
+def revoke_push_token(
+    payload: UsuarioPushTokenUpsert,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> dict[str, bool]:
+    token = db.scalar(
+        select(TokenPushUsuario).where(
+            TokenPushUsuario.Token == payload.token.strip(),
+            TokenPushUsuario.IdUsuario == current_user.IdUsuario,
+        )
+    )
+
+    if token is not None:
+        token.Activo = False
+        token.FechaBaja = datetime.now(timezone.utc)
+        db.commit()
+
+    return {"revoked": True}
 
 
 @router.post("/me/photo", response_model=UsuarioPhotoUploadResponse)
@@ -342,6 +452,11 @@ async def delete_me(
 
     _reasignar_administracion_viajes(db, current_user)
     _anonimizar_usuario(current_user)
+    db.execute(
+        update(TokenPushUsuario)
+        .where(TokenPushUsuario.IdUsuario == current_user.IdUsuario)
+        .values(Activo=False, FechaBaja=datetime.now(timezone.utc))
+    )
 
     db.commit()
 

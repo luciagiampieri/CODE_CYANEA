@@ -28,6 +28,8 @@ from app.models.transferencia_liquidacion import TransferenciaLiquidacion
 from app.models.notificacion import Notificacion
 from app.models.checklist import Checklist
 from app.models.categorias_checklist import CategoriasChecklist
+from app.models.token_push_usuario import TokenPushUsuario
+from app.models.recordatorio_actividad_notificado import RecordatorioActividadNotificado
 __all__ = [
     "EstadoInvitacion",
     "EstadoParticipacion",
@@ -57,4 +59,6 @@ __all__ = [
     "Notificacion",
     "Checklist",
     "CategoriasChecklist",
+    "TokenPushUsuario",
+    "RecordatorioActividadNotificado",
 ]

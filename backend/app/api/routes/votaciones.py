@@ -25,9 +25,14 @@ from app.schemas.votacion import (
     VotanteResultado,
 )
 
+from app.services.notifications import NotificationType, TripNotificationEvent, dispatch_trip_notification
 from app.services.trip_access import get_trip_with_relations, require_trip_access, require_trip_edit_access, require_trip_not_finished, is_trip_finished
 
 router = APIRouter()
+
+
+def _actor_display_name(usuario: Usuario) -> str:
+    return f"{usuario.Nombre} {usuario.Apellido}".strip() or usuario.NombreUsuario
 
 
 def _ahora_utc() -> datetime:
@@ -172,7 +177,7 @@ def _calcular_resultados(
 
 
 @router.post("", response_model=VotacionRead, status_code=status.HTTP_201_CREATED)
-def crear_votacion(
+async def crear_votacion(
     payload: VotacionCreate,
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
@@ -206,6 +211,21 @@ def crear_votacion(
         ws_manager.broadcast,
         votacion.IdViaje,
         {"tipo": "votacion_actualizada", "idVotacion": votacion.IdVotacion},
+    )
+    await dispatch_trip_notification(
+        db,
+        TripNotificationEvent(
+            notification_type=NotificationType.NUEVA_VOTACION,
+            tipo="nueva_votacion",
+            titulo=f"Nueva votación en {viaje.Titulo}",
+            mensaje=f"{_actor_display_name(current_user)} creó la votación {votacion.Titulo}.",
+            id_viaje=votacion.IdViaje,
+            id_usuario_actor=current_user.IdUsuario,
+            data={
+                "eventType": "voting_created",
+                "votingId": votacion.IdVotacion,
+            },
+        ),
     )
 
     return _build_votacion_read(db, votacion, current_user.IdUsuario)

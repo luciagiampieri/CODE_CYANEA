@@ -45,6 +45,16 @@ class Settings(BaseSettings):
     mail_reply_to: str | None = None
     mail_frontend_base_url: str = "http://127.0.0.1:8081"
 
+    # Push notifications
+    push_enabled: bool = True
+    expo_push_url: str = "https://exp.host/--/api/v2/push/send"
+    expo_push_access_token: str | None = None
+
+    # Activity reminders
+    activity_reminders_enabled: bool = True
+    activity_reminder_minutes_before: int = 60
+    activity_reminder_scan_interval_seconds: int = 60
+
     # Supabase
     supabase_url: str = ""
     supabase_service_key: str = ""

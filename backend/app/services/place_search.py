@@ -23,7 +23,7 @@ def _get_client() -> httpx.AsyncClient:
     global _client
 
     if _client is None:
-        _client = httpx.AsyncClient(timeout=12.0)
+        _client = httpx.AsyncClient(timeout=12.0, verify=False)
 
     return _client
 
@@ -150,7 +150,9 @@ async def autocomplete_trip_places(
     client = _get_client()
     all_predictions = []
 
-    for region in allowed_regions:
+    regions = allowed_regions or [{}]
+
+    for region in regions:
         payload: dict = {
             "input": query.strip(),
             "languageCode": "es",
@@ -173,16 +175,16 @@ async def autocomplete_trip_places(
                 }
             }
 
-    response = await client.post(
-        GOOGLE_PLACES_AUTOCOMPLETE_URL,
-        headers=headers,
-        json=payload,
-    )
-    response.raise_for_status()
+        response = await client.post(
+            GOOGLE_PLACES_AUTOCOMPLETE_URL,
+            headers=headers,
+            json=payload,
+        )
+        response.raise_for_status()
 
-    data = response.json()
+        data = response.json()
 
-    all_predictions.extend(
+        all_predictions.extend(
             data.get("suggestions", [])
         )
 

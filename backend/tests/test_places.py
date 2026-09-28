@@ -1,4 +1,5 @@
 from datetime import time
+import asyncio
 import pytest
 
 from app.api.routes import places as places_module
@@ -20,6 +21,38 @@ from tests.test_trips import _crear_usuario, _token_de
 
 async def _broadcast_noop(*args, **kwargs):
     return None
+
+
+class _FakePlacesAutocompleteResponse:
+    def __init__(self, payload):
+        self._payload = payload
+
+    def raise_for_status(self):
+        return None
+
+    def json(self):
+        return {
+            "suggestions": [
+                {
+                    "placePrediction": {
+                        "placeId": "mallorca-1",
+                        "structuredFormat": {
+                            "mainText": {"text": "Mallorca"},
+                            "secondaryText": {"text": "Illes Balears, España"},
+                        },
+                    }
+                }
+            ]
+        }
+
+
+class _FakePlacesAutocompleteClient:
+    def __init__(self):
+        self.payloads = []
+
+    async def post(self, url, headers, json):
+        self.payloads.append(json)
+        return _FakePlacesAutocompleteResponse(json)
 
 
 def _crear_lugar_guardado(db_session, viaje, usuario, google_place_id="google:palma-catedral"):
@@ -45,6 +78,26 @@ def _crear_lugar_guardado(db_session, viaje, usuario, google_place_id="google:pa
     db_session.refresh(lugar)
     db_session.refresh(lugar_viaje)
     return lugar, lugar_viaje
+
+
+def test_autocomplete_trip_places_sin_regiones_busca_sin_sesgo(monkeypatch):
+    fake_client = _FakePlacesAutocompleteClient()
+    monkeypatch.setattr(places_service.settings, "google_maps_api_key", "test-key")
+    monkeypatch.setattr(places_service, "_get_client", lambda: fake_client)
+
+    suggestions = asyncio.run(
+        places_service.autocomplete_trip_places(
+            "mallorca",
+            allowed_regions=[],
+            limit=6,
+        )
+    )
+
+    assert len(suggestions) == 1
+    assert suggestions[0].place_id == "google:mallorca-1"
+    assert len(fake_client.payloads) == 1
+    assert fake_client.payloads[0]["input"] == "mallorca"
+    assert "locationBias" not in fake_client.payloads[0]
 
 
 def test_search_places_direccion_no_reconocida_no_devuelve_resultados(
@@ -612,3 +665,27 @@ def test_resolve_place_error_servicio_externo(
     assert response.json()["detail"] == (
         "No se pudo resolver el lugar seleccionado"
     )
+
+
+def test_popular_places_error_servicio_externo(
+    client, auth_headers, viaje_con_admin, monkeypatch
+):
+    viaje, _ = viaje_con_admin
+
+    async def fake_search_popular_places(lat, lng, limit=6):
+        raise Exception("Google Places no responde")
+
+    monkeypatch.setattr(
+        places_module,
+        "search_popular_places",
+        fake_search_popular_places,
+    )
+
+    response = client.get(
+        f"/api/v1/trips/{viaje.IdViaje}/places/popular",
+        params={"lat": 39.6952629, "lng": 3.0175712, "limit": 8},
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"contextLabel": None, "items": []}

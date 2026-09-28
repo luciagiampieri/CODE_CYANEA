@@ -15,9 +15,13 @@
     },
     "android": {
       "package": "com.ticigaticasteam.cyanea",
+      "googleServicesFile": "./google-services.json",
       "adaptiveIcon": {
         "backgroundColor": "#1e3e7b"
-      }
+      },
+      "permissions": [
+        "android.permission.RECORD_AUDIO"
+      ]
     },
     "web": {
       "name": "Cyanea",
@@ -25,6 +29,7 @@
     },
     "plugins": [
       "@react-native-community/datetimepicker",
+      "expo-notifications",
       "expo-secure-store",
       "expo-sqlite",
       "expo-web-browser",
@@ -40,12 +45,15 @@
         {
           "photosPermission": "Necesitamos acceso a tus fotos para elegir la portada del viaje."
         }
-      ]
+      ],
+      "expo-splash-screen"
     ],
     "extra": {
       "eas": {
-        "projectId": "e33efd22-aa5c-4522-a28e-8661409ec0e4"
+        "projectId": "0dddd612-ef66-4470-9a77-ce206f823efd"
       }
-    }
+    },
+    "scheme": "cyanea",
+    "owner": "lcorrea87s-team"
   }
 }

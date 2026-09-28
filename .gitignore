@@ -53,6 +53,7 @@ frontend-ant/.env
 web-build/
 android/
 ios/
+cyfb/
 
 # Logs
 logs/

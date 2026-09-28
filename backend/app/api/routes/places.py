@@ -1,4 +1,5 @@
 from datetime import time, timedelta
+import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
@@ -28,10 +29,16 @@ from app.schemas.place import (
 )
 from app.schemas.trip import ActividadRead, RutaDiariaRead
 from app.services.place_search import get_place_details, search_popular_places, get_trip_allowed_regions, search_nearby_places, CATEGORY_TYPE_MAP, autocomplete_trip_places, resolve_trip_place
+from app.services.notifications import NotificationType, TripNotificationEvent, dispatch_trip_notification
 from app.services.route_generation import sincronizar_ruta_tras_cambio_actividad
 from app.services.trip_access import get_trip_with_relations, require_trip_access, require_trip_edit_access, require_trip_not_finished
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
+
+
+def _actor_display_name(usuario: Usuario) -> str:
+    return f"{usuario.Nombre} {usuario.Apellido}".strip() or usuario.NombreUsuario
 
 
 async def _sincronizar_y_notificar_ruta(db: Session, dia: DiaCronograma, trip_id: int) -> None:
@@ -189,6 +196,7 @@ async def search_places(
         )
 
     except Exception as exc:
+        logger.warning("No se pudo consultar Google Places autocomplete: %s", exc)
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail="No se pudo consultar el servicio externo de lugares",
@@ -258,7 +266,12 @@ async def popular_places(
     current_user: Usuario = Depends(get_current_user),
 ) -> PopularTripPlacesResponse:
     require_trip_edit_access(get_trip_with_relations(db, trip_id), current_user)
-    results = await search_popular_places(lat=lat, lng=lng, limit=limit)
+    try:
+        results = await search_popular_places(lat=lat, lng=lng, limit=limit)
+    except Exception as exc:
+        logger.warning("No se pudieron obtener atracciones populares: %s", exc)
+        return PopularTripPlacesResponse(contextLabel=None, items=[])
+
     return PopularTripPlacesResponse(
         contextLabel=results.context_label,
         items=[
@@ -593,5 +606,22 @@ async def schedule_trip_place(
     )
 
     await _sincronizar_y_notificar_ruta(db, day, trip_id)
+    await dispatch_trip_notification(
+        db,
+        TripNotificationEvent(
+            notification_type=NotificationType.CAMBIO_VIAJE,
+            tipo="actividad_creada",
+            titulo=f"Nueva actividad en {viaje.Titulo}",
+            mensaje=f"{_actor_display_name(current_user)} agregó {activity.Nombre} al itinerario.",
+            id_viaje=trip_id,
+            id_usuario_actor=current_user.IdUsuario,
+            data={
+                "eventType": "activity_created",
+                "dayId": day.IdDiaCronograma,
+                "activityId": activity.IdActividad,
+                "tripPlaceId": trip_place.IdLugarInteresViaje,
+            },
+        ),
+    )
 
     return result

@@ -1,12 +1,19 @@
 import { Alert } from "react-native";
 import { act, fireEvent, render } from "@testing-library/react-native";
 
-import NotificationPreferencesScreen from "../screens/NotificationPreferencesScreen";
+import NotificationPreferencesScreen, { isPushDisponible } from "../screens/NotificationPreferencesScreen";
 import * as api from "../services/api";
+import * as pushNotifications from "../services/pushNotifications";
 
 jest.mock("../services/api", () => ({
   getCurrentUser: jest.fn(),
+  registerPushToken: jest.fn(),
   updateCurrentUser: jest.fn(),
+}));
+
+jest.mock("../services/pushNotifications", () => ({
+  getExpoPushTokenForDevice: jest.fn(),
+  getPushAvailabilityReason: jest.fn(() => null),
 }));
 
 jest.mock("../hooks/useResponsive", () => ({
@@ -21,10 +28,19 @@ function usuario(overrides = {}) {
     nombreUsuario: "adalovelace",
     fotoUrl: null,
     consienteNotificacionesEmail: true,
+    consienteNotificacionesPush: false,
     recibeEmailsNuevaVotacion: true,
     recibeEmailsCambiosViaje: false,
+    recibeEmailsNuevosGastos: true,
     recibeEmailsRecordatoriosDeuda: false,
+    recibeEmailsRecordatoriosActividad: true,
     recibeEmailsRecordatoriosReserva: false,
+    recibePushNuevaVotacion: true,
+    recibePushCambiosViaje: true,
+    recibePushNuevosGastos: true,
+    recibePushRecordatoriosDeuda: true,
+    recibePushRecordatoriosActividad: true,
+    recibePushRecordatoriosReserva: true,
     ...overrides,
   };
 }
@@ -46,7 +62,7 @@ describe("NotificationPreferencesScreen", () => {
       <NotificationPreferencesScreen navigation={{ goBack: jest.fn() }} />
     );
 
-    expect(queryByText("Notificaciones por email")).toBeNull();
+    expect(queryByText("Preferencias por tipo")).toBeNull();
 
     await act(async () => {
       resolveGetCurrentUser(usuario());
@@ -60,8 +76,8 @@ describe("NotificationPreferencesScreen", () => {
       <NotificationPreferencesScreen navigation={{ goBack: jest.fn() }} />
     );
 
-    expect(getByText("Notificaciones por email")).toBeTruthy();
-    expect(getByText("Nuevas votaciones")).toBeTruthy();
+    expect(getByText("Canales")).toBeTruthy();
+    expect(getByText("Preferencias por tipo")).toBeTruthy();
     expect(getByTestId("notification-prefs-master-switch").props.value).toBe(true);
     expect(
       getByTestId("notification-prefs-switch-recibeEmailsNuevaVotacion").props.value
@@ -69,6 +85,10 @@ describe("NotificationPreferencesScreen", () => {
     expect(
       getByTestId("notification-prefs-switch-recibeEmailsCambiosViaje").props.value
     ).toBe(false);
+    expect(getByTestId("notification-prefs-push-master-switch").props.value).toBe(false);
+    expect(getByTestId("notification-prefs-switch-recibePushNuevaVotacion").props.value).toBe(false);
+    expect(getByTestId("notification-prefs-switch-recibeEmailsNuevosGastos").props.value).toBe(true);
+    expect(getByTestId("notification-prefs-switch-recibeEmailsRecordatoriosActividad").props.value).toBe(true);
   });
 
   it("si falla la carga, muestra el mensaje de error", async () => {
@@ -160,6 +180,41 @@ describe("NotificationPreferencesScreen", () => {
     expect(api.updateCurrentUser).toHaveBeenCalledWith(
       expect.objectContaining({ recibeEmailsCambiosViaje: true })
     );
+  });
+
+  it("al activar push, pide token y registra el dispositivo", async () => {
+    api.getCurrentUser.mockResolvedValueOnce(usuario());
+    api.updateCurrentUser.mockResolvedValueOnce({});
+    api.registerPushToken.mockResolvedValueOnce({});
+    pushNotifications.getExpoPushTokenForDevice.mockResolvedValueOnce({
+      token: "ExponentPushToken[test]",
+      plataforma: "ios",
+      dispositivoId: "device-1",
+    });
+
+    const { getByTestId } = await render(
+      <NotificationPreferencesScreen navigation={{ goBack: jest.fn() }} />
+    );
+
+    await act(async () => {
+      fireEvent(getByTestId("notification-prefs-push-master-switch"), "valueChange", true);
+    });
+
+    expect(api.updateCurrentUser).toHaveBeenCalledWith(
+      expect.objectContaining({ consienteNotificacionesPush: true })
+    );
+    expect(api.registerPushToken).toHaveBeenCalledWith({
+      token: "ExponentPushToken[test]",
+      plataforma: "ios",
+      dispositivoId: "device-1",
+    });
+  });
+
+  it("considera push no disponible en web o Expo Go Android", () => {
+    expect(isPushDisponible("web", "unsupported_platform")).toBe(false);
+    expect(isPushDisponible("android", "expo_go_android")).toBe(false);
+    expect(isPushDisponible("ios", null)).toBe(true);
+    expect(isPushDisponible("android", null)).toBe(true);
   });
 
   it("si falla el guardado, revierte el cambio y muestra un Alert", async () => {

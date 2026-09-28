@@ -9,3 +9,5 @@
 \i 007_datos_maestros.sql
 \i 008_seed_minimo.sql
 \i 009_actividades_itinerario.sql
+\i 010_tokens_push_usuarios.sql
+\i 011_recordatorios_actividades_notificados.sql

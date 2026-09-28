@@ -35,6 +35,12 @@ const facebookDiscovery = {
   authorizationEndpoint: "https://www.facebook.com/v19.0/dialog/oauth",
 };
 
+const disabledGoogleClientIds = {
+  webClientId: "disabled-google-web-client-id",
+  androidClientId: "disabled-google-android-client-id",
+  iosClientId: "disabled-google-ios-client-id",
+};
+
 export default function LoginScreen({ navigation }) {
   const { login } = useAuth();
   const handledGoogleResponse = useRef(null);
@@ -46,11 +52,23 @@ export default function LoginScreen({ navigation }) {
   const [loading, setLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
   const [facebookLoading, setFacebookLoading] = useState(false);
-  const [request, response, promptAsync] = Google.useIdTokenAuthRequest({
+
+  const googleClientIds = {
     webClientId: process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID,
     androidClientId: process.env.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID,
     iosClientId: process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID,
+  };
+  const googleClientIdForPlatform = Platform.select({
+    android: googleClientIds.androidClientId,
+    ios: googleClientIds.iosClientId,
+    default: googleClientIds.webClientId,
   });
+  const googleAuthAvailable =
+    process.env.EXPO_PUBLIC_GOOGLE_AUTH_ENABLED !== "false" &&
+    Boolean(googleClientIdForPlatform);
+  const [request, response, promptAsync] = Google.useIdTokenAuthRequest(
+    googleAuthAvailable ? googleClientIds : disabledGoogleClientIds
+  );
   const [fbRequest, fbResponse, promptFbAsync] = AuthSession.useAuthRequest(
     {
       clientId: process.env.EXPO_PUBLIC_FACEBOOK_APP_ID,
@@ -60,12 +78,6 @@ export default function LoginScreen({ navigation }) {
       usePKCE: false,
     },
     facebookDiscovery
-  );
-
-  const googleAuthAvailable = Boolean(
-    process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID ||
-      process.env.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID ||
-      process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID
   );
 
   const facebookAuthAvailable = Boolean(process.env.EXPO_PUBLIC_FACEBOOK_APP_ID);

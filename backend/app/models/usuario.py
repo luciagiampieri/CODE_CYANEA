@@ -33,16 +33,43 @@ class Usuario(Base):
     ConsienteNotificacionesEmail: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default="false"
     )
+    ConsienteNotificacionesPush: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
     RecibeEmailsNuevaVotacion: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=True, server_default="true"
     )
     RecibeEmailsCambiosViaje: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=True, server_default="true"
     )
+    RecibeEmailsNuevosGastos: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default="true"
+    )
     RecibeEmailsRecordatoriosDeuda: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=True, server_default="true"
     )
+    RecibeEmailsRecordatoriosActividad: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default="true"
+    )
     RecibeEmailsRecordatoriosReserva: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default="true"
+    )
+    RecibePushNuevaVotacion: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default="true"
+    )
+    RecibePushCambiosViaje: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default="true"
+    )
+    RecibePushNuevosGastos: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default="true"
+    )
+    RecibePushRecordatoriosDeuda: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default="true"
+    )
+    RecibePushRecordatoriosActividad: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default="true"
+    )
+    RecibePushRecordatoriosReserva: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=True, server_default="true"
     )
 
@@ -80,6 +107,11 @@ class Usuario(Base):
     )
     Notificaciones = relationship(
         "Notificacion",
+        back_populates="Usuario",
+        cascade="all, delete-orphan",
+    )
+    TokensPush = relationship(
+        "TokenPushUsuario",
         back_populates="Usuario",
         cascade="all, delete-orphan",
     )

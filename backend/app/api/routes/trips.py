@@ -66,6 +66,8 @@ from app.services.notifications.invitation_email_sender import (
 from app.services.notifications import (
     NotificationMessage,
     NotificationType,
+    TripNotificationEvent,
+    dispatch_trip_notification,
     get_notification_service,
 )
 from app.services.destination_search import build_destination_image_url, search_destinations, autocomplete_destinations, resolve_destination
@@ -145,6 +147,11 @@ def _require_trip_admin(viaje: Viaje, current_user: Usuario) -> None:
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Solo el administrador del viaje puede modificar participantes",
         )
+
+
+def _actor_display_name(usuario: Usuario) -> str:
+    return f"{usuario.Nombre} {usuario.Apellido}".strip() or usuario.NombreUsuario
+
 
 def _trip_image_url(viaje: Viaje) -> str | None:
     if viaje.UrlPortadaPersonalizada:
@@ -232,7 +239,7 @@ async def _notificar_viaje_actualizado(viaje: Viaje, message: str) -> None:
         })
 
 async def _sincronizar_y_notificar_ruta(db: Session, dia: DiaCronograma, trip_id: int) -> None:
-    
+
     if not ROUTE_GENERATION_AVAILABLE:
         return
 
@@ -265,7 +272,7 @@ def _build_trip_detail(
 
     fecha_salida_usuario = None
     has_left = False
-    participantes_salidos_despues = []  
+    participantes_salidos_despues = []
     participacion_usuario = None
 
     if current_user is not None:
@@ -277,7 +284,7 @@ def _build_trip_detail(
             ),
              None,
         )
-    
+
         if (
             participacion_usuario is not None
             and participacion_usuario.EstadoParticipacion.Nombre == "salio"
@@ -289,7 +296,7 @@ def _build_trip_detail(
         participacion
         for participacion in viaje.Participantes
         if (
-            participacion.Usuario.Activo 
+            participacion.Usuario.Activo
             and participacion.EstadoParticipacion.Nombre in {"aceptado", "invitado"})
             and (
                 fecha_salida_usuario is None
@@ -303,7 +310,7 @@ def _build_trip_detail(
             participacion
             for participacion in viaje.Participantes
             if (
-                participacion.Usuario.Activo 
+                participacion.Usuario.Activo
                 and participacion.EstadoParticipacion.Nombre == "salio"
                 and (
                     participacion.FechaIncorporacion is None
@@ -473,7 +480,7 @@ def get_pending_invitations(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user)
 ):
-    
+
     participaciones = db.scalars(
         select(ParticipanteViaje)
         .join(ParticipanteViaje.EstadoParticipacion)
@@ -510,7 +517,7 @@ async def respond_to_invitation(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user)
 ):
-    decision = payload.decision 
+    decision = payload.decision
 
     participacion = db.scalar(
         select(ParticipanteViaje)
@@ -522,7 +529,7 @@ async def respond_to_invitation(
 
     if not participacion:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, 
+            status_code=status.HTTP_404_NOT_FOUND,
             detail="No se encontró una invitación para este viaje."
         )
 
@@ -539,17 +546,17 @@ async def respond_to_invitation(
     estado_maestro = db.scalar(
         select(EstadoParticipacion).where(EstadoParticipacion.Nombre == nuevo_estado_nombre)
     )
-    
+
     if not estado_maestro:
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, 
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Falta el estado maestro requerido para la respuesta"
         )
 
     ahora = datetime.now()
     participacion.IdEstadoParticipacion = estado_maestro.IdEstadoParticipacion
     participacion.FechaRespuesta = ahora
-    
+
     if decision == "aceptar":
         participacion.FechaIncorporacion = ahora
         participacion.FechaSalida = None
@@ -563,7 +570,7 @@ async def respond_to_invitation(
             f"El usuario {current_user.Nombre} {current_user.Apellido} ha "
             f"{decision.upper() + 'ADO'} la invitación al viaje '{participacion.Viaje.Titulo}'."
         )
-    
+
     if decision == "aceptar":
         await manager.broadcast(trip_id, {
             "tipo": "participante_acepto",
@@ -872,6 +879,19 @@ async def update_trip(
         viaje_actualizado, "La información del viaje fue actualizada."
     )
 
+    await dispatch_trip_notification(
+        db,
+        TripNotificationEvent(
+            notification_type=NotificationType.CAMBIO_VIAJE,
+            tipo="viaje_actualizado",
+            titulo=f"Cambios en {viaje_actualizado.Titulo}",
+            mensaje=f"{_actor_display_name(current_user)} actualizó la información del viaje.",
+            id_viaje=viaje_actualizado.IdViaje,
+            id_usuario_actor=current_user.IdUsuario,
+            data={"eventType": "trip_updated"},
+        ),
+    )
+
     return TripUpdateResponse(
         message="Los cambios se guardaron correctamente.",
         trip=_build_trip_detail(viaje_actualizado),
@@ -887,7 +907,7 @@ def delete_trip(
     viaje = get_trip_with_relations(db, trip_id)
     if viaje is None:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, 
+            status_code=status.HTTP_404_NOT_FOUND,
             detail="Viaje no encontrado"
         )
 
@@ -896,11 +916,11 @@ def delete_trip(
 
     nuevo_estado = db.scalar(
         select(EstadoViaje).where(
-            EstadoViaje.Nombre == "eliminado", 
+            EstadoViaje.Nombre == "eliminado",
             EstadoViaje.Activo.is_(True)
         )
     )
-    
+
     if not nuevo_estado:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -982,6 +1002,22 @@ async def create_activity(
     })
 
     await _sincronizar_y_notificar_ruta(db, dia, trip_id)
+    await dispatch_trip_notification(
+        db,
+        TripNotificationEvent(
+            notification_type=NotificationType.CAMBIO_VIAJE,
+            tipo="actividad_creada",
+            titulo=f"Nueva actividad en {viaje.Titulo}",
+            mensaje=f"{_actor_display_name(current_user)} agregó {actividad.Nombre} al itinerario.",
+            id_viaje=trip_id,
+            id_usuario_actor=current_user.IdUsuario,
+            data={
+                "eventType": "activity_created",
+                "dayId": dia.IdDiaCronograma,
+                "activityId": actividad.IdActividad,
+            },
+        ),
+    )
 
     return resultado
 
@@ -1038,11 +1074,11 @@ async def update_activity(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="El lugar de interés no existe.",
             )
-    
+
     actividad.Nombre = payload.nombre.strip()
     if payload.idLugarInteres is not None:
         actividad.IdLugarInteres = payload.idLugarInteres if lugar else None
-        actividad.IdLugarInteresViaje = None 
+        actividad.IdLugarInteresViaje = None
     elif getattr(payload, "idLugarInteresViaje", None) is not None:
         actividad.IdLugarInteresViaje = payload.idLugarInteresViaje
         actividad.IdLugarInteres = None
@@ -1075,6 +1111,22 @@ async def update_activity(
     )
 
     await _sincronizar_y_notificar_ruta(db, dia, trip_id)
+    await dispatch_trip_notification(
+        db,
+        TripNotificationEvent(
+            notification_type=NotificationType.CAMBIO_VIAJE,
+            tipo="actividad_actualizada",
+            titulo=f"Actividad actualizada en {viaje.Titulo}",
+            mensaje=f"{_actor_display_name(current_user)} actualizó {actividad.Nombre} en el itinerario.",
+            id_viaje=trip_id,
+            id_usuario_actor=current_user.IdUsuario,
+            data={
+                "eventType": "activity_updated",
+                "dayId": dia.IdDiaCronograma,
+                "activityId": actividad.IdActividad,
+            },
+        ),
+    )
 
     return resultado
 
@@ -1111,6 +1163,7 @@ async def delete_activity(
     if actividad is None:
         raise HTTPException(status_code=404, detail="La actividad no existe en este día del itinerario.")
 
+    nombre_actividad = actividad.Nombre
     db.delete(actividad)
     db.commit()
 
@@ -1123,6 +1176,22 @@ async def delete_activity(
     })
 
     await _sincronizar_y_notificar_ruta(db, dia, trip_id)
+    await dispatch_trip_notification(
+        db,
+        TripNotificationEvent(
+            notification_type=NotificationType.CAMBIO_VIAJE,
+            tipo="actividad_eliminada",
+            titulo=f"Actividad eliminada en {viaje.Titulo}",
+            mensaje=f"{_actor_display_name(current_user)} eliminó {nombre_actividad} del itinerario.",
+            id_viaje=trip_id,
+            id_usuario_actor=current_user.IdUsuario,
+            data={
+                "eventType": "activity_deleted",
+                "dayId": dia.IdDiaCronograma,
+                "activityId": activity_id,
+            },
+        ),
+    )
 
     return TripMutationResponse(message="La actividad ha sido eliminada correctamente.")
 
@@ -1517,7 +1586,7 @@ async def remove_trip_cover(
     await _notificar_viaje_actualizado(
         viaje, "La portada del viaje fue actualizada."
     )
-    
+
     return TripMutationResponse(
         message="La portada personalizada se eliminó correctamente."
     )
@@ -1585,7 +1654,7 @@ async def upload_trip_cover(
     await _notificar_viaje_actualizado(
         viaje, "La portada del viaje fue actualizada."
     )
-            
+
     return TripMutationResponse(
         message="La portada del viaje se actualizó correctamente."
     )
@@ -1830,7 +1899,7 @@ async def create_trip(
             )
             db.add(destino)
             db.flush()
-        
+
         db.add(
             DestinoViaje(
                 IdViaje=viaje.IdViaje,
@@ -1996,7 +2065,7 @@ async def leave_trip(
 
     # En la base puede seguir "activo" aunque ya pasó la fecha de fin.
     require_trip_not_finished(viaje, "la lista de participantes")
-        
+
     participacion = db.scalar(
         select(ParticipanteViaje)
         .where(
@@ -2082,7 +2151,7 @@ async def leave_trip(
 
     nuevo_administrador = None
 
-    # CASO 1: El usuario es administrador 
+    # CASO 1: El usuario es administrador
 
     if es_administrador:
 
@@ -2104,7 +2173,7 @@ async def leave_trip(
             .join(ParticipanteViaje.Usuario)
             .where(
                 ParticipanteViaje.IdViaje == trip_id,
-                ParticipanteViaje.IdUsuario == data.nuevoAdministradorId, 
+                ParticipanteViaje.IdUsuario == data.nuevoAdministradorId,
                 Usuario.Activo.is_(True),
                 EstadoParticipacion.Nombre == "aceptado",
                 EstadoParticipacion.Activo.is_(True)
@@ -2116,7 +2185,7 @@ async def leave_trip(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="El usuario seleccionado no es un participante activo del viaje.",
             )
-        
+
         nuevo_administrador_usuario = nuevo_administrador.Usuario
 
     # Buscamos estados y roles maestros necesarios para la operación
@@ -2207,7 +2276,7 @@ async def leave_trip(
         db.add(notificacion)
         db.commit()
 
-    # avisar que un usuario abandono el viaje asi se actualiza la lista de participantes 
+    # avisar que un usuario abandono el viaje asi se actualiza la lista de participantes
     await manager.broadcast_to_trip(
         viaje.IdViaje,
         {
@@ -2228,4 +2297,4 @@ async def leave_trip(
 
     return TripMutationResponse(
         message="Has abandonado el viaje correctamente."
-    )
+    )

@@ -15,7 +15,9 @@ logger = logging.getLogger(__name__)
 class NotificationType(StrEnum):
     NUEVA_VOTACION = "nueva_votacion"
     CAMBIO_VIAJE = "cambio_viaje"
+    NUEVO_GASTO = "nuevo_gasto"
     RECORDATORIO_DEUDA = "recordatorio_deuda"
+    RECORDATORIO_ACTIVIDAD = "recordatorio_actividad"
     RECORDATORIO_RESERVA = "recordatorio_reserva"
     PARTICIPANTE_EXPULSADO = "participante_expulsado"
 
@@ -44,9 +46,20 @@ class NotificationService:
     _notification_preferences = {
         NotificationType.NUEVA_VOTACION: "RecibeEmailsNuevaVotacion",
         NotificationType.CAMBIO_VIAJE: "RecibeEmailsCambiosViaje",
+        NotificationType.NUEVO_GASTO: "RecibeEmailsNuevosGastos",
         NotificationType.RECORDATORIO_DEUDA: "RecibeEmailsRecordatoriosDeuda",
+        NotificationType.RECORDATORIO_ACTIVIDAD: "RecibeEmailsRecordatoriosActividad",
         NotificationType.RECORDATORIO_RESERVA: "RecibeEmailsRecordatoriosReserva",
         NotificationType.PARTICIPANTE_EXPULSADO: "RecibeEmailsCambiosViaje",
+    }
+    _push_preferences = {
+        NotificationType.NUEVA_VOTACION: "RecibePushNuevaVotacion",
+        NotificationType.CAMBIO_VIAJE: "RecibePushCambiosViaje",
+        NotificationType.NUEVO_GASTO: "RecibePushNuevosGastos",
+        NotificationType.RECORDATORIO_DEUDA: "RecibePushRecordatoriosDeuda",
+        NotificationType.RECORDATORIO_ACTIVIDAD: "RecibePushRecordatoriosActividad",
+        NotificationType.RECORDATORIO_RESERVA: "RecibePushRecordatoriosReserva",
+        NotificationType.PARTICIPANTE_EXPULSADO: "RecibePushCambiosViaje",
     }
 
     def __init__(self, mail_service: MailService) -> None:
@@ -69,6 +82,24 @@ class NotificationService:
         preference_attr = self._notification_preferences[notification_type]
         if not getattr(recipient, preference_attr, False):
             return False, "notification_preference_disabled"
+
+        return True, None
+
+    def can_send_push(
+        self,
+        recipient: Usuario,
+        notification_type: NotificationType,
+    ) -> tuple[bool, str | None]:
+        if not recipient.Activo:
+            return False, "user_inactive"
+        if not recipient.EmailConfirmado:
+            return False, "email_unconfirmed"
+        if not recipient.ConsienteNotificacionesPush:
+            return False, "push_consent_missing"
+
+        preference_attr = self._push_preferences[notification_type]
+        if not getattr(recipient, preference_attr, False):
+            return False, "push_preference_disabled"
 
         return True, None
 

@@ -16,10 +16,19 @@ class UsuarioProfileRead(UsuarioRead):
     apellido: str
     proveedorAutenticacion: str 
     consienteNotificacionesEmail: bool
+    consienteNotificacionesPush: bool
     recibeEmailsNuevaVotacion: bool
     recibeEmailsCambiosViaje: bool
+    recibeEmailsNuevosGastos: bool
     recibeEmailsRecordatoriosDeuda: bool
+    recibeEmailsRecordatoriosActividad: bool
     recibeEmailsRecordatoriosReserva: bool
+    recibePushNuevaVotacion: bool
+    recibePushCambiosViaje: bool
+    recibePushNuevosGastos: bool
+    recibePushRecordatoriosDeuda: bool
+    recibePushRecordatoriosActividad: bool
+    recibePushRecordatoriosReserva: bool
 
 
 class UsuarioCurrentRead(UsuarioProfileRead):
@@ -32,10 +41,19 @@ class UsuarioProfileUpdate(BaseModel):
     nombreUsuario: str
     fotoUrl: str | None = None
     consienteNotificacionesEmail: bool | None = None
+    consienteNotificacionesPush: bool | None = None
     recibeEmailsNuevaVotacion: bool | None = None
     recibeEmailsCambiosViaje: bool | None = None
+    recibeEmailsNuevosGastos: bool | None = None
     recibeEmailsRecordatoriosDeuda: bool | None = None
+    recibeEmailsRecordatoriosActividad: bool | None = None
     recibeEmailsRecordatoriosReserva: bool | None = None
+    recibePushNuevaVotacion: bool | None = None
+    recibePushCambiosViaje: bool | None = None
+    recibePushNuevosGastos: bool | None = None
+    recibePushRecordatoriosDeuda: bool | None = None
+    recibePushRecordatoriosActividad: bool | None = None
+    recibePushRecordatoriosReserva: bool | None = None
 
     @field_validator("nombre", "apellido", "nombreUsuario")
     @classmethod
@@ -89,3 +107,24 @@ class UsuarioRegisterResponse(BaseModel):
 
 class UsuarioDeleteRequest(BaseModel):
     password: str | None = None
+
+
+class UsuarioPushTokenUpsert(BaseModel):
+    token: str
+    plataforma: str
+    dispositivoId: str | None = None
+
+    @field_validator("token", "plataforma")
+    @classmethod
+    def validar_texto_obligatorio(cls, value: str) -> str:
+        limpio = value.strip()
+        if not limpio:
+            raise ValueError("El campo no puede estar vacío")
+        return limpio
+
+
+class UsuarioPushTokenResponse(BaseModel):
+    id: int
+    token: str
+    plataforma: str
+    activo: bool

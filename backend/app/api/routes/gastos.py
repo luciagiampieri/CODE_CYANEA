@@ -20,9 +20,15 @@ from app.schemas.gasto import (
 from app.models.gasto import TipoDivisionEnum
 from app.models.viaje import Viaje
 from app.services.liquidacion_service import rebuild_settlement_plan
+from app.services.notifications import NotificationType, TripNotificationEvent, dispatch_trip_notification
 from app.services.trip_access import get_trip_with_relations, require_trip_access, require_trip_edit_access
 
 router = APIRouter()
+
+
+def _actor_display_name(usuario: Usuario) -> str:
+    return f"{usuario.Nombre} {usuario.Apellido}".strip() or usuario.NombreUsuario
+
 
 def _validar_participantes_activos(
     db: Session,
@@ -64,7 +70,7 @@ def _validar_participantes_activos(
         )
 
 @router.post("")
-def create_gasto(data: GastoCreate, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)):
+async def create_gasto(data: GastoCreate, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)):
 
     viaje = require_trip_edit_access(
         get_trip_with_relations(db, data.IdViaje),
@@ -230,6 +236,21 @@ def create_gasto(data: GastoCreate, db: Session = Depends(get_db), current_user:
     db.refresh(gasto)
 
     rebuild_settlement_plan(db, data.IdViaje)
+    await dispatch_trip_notification(
+        db,
+        TripNotificationEvent(
+            notification_type=NotificationType.NUEVO_GASTO,
+            tipo="gasto_creado",
+            titulo=f"Nuevo gasto en {viaje.Titulo}",
+            mensaje=f"{_actor_display_name(current_user)} registró el gasto {gasto.Nombre}.",
+            id_viaje=data.IdViaje,
+            id_usuario_actor=current_user.IdUsuario,
+            data={
+                "eventType": "expense_created",
+                "expenseId": gasto.IdGasto,
+            },
+        ),
+    )
 
     return {
         "message": "Gasto creado correctamente",

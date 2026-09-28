@@ -1,7 +1,7 @@
 import React, { useEffect } from "react";
-import { Alert } from "react-native";
 import { NavigationContainer, DefaultTheme } from "@react-navigation/native";
 import { StatusBar } from "expo-status-bar";
+import * as SplashScreen from "expo-splash-screen";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import NetInfo from "@react-native-community/netinfo";
 
@@ -12,8 +12,14 @@ import { injectWebFocusStyles } from "./src/theme/webFocusStyles";
 
 import { inicializarBaseDeDatos } from "./src/database/database";
 import { sincronizarGastosOffline } from "./src/database/gastosLocal";
+import {
+  flushPendingNotificationNavigation,
+  navigationRef,
+  subscribeNotificationResponses,
+} from "./src/services/notificationNavigation";
 
 injectWebFocusStyles();
+SplashScreen.preventAutoHideAsync().catch(() => {});
 
 const navigationTheme = {
   ...DefaultTheme,
@@ -29,6 +35,11 @@ const navigationTheme = {
 
 export default function App() {
   useEffect(() => {
+    const splashFallback = setTimeout(() => {
+      SplashScreen.hideAsync().catch(() => {});
+    }, 1500);
+    const notificationSubscription = subscribeNotificationResponses();
+
     // 1. Inicializar la DB local al abrir la aplicación
     inicializarBaseDeDatos();
 
@@ -44,13 +55,24 @@ export default function App() {
       }
     });
 
-    return () => unsubscribe();
+    return () => {
+      clearTimeout(splashFallback);
+      unsubscribe();
+      notificationSubscription.remove();
+    };
   }, []);
 
   return (
     <SafeAreaProvider>
       <AuthProvider>
-        <NavigationContainer theme={navigationTheme}>
+        <NavigationContainer
+          ref={navigationRef}
+          theme={navigationTheme}
+          onReady={() => {
+            SplashScreen.hideAsync().catch(() => {});
+            flushPendingNotificationNavigation();
+          }}
+        >
           <StatusBar style="light" />
           <AppNavigator />
         </NavigationContainer>

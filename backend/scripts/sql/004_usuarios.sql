@@ -11,10 +11,19 @@ CREATE TABLE IF NOT EXISTS public."Usuarios" (
     "Activo" BOOLEAN NOT NULL DEFAULT TRUE,
     "EmailConfirmado" BOOLEAN NOT NULL DEFAULT FALSE,
     "ConsienteNotificacionesEmail" BOOLEAN NOT NULL DEFAULT FALSE,
+    "ConsienteNotificacionesPush" BOOLEAN NOT NULL DEFAULT FALSE,
     "RecibeEmailsNuevaVotacion" BOOLEAN NOT NULL DEFAULT TRUE,
     "RecibeEmailsCambiosViaje" BOOLEAN NOT NULL DEFAULT TRUE,
+    "RecibeEmailsNuevosGastos" BOOLEAN NOT NULL DEFAULT TRUE,
     "RecibeEmailsRecordatoriosDeuda" BOOLEAN NOT NULL DEFAULT TRUE,
-    "RecibeEmailsRecordatoriosReserva" BOOLEAN NOT NULL DEFAULT TRUE
+    "RecibeEmailsRecordatoriosActividad" BOOLEAN NOT NULL DEFAULT TRUE,
+    "RecibeEmailsRecordatoriosReserva" BOOLEAN NOT NULL DEFAULT TRUE,
+    "RecibePushNuevaVotacion" BOOLEAN NOT NULL DEFAULT TRUE,
+    "RecibePushCambiosViaje" BOOLEAN NOT NULL DEFAULT TRUE,
+    "RecibePushNuevosGastos" BOOLEAN NOT NULL DEFAULT TRUE,
+    "RecibePushRecordatoriosDeuda" BOOLEAN NOT NULL DEFAULT TRUE,
+    "RecibePushRecordatoriosActividad" BOOLEAN NOT NULL DEFAULT TRUE,
+    "RecibePushRecordatoriosReserva" BOOLEAN NOT NULL DEFAULT TRUE
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS "UX_Usuarios_Email"

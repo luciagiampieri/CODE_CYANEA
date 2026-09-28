@@ -468,6 +468,32 @@ export async function updateCurrentUser(payload) {
   return parseResponse(response, "No se pudo actualizar el perfil");
 }
 
+export async function registerPushToken(payload) {
+  const response = await fetch(`${API_BASE_URL}/users/me/push-tokens`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(await authHeaders()),
+    },
+    body: JSON.stringify(payload),
+  });
+
+  return parseResponse(response, "No se pudo registrar el dispositivo para notificaciones push");
+}
+
+export async function revokePushToken(payload) {
+  const response = await fetch(`${API_BASE_URL}/users/me/push-tokens/revoke`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(await authHeaders()),
+    },
+    body: JSON.stringify(payload),
+  });
+
+  return parseResponse(response, "No se pudo desactivar el dispositivo para notificaciones push");
+}
+
 export async function uploadProfilePhoto(archivo) {
   const token = await getStoredToken();
   const fileType = archivo.mimeType || archivo.type || "application/octet-stream";

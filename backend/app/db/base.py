@@ -24,6 +24,8 @@ from app.models.lugar_interes import LugarInteres
 from app.models.lugar_interes_viaje import LugarInteresViaje
 from app.models.transferencia_liquidacion import TransferenciaLiquidacion
 from app.models.ruta_diaria import RutaDiaria
+from app.models.token_push_usuario import TokenPushUsuario
+from app.models.recordatorio_actividad_notificado import RecordatorioActividadNotificado
 
 __all__ = [
     "Base",
@@ -52,4 +54,6 @@ __all__ = [
     "LugarInteresViaje",
     "TransferenciaLiquidacion",
     "RutaDiaria",
+    "TokenPushUsuario",
+    "RecordatorioActividadNotificado",
 ]
