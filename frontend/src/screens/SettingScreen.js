@@ -133,6 +133,7 @@ export default function SettingsScreen({ navigation }) {
                 onPress={() => navigation.navigate("PreferenciasNotificaciones")}
                 style={({ pressed }) => [
                   styles.itemRow,
+                  styles.itemRowDivider,
                   pressed && styles.itemRowPressed,
                 ]}
               >
@@ -143,6 +144,25 @@ export default function SettingsScreen({ navigation }) {
                   <View>
                     <Text style={styles.itemTitle}>Notificaciones</Text>
                     <Text style={styles.itemSubtitle}>Emails de votos, itinerarios y deudas</Text>
+                  </View>
+                </View>
+                <FontAwesome6 name="chevron-right" size={14} color={colors.textMuted} />
+              </Pressable>
+              <Pressable
+                onPress={() => navigation.navigate("PreferenciasPlanificacion")}
+                testID="settings-planificacion-row"
+                style={({ pressed }) => [
+                  styles.itemRow,
+                  pressed && styles.itemRowPressed,
+                ]}
+              >
+                <View style={styles.itemLeft}>
+                  <View style={[styles.iconCircle, { backgroundColor: colors.surfaceAlt }]}>
+                    <FontAwesome6 name="wand-magic-sparkles" size={16} color={colors.primary} />
+                  </View>
+                  <View>
+                    <Text style={styles.itemTitle}>Planificación de viajes</Text>
+                    <Text style={styles.itemSubtitle}>Intereses, ritmo y presupuesto por viaje</Text>
                   </View>
                 </View>
                 <FontAwesome6 name="chevron-right" size={14} color={colors.textMuted} />
@@ -268,6 +288,10 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
     padding: spacing.md,
+  },
+  itemRowDivider: {
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
   },
   itemRowPressed: {
     backgroundColor: colors.surfaceAlt,

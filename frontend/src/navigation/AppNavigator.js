@@ -23,6 +23,7 @@ import EditProfileScreen from "../screens/EditProfileScreen";
 import SettingsScreen from "../screens/SettingScreen";
 import EditDocumentScreen from "../screens/EditDocumentScreen";
 import NotificationPreferencesScreen from "../screens/NotificationPreferencesScreen";
+import PlanningPreferencesListScreen from "../screens/PlanningPreferencesListScreen";
 import ForgotPasswordScreen from "../screens/ForgotPasswordScreen";
 import ResetPasswordScreen from "../screens/ResetPasswordScreen";
 
@@ -213,6 +214,14 @@ export default function AppNavigator() {
             component={NotificationPreferencesScreen}
             options={{
               title: "Notificaciones",
+              headerShown: false,
+            }}
+          />
+          <Stack.Screen
+            name="PreferenciasPlanificacion"
+            component={PlanningPreferencesListScreen}
+            options={{
+              title: "Planificación de viajes",
               headerShown: false,
             }}
           />

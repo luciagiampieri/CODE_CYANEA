@@ -231,3 +231,39 @@ def categoria_gasto(db_session):
     db_session.commit()
     db_session.refresh(categoria)
     return categoria
+
+@pytest.fixture()
+def planificacion_master_data(db_session):
+    """Intereses y ritmos de viaje del asistente de planificación (US 86).
+
+    Replica los datos sembrados por la migración b86a1c2d3e4f.
+    """
+    from app.models.interes_planificacion import InteresPlanificacion
+    from app.models.ritmo_viaje import RitmoViaje
+
+    intereses = [
+        InteresPlanificacion(Nombre=nombre, Icono=icono, Orden=orden, Activo=True)
+        for orden, (nombre, icono) in enumerate(
+            [
+                ("Gastronomía", "utensils"),
+                ("Cultura e historia", "landmark"),
+                ("Naturaleza y aire libre", "tree"),
+                ("Aventura", "person-hiking"),
+                ("Vida nocturna", "martini-glass-citrus"),
+                ("Compras", "bag-shopping"),
+                ("Relax", "spa"),
+            ],
+            start=1,
+        )
+    ]
+    ritmos = [
+        RitmoViaje(Nombre="Tranquilo", Descripcion="Pocas actividades por día.", Orden=1, Activo=True),
+        RitmoViaje(Nombre="Moderado", Descripcion="Equilibrio entre actividades y descanso.", Orden=2, Activo=True),
+        RitmoViaje(Nombre="Intenso", Descripcion="Varias actividades por día.", Orden=3, Activo=True),
+    ]
+    db_session.add_all(intereses + ritmos)
+    db_session.commit()
+    return {
+        "intereses": {i.Nombre: i.IdInteresPlanificacion for i in intereses},
+        "ritmos": {r.Nombre: r.IdRitmoViaje for r in ritmos},
+    }

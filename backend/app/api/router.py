@@ -12,13 +12,17 @@ from app.api.routes import (
     users, 
     votaciones, 
     notificaciones,
-    checklists
+    checklists,
+    planificacion,
 )
 
 api_router = APIRouter()
 api_router.include_router(root.router, tags=["root"])
 api_router.include_router(auth.router, prefix="/auth", tags=["auth"])
 api_router.include_router(trips.router, prefix="/trips", tags=["trips"])
+api_router.include_router(
+    planificacion.router_usuario, prefix="/users", tags=["planificacion"]
+)
 api_router.include_router(users.router, prefix="/users", tags=["users"])
 api_router.include_router(gastos.router, prefix="/gastos", tags=["gastos"])
 api_router.include_router(liquidaciones.router, prefix="/trips", tags=["liquidaciones"])
@@ -29,3 +33,4 @@ api_router.include_router(repositorio.router, prefix="/trips", tags=["repositori
 api_router.include_router(places.router, tags=["places"])
 api_router.include_router(notificaciones.router, prefix="/notificaciones", tags=["notificaciones"])
 api_router.include_router(checklists.router, prefix="/trips", tags=["checklists"])
+api_router.include_router(planificacion.router, prefix="/trips", tags=["planificacion"])

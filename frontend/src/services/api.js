@@ -1372,3 +1372,29 @@ export async function acceptTripCoverAI(tripId, imageBase64, mimeType) {
   });
   return parseResponse(response, "No se pudo establecer la portada generada");
 }
+// US 86 - Preferencias de planificación del viaje
+export async function getPlanningPreferences(tripId) {
+  const response = await fetch(`${API_BASE_URL}/trips/${tripId}/preferencias-planificacion`, {
+    headers: await authHeaders(),
+  });
+  return parseResponse(response, "No se pudieron cargar tus preferencias de planificación");
+}
+
+export async function getMyPlanningPreferences() {
+  const response = await fetch(`${API_BASE_URL}/users/me/preferencias-planificacion`, {
+    headers: await authHeaders(),
+  });
+  return parseResponse(response, "No se pudieron cargar tus viajes");
+}
+
+export async function savePlanningPreferences(tripId, payload) {
+  const response = await fetch(`${API_BASE_URL}/trips/${tripId}/preferencias-planificacion`, {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+      ...(await authHeaders()),
+    },
+    body: JSON.stringify(payload),
+  });
+  return parseResponse(response, "No se pudieron guardar tus preferencias de planificación");
+}

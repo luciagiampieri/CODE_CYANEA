@@ -63,6 +63,17 @@ describe("SettingScreen", () => {
     expect(navigation.navigate).toHaveBeenCalledWith("PreferenciasNotificaciones");
   });
 
+  it("al presionar 'Planificación de viajes', navega a PreferenciasPlanificacion", async () => {
+    const navigation = { goBack: jest.fn(), navigate: jest.fn() };
+
+    const { getByTestId } = await render(<SettingsScreen navigation={navigation} />);
+
+    await act(async () => {
+      fireEvent.press(getByTestId("settings-planificacion-row"));
+    });
+    expect(navigation.navigate).toHaveBeenCalledWith("PreferenciasPlanificacion");
+  });
+
   it("al presionar el banner de CYANEA Pro, muestra el aviso de 'muy pronto'", async () => {
     const alertMock = jest.spyOn(Alert, "alert").mockImplementation(() => {});
     const navigation = { goBack: jest.fn(), navigate: jest.fn() };

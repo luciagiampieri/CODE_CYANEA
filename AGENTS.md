@@ -274,6 +274,21 @@ Reglas vigentes para la HU de balance y liquidacion:
 - El contrato `GET /trips/{trip_id}/settlement` concentra el resumen financiero del viaje para la solapa `Gastos`, incluyendo total gastado del viaje, gasto individual asignado por participante, total pagado por participante y saldo neto/pendiente
 
 
+## Asistente inteligente de planificacion
+
+### Preferencias de planificacion (US 86)
+
+- Las preferencias se modelan por participacion, no por usuario: `PreferenciasPlanificacion.IdParticipanteViaje` es UNIQUE, asi cada participante tiene una sola fila por viaje y las preferencias de un viaje no se aplican a otro (RNF-14)
+- Intereses y ritmos son tablas maestras (`InteresesPlanificacion`, `RitmosViajes`) sembradas por la migracion `b86a1c2d3e4f`; la relacion N a N con los intereses elegidos vive en `PreferenciasPlanificacionIntereses`
+- `PresupuestoDiarioARS` es opcional, se expresa en pesos argentinos (RN-39) y tiene CHECK `> 0`; `Consideraciones` es opcional, hasta 300 caracteres, y se guarda `NULL` si queda en blanco
+- Contrato: `GET /trips/{trip_id}/preferencias-planificacion` devuelve las preferencias propias, las opciones activas y `PuedeEditar`; `PUT` en la misma ruta crea o reemplaza las preferencias propias
+- `GET /users/me/preferencias-planificacion` lista los viajes vigentes del usuario (participacion `aceptado`, viaje no finalizado, cancelado ni eliminado) con el estado de sus preferencias; alimenta la pantalla de Configuracion
+- Solo pueden configurar los participantes con estado `aceptado` y mientras el viaje no este finalizado (409 `TRIP_FINISHED`); las reglas de negocio se validan en la ruta y devuelven 400 con mensajes en espanol
+- Las preferencias se envian anonimizadas al servicio de IA; la UI lo informa debajo del campo de consideraciones
+- En el frontend las preferencias se gestionan desde Configuracion > Preferencias > "Planificacion de viajes" (`PlanningPreferencesListScreen`, ruta `PreferenciasPlanificacion`), que lista los viajes vigentes y abre el formulario `PlanningPreferencesScreen` como modal para el viaje elegido
+- No se agrega un acceso fijo en el detalle del viaje: la US 87 pide completar las preferencias en contexto al solicitar sugerencias si el usuario todavia no las configuro
+- Los tests reutilizan la fixture `planificacion_master_data` de `backend/tests/conftest.py`
+
 ## Integraciones externas
 
 - Ninguna integracion externa no esencial debe impedir los flujos base del dominio
