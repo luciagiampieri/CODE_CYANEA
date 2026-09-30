@@ -12,6 +12,8 @@ CREATE TABLE IF NOT EXISTS public."Usuarios" (
     "EmailConfirmado" BOOLEAN NOT NULL DEFAULT FALSE,
     "ConsienteNotificacionesEmail" BOOLEAN NOT NULL DEFAULT FALSE,
     "ConsienteNotificacionesPush" BOOLEAN NOT NULL DEFAULT FALSE,
+    "ConsienteProcesamientoIA" BOOLEAN NOT NULL DEFAULT FALSE,
+    "FechaConsentimientoIA" TIMESTAMPTZ NULL,
     "RecibeEmailsNuevaVotacion" BOOLEAN NOT NULL DEFAULT TRUE,
     "RecibeEmailsCambiosViaje" BOOLEAN NOT NULL DEFAULT TRUE,
     "RecibeEmailsNuevosGastos" BOOLEAN NOT NULL DEFAULT TRUE,

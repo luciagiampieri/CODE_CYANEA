@@ -36,6 +36,14 @@ class Usuario(Base):
     ConsienteNotificacionesPush: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default="false"
     )
+    # Consentimiento para procesar imágenes con un servicio externo de IA
+    # (US 93, RNF-13 y RNF-33). Se pide la primera vez que se usa el escaneo.
+    ConsienteProcesamientoIA: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
+    FechaConsentimientoIA: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     RecibeEmailsNuevaVotacion: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=True, server_default="true"
     )

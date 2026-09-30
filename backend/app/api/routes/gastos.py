@@ -1,7 +1,9 @@
+import asyncio
+import logging
 from datetime import date
 from decimal import Decimal
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
@@ -16,15 +18,41 @@ from app.schemas.gasto import (
     ParticipantesGastosRead,
     GastoRead,
     GastoListItemRead,
+    EscaneoComprobanteRead,
 )
 from app.models.gasto import TipoDivisionEnum
 from app.models.viaje import Viaje
 from app.services.liquidacion_service import rebuild_settlement_plan
 from app.services.notifications import NotificationType, TripNotificationEvent, dispatch_trip_notification
-from app.services.trip_access import get_trip_with_relations, require_trip_access, require_trip_edit_access
+from app.services.trip_access import (
+    TRIP_FINISHED_CODE,
+    get_trip_with_relations,
+    is_trip_finished,
+    require_trip_access,
+    require_trip_edit_access,
+)
 from app.services.currency import obtener_tipo_cambio
+from app.core.config import settings
+from app.models.moneda import Moneda
+from app.services.receipt_ai import (
+    MAX_RECEIPT_BYTES,
+    ReceiptExtractor,
+    ReceiptScanError,
+    construir_resultado,
+    get_receipt_extractor,
+    validar_esquema,
+    validar_imagen,
+)
+from app.services.receipt_ai.base import (
+    AI_CONSENT_REQUIRED,
+    AI_TIMEOUT,
+    AI_UNAVAILABLE,
+    MENSAJE_NO_DISPONIBLE,
+    MENSAJE_TIEMPO_AGOTADO,
+)
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 def _actor_display_name(usuario: Usuario) -> str:
@@ -291,6 +319,97 @@ def get_categories(
         )
         for categoria in categorias
     ]
+
+
+def _error_escaneo(error: ReceiptScanError) -> HTTPException:
+    return HTTPException(
+        status_code=error.status_code,
+        detail=error.message,
+        headers={"X-Error-Code": error.code},
+    )
+
+
+@router.post("/trips/{trip_id}/escanear-comprobante", response_model=EscaneoComprobanteRead)
+async def escanear_comprobante(
+    trip_id: int,
+    archivo: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+    extractor: ReceiptExtractor = Depends(get_receipt_extractor),
+) -> EscaneoComprobanteRead:
+    """Extrae con IA los datos de un comprobante para precargar el formulario
+    de gasto (US 93).
+
+    No registra nada: el gasto se guarda recién cuando el usuario confirma el
+    formulario con POST /gastos (RNF-31).
+    """
+    # AC1: solo participantes actuales (aceptados) y viaje no finalizado.
+    viaje = require_trip_edit_access(get_trip_with_relations(db, trip_id), current_user)
+    if is_trip_finished(viaje):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="El viaje ya finalizó: no se pueden escanear comprobantes. "
+            "Podés cargar el gasto manualmente.",
+            headers={"X-Error-Code": TRIP_FINISHED_CODE},
+        )
+
+    # AC5: consentimiento explícito antes de enviar la imagen a un servicio externo.
+    if not current_user.ConsienteProcesamientoIA:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Para escanear comprobantes tenés que aceptar que la imagen "
+            "sea procesada por un servicio externo de inteligencia artificial.",
+            headers={"X-Error-Code": AI_CONSENT_REQUIRED},
+        )
+
+    # AC3: formato y tamaño (se lee un byte de más para detectar el exceso).
+    contenido = await archivo.read(MAX_RECEIPT_BYTES + 1)
+    try:
+        mime = validar_imagen(contenido)
+    except ReceiptScanError as error:
+        raise _error_escaneo(error)
+
+    categorias = {
+        categoria.Nombre: categoria.IdCategoria
+        for categoria in db.scalars(
+            select(CategoriasGastos).where(CategoriasGastos.Activo.is_(True))
+        ).all()
+    }
+    monedas = {codigo.upper() for codigo in db.scalars(select(Moneda.Codigo)).all()}
+
+    # AC14 / AC15: el servicio externo puede fallar o demorar; nunca bloquea la carga manual.
+    try:
+        crudo = await asyncio.wait_for(
+            extractor.extraer(contenido, mime, list(categorias.keys())),
+            timeout=settings.ai_receipt_timeout_seconds + 1,
+        )
+        # AC6: la respuesta se valida contra el esquema y las reglas de negocio.
+        resultado = construir_resultado(validar_esquema(crudo), categorias, monedas)
+    except TimeoutError:
+        raise HTTPException(
+            status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+            detail=MENSAJE_TIEMPO_AGOTADO,
+            headers={"X-Error-Code": AI_TIMEOUT},
+        )
+    except ReceiptScanError as error:
+        raise _error_escaneo(error)
+    except Exception:
+        # RNF-30: cualquier falla inesperada del servicio externo degrada a carga manual.
+        logger.exception("Error inesperado al escanear comprobante con IA")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=MENSAJE_NO_DISPONIBLE,
+            headers={"X-Error-Code": AI_UNAVAILABLE},
+        )
+
+    return EscaneoComprobanteRead(
+        Nombre=resultado.Nombre,
+        MontoOriginal=resultado.MontoOriginal,
+        MonedaOriginal=resultado.MonedaOriginal,
+        FechaGasto=resultado.FechaGasto,
+        IdCategoria=resultado.IdCategoria,
+        CamposBajaConfianza=resultado.CamposBajaConfianza,
+    )
 
 
 @router.get("/trips/{trip_id}", response_model=list[GastoListItemRead])

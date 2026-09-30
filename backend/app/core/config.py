@@ -67,6 +67,19 @@ class Settings(BaseSettings):
     # Si es True no se llama a ningún servicio externo: devuelve una imagen de prueba.
     ai_cover_mock: bool = False
 
+    # Escaneo de comprobantes con IA (US 93)
+    # Proveedor intercambiable por configuración (RNF-37): "gemini" o "mock".
+    # Con "mock" no se llama a ningún servicio externo (desarrollo y tests).
+    ai_receipt_provider: str = "gemini"
+    gemini_api_key: str | None = None
+    ai_receipt_model: str = "gemini-3.8-flash"
+    # Modelo alternativo si el principal está saturado, llegó al límite de uso,
+    # no responde a tiempo o fue retirado (RNF-30). Vacío = sin respaldo.
+    ai_receipt_fallback_model: str | None = "gemini-3.5-flash-lite"
+    # Tiempo máximo de espera al proveedor; se deja margen para cumplir los
+    # 15 segundos totales del RNF-34 (subida + validaciones + respuesta).
+    ai_receipt_timeout_seconds: float = 12.0
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",

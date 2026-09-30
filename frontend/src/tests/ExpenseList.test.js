@@ -34,12 +34,13 @@ const gastos = [
 
 describe("ExpenseList", () => {
   it("muestra cada gasto con su nombre, quién pagó y el monto", async () => {
-    const { getByText, getAllByText } = await render(
+    const { getByText, getAllByText, queryByText } = await render(
       <ExpenseList categories={categorias} currency="ARS" currentUserId={2} expenses={gastos} />
     );
 
     expect(getByText("Taxi")).toBeTruthy();
-    expect(getByText(/^Pagó vos/)).toBeTruthy();
+    expect(getByText(/^Pagaste vos/)).toBeTruthy();
+    expect(queryByText(/^Pagó vos/)).toBeNull();
     expect(getAllByText(/^Pagó Lucia Giampieri/)).toHaveLength(2);
   });
 

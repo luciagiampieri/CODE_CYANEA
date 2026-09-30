@@ -87,3 +87,18 @@ class GastoRead(BaseModel):
     model_config = {
         "from_attributes": True
     }
+
+class EscaneoComprobanteRead(BaseModel):
+    """Datos extraídos de un comprobante para precargar el formulario (US 93).
+
+    No representa un gasto guardado: el usuario debe confirmarlo (RNF-31).
+    Los campos que no se pudieron identificar vienen en null (AC9) y los
+    dudosos se listan en `CamposBajaConfianza` para resaltarlos (AC10).
+    """
+
+    Nombre: Optional[str] = None
+    MontoOriginal: Optional[Decimal] = None
+    MonedaOriginal: Optional[str] = None
+    FechaGasto: Optional[date] = None
+    IdCategoria: Optional[int] = None
+    CamposBajaConfianza: list[str] = Field(default_factory=list)

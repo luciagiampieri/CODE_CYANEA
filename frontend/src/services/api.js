@@ -651,6 +651,61 @@ export async function createExpense(payload) {
   );
 }
 
+// --- Escaneo de comprobantes con IA (US 93) ------------------------------------
+
+// Otorga o revoca el consentimiento para procesar imágenes con un servicio externo de IA.
+export async function updateAiConsent(consiente) {
+  const response = await fetch(`${API_BASE_URL}/users/me/consentimiento-ia`, {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+      ...(await authHeaders()),
+    },
+    body: JSON.stringify({ consiente }),
+  });
+  return parseResponse(response, "No se pudo guardar tu consentimiento");
+}
+
+// Envía la imagen (ya comprimida) y devuelve los datos para precargar el formulario.
+// No registra ningún gasto: eso ocurre recién con createExpense (RNF-31).
+export async function scanReceipt(tripId, imagen) {
+  const url = `${API_BASE_URL}/gastos/trips/${tripId}/escanear-comprobante`;
+  const mensajeError = "No se pudo escanear el comprobante";
+  const nombre = imagen.fileName || "comprobante.jpg";
+  const tipo = imagen.mimeType || "image/jpeg";
+
+  if (Platform.OS === "web") {
+    const formData = new FormData();
+    if (imagen.file instanceof Blob) {
+      formData.append("archivo", imagen.file, nombre);
+    } else {
+      // El manipulador de imágenes devuelve un data URI o un blob URI.
+      const blob = await (await fetch(imagen.uri)).blob();
+      formData.append("archivo", blob, nombre);
+    }
+    const response = await fetch(url, {
+      method: "POST",
+      headers: await authHeaders(),
+      body: formData,
+    });
+    return parseResponse(response, mensajeError);
+  }
+
+  const token = await getStoredToken();
+  const result = await new File(imagen.uri).upload(url, {
+    httpMethod: "POST",
+    uploadType: UploadType.MULTIPART,
+    fieldName: "archivo",
+    mimeType: tipo,
+    headers: { Authorization: `Bearer ${token}` },
+  });
+
+  if (result.status < 200 || result.status >= 300) {
+    throw buildApiError(messageFromBody(result.body, mensajeError), result.status, result.headers);
+  }
+  return JSON.parse(result.body);
+}
+
 export async function getTripSettlement(tripId) {
   const response = await fetch(`${API_BASE_URL}/trips/${tripId}/settlement`, {
     headers: await authHeaders(),

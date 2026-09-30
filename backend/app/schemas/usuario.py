@@ -1,4 +1,5 @@
 import re
+from datetime import datetime
 
 from pydantic import BaseModel, EmailStr, field_validator
 
@@ -17,6 +18,7 @@ class UsuarioProfileRead(UsuarioRead):
     proveedorAutenticacion: str 
     consienteNotificacionesEmail: bool
     consienteNotificacionesPush: bool
+    consienteProcesamientoIA: bool = False
     recibeEmailsNuevaVotacion: bool
     recibeEmailsCambiosViaje: bool
     recibeEmailsNuevosGastos: bool
@@ -128,3 +130,14 @@ class UsuarioPushTokenResponse(BaseModel):
     token: str
     plataforma: str
     activo: bool
+
+
+class ConsentimientoIAUpdate(BaseModel):
+    """Otorga o revoca el consentimiento de procesamiento con IA (US 93)."""
+
+    consiente: bool
+
+
+class ConsentimientoIARead(BaseModel):
+    consienteProcesamientoIA: bool
+    fechaConsentimientoIA: datetime | None = None

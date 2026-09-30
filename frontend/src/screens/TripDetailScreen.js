@@ -3197,6 +3197,7 @@ export default function TripDetailScreen({ navigation, route }) {
         visible={showAddGastoModal}
         IdViaje={trip?.id}
         Moneda={trip?.currency}
+        puedeEscanear={!lock.isFinished}
         onClose={() => setShowAddGastoModal(false)}
         onGastoCreado={() => {
           loadSettlement();

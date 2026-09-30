@@ -21,6 +21,8 @@ from app.schemas.usuario import (
     UsuarioPhotoUploadResponse,
     UsuarioProfileRead,
     UsuarioProfileUpdate,
+    ConsentimientoIARead,
+    ConsentimientoIAUpdate,
     UsuarioPushTokenResponse,
     UsuarioPushTokenUpsert,
     UsuarioRead,
@@ -50,6 +52,7 @@ def _serializar_usuario_actual(usuario: Usuario) -> UsuarioProfileRead:
         proveedorAutenticacion=usuario.ProveedorAutenticacion,
         consienteNotificacionesEmail=usuario.ConsienteNotificacionesEmail,
         consienteNotificacionesPush=usuario.ConsienteNotificacionesPush,
+        consienteProcesamientoIA=usuario.ConsienteProcesamientoIA,
         recibeEmailsNuevaVotacion=usuario.RecibeEmailsNuevaVotacion,
         recibeEmailsCambiosViaje=usuario.RecibeEmailsCambiosViaje,
         recibeEmailsNuevosGastos=usuario.RecibeEmailsNuevosGastos,
@@ -79,6 +82,8 @@ def _anonimizar_usuario(usuario: Usuario) -> None:
 
     usuario.ConsienteNotificacionesEmail = False
     usuario.ConsienteNotificacionesPush = False
+    usuario.ConsienteProcesamientoIA = False
+    usuario.FechaConsentimientoIA = None
     usuario.RecibeEmailsNuevaVotacion = False
     usuario.RecibeEmailsCambiosViaje = False
     usuario.RecibeEmailsNuevosGastos = False
@@ -147,6 +152,26 @@ def _reasignar_administracion_viajes(
 @router.get("/me", response_model=UsuarioProfileRead)
 def get_me(current_user: Usuario = Depends(get_current_user)) -> UsuarioProfileRead:
     return _serializar_usuario_actual(current_user)
+
+
+@router.put("/me/consentimiento-ia", response_model=ConsentimientoIARead)
+def update_ai_consent(
+    payload: ConsentimientoIAUpdate,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> ConsentimientoIARead:
+    """Otorga o revoca el consentimiento para procesar imágenes con un servicio
+    externo de IA (US 93, RNF-13, RNF-33). Se registra la fecha en que se otorgó."""
+    current_user.ConsienteProcesamientoIA = payload.consiente
+    current_user.FechaConsentimientoIA = (
+        datetime.now(timezone.utc) if payload.consiente else None
+    )
+    db.commit()
+    db.refresh(current_user)
+    return ConsentimientoIARead(
+        consienteProcesamientoIA=current_user.ConsienteProcesamientoIA,
+        fechaConsentimientoIA=current_user.FechaConsentimientoIA,
+    )
 
 
 @router.put("/me", response_model=UsuarioProfileRead)

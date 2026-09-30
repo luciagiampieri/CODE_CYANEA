@@ -25,6 +25,7 @@ import { toYMD, parseYMD, formatDateDisplay, getTodayIso } from "../utils/dates"
 
 import PrimaryButton from "../components/ui/PrimaryButton";
 import CurrencySelector from "../components/trip/CurrencySelector";
+import ReceiptScanButton from "../components/trip/ReceiptScanButton";
 
 import {
   getExpenseCategories,
@@ -76,7 +77,27 @@ function esErrorDeRed(error) {
   );
 }
 
-export default function AddGastoScreen({ visible, onClose, IdViaje, Moneda, onGastoCreado }) {
+// Campos del formulario que puede precargar el escaneo de comprobantes (US 93).
+const CAMPO_NOMBRE = "Nombre";
+const CAMPO_MONTO = "MontoOriginal";
+const CAMPO_MONEDA = "MonedaOriginal";
+const CAMPO_FECHA = "FechaGasto";
+const CAMPO_CATEGORIA = "IdCategoria";
+
+function montoParaInput(valor) {
+  if (valor === null || valor === undefined || valor === "") return "";
+  const numero = Number(valor);
+  return Number.isFinite(numero) && numero > 0 ? String(numero) : "";
+}
+
+export default function AddGastoScreen({
+  visible,
+  onClose,
+  IdViaje,
+  Moneda,
+  onGastoCreado,
+  puedeEscanear = true,
+}) {
   const monedaBase = Moneda || "USD";
 
   const [loading, setLoading] = useState(true);
@@ -106,6 +127,10 @@ export default function AddGastoScreen({ visible, onClose, IdViaje, Moneda, onGa
   const [mostrarCalendario, setMostrarCalendario] = useState(false);
 
   const [errores, setErrores] = useState({});
+
+  // Escaneo de comprobantes (US 93): campos con baja confianza a revisar (AC10).
+  const [camposRevisar, setCamposRevisar] = useState([]);
+  const [escaneoAplicado, setEscaneoAplicado] = useState(false);
 
   const categoriaSeleccionada = categorias.find((c) => c.IdCategoria === idCategoria);
   const pagadorSeleccionado = participantes.find((p) => p.IdParticipanteViaje === idPagador);
@@ -193,6 +218,8 @@ export default function AddGastoScreen({ visible, onClose, IdViaje, Moneda, onGa
     setMontosPersonalizados({});
     setFechaIso(toYMD(new Date()));
     setErrores({});
+    setCamposRevisar([]);
+    setEscaneoAplicado(false);
 
     // Las monedas se cargan aparte: no dependen de que categorías/participantes carguen bien
     async function cargarMonedas() {
@@ -269,6 +296,44 @@ export default function AddGastoScreen({ visible, onClose, IdViaje, Moneda, onGa
     }
   }, [esCompartido]);
 
+  const debeRevisar = (campo) => camposRevisar.includes(campo);
+
+  // Al editar un campo resaltado, se entiende que el usuario ya lo revisó.
+  function marcarRevisado(campo) {
+    setCamposRevisar((prev) => (prev.includes(campo) ? prev.filter((c) => c !== campo) : prev));
+  }
+
+  // Precarga el formulario con los datos del comprobante (AC11). No registra
+  // nada: el gasto se guarda recién cuando el usuario confirma (AC12).
+  function aplicarEscaneo(datos) {
+    const revisar = new Set(datos?.CamposBajaConfianza || []);
+
+    setNombre(datos?.Nombre || "");
+    setMonto(montoParaInput(datos?.MontoOriginal));
+
+    // El selector de moneda no puede quedar vacío: si no se detectó (o no es
+    // una moneda disponible) se deja la del viaje y se pide revisarla.
+    const codigo = String(datos?.MonedaOriginal || "").toUpperCase();
+    const monedaDisponible =
+      codigo && (monedasBD.length === 0 || monedasBD.some((m) => m.Codigo === codigo));
+    if (monedaDisponible) {
+      setMonedaSeleccionada(codigo);
+    } else {
+      setMonedaSeleccionada(monedaBase);
+      revisar.add(CAMPO_MONEDA);
+    }
+
+    // AC9: sin fecha legible, el campo queda vacío (no se asume "hoy").
+    setFechaIso(datos?.FechaGasto || "");
+
+    const categoriaValida = categorias.some((c) => c.IdCategoria === datos?.IdCategoria);
+    setIdCategoria(categoriaValida ? datos.IdCategoria : null);
+
+    setCamposRevisar(Array.from(revisar));
+    setErrores({});
+    setEscaneoAplicado(true);
+  }
+
   async function handleGuardar() {
     let nuevosErrores = {};
 
@@ -291,7 +356,9 @@ export default function AddGastoScreen({ visible, onClose, IdViaje, Moneda, onGa
     }
 
     const hoyIso = toYMD(new Date());
-    if (fechaIso > hoyIso) {
+    if (!fechaIso) {
+      nuevosErrores.fecha = "La fecha es obligatoria";
+    } else if (fechaIso > hoyIso) {
       nuevosErrores.fecha = "La fecha del gasto no puede ser posterior a hoy";
     }
 
@@ -445,30 +512,55 @@ export default function AddGastoScreen({ visible, onClose, IdViaje, Moneda, onGa
             ) : (
               <View style={styles.content}>
 
+                {puedeEscanear ? (
+                  <ReceiptScanButton tripId={IdViaje} onScanned={aplicarEscaneo} disabled={saving} />
+                ) : null}
+
+                {escaneoAplicado ? (
+                  <View style={styles.scanInfo} testID="receipt-scan-applied">
+                    <FontAwesome6 name="circle-check" size={13} color={colors.success} />
+                    <Text style={styles.scanInfoText}>
+                      Completamos los datos del comprobante. Revisalos antes de registrar el gasto.
+                    </Text>
+                  </View>
+                ) : null}
+
                 <Text style={styles.label}>Concepto</Text>
-                <View style={styles.inputBox}>
+                <View style={[styles.inputBox, debeRevisar(CAMPO_NOMBRE) && styles.campoRevisar]}>
                   <FontAwesome6 name="pen" size={14} color={colors.overlay} />
                   <TextInput
                     style={styles.input}
                     placeholder="Cena"
                     placeholderTextColor={colors.overlay}
                     value={nombre}
-                    onChangeText={setNombre}
+                    onChangeText={(texto) => {
+                      setNombre(texto);
+                      marcarRevisado(CAMPO_NOMBRE);
+                    }}
                   />
                 </View>
+                {debeRevisar(CAMPO_NOMBRE) && <Text style={styles.revisarHint}>Revisá este dato</Text>}
                 {errores.nombre && <Text style={styles.error}>{errores.nombre}</Text>}
 
                 {/* Selector de Moneda conectado a la BD */}
-                <View style={{ marginTop: spacing.sm }}>
+                <View
+                  style={[{ marginTop: spacing.sm }, debeRevisar(CAMPO_MONEDA) && styles.campoRevisarGrupo]}
+                >
                   <CurrencySelector
                     currencies={monedasBD.length > 0 ? monedasBD : [{ Codigo: monedaBase, Nombre: "Moneda Base" }]}
                     selectedCurrency={monedaSeleccionada}
-                    onSelectCurrency={setMonedaSeleccionada}
+                    onSelectCurrency={(codigo) => {
+                      setMonedaSeleccionada(codigo);
+                      marcarRevisado(CAMPO_MONEDA);
+                    }}
                   />
                 </View>
+                {debeRevisar(CAMPO_MONEDA) && (
+                  <Text style={styles.revisarHint}>Revisá la moneda del comprobante</Text>
+                )}
 
                 <Text style={styles.label}>Monto ({monedaSeleccionada.toUpperCase()})</Text>
-                <View style={styles.inputBox}>
+                <View style={[styles.inputBox, debeRevisar(CAMPO_MONTO) && styles.campoRevisar]}>
                   <Text style={styles.currencyCodePrefix}>{monedaSeleccionada.toUpperCase()}</Text>
                   <TextInput
                     style={styles.input}
@@ -476,9 +568,13 @@ export default function AddGastoScreen({ visible, onClose, IdViaje, Moneda, onGa
                     placeholderTextColor={colors.overlay}
                     keyboardType="numeric"
                     value={monto}
-                    onChangeText={setMonto}
+                    onChangeText={(texto) => {
+                      setMonto(texto);
+                      marcarRevisado(CAMPO_MONTO);
+                    }}
                   />
                 </View>
+                {debeRevisar(CAMPO_MONTO) && <Text style={styles.revisarHint}>Revisá este dato</Text>}
                 {monedaSeleccionada.toUpperCase() !== monedaBase.toUpperCase() && (
                   <Text style={styles.infoConversionText}>
                     ℹ El importe se convertirá automáticamente a la moneda base del viaje ({monedaBase.toUpperCase()}).
@@ -488,7 +584,7 @@ export default function AddGastoScreen({ visible, onClose, IdViaje, Moneda, onGa
 
                 <Text style={styles.label}>Fecha</Text>
                 {Platform.OS === "web" ? (
-                  <View style={styles.dateBox}>
+                  <View style={[styles.dateBox, debeRevisar(CAMPO_FECHA) && styles.campoRevisar]}>
                     <input
                       type="date"
                       value={fechaIso}
@@ -496,6 +592,7 @@ export default function AddGastoScreen({ visible, onClose, IdViaje, Moneda, onGa
                       onChange={(e) => {
                         const val = e.target.value;
                         const limiteHoy = toYMD(new Date());
+                        marcarRevisado(CAMPO_FECHA);
 
                         if (val > limiteHoy) {
                           Alert.alert("Fecha inválida", "No podés registrar un gasto en una fecha futura.");
@@ -511,7 +608,11 @@ export default function AddGastoScreen({ visible, onClose, IdViaje, Moneda, onGa
                   <>
                     <Pressable
                       onPress={() => setMostrarCalendario(true)}
-                      style={[styles.dateBox, errores.fecha && styles.inputError]}
+                      style={[
+                        styles.dateBox,
+                        debeRevisar(CAMPO_FECHA) && styles.campoRevisar,
+                        errores.fecha && styles.inputError,
+                      ]}
                     >
                       <FontAwesome6 name="calendar" size={15} color={colors.overlay} />
                       <Text style={[styles.inputDateText, !fechaIso && styles.datePlaceholder]}>
@@ -520,10 +621,14 @@ export default function AddGastoScreen({ visible, onClose, IdViaje, Moneda, onGa
                     </Pressable>
                   </>
                 )}
+                {debeRevisar(CAMPO_FECHA) && <Text style={styles.revisarHint}>Revisá este dato</Text>}
                 {errores.fecha && <Text style={styles.error}>{errores.fecha}</Text>}
 
                 <Text style={styles.label}>Categoría</Text>
-                <TouchableOpacity style={styles.dropdownButton} onPress={() => setModalCategoriaVisible(true)}>
+                <TouchableOpacity
+                  style={[styles.dropdownButton, debeRevisar(CAMPO_CATEGORIA) && styles.campoRevisar]}
+                  onPress={() => setModalCategoriaVisible(true)}
+                >
                   <View style={styles.dropdownLeftContent}>
                     <FontAwesome6
                       name={categoriaSeleccionada ? ICONOS_CATEGORIAS[categoriaSeleccionada.Nombre] || "tags" : "tags"}
@@ -537,6 +642,9 @@ export default function AddGastoScreen({ visible, onClose, IdViaje, Moneda, onGa
                   </View>
                   <FontAwesome6 name="chevron-down" size={14} color={colors.textMuted} />
                 </TouchableOpacity>
+                {debeRevisar(CAMPO_CATEGORIA) && (
+                  <Text style={styles.revisarHint}>Revisá la categoría sugerida</Text>
+                )}
                 {errores.categoria && <Text style={styles.error}>{errores.categoria}</Text>}
 
                 <Text style={styles.label}>Tipo de Gasto</Text>
@@ -776,6 +884,7 @@ export default function AddGastoScreen({ visible, onClose, IdViaje, Moneda, onGa
                       style={[styles.modalItem, esActivo && styles.modalItemActive, esElUltimo && { borderBottomWidth: 0 }]}
                       onPress={() => {
                         setIdCategoria(item.IdCategoria);
+                        marcarRevisado(CAMPO_CATEGORIA);
                         setModalCategoriaVisible(false);
                       }}
                     >
@@ -861,7 +970,10 @@ export default function AddGastoScreen({ visible, onClose, IdViaje, Moneda, onGa
           onClose={() => setMostrarCalendario(false)}
           title="Fecha del gasto"
           value={fechaIso}
-          onChange={setFechaIso}
+          onChange={(fecha) => {
+            setFechaIso(fecha);
+            marcarRevisado(CAMPO_FECHA);
+          }}
           maxDate={new Date()}
         />
 
@@ -1093,6 +1205,37 @@ const styles = StyleSheet.create({
   submitButton: {
     marginTop: spacing.lg,
     marginBottom: spacing.md,
+  },
+  campoRevisar: {
+    borderColor: colors.warning,
+    backgroundColor: colors.warningSurface,
+  },
+  campoRevisarGrupo: {
+    borderWidth: 1,
+    borderColor: colors.warning,
+    borderRadius: radii.md,
+    backgroundColor: colors.warningSurface,
+    padding: 4,
+  },
+  revisarHint: {
+    ...textStyles.meta,
+    color: colors.warning,
+    fontWeight: "600",
+    marginTop: 2,
+  },
+  scanInfo: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: spacing.xs,
+    backgroundColor: colors.successSurface,
+    borderRadius: radii.sm,
+    padding: spacing.sm,
+    marginTop: spacing.xs,
+  },
+  scanInfoText: {
+    ...textStyles.meta,
+    color: colors.textPrimary,
+    flex: 1,
   },
   error: {
     ...textStyles.meta,

@@ -277,7 +277,7 @@ export default function ExpenseList({
                     {expense.Nombre}
                   </Text>
                   <Text numberOfLines={2} style={styles.meta}>
-                    Pagó {paidByMe ? "vos" : expense.NombrePagador} ·{" "}
+                    {paidByMe ? "Pagaste vos" : `Pagó ${expense.NombrePagador}`} ·{" "}
                     {formatExpenseDate(expense.FechaGasto)}
                   </Text>
                   {showOriginal ? (
