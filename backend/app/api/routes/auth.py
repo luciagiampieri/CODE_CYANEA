@@ -1,6 +1,6 @@
 import logging
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.security import OAuth2PasswordRequestForm
 from fastapi.responses import RedirectResponse
 from jose import JWTError
@@ -18,6 +18,14 @@ from app.core.security import (
 from app.db.session import get_db
 from app.models.usuario import Usuario
 from app.schemas.auth import GoogleLoginRequest, LoginRequest, TokenResponse, FacebookLoginRequest, FacebookRegisterRequest, FacebookAuthResponse, GoogleAuthResponse, GoogleRegisterRequest
+from app.schemas.password_reset import (
+    ForgotPasswordRequest,
+    MessageResponse,
+    ResetPasswordRequest,
+    ResetTokenRequest,
+    TokenValidationResponse,
+)
+from app.services.auth import password_reset_service
 from app.schemas.usuario import UsuarioRegister, UsuarioRegisterResponse
 from app.services.auth.google_auth_service import GoogleAuthService
 from app.services.auth.facebook_auth_service import FacebookAuthService
@@ -30,7 +38,6 @@ google_auth_service = GoogleAuthService()
 facebook_auth_service = FacebookAuthService()
 
 
-# POST /auth/register 
 @router.post(
     "/register",
     response_model=UsuarioRegisterResponse,
@@ -42,21 +49,18 @@ def register(
     mail_service: MailService = Depends(get_mail_service),
 ) -> UsuarioRegisterResponse:
 
-    # Email único
     if db.scalar(select(Usuario).where(Usuario.Email == data.email.strip().lower())):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="El correo electrónico ya está registrado.",
         )
 
-    # Nombre de usuario único
     if db.scalar(select(Usuario).where(Usuario.NombreUsuario == data.nombreUsuario.strip())):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="El nombre de usuario ya está en uso.",
         )
 
-    # Crear usuario (inactivo hasta confirmar email)
     nuevo = Usuario(
         Nombre=data.nombre.strip(),
         Apellido=data.apellido.strip(),
@@ -70,7 +74,6 @@ def register(
     db.commit()
     db.refresh(nuevo)
 
-    # Generar token y enviar mail de confirmación
     token = create_email_confirmation_token(nuevo.Email)
     confirm_url = (
         f"{settings.api_base_url.rstrip('/')}"
@@ -92,7 +95,6 @@ def register(
     )
 
 
-# GET /auth/confirm-email?token=...
 @router.get("/confirm-email")
 def confirm_email(
     token: str = Query(...),
@@ -132,7 +134,6 @@ def confirm_email(
     )
 
 
-# POST /auth/login 
 @router.post("/login", response_model=TokenResponse)
 def login(payload: LoginRequest, db: Session = Depends(get_db)) -> TokenResponse:
 
@@ -161,7 +162,6 @@ def login(payload: LoginRequest, db: Session = Depends(get_db)) -> TokenResponse
     if not verify_password(payload.password, usuario.HashedPassword):
         raise credentials_error
 
-    # Verificar que confirmó el email antes de dejar entrar
     if not usuario.EmailConfirmado:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -185,7 +185,6 @@ def login_with_google(
 
     usuario = google_auth_service.find_existing_user(db, identity)
 
-    # Usuario existente → login normal
     if usuario:
         if not usuario.Activo:
             raise HTTPException(
@@ -197,7 +196,6 @@ def login_with_google(
         logger.info("Login con Google exitoso", extra={"user_id": usuario.IdUsuario})
         return GoogleAuthResponse(requiereRegistro=False, access_token=token)
 
-    # Usuario nuevo → debe completar registro
     logger.info("Cuenta de Google sin usuario asociado", extra={"google_sub": identity.sub})
     return GoogleAuthResponse(
         requiereRegistro=True,
@@ -248,7 +246,6 @@ def login_with_facebook(payload: FacebookLoginRequest, db: Session = Depends(get
         identity
     )
 
-    # Usuario existente → login normal
     if usuario:
 
         if not usuario.Activo:
@@ -274,7 +271,6 @@ def login_with_facebook(payload: FacebookLoginRequest, db: Session = Depends(get
             access_token=token,
         )
 
-    # Usuario nuevo → debe completar registro
     logger.info(
         "Usuario nuevo detectado con Facebook",
         extra={"facebook_id": identity.id}
@@ -296,25 +292,21 @@ def register_with_facebook(
     mail_service: MailService = Depends(get_mail_service),
 ) -> TokenResponse:
 
-    # Validar aceptación de términos
     if not payload.aceptaTerminos:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Debés aceptar los términos y condiciones para registrarte.",
         )
 
-    # Validar identidad de Facebook
     identity = facebook_auth_service.verify_access_token(
         payload.accessToken
     )
 
-    # Crear usuario
     usuario = facebook_auth_service.create_user_from_facebook(
         db,
         identity
     )
 
-    # Enviar correo de bienvenida
     mail_service.send_template(
         to=[usuario.Email],
         subject="Bienvenido a Cyanea",
@@ -325,7 +317,6 @@ def register_with_facebook(
         },
     )
 
-    # Crear sesión
     token = create_access_token(
         {
             "sub": usuario.Email,
@@ -341,3 +332,40 @@ def register_with_facebook(
     return TokenResponse(
         access_token=token
     )
+
+
+@router.post("/forgot-password", response_model=MessageResponse)
+def forgot_password(
+    payload: ForgotPasswordRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+    mail_service: MailService = Depends(get_mail_service),
+) -> MessageResponse:
+    ip = request.client.host if request.client else None
+    password_reset_service.solicitar_recuperacion(db, mail_service, payload.email, ip)
+    return MessageResponse(message=password_reset_service.MENSAJE_GENERICO)
+
+
+@router.post("/reset-password/validate", response_model=TokenValidationResponse)
+def validate_reset_token(
+    payload: ResetTokenRequest,
+    db: Session = Depends(get_db),
+) -> TokenValidationResponse:
+    password_reset_service.validar_token(db, payload.token)
+    return TokenValidationResponse(valid=True)
+
+
+@router.post("/reset-password", response_model=MessageResponse)
+def reset_password(
+    payload: ResetPasswordRequest,
+    db: Session = Depends(get_db),
+    mail_service: MailService = Depends(get_mail_service),
+) -> MessageResponse:
+    password_reset_service.restablecer_password(
+        db,
+        mail_service,
+        payload.token,
+        payload.password,
+        payload.confirmPassword,
+    )
+    return MessageResponse(message="Tu contraseña se restableció correctamente.")

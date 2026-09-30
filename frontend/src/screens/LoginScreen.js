@@ -315,7 +315,10 @@ export default function LoginScreen({ navigation }) {
                 value={password}
               />
 
-              <Pressable style={styles.forgotWrap}>
+              <Pressable
+                style={styles.forgotWrap}
+                onPress={() => navigation.navigate("ForgotPassword")}
+              >
                 <Text style={styles.forgotText}>¿Olvidaste tu contraseña?</Text>
               </Pressable>
 

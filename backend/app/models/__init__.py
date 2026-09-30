@@ -30,6 +30,7 @@ from app.models.checklist import Checklist
 from app.models.categorias_checklist import CategoriasChecklist
 from app.models.token_push_usuario import TokenPushUsuario
 from app.models.recordatorio_actividad_notificado import RecordatorioActividadNotificado
+from app.models.recuperacion_password import TokenRecuperacionPassword, SolicitudRecuperacionPassword
 __all__ = [
     "EstadoInvitacion",
     "EstadoParticipacion",
@@ -61,4 +62,6 @@ __all__ = [
     "CategoriasChecklist",
     "TokenPushUsuario",
     "RecordatorioActividadNotificado",
+    "TokenRecuperacionPassword",
+    "SolicitudRecuperacionPassword",
 ]

@@ -33,6 +33,18 @@ const navigationTheme = {
   },
 };
 
+const linkingConfig = {
+  prefixes: ["cyanea://", "http://127.0.0.1:8081", "http://localhost:8081"],
+  config: {
+    screens: {
+      EmailConfirmado: "email-confirmado",
+      Invitaciones: "invitaciones/:token",
+      ForgotPassword: "olvide-contrasena",
+      ResetPassword: "restablecer-contrasena",
+    },
+  },
+};
+
 export default function App() {
   useEffect(() => {
     const splashFallback = setTimeout(() => {
@@ -68,6 +80,7 @@ export default function App() {
         <NavigationContainer
           ref={navigationRef}
           theme={navigationTheme}
+          linking={linkingConfig}
           onReady={() => {
             SplashScreen.hideAsync().catch(() => {});
             flushPendingNotificationNavigation();
