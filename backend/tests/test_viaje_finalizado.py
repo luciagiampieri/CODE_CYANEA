@@ -501,7 +501,8 @@ def test_gastos_siguen_habilitados(client, db_session, auth_headers, viaje_con_a
         json={
             "IdViaje": viaje.IdViaje,
             "Nombre": "Nafta de la vuelta",
-            "Monto": "15000.00",
+            "MontoOriginal": "15000.00",
+            "MonedaOriginal": viaje.Moneda,
             "IdCategoria": categoria_gasto.IdCategoria,
             "FechaGasto": str(viaje.FechaFin),
             "EsCompartido": False,

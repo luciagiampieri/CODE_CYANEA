@@ -1,8 +1,13 @@
+import sys
 from datetime import date, timedelta
+from decimal import Decimal
+
+import pytest
 
 from app.core.security import hash_password, create_access_token
 from app.models.categorias_gastos import CategoriasGastos
 from app.models.estado_participacion import EstadoParticipacion
+from app.models.gasto import Gasto
 from app.models.participante_viaje import ParticipanteViaje
 from app.models.participantes_gastos import ParticipantesGastos
 from app.models.rol_participante import RolParticipante
@@ -34,12 +39,55 @@ def _agregar_participante_aceptado(db_session, viaje, nombre_usuario):
     return usuario, participante
 
 
+# ---------------------------------------------------------------------------
+# Helpers para los tests de moneda / tipo de cambio (US-85)
+# ---------------------------------------------------------------------------
+
+def _otra_moneda(viaje):
+    """Una moneda distinta a la moneda base del viaje."""
+    return "EUR" if (viaje.Moneda or "").upper() != "EUR" else "USD"
+
+
+def _modulo_router_gastos(client):
+    """Devuelve el módulo donde vive create_gasto, para parchear ahí obtener_tipo_cambio."""
+    for route in client.app.routes:
+        endpoint = getattr(route, "endpoint", None)
+        if getattr(endpoint, "__name__", "") == "create_gasto":
+            return sys.modules[endpoint.__module__]
+    raise RuntimeError("No se encontró la ruta create_gasto en la app")
+
+
+@pytest.fixture
+def fijar_tipo_cambio(client, monkeypatch):
+    """
+    Reemplaza obtener_tipo_cambio por un falso (sin red).
+    Uso: llamadas = fijar_tipo_cambio(tasa=Decimal("2.5"))  o  fijar_tipo_cambio(error=Exception("caído"))
+    Devuelve la lista de llamadas recibidas (origen, destino, fecha).
+    """
+    modulo = _modulo_router_gastos(client)
+
+    def _fijar(tasa=None, error=None):
+        llamadas = []
+
+        def falso(origen, destino, fecha=None):
+            llamadas.append((origen, destino, fecha))
+            if error is not None:
+                raise error
+            return tasa
+
+        monkeypatch.setattr(modulo, "obtener_tipo_cambio", falso)
+        return llamadas
+
+    return _fijar
+
+
 def test_create_gasto_individual(client, auth_headers, viaje_con_admin, categoria_gasto):
     viaje, _ = viaje_con_admin
     payload = {
         "IdViaje": viaje.IdViaje,
         "Nombre": "Cena",
-        "Monto": "1000.00",
+        "MontoOriginal": "1000.00",
+        "MonedaOriginal": viaje.Moneda,
         "IdCategoria": categoria_gasto.IdCategoria,
         "FechaGasto": str(date.today()),
         "EsCompartido": False,
@@ -54,7 +102,8 @@ def test_create_gasto_rejects_future_date(client, auth_headers, viaje_con_admin,
     payload = {
         "IdViaje": viaje.IdViaje,
         "Nombre": "Cena",
-        "Monto": "1000.00",
+        "MontoOriginal": "1000.00",
+        "MonedaOriginal": viaje.Moneda,
         "IdCategoria": categoria_gasto.IdCategoria,
         "FechaGasto": str(date.today() + timedelta(days=5)),
         "EsCompartido": False,
@@ -68,7 +117,8 @@ def test_create_gasto_personalizada_montos_no_coinciden(client, auth_headers, vi
     payload = {
         "IdViaje": viaje.IdViaje,
         "Nombre": "Excursion",
-        "Monto": "1000.00",
+        "MontoOriginal": "1000.00",
+        "MonedaOriginal": viaje.Moneda,
         "IdCategoria": categoria_gasto.IdCategoria,
         "FechaGasto": str(date.today()),
         "EsCompartido": True,
@@ -87,7 +137,8 @@ def test_create_gasto_personalizada_success(client, auth_headers, viaje_con_admi
     payload = {
         "IdViaje": viaje.IdViaje,
         "Nombre": "Excursion",
-        "Monto": "1000.00",
+        "MontoOriginal": "1000.00",
+        "MonedaOriginal": viaje.Moneda,
         "IdCategoria": categoria_gasto.IdCategoria,
         "FechaGasto": str(date.today()),
         "EsCompartido": True,
@@ -110,7 +161,8 @@ def test_create_gasto_igualitaria_dividir_entre_todos(client, db_session, auth_h
     payload = {
         "IdViaje": viaje.IdViaje,
         "Nombre": "Almuerzo",
-        "Monto": "1000.00",
+        "MontoOriginal": "1000.00",
+        "MonedaOriginal": viaje.Moneda,
         "IdCategoria": categoria_gasto.IdCategoria,
         "FechaGasto": str(date.today()),
         "EsCompartido": True,
@@ -139,7 +191,8 @@ def test_create_gasto_igualitaria_dividir_entre_ciertos_participantes(client, db
     payload = {
         "IdViaje": viaje.IdViaje,
         "Nombre": "Almuerzo",
-        "Monto": "1000.00",
+        "MontoOriginal": "1000.00",
+        "MonedaOriginal": viaje.Moneda,
         "IdCategoria": categoria_gasto.IdCategoria,
         "FechaGasto": str(date.today()),
         "EsCompartido": True,
@@ -162,7 +215,8 @@ def test_create_gasto_igualitaria_rechaza_menos_de_dos_participantes(client, aut
     payload = {
         "IdViaje": viaje.IdViaje,
         "Nombre": "Almuerzo",
-        "Monto": "1000.00",
+        "MontoOriginal": "1000.00",
+        "MonedaOriginal": viaje.Moneda,
         "IdCategoria": categoria_gasto.IdCategoria,
         "FechaGasto": str(date.today()),
         "EsCompartido": True,

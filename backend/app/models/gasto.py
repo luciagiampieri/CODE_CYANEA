@@ -26,6 +26,15 @@ class Gasto(Base):
     
     Monto: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
 
+    MonedaOriginal: Mapped[str] = mapped_column(
+        String(3),
+        ForeignKey("Monedas.Codigo"),
+        nullable=False
+    )
+
+    MontoOriginal: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False) 
+    TipoCambio: Mapped[Decimal] = mapped_column(Numeric(12, 6), nullable=False, default=1.0)
+
     IdCategoria: Mapped[int] = mapped_column(
         BigInteger, 
         ForeignKey("CategoriasGastos.IdCategoria", name="FK_Gastos_CategoriasGastos_IdCategoria"), 
@@ -68,4 +77,9 @@ class Gasto(Base):
         back_populates="Gasto",
         cascade="all, delete-orphan",
         foreign_keys="ParticipantesGastos.IdGasto",
+    )
+
+    MonedaRelacion = relationship(
+        "Moneda",
+        back_populates="Gastos"
     )

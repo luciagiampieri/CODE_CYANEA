@@ -14,3 +14,8 @@ class Moneda(Base):
         "Viaje",
         back_populates="MonedaRelacion"
     )
+
+    Gastos = relationship(
+        "Gasto",
+        back_populates="MonedaRelacion"
+    )

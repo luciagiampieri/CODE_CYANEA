@@ -600,7 +600,8 @@ def test_remove_participant_conserva_historial_de_gastos(
         json={
             "IdViaje": viaje.IdViaje,
             "Nombre": "Cena grupal",
-            "Monto": "100.00",
+            "MontoOriginal": "100.00",
+            "MonedaOriginal": viaje.Moneda,
             "IdCategoria": categoria_gasto.IdCategoria,
             "FechaGasto": str(date.today()),
             "EsCompartido": True,
@@ -610,7 +611,7 @@ def test_remove_participant_conserva_historial_de_gastos(
         },
         headers=auth_headers,
     )
-    assert gasto_response.status_code == 200
+    assert gasto_response.status_code == 200, gasto_response.text
 
     response = client.delete(
         f"/api/v1/trips/{viaje.IdViaje}/participants/{participante_usuario.IdUsuario}",
@@ -630,7 +631,6 @@ def test_remove_participant_conserva_historial_de_gastos(
         .count()
         == 1
     )
-
 
 def test_remove_participant_notifica_al_expulsado(
     client, db_session, auth_headers, viaje_con_admin, monkeypatch

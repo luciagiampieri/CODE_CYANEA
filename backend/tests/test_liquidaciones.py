@@ -1,5 +1,8 @@
+import sys
 from datetime import date
 from decimal import Decimal
+
+import pytest
 
 from app.core.security import hash_password
 from app.models.estado_participacion import EstadoParticipacion
@@ -59,7 +62,8 @@ def test_genera_plan_liquidacion_con_multiples_deudas(
         {
             "IdViaje": viaje.IdViaje,
             "Nombre": "Alojamiento",
-            "Monto": "90.00",
+            "MontoOriginal": "90.00",
+            "MonedaOriginal": viaje.Moneda,
             "IdCategoria": categoria_gasto.IdCategoria,
             "FechaGasto": str(date.today()),
             "EsCompartido": True,
@@ -105,7 +109,8 @@ def test_plan_liquidacion_minimiza_transferencias(
         {
             "IdViaje": viaje.IdViaje,
             "Nombre": "Hotel",
-            "Monto": "120.00",
+            "MontoOriginal": "120.00",
+            "MonedaOriginal": viaje.Moneda,
             "IdCategoria": categoria_gasto.IdCategoria,
             "FechaGasto": str(date.today()),
             "EsCompartido": True,
@@ -125,7 +130,8 @@ def test_plan_liquidacion_minimiza_transferencias(
         {
             "IdViaje": viaje.IdViaje,
             "Nombre": "Traslado",
-            "Monto": "60.00",
+            "MontoOriginal": "60.00",
+            "MonedaOriginal": viaje.Moneda,
             "IdCategoria": categoria_gasto.IdCategoria,
             "FechaGasto": str(date.today()),
             "EsCompartido": True,
@@ -167,7 +173,8 @@ def test_recalcula_liquidacion_automaticamente_al_registrar_gasto(
         {
             "IdViaje": viaje.IdViaje,
             "Nombre": "Cena",
-            "Monto": "40.00",
+            "MontoOriginal": "40.00",
+            "MonedaOriginal": viaje.Moneda,
             "IdCategoria": categoria_gasto.IdCategoria,
             "FechaGasto": str(date.today()),
             "EsCompartido": True,
@@ -186,7 +193,8 @@ def test_recalcula_liquidacion_automaticamente_al_registrar_gasto(
         {
             "IdViaje": viaje.IdViaje,
             "Nombre": "Museo",
-            "Monto": "20.00",
+            "MontoOriginal": "20.00",
+            "MonedaOriginal": viaje.Moneda,
             "IdCategoria": categoria_gasto.IdCategoria,
             "FechaGasto": str(date.today()),
             "EsCompartido": True,
@@ -223,7 +231,8 @@ def test_liquidacion_refleja_division_personalizada_en_resumen_individual(
         {
             "IdViaje": viaje.IdViaje,
             "Nombre": "Excursion",
-            "Monto": "90.00",
+            "MontoOriginal": "90.00",
+            "MonedaOriginal": viaje.Moneda,
             "IdCategoria": categoria_gasto.IdCategoria,
             "FechaGasto": str(date.today()),
             "EsCompartido": True,
@@ -270,7 +279,8 @@ def test_marcar_transferencia_realizada_actualiza_balance_pendiente(
         {
             "IdViaje": viaje.IdViaje,
             "Nombre": "Cena",
-            "Monto": "50.00",
+            "MontoOriginal": "50.00",
+            "MonedaOriginal": viaje.Moneda,
             "IdCategoria": categoria_gasto.IdCategoria,
             "FechaGasto": str(date.today()),
             "EsCompartido": True,
@@ -330,7 +340,8 @@ def test_recalcular_no_revive_deudas_ya_saldadas(
         {
             "IdViaje": viaje.IdViaje,
             "Nombre": "Cena",
-            "Monto": "50.00",
+            "MontoOriginal": "50.00",
+            "MonedaOriginal": viaje.Moneda,
             "IdCategoria": categoria_gasto.IdCategoria,
             "FechaGasto": str(date.today()),
             "EsCompartido": True,
@@ -362,3 +373,12 @@ def test_recalcular_no_revive_deudas_ya_saldadas(
     resumen = {item["NombreCompleto"]: Decimal(item["BalancePendiente"]) for item in data["ResumenParticipantes"]}
     assert resumen["Ana Test"] == Decimal("0.00")
     assert resumen["Bruno Test"] == Decimal("0.00")
+
+
+def _modulo_router_gastos(client):
+    for route in client.app.routes:
+        endpoint = getattr(route, "endpoint", None)
+        if getattr(endpoint, "__name__", "") == "create_gasto":
+            return sys.modules[endpoint.__module__]
+    raise RuntimeError("No se encontró la ruta create_gasto en la app")
+

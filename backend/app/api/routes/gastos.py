@@ -10,7 +10,6 @@ from app.db.session import get_db
 
 from app.models import CategoriasGastos, ParticipantesGastos, ParticipanteViaje, Usuario, EstadoParticipacion, Gasto 
 
-
 from app.schemas.gasto import (
     GastoCreate,
     CategoriasGastosRead,
@@ -23,6 +22,7 @@ from app.models.viaje import Viaje
 from app.services.liquidacion_service import rebuild_settlement_plan
 from app.services.notifications import NotificationType, TripNotificationEvent, dispatch_trip_notification
 from app.services.trip_access import get_trip_with_relations, require_trip_access, require_trip_edit_access
+from app.services.currency import obtener_tipo_cambio
 
 router = APIRouter()
 
@@ -70,6 +70,7 @@ def _validar_participantes_activos(
             detail="Uno o más participantes no están activos o no pertenecen al viaje.",
         )
 
+
 @router.post("")
 async def create_gasto(data: GastoCreate, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)):
 
@@ -88,20 +89,43 @@ async def create_gasto(data: GastoCreate, db: Session = Depends(get_db), current
             detail="La fecha del gasto no puede ser posterior a la fecha actual."
         )
 
+    # === LÓGICA DE CONVERSIÓN DE MONEDA (US-85) ===
+    # Obtenemos la moneda base configurada en el viaje (por defecto USD si no estuviera definida)
+    moneda_base = getattr(viaje, "Moneda", "USD") 
+    moneda_gasto = (data.MonedaOriginal or moneda_base).upper()
+
+    tipo_cambio = Decimal("1.0")
+    monto_convertido = data.MontoOriginal
+
+    if moneda_gasto != moneda_base.upper():
+        try:
+            # Se pasa la fecha del gasto para contemplar registros offline o históricos
+            tasa_obtenida = obtener_tipo_cambio(moneda_gasto, moneda_base, fecha=fecha_gasto_dt)
+            tipo_cambio = Decimal(str(tasa_obtenida))
+            monto_convertido = data.MontoOriginal * tipo_cambio
+        except Exception as e:
+            # Si el servicio no está disponible, lanzamos 503 (Criterio de aceptación / Caso de prueba)
+            raise HTTPException(
+                status_code=503,
+                detail="Servicio de cotización no disponible. No se pudo realizar la conversión de moneda."
+            )
+    else:
+        monto_convertido = data.MontoOriginal
+        tipo_cambio = Decimal("1.0")
+    # ===============================================
+
     monto_por_participante = {}
     participantes_ids = []
     tipo_division_final = None
 
-
     if not data.EsCompartido:
-
         participante = (
-        db.query(ParticipanteViaje)
-        .filter(
-            ParticipanteViaje.IdViaje == data.IdViaje,
-            ParticipanteViaje.IdUsuario == current_user.IdUsuario,
-        )
-        .first()
+            db.query(ParticipanteViaje)
+            .filter(
+                ParticipanteViaje.IdViaje == data.IdViaje,
+                ParticipanteViaje.IdUsuario == current_user.IdUsuario,
+            )
+            .first()
         )
 
         if not participante:
@@ -112,10 +136,9 @@ async def create_gasto(data: GastoCreate, db: Session = Depends(get_db), current
         id_pagador = participante.IdParticipanteViaje
         tipo_division_final = None
         participantes_ids = [id_pagador]
-        monto_por_participante [id_pagador] = data.Monto
+        monto_por_participante[id_pagador] = monto_convertido
 
     elif data.TipoDivision == TipoDivisionEnum.igualitaria:
-        
         tipo_division_final = TipoDivisionEnum.igualitaria
         
         if data.DividirEntreTodos:
@@ -141,15 +164,12 @@ async def create_gasto(data: GastoCreate, db: Session = Depends(get_db), current
                     ParticipanteViaje.IdViaje == data.IdViaje,
                     ParticipanteViaje.IdEstadoParticipacion == estado_aceptado.IdEstadoParticipacion,
                     Usuario.Activo.is_(True)
-
                 )
                 .all()
             )
             participantes_ids = [p.IdParticipanteViaje for p in participantes]
         else:
-            
             participantes_ids = data.IdParticipantes
-
             _validar_participantes_activos(db, data.IdViaje, participantes_ids)
             
             if len(participantes_ids) < 2:
@@ -158,19 +178,16 @@ async def create_gasto(data: GastoCreate, db: Session = Depends(get_db), current
                     detail="Para dividir entre ciertos participantes, debés seleccionar al menos 2."
                 )
         
-        
         if len(participantes_ids) == 0:
             raise HTTPException(
                 status_code=400,
                 detail="El gasto debe tener al menos un participante"
             )
 
-        monto_individual = data.Monto / len(participantes_ids)
+        monto_individual = monto_convertido / len(participantes_ids)
         monto_por_participante = {id_part: monto_individual for id_part in participantes_ids}
     
-
     elif data.TipoDivision == TipoDivisionEnum.personalizada:
-
         tipo_division_final = TipoDivisionEnum.personalizada
         detalles = data.DetalleMontosPersonalizados
 
@@ -180,7 +197,7 @@ async def create_gasto(data: GastoCreate, db: Session = Depends(get_db), current
                 detail="Debe proporcionar detalles de montos personalizados para cada participante."
             ) 
         
-        total_asignado = 0
+        total_asignado = Decimal("0")
         participantes_ids = []
         monto_por_participante = {}
 
@@ -199,24 +216,24 @@ async def create_gasto(data: GastoCreate, db: Session = Depends(get_db), current
 
         _validar_participantes_activos(db, data.IdViaje, participantes_ids)
         
-        if abs(total_asignado - data.Monto) > 0.01:
+        if abs(total_asignado - monto_convertido) > Decimal("0.01"):
             raise HTTPException(
                 status_code=400,
-                detail=f"La suma de los montos asignados ({total_asignado}) no coincide con el monto total del gasto ({data.Monto})."
+                detail=f"La suma de los montos asignados ({total_asignado}) no coincide con el monto total convertido del gasto ({monto_convertido})."
             )
         
-    print(f"DEBUG: Guardando gasto: {data.Nombre}, Total: {data.Monto}")
-    print(f"DEBUG: Participantes a guardar: {participantes_ids}")
-    print(f"DEBUG: Montos por participante: {monto_por_participante}")
+    print(f"DEBUG: Guardando gasto: {data.Nombre}, Monto Original: {data.MontoOriginal} {moneda_gasto}, Monto Convertido: {monto_convertido}")
         
     gasto = Gasto(
-        
         IdViaje=data.IdViaje,
         Nombre=data.Nombre,
-        Monto=data.Monto,
+        Monto=monto_convertido,            # Monto convertido a la moneda base (usado para cálculos)
+        MontoOriginal=data.MontoOriginal,  # Monto ingresado originalmente
+        MonedaOriginal=moneda_gasto,       # Moneda seleccionada
+        TipoCambio=tipo_cambio,            # Tasa aplicada
         IdCategoria=data.IdCategoria,
         IdPagador=id_pagador if not data.EsCompartido else data.IdPagador,
-        FechaGasto=data.FechaGasto,
+        FechaGasto=fecha_gasto_dt,
         DividirEntreTodos=data.DividirEntreTodos,
         TipoDivision=tipo_division_final,
     )
@@ -257,7 +274,6 @@ async def create_gasto(data: GastoCreate, db: Session = Depends(get_db), current
         "message": "Gasto creado correctamente",
         "IdGasto": gasto.IdGasto,
     }
-
 
 @router.get("/categories", response_model=list[CategoriasGastosRead])
 def get_categories(
@@ -310,6 +326,8 @@ def list_trip_gastos(
             IdGasto=gasto.IdGasto,
             Nombre=gasto.Nombre,
             Monto=gasto.Monto,
+            MontoOriginal=gasto.MontoOriginal,
+            MonedaOriginal=gasto.MonedaOriginal,
             FechaGasto=gasto.FechaGasto,
             IdCategoria=gasto.IdCategoria,
             NombreCategoria=gasto.Categoria.Nombre,

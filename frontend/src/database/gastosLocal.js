@@ -16,19 +16,17 @@ export function guardarGastoOffline(gasto) {
   }
 
   try {
-    const dividir = gasto.DividirEntreTodos ? 1 : 0;
-    const pagador = gasto.EsCompartido ? gasto.IdPagador : null;
-
     db.runSync(
       `
       INSERT INTO gastos_pendientes 
-      (id_viaje, nombre, monto, id_categoria, id_pagador, fecha_gasto,es_compartido, dividir_entre_todos, tipo_division, ids_participantes,detalle_montos, creado_en)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      (id_viaje, nombre, monto_original, moneda_original, id_categoria, id_pagador, fecha_gasto, es_compartido, dividir_entre_todos, tipo_division, ids_participantes, detalle_montos, creado_en)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `,
       [
         gasto.IdViaje,
         gasto.Nombre,
-        gasto.Monto,
+        gasto.MontoOriginal,
+        gasto.MonedaOriginal,
         gasto.IdCategoria,
         gasto.IdPagador,
         gasto.FechaGasto,
@@ -68,7 +66,6 @@ export function obtenerGastosPendientes() {
 
 // Sincronizar cuando vuelve internet
 export async function sincronizarGastosOffline() {
-
   if (sincronizando) {
     return;
   }
@@ -83,7 +80,8 @@ export async function sincronizarGastosOffline() {
         const payload = {
           IdViaje: gasto.id_viaje,
           Nombre: gasto.nombre,
-          Monto: gasto.monto,
+          MontoOriginal: gasto.monto_original,
+          MonedaOriginal: gasto.moneda_original, // <-- ¡Importante incluir esto aquí!
           IdCategoria: gasto.id_categoria,
           IdPagador: gasto.id_pagador,
           FechaGasto: gasto.fecha_gasto,
@@ -123,14 +121,12 @@ export async function sincronizarGastosOffline() {
 // =========================================================================
 
 export function guardarCategoriasEnCache(categorias) {
-  // Verificación estricta para navegadores
   if (Platform.OS === "web" || !db) {
     console.log("🌐 Entorno Web: Omitiendo guardado de categorías en caché nativa SQLite.");
     return;
   }
 
   try {
-    // Limpiamos caché viejo e insertamos lo más nuevo
     db.execSync(`DELETE FROM cache_categorias`);
     for (const cat of categorias) {
       db.runSync(
@@ -158,14 +154,12 @@ export function obtenerCategoriasCache() {
 }
 
 export function guardarParticipantesEnCache(idViaje, participantes) {
-  // Verificación estricta para navegadores
   if (Platform.OS === "web" || !db) {
     console.log("🌐 Entorno Web: Omitiendo guardado de participantes en caché nativa SQLite.");
     return;
   }
 
   try {
-    // Limpiamos los participantes previos de ESTE viaje e insertamos los nuevos
     db.runSync(`DELETE FROM cache_participantes WHERE id_viaje = ?`, [idViaje]);
     for (const p of participantes) {
       db.runSync(

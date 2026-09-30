@@ -32,6 +32,13 @@ export function formatExpenseDate(ymd, today = new Date()) {
   return year === today.getFullYear() ? base : `${base} ${year}`;
 }
 
+// Número con 2 decimales y separadores locales, sin símbolo (el código de moneda se agrega aparte).
+function formatOriginalAmount(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return String(value ?? "");
+  return n.toLocaleString("es-AR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
 const TODAS = "todas";
 
 /**
@@ -241,6 +248,17 @@ export default function ExpenseList({
               currentUserId !== undefined &&
               String(expense.IdUsuarioPagador) === String(currentUserId);
 
+            // Si el gasto se registró en una moneda distinta a la base del viaje,
+            // mostramos también el monto original.
+            const originalCurrency = String(expense.MonedaOriginal ?? "").trim().toUpperCase();
+            const baseCurrency = String(currency ?? "").trim().toUpperCase();
+            const showOriginal =
+              originalCurrency !== "" &&
+              baseCurrency !== "" &&
+              originalCurrency !== baseCurrency &&
+              expense.MontoOriginal !== null &&
+              expense.MontoOriginal !== undefined;
+
             return (
               <View
                 key={expense.IdGasto}
@@ -258,10 +276,18 @@ export default function ExpenseList({
                   <Text numberOfLines={1} style={styles.name}>
                     {expense.Nombre}
                   </Text>
-                  <Text numberOfLines={1} style={styles.meta}>
+                  <Text numberOfLines={2} style={styles.meta}>
                     Pagó {paidByMe ? "vos" : expense.NombrePagador} ·{" "}
                     {formatExpenseDate(expense.FechaGasto)}
                   </Text>
+                  {showOriginal ? (
+                    <Text
+                      style={styles.originalLine}
+                      testID={`expense-original-${expense.IdGasto}`}
+                    >
+                      Registrado: {formatOriginalAmount(expense.MontoOriginal)} {originalCurrency}
+                    </Text>
+                  ) : null}
                 </View>
                 <Text style={styles.amount}>{formatMoney(expense.Monto, currency)}</Text>
               </View>
@@ -439,6 +465,13 @@ const styles = StyleSheet.create({
   amount: {
     ...textStyles.bodyStrong,
     color: colors.textPrimary,
+    flexShrink: 0,
+    textAlign: "right",
+  },
+  originalLine: {
+    ...textStyles.meta,
+    color: colors.textSecondary,
+    fontWeight: "600",
   },
   emptyState: {
     borderRadius: radii.sm,

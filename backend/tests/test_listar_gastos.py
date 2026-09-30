@@ -61,11 +61,29 @@ def _categorias(db_session):
     return comida, transporte, alojamiento
 
 
-def _gasto(db_session, viaje, pagador, categoria, nombre, monto, fecha):
+def _gasto(
+    db_session,
+    viaje,
+    pagador,
+    categoria,
+    nombre,
+    monto,
+    fecha,
+    monto_original=None,
+    moneda_original=None,
+    tipo_cambio="1",
+):
+    """
+    `monto` es el importe convertido a la moneda base del viaje.
+    Por defecto el gasto se registró en la moneda base (mismo importe, tipo de cambio 1).
+    """
     gasto = Gasto(
         IdViaje=viaje.IdViaje,
         Nombre=nombre,
         Monto=Decimal(monto),
+        MontoOriginal=Decimal(monto_original if monto_original is not None else monto),
+        MonedaOriginal=moneda_original or viaje.Moneda,
+        TipoCambio=Decimal(tipo_cambio),
         IdCategoria=categoria.IdCategoria,
         IdPagador=pagador.IdParticipanteViaje,
         FechaGasto=fecha,
@@ -99,6 +117,8 @@ def test_participante_ve_los_gastos_ordenados_con_sus_datos(
     assert cena["NombreCategoria"] == "Comida y Bebida"
     assert cena["IdCategoria"] == comida.IdCategoria
     assert Decimal(cena["Monto"]) == Decimal("100.00")
+    assert Decimal(cena["MontoOriginal"]) == Decimal("100.00")
+    assert cena["MonedaOriginal"] == viaje.Moneda
     assert cena["FechaGasto"] == "2026-09-02"
     assert cena["NombrePagador"] == "Ana Test"
     assert cena["IdUsuarioPagador"] == usuario_activo.IdUsuario
@@ -212,3 +232,24 @@ def test_no_mezcla_gastos_de_otros_viajes(
 
     assert "Gasto ajeno" not in [item["Nombre"] for item in body]
     assert len(body) == 3
+
+
+# US-85: el listado expone el importe original y su moneda junto al monto convertido
+def test_listado_incluye_monto_original_y_moneda_de_gastos_en_moneda_extranjera(
+    client, db_session, auth_headers, viaje_con_admin
+):
+    viaje, participacion_admin = viaje_con_admin
+    comida, _, _ = _categorias(db_session)
+    moneda = "EUR" if (viaje.Moneda or "").upper() != "EUR" else "USD"
+    _gasto(
+        db_session, viaje, participacion_admin, comida, "Cena en Roma", "250.00", date(2026, 9, 4),
+        monto_original="100.00", moneda_original=moneda, tipo_cambio="2.5",
+    )
+
+    response = client.get(_url(viaje), headers=auth_headers)
+
+    assert response.status_code == 200
+    item = response.json()[0]
+    assert Decimal(item["Monto"]) == Decimal("250.00")
+    assert Decimal(item["MontoOriginal"]) == Decimal("100.00")
+    assert item["MonedaOriginal"] == moneda

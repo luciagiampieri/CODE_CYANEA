@@ -24,11 +24,13 @@ import DatePickerModal from "../components/ui/DatePickerModal";
 import { toYMD, parseYMD, formatDateDisplay, getTodayIso } from "../utils/dates";  
 
 import PrimaryButton from "../components/ui/PrimaryButton";
+import CurrencySelector from "../components/trip/CurrencySelector";
 
 import {
   getExpenseCategories,
   getTripParticipants,
   createExpense,
+  getCurrencies, // <-- Asegúrate de tener esta función en tu services/api.js
 } from "../services/api";
 
 import { colors, radii, spacing, textStyles } from "../theme/tokens";
@@ -57,6 +59,23 @@ function getIniciales(persona) {
   return (n + a).toUpperCase() || "?";
 }
 
+// true solo si el fallo es de red (no llegó respuesta del servidor)
+function esErrorDeRed(error) {
+  // Si el servidor respondió con un status HTTP, hay conexión
+  if (error?.status || error?.response?.status) return false;
+
+  const msg = String(error?.message || "").toLowerCase();
+  return (
+    error instanceof TypeError ||
+    msg.includes("network request failed") ||
+    msg.includes("failed to fetch") ||
+    msg.includes("network error") ||
+    msg.includes("timeout") ||
+    msg.includes("timed out") ||
+    msg.includes("offline")
+  );
+}
+
 export default function AddGastoScreen({ visible, onClose, IdViaje, Moneda, onGastoCreado }) {
   const monedaBase = Moneda || "USD";
 
@@ -65,9 +84,11 @@ export default function AddGastoScreen({ visible, onClose, IdViaje, Moneda, onGa
 
   const [categorias, setCategorias] = useState([]);
   const [participantes, setParticipantes] = useState([]);
+  const [monedasBD, setMonedasBD] = useState([]);
 
   const [nombre, setNombre] = useState("");
   const [monto, setMonto] = useState("");
+  const [monedaSeleccionada, setMonedaSeleccionada] = useState(monedaBase);
 
   const [idCategoria, setIdCategoria] = useState(null);
   const [idPagador, setIdPagador] = useState(null);
@@ -163,6 +184,7 @@ export default function AddGastoScreen({ visible, onClose, IdViaje, Moneda, onGa
 
     setNombre("");
     setMonto("");
+    setMonedaSeleccionada(monedaBase);
     setIdCategoria(null);
     setIdPagador(null);
     setEsCompartido(false);
@@ -172,10 +194,26 @@ export default function AddGastoScreen({ visible, onClose, IdViaje, Moneda, onGa
     setFechaIso(toYMD(new Date()));
     setErrores({});
 
+    // Las monedas se cargan aparte: no dependen de que categorías/participantes carguen bien
+    async function cargarMonedas() {
+      try {
+        const monedas = await getCurrencies();
+        if (Array.isArray(monedas) && monedas.length > 0) {
+          setMonedasBD(monedas);
+          return;
+        }
+        console.log("getCurrencies devolvió vacío o formato inesperado:", monedas);
+      } catch (e) {
+        console.log("Error cargando monedas:", e?.message, e);
+      }
+      setMonedasBD([{ Codigo: monedaBase, Nombre: "Moneda base" }]);
+    }
+
     async function cargarDatos() {
       try {
         setLoading(true);
 
+        // Categorías y participantes
         const [cats, parts] = await Promise.all([
           getExpenseCategories(),
           getTripParticipants(IdViaje),
@@ -208,8 +246,9 @@ export default function AddGastoScreen({ visible, onClose, IdViaje, Moneda, onGa
         setLoading(false);
       }
     }
+    cargarMonedas();
     cargarDatos();
-  }, [IdViaje, visible]);
+  }, [IdViaje, visible, monedaBase]);
 
   useEffect(() => {
     if (esCompartido && idPagador) {
@@ -281,7 +320,7 @@ export default function AddGastoScreen({ visible, onClose, IdViaje, Moneda, onGa
         if (hayMontosVacios) {
           nuevosErrores.divisionPersonalizada = "Se debe asignar un monto a todos los participantes";
         } else if (Math.abs(sumaMontos - Number(monto)) > 0.01) {
-          nuevosErrores.divisionPersonalizada = `La suma de los montos individuales debe ser igual al monto total (${monto} ${monedaBase})`;
+          nuevosErrores.divisionPersonalizada = `La suma de los montos individuales debe ser igual al monto total (${monto} ${monedaSeleccionada})`;
         }
       }
     }
@@ -306,6 +345,8 @@ export default function AddGastoScreen({ visible, onClose, IdViaje, Moneda, onGa
         IdViaje,
         Nombre: nombre,
         Monto: Number(monto),
+        MontoOriginal: Number(monto),
+        MonedaOriginal: monedaSeleccionada,
         IdCategoria: idCategoria,
         IdPagador: esCompartido ? idPagador : null,
         FechaGasto: fechaIso,
@@ -325,14 +366,34 @@ export default function AddGastoScreen({ visible, onClose, IdViaje, Moneda, onGa
         onGastoCreado?.();
         onClose();
       } catch (apiError) {
-        console.log("ERROR createExpense:", apiError);
-        console.log("⚠️ Sin conexión. Guardando gasto localmente...");
+        console.log("ERROR createExpense:", apiError?.status, apiError?.message, apiError);
+
+        // Servicio de cotización caído (US-85)
+        if (apiError?.status === 503 || apiError?.message?.includes("cotización")) {
+          Alert.alert(
+            "Servicio no disponible",
+            "El servicio de cotización no se encuentra disponible en este momento."
+          );
+          return;
+        }
+
+        // Error del servidor (validación, 4xx/5xx): NO es un problema de conexión
+        if (!esErrorDeRed(apiError)) {
+          Alert.alert(
+            "No se pudo registrar el gasto",
+            apiError?.message || "El servidor rechazó el gasto."
+          );
+          return;
+        }
+
+        // Solo acá es realmente sin conexión
+        console.log("⚠️ Sin conexión. Guardando gasto localmente con importe y moneda original...");
         const guardadoConExito = guardarGastoOffline(nuevoGasto);
 
         if (guardadoConExito) {
           Alert.alert(
             "Modo Offline",
-            "El gasto quedó guardado localmente. Se sincronizará cuando vuelva la conexión.",
+            "El gasto quedó guardado localmente con su moneda original. Se convertirá y sincronizará cuando vuelva la conexión.",
             [
               {
                 text: "Entendido",
@@ -397,9 +458,18 @@ export default function AddGastoScreen({ visible, onClose, IdViaje, Moneda, onGa
                 </View>
                 {errores.nombre && <Text style={styles.error}>{errores.nombre}</Text>}
 
-                <Text style={styles.label}>Monto</Text>
+                {/* Selector de Moneda conectado a la BD */}
+                <View style={{ marginTop: spacing.sm }}>
+                  <CurrencySelector
+                    currencies={monedasBD.length > 0 ? monedasBD : [{ Codigo: monedaBase, Nombre: "Moneda Base" }]}
+                    selectedCurrency={monedaSeleccionada}
+                    onSelectCurrency={setMonedaSeleccionada}
+                  />
+                </View>
+
+                <Text style={styles.label}>Monto ({monedaSeleccionada.toUpperCase()})</Text>
                 <View style={styles.inputBox}>
-                  <Text style={styles.currencyCodePrefix}>{monedaBase.toUpperCase()}</Text>
+                  <Text style={styles.currencyCodePrefix}>{monedaSeleccionada.toUpperCase()}</Text>
                   <TextInput
                     style={styles.input}
                     placeholder="0"
@@ -409,6 +479,11 @@ export default function AddGastoScreen({ visible, onClose, IdViaje, Moneda, onGa
                     onChangeText={setMonto}
                   />
                 </View>
+                {monedaSeleccionada.toUpperCase() !== monedaBase.toUpperCase() && (
+                  <Text style={styles.infoConversionText}>
+                    ℹ El importe se convertirá automáticamente a la moneda base del viaje ({monedaBase.toUpperCase()}).
+                  </Text>
+                )}
                 {errores.monto && <Text style={styles.error}>{errores.monto}</Text>}
 
                 <Text style={styles.label}>Fecha</Text>
@@ -970,6 +1045,13 @@ const styles = StyleSheet.create({
     color: colors.overlay,
     fontWeight: "700",
     marginRight: 6,
+  },
+  infoConversionText: {
+    fontSize: 12,
+    color: colors.textSecondary,
+    marginTop: 2,
+    marginBottom: 6,
+    fontStyle: "italic",
   },
   dateBox: {
     minHeight: 48,

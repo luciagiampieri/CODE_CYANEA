@@ -34,7 +34,9 @@ class ParticipanteDivisionCreate(BaseModel):
 class GastoCreate(BaseModel):
     IdViaje: int
     Nombre: str
-    Monto: Decimal
+    Monto: Optional[Decimal] = None
+    MontoOriginal: Decimal
+    MonedaOriginal: str
     IdCategoria: int
     IdPagador: Optional[int] = None
     FechaGasto: date
@@ -51,6 +53,8 @@ class GastoListItemRead(BaseModel):
     IdGasto: int
     Nombre: str
     Monto: Decimal
+    MontoOriginal: Decimal
+    MonedaOriginal: str
     FechaGasto: date
     IdCategoria: int
     NombreCategoria: str
@@ -63,7 +67,11 @@ class GastoRead(BaseModel):
     IdGasto: int
     IdViaje: int
     Nombre: str
+
     Monto: Decimal
+    MontoOriginal: Decimal
+    MonedaOriginal: str
+    TipoCambio: Decimal
 
     NombreCategoria: str
 
