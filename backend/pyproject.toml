@@ -24,6 +24,7 @@ dependencies = [
   "sqlalchemy>=2.0.32",
   "uvicorn[standard]>=0.30.6",
   "httpx",
+  "requests>=2.31.0",
   "pycountry",
   "supabase>=2.31.0"
 ]
