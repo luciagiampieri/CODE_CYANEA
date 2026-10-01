@@ -49,12 +49,21 @@ def _otra_moneda(viaje):
 
 
 def _modulo_router_gastos(client):
-    """Devuelve el módulo donde vive create_gasto, para parchear ahí obtener_tipo_cambio."""
-    for route in client.app.routes:
-        endpoint = getattr(route, "endpoint", None)
-        if getattr(endpoint, "__name__", "") == "create_gasto":
-            return sys.modules[endpoint.__module__]
-    raise RuntimeError("No se encontró la ruta create_gasto en la app")
+    """
+    Devuelve el módulo del router de gastos (donde vive create_gasto), para parchear ahí
+    obtener_tipo_cambio. Se busca en sys.modules en lugar de recorrer client.app.routes,
+    que falla si las rutas están montadas en sub-apps o el endpoint está decorado.
+    """
+    for modulo in list(sys.modules.values()):
+        nombre = getattr(modulo, "__name__", "") or ""
+        contenido = getattr(modulo, "__dict__", {})
+        if (
+            nombre.startswith("app.")
+            and "create_gasto" in contenido
+            and "obtener_tipo_cambio" in contenido
+        ):
+            return modulo
+    raise RuntimeError("No se encontró el módulo del router de gastos (create_gasto + obtener_tipo_cambio)")
 
 
 @pytest.fixture
@@ -305,3 +314,201 @@ def test_get_trip_participants_success_incluye_solo_aceptados(client, db_session
     assert "ana_test" in nombres_usuario 
     assert "bruno" in nombres_usuario
     assert "invitado_pendiente" not in nombres_usuario
+
+
+
+# ---------------------------------------------------------------------------
+# US-85: conversión del importe a la moneda base del viaje
+# ---------------------------------------------------------------------------
+
+# CP1 / CA 4
+def test_gasto_en_moneda_base_no_se_convierte(client, db_session, auth_headers, viaje_con_admin, categoria_gasto, fijar_tipo_cambio):
+    viaje, _ = viaje_con_admin
+    llamadas = fijar_tipo_cambio(tasa=Decimal("9.99"))
+    payload = {
+        "IdViaje": viaje.IdViaje,
+        "Nombre": "Museo",
+        "MontoOriginal": "100.00",
+        "MonedaOriginal": viaje.Moneda,
+        "IdCategoria": categoria_gasto.IdCategoria,
+        "FechaGasto": str(date.today()),
+        "EsCompartido": False,
+    }
+    response = client.post("/api/v1/gastos/", json=payload, headers=auth_headers)
+    assert response.status_code == 200
+    id_gasto = response.json()["IdGasto"]
+
+    assert llamadas == []
+    gasto = db_session.query(Gasto).filter_by(IdGasto=id_gasto).first()
+    assert gasto.Monto == Decimal("100.00")
+    assert gasto.MontoOriginal == Decimal("100.00")
+    assert gasto.MonedaOriginal == viaje.Moneda.upper()
+    assert gasto.TipoCambio == Decimal("1")
+
+
+# CP2 / CP6 / CA 1 / CA 2 / CA 4
+def test_gasto_en_otra_moneda_guarda_original_cotizacion_y_convertido(client, db_session, auth_headers, viaje_con_admin, categoria_gasto, fijar_tipo_cambio):
+    viaje, _ = viaje_con_admin
+    moneda = _otra_moneda(viaje)
+    llamadas = fijar_tipo_cambio(tasa=Decimal("2.5"))
+    payload = {
+        "IdViaje": viaje.IdViaje,
+        "Nombre": "Museo",
+        "MontoOriginal": "100.00",
+        "MonedaOriginal": moneda,
+        "IdCategoria": categoria_gasto.IdCategoria,
+        "FechaGasto": str(date.today()),
+        "EsCompartido": False,
+    }
+    response = client.post("/api/v1/gastos/", json=payload, headers=auth_headers)
+    assert response.status_code == 200
+    id_gasto = response.json()["IdGasto"]
+
+    assert len(llamadas) == 1
+    origen, destino, _fecha = llamadas[0]
+    assert origen == moneda
+    assert destino == viaje.Moneda
+
+    gasto = db_session.query(Gasto).filter_by(IdGasto=id_gasto).first()
+    assert gasto.MontoOriginal == Decimal("100.00")
+    assert gasto.MonedaOriginal == moneda
+    assert gasto.TipoCambio == Decimal("2.5")
+    assert gasto.Monto == Decimal("250.00")
+
+
+# CP4 / CP5 / CA 3 / CA 7 / CA 8
+def test_gasto_usa_la_cotizacion_de_la_fecha_del_gasto_y_no_la_de_hoy(client, db_session, auth_headers, viaje_con_admin, categoria_gasto, fijar_tipo_cambio):
+    viaje, _ = viaje_con_admin
+    fecha_gasto = date.today() - timedelta(days=10)
+    llamadas = fijar_tipo_cambio(tasa=Decimal("2"))
+    payload = {
+        "IdViaje": viaje.IdViaje,
+        "Nombre": "Museo",
+        "MontoOriginal": "100.00",
+        "MonedaOriginal": _otra_moneda(viaje),
+        "IdCategoria": categoria_gasto.IdCategoria,
+        "FechaGasto": str(fecha_gasto),
+        "EsCompartido": False,
+    }
+    response = client.post("/api/v1/gastos/", json=payload, headers=auth_headers)
+    assert response.status_code == 200
+    id_gasto = response.json()["IdGasto"]
+
+    assert len(llamadas) == 1
+    assert llamadas[0][2] == fecha_gasto
+    assert llamadas[0][2] != date.today()
+    gasto = db_session.query(Gasto).filter_by(IdGasto=id_gasto).first()
+    assert gasto.FechaGasto == fecha_gasto
+
+
+# CA 3 / CA 8
+def test_gasto_cada_gasto_consulta_la_cotizacion_de_su_propia_fecha(client, auth_headers, viaje_con_admin, categoria_gasto, fijar_tipo_cambio):
+    viaje, _ = viaje_con_admin
+    fechas = [date.today() - timedelta(days=7), date.today() - timedelta(days=2)]
+    llamadas = fijar_tipo_cambio(tasa=Decimal("2"))
+
+    for fecha in fechas:
+        payload = {
+            "IdViaje": viaje.IdViaje,
+            "Nombre": "Museo",
+            "MontoOriginal": "100.00",
+            "MonedaOriginal": _otra_moneda(viaje),
+            "IdCategoria": categoria_gasto.IdCategoria,
+            "FechaGasto": str(fecha),
+            "EsCompartido": False,
+        }
+        response = client.post("/api/v1/gastos/", json=payload, headers=auth_headers)
+        assert response.status_code == 200
+
+    assert [llamada[2] for llamada in llamadas] == fechas
+
+
+# CP7 / CA 9 (parte backend): sin servicio de cotización no se persiste nada a medias
+def test_servicio_de_cotizacion_caido_devuelve_503_y_no_guarda_el_gasto(client, db_session, auth_headers, viaje_con_admin, categoria_gasto, fijar_tipo_cambio):
+    viaje, _ = viaje_con_admin
+    fijar_tipo_cambio(error=Exception("servicio caído"))
+    payload = {
+        "IdViaje": viaje.IdViaje,
+        "Nombre": "Museo",
+        "MontoOriginal": "100.00",
+        "MonedaOriginal": _otra_moneda(viaje),
+        "IdCategoria": categoria_gasto.IdCategoria,
+        "FechaGasto": str(date.today()),
+        "EsCompartido": False,
+    }
+    response = client.post("/api/v1/gastos/", json=payload, headers=auth_headers)
+    assert response.status_code == 503
+
+    assert db_session.query(Gasto).filter_by(IdViaje=viaje.IdViaje).count() == 0
+    assert db_session.query(ParticipantesGastos).count() == 0
+
+
+def test_servicio_de_cotizacion_caido_no_afecta_gastos_en_moneda_base(client, auth_headers, viaje_con_admin, categoria_gasto, fijar_tipo_cambio):
+    viaje, _ = viaje_con_admin
+    fijar_tipo_cambio(error=Exception("servicio caído"))
+    payload = {
+        "IdViaje": viaje.IdViaje,
+        "Nombre": "Museo",
+        "MontoOriginal": "100.00",
+        "MonedaOriginal": viaje.Moneda,
+        "IdCategoria": categoria_gasto.IdCategoria,
+        "FechaGasto": str(date.today()),
+        "EsCompartido": False,
+    }
+    response = client.post("/api/v1/gastos/", json=payload, headers=auth_headers)
+    assert response.status_code == 200
+
+
+# CA 5
+def test_division_igualitaria_usa_el_importe_convertido(client, db_session, auth_headers, viaje_con_admin, categoria_gasto, fijar_tipo_cambio):
+    viaje, admin_participante = viaje_con_admin
+    _agregar_participante_aceptado(db_session, viaje, "bruno")
+    fijar_tipo_cambio(tasa=Decimal("2.5"))
+    payload = {
+        "IdViaje": viaje.IdViaje,
+        "Nombre": "Museo",
+        "MontoOriginal": "100.00",
+        "MonedaOriginal": _otra_moneda(viaje),
+        "IdCategoria": categoria_gasto.IdCategoria,
+        "FechaGasto": str(date.today()),
+        "EsCompartido": True,
+        "DividirEntreTodos": True,
+        "TipoDivision": "igualitaria",
+        "IdPagador": admin_participante.IdParticipanteViaje,
+    }
+    response = client.post("/api/v1/gastos/", json=payload, headers=auth_headers)
+    assert response.status_code == 200
+    id_gasto = response.json()["IdGasto"]
+
+    montos = db_session.query(ParticipantesGastos).filter_by(IdGasto=id_gasto).all()
+    assert len(montos) == 2
+    assert all(m.MontoAsignado == Decimal("125.00") for m in montos)
+
+
+# Contrato actual: en la división personalizada los montos se expresan en la moneda base
+# y deben sumar el importe CONVERTIDO (no el original).
+def test_division_personalizada_debe_sumar_el_importe_convertido(client, auth_headers, viaje_con_admin, categoria_gasto, fijar_tipo_cambio):
+    viaje, participante = viaje_con_admin
+    fijar_tipo_cambio(tasa=Decimal("2.5"))
+    payload = {
+        "IdViaje": viaje.IdViaje,
+        "Nombre": "Museo",
+        "MontoOriginal": "100.00",
+        "MonedaOriginal": _otra_moneda(viaje),
+        "IdCategoria": categoria_gasto.IdCategoria,
+        "FechaGasto": str(date.today()),
+        "EsCompartido": True,
+        "DividirEntreTodos": False,
+        "TipoDivision": "personalizada",
+        "IdPagador": participante.IdParticipanteViaje,
+        "DetalleMontosPersonalizados": [
+            {"IdParticipanteViaje": participante.IdParticipanteViaje, "MontoAsignado": "100.00"}
+        ],
+    }
+    # suma el importe original (100), no el convertido (250)
+    response = client.post("/api/v1/gastos/", json=payload, headers=auth_headers)
+    assert response.status_code == 400
+
+    payload["DetalleMontosPersonalizados"][0]["MontoAsignado"] = "250.00"
+    response = client.post("/api/v1/gastos/", json=payload, headers=auth_headers)
+    assert response.status_code == 200

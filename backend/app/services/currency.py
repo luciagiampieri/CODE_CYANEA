@@ -1,33 +1,83 @@
 import requests
 from decimal import Decimal
-from datetime import date
+from datetime import date, timedelta
 
-def obtener_tipo_cambio(moneda_origen: str, moneda_destino: str, fecha: date | None = None) -> float:
+
+def obtener_tipo_cambio(
+    moneda_origen: str,
+    moneda_destino: str,
+    fecha: date
+) -> Decimal:
     """
-    Obtiene el tipo de cambio entre dos monedas utilizando ExchangeRate-API.
-    Si se proporciona una fecha anterior a hoy, intenta consultar la tasa histórica.
+    Obtiene el tipo de cambio más cercano a la fecha del gasto.
+
+    Si existe una cotización para esa fecha, se utiliza esa.
+    Si no existe, se utiliza la cotización disponible más cercana,
+    anterior o posterior, dentro de un margen de 3 días.
     """
-    if moneda_origen.upper() == moneda_destino.upper():
-        return 1.0
-    
-    # Si la fecha es pasada, ExchangeRate-API soporta endpoints históricos v6, 
-    # o bien recurrimos al endpoint estándar si es la fecha actual o si el histórico no está disponible en el plan libre.
-    # En la versión gratuita de ER-API, el endpoint estándar da la tasa actual más reciente, 
-    # pero podemos estructurarlo para consulta.
-    url = f"https://open.er-api.com/v6/latest/{moneda_origen.upper()}"
-    
+
+    moneda_origen = moneda_origen.upper()
+    moneda_destino = moneda_destino.upper()
+
+    if moneda_origen == moneda_destino:
+        return Decimal("1")
+
+    margen_dias = 3
+
+    fecha_desde = fecha - timedelta(days=margen_dias)
+    fecha_hasta = fecha + timedelta(days=margen_dias)
+
+    url = "https://api.frankfurter.dev/v2/rates"
+
+    params = {
+        "from": fecha_desde.isoformat(),
+        "to": fecha_hasta.isoformat(),
+        "base": moneda_origen,
+        "quotes": moneda_destino,
+    }
+
     try:
-        response = requests.get(url, timeout=5)
+        response = requests.get(
+            url,
+            params=params,
+            timeout=5,
+        )
+
         if response.status_code != 200:
-            raise ValueError("Servicio de cotización no disponible")
-        
+            raise ValueError(
+                "Servicio de cotización no disponible"
+            )
+
         data = response.json()
-        rates = data.get("rates", {})
-        tasa = rates.get(moneda_destino.upper())
-        
-        if tasa is None:
-            raise ValueError(f"No se encontró la tasa de cambio para {moneda_destino}")
-            
-        return float(tasa)
-    except Exception as e:
-        raise ValueError(f"Servicio de cotización no disponible: {str(e)}")
+
+        if not data:
+            raise ValueError(
+                f"No se encontraron cotizaciones cercanas a {fecha}"
+            )
+
+        cotizaciones = [
+            item for item in data
+            if item.get("quote") == moneda_destino
+        ]
+
+        if not cotizaciones:
+            raise ValueError(
+                f"No se encontró cotización para "
+                f"{moneda_origen}/{moneda_destino}"
+            )
+
+        fecha_objetivo = fecha
+
+        cotizacion_mas_cercana = min(
+            cotizaciones,
+            key=lambda item: abs(
+                date.fromisoformat(item["date"]) - fecha_objetivo
+            )
+        )
+
+        return Decimal(str(cotizacion_mas_cercana["rate"]))
+
+    except requests.RequestException as e:
+        raise ValueError(
+            f"Servicio de cotización no disponible: {str(e)}"
+        )

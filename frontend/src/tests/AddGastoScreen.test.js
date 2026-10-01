@@ -3,6 +3,7 @@ import { Alert } from "react-native";
 import { act, fireEvent, render, waitFor } from "@testing-library/react-native";
 
 import AddGastoScreen from "../screens/AddGastoScreen";
+import { toYMD } from "../utils/dates";
 
 import {
   getExpenseCategories,
@@ -32,6 +33,20 @@ jest.mock("../database/gastosLocal", () => ({
   obtenerParticipantesCache: jest.fn(),
 }));
 
+// Atajo para poner una fecha pasada en el formulario sin manejar el calendario: un botón falso
+// que entrega datos ya "escaneados". El flujo real del botón se prueba en ReceiptScanButton.test.js.
+let mockDatosEscaneo = null;
+jest.mock("../components/trip/ReceiptScanButton", () => {
+  const { Text: MockText, TouchableOpacity: MockTouchable } = require("react-native");
+  return function MockReceiptScanButton({ onScanned }) {
+    return (
+      <MockTouchable onPress={() => onScanned(mockDatosEscaneo)}>
+        <MockText>Simular escaneo</MockText>
+      </MockTouchable>
+    );
+  };
+});
+
 const mockOnClose = jest.fn();
 
 const categorias = [
@@ -56,6 +71,23 @@ const AVISO_CONVERSION = /se convertirá automáticamente/;
 
 const MENSAJE_OFFLINE =
   "El gasto quedó guardado localmente con su moneda original. Se convertirá y sincronizará cuando vuelva la conexión.";
+
+const HOY = toYMD(new Date());
+const HACE_5_DIAS = (() => {
+  const fecha = new Date();
+  fecha.setDate(fecha.getDate() - 5);
+  return toYMD(fecha);
+})();
+
+// Gasto en euros (la base es USD) fechado 5 días atrás
+const GASTO_EN_EUR_PASADO = {
+  Nombre: "Museo del Louvre",
+  MontoOriginal: "100",
+  MonedaOriginal: "EUR",
+  FechaGasto: HACE_5_DIAS,
+  IdCategoria: 1,
+  CamposBajaConfianza: [],
+};
 
 async function press(getters, texto) {
   await act(async () => {
@@ -107,6 +139,13 @@ async function registrarGastoPersonal(utils, { nombre = "Almuerzo", monto = "150
 
 function errorDelServidor(status, message) {
   return Object.assign(new Error(message), { status });
+}
+
+// Completa el formulario con un gasto en euros de hace 5 días y lo registra.
+async function registrarGastoEnEurosConFechaPasada(utils) {
+  mockDatosEscaneo = GASTO_EN_EUR_PASADO;
+  await press(utils, "Simular escaneo");
+  await press(utils, "Registrar gasto");
 }
 
 describe("US - Registrar gasto (AddGastoScreen)", () => {
@@ -319,6 +358,19 @@ describe("US - Registrar gasto (AddGastoScreen)", () => {
       );
       expect(mockOnClose).toHaveBeenCalledTimes(1);
     });
+
+    it("envía la fecha del gasto (no la de hoy) junto con el importe y la moneda originales", async () => {
+      const utils = await renderPantallaCargada();
+
+      await registrarGastoEnEurosConFechaPasada(utils);
+
+      await waitFor(() => expect(createExpense).toHaveBeenCalledTimes(1));
+      const enviado = createExpense.mock.calls[0][0];
+      expect(enviado).toEqual(
+        expect.objectContaining({ MontoOriginal: 100, MonedaOriginal: "EUR", FechaGasto: HACE_5_DIAS })
+      );
+      expect(enviado.FechaGasto).not.toBe(HOY);
+    });
   });
 
   // ---------------------------------------------------------------------------
@@ -424,38 +476,47 @@ describe("US - Registrar gasto (AddGastoScreen)", () => {
       expect(mockOnClose).not.toHaveBeenCalled();
     });
 
-    it("si el servicio de cotización no está disponible (503), avisa y no guarda offline", async () => {
+    it("si el servicio de cotización no está disponible (503), lo guarda offline y avisa al usuario", async () => {
       createExpense.mockRejectedValue(errorDelServidor(503, "Service Unavailable"));
+      alertSpy.mockImplementation((title, message, buttons) => {
+        const entendido = buttons?.find((b) => b.text === "Entendido");
+        entendido?.onPress?.();
+      });
 
       const utils = await renderPantallaCargada();
 
       await seleccionarMoneda(utils, "Euro");
       await registrarGastoPersonal(utils, { monto: "100" });
 
-      await waitFor(() => {
-        expect(alertSpy).toHaveBeenCalledWith(
-          "Servicio no disponible",
-          "El servicio de cotización no se encuentra disponible en este momento."
-        );
-      });
-      expect(guardarGastoOffline).not.toHaveBeenCalled();
-      expect(mockOnClose).not.toHaveBeenCalled();
+      await waitFor(() => expect(guardarGastoOffline).toHaveBeenCalledTimes(1));
+
+      expect(alertSpy).toHaveBeenCalledWith(
+        "Servicio no disponible",
+        "El servicio de cotización no se encuentra disponible en este momento.",
+        expect.arrayContaining([expect.objectContaining({ text: "Entendido" })])
+      );
+      expect(mockOnClose).toHaveBeenCalledTimes(1);
     });
 
-    it("si el error menciona la cotización, también avisa que el servicio no está disponible", async () => {
+    it("si el error menciona la cotización, también lo guarda offline y avisa al usuario", async () => {
       createExpense.mockRejectedValue(new Error("Error al obtener la cotización"));
+      alertSpy.mockImplementation((title, message, buttons) => {
+        const entendido = buttons?.find((b) => b.text === "Entendido");
+        entendido?.onPress?.();
+      });
 
       const utils = await renderPantallaCargada();
 
       await registrarGastoPersonal(utils);
 
-      await waitFor(() => {
-        expect(alertSpy).toHaveBeenCalledWith(
-          "Servicio no disponible",
-          "El servicio de cotización no se encuentra disponible en este momento."
-        );
-      });
-      expect(guardarGastoOffline).not.toHaveBeenCalled();
+      await waitFor(() => expect(guardarGastoOffline).toHaveBeenCalledTimes(1));
+
+      expect(alertSpy).toHaveBeenCalledWith(
+        "Servicio no disponible",
+        "El servicio de cotización no se encuentra disponible en este momento.",
+        expect.arrayContaining([expect.objectContaining({ text: "Entendido" })])
+      );
+      expect(mockOnClose).toHaveBeenCalledTimes(1);
     });
 
     it("si falla la conexión y tampoco se puede guardar offline, muestra el error", async () => {
@@ -470,6 +531,85 @@ describe("US - Registrar gasto (AddGastoScreen)", () => {
         expect(alertSpy).toHaveBeenCalledWith("Error", "No se pudo guardar el gasto offline");
       });
       expect(mockOnClose).not.toHaveBeenCalled();
+    });
+
+    it("al guardar offline conserva también la fecha del gasto y no guarda ninguna conversión", async () => {
+      createExpense.mockRejectedValue(new TypeError("Network request failed"));
+      alertSpy.mockImplementation((titulo, mensaje, botones) => {
+        botones?.find((b) => b.text === "Entendido")?.onPress?.();
+      });
+
+      const utils = await renderPantallaCargada();
+
+      await registrarGastoEnEurosConFechaPasada(utils);
+
+      await waitFor(() => expect(guardarGastoOffline).toHaveBeenCalledTimes(1));
+      const guardado = guardarGastoOffline.mock.calls[0][0];
+      expect(guardado).toEqual(
+        expect.objectContaining({
+          IdViaje: 10,
+          Nombre: "Museo del Louvre",
+          MontoOriginal: 100,
+          MonedaOriginal: "EUR",
+          FechaGasto: HACE_5_DIAS,
+        })
+      );
+      // La conversión se hace al sincronizar, con la cotización de FechaGasto.
+      expect(guardado).not.toHaveProperty("TipoCambio");
+      expect(mockOnClose).toHaveBeenCalledTimes(1);
+    });
+
+    // Servicio de cotización caído: el gasto debe quedar pendiente, sin perder sus datos originales.
+    // NOTA: estos tests fallan hoy: ante un 503 la pantalla solo muestra un alert y descarta el gasto.
+    describe("servicio de cotización no disponible (503): el gasto queda pendiente", () => {
+      it("lo deja guardado localmente con su importe, moneda y fecha originales", async () => {
+        createExpense.mockRejectedValue(errorDelServidor(503, "Service Unavailable"));
+
+        const utils = await renderPantallaCargada();
+
+        await registrarGastoEnEurosConFechaPasada(utils);
+
+        await waitFor(() => expect(guardarGastoOffline).toHaveBeenCalledTimes(1));
+        expect(guardarGastoOffline).toHaveBeenCalledWith(
+          expect.objectContaining({
+            IdViaje: 10,
+            Nombre: "Museo del Louvre",
+            MontoOriginal: 100,
+            MonedaOriginal: "EUR",
+            FechaGasto: HACE_5_DIAS,
+            IdCategoria: 1,
+          })
+        );
+      });
+
+      it("no informa un registro exitoso en el servidor", async () => {
+        createExpense.mockRejectedValue(errorDelServidor(503, "Service Unavailable"));
+
+        const utils = await renderPantallaCargada();
+
+        await registrarGastoEnEurosConFechaPasada(utils);
+
+        await waitFor(() => expect(guardarGastoOffline).toHaveBeenCalled());
+        expect(alertSpy).not.toHaveBeenCalledWith(
+          "Éxito",
+          "Gasto registrado correctamente en el servidor."
+        );
+      });
+
+      it("si tampoco se puede guardar localmente, avisa y no cierra el formulario para no perder los datos", async () => {
+        createExpense.mockRejectedValue(errorDelServidor(503, "Service Unavailable"));
+        guardarGastoOffline.mockReturnValue(false);
+
+        const utils = await renderPantallaCargada();
+
+        await registrarGastoEnEurosConFechaPasada(utils);
+
+        await waitFor(() => {
+          expect(alertSpy).toHaveBeenCalledWith("Error", "No se pudo guardar el gasto offline");
+        });
+        expect(mockOnClose).not.toHaveBeenCalled();
+        expect(utils.getByDisplayValue("Museo del Louvre")).toBeTruthy();
+      });
     });
   });
 });

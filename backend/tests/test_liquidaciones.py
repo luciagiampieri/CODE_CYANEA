@@ -376,9 +376,94 @@ def test_recalcular_no_revive_deudas_ya_saldadas(
 
 
 def _modulo_router_gastos(client):
-    for route in client.app.routes:
-        endpoint = getattr(route, "endpoint", None)
-        if getattr(endpoint, "__name__", "") == "create_gasto":
-            return sys.modules[endpoint.__module__]
-    raise RuntimeError("No se encontró la ruta create_gasto en la app")
+    """
+    Devuelve el módulo del router de gastos (donde vive create_gasto), para parchear ahí
+    obtener_tipo_cambio. Se busca en sys.modules en lugar de recorrer client.app.routes,
+    que falla si las rutas están montadas en sub-apps o el endpoint está decorado.
+    """
+    for modulo in list(sys.modules.values()):
+        nombre = getattr(modulo, "__name__", "") or ""
+        contenido = getattr(modulo, "__dict__", {})
+        if (
+            nombre.startswith("app.")
+            and "create_gasto" in contenido
+            and "obtener_tipo_cambio" in contenido
+        ):
+            return modulo
+    raise RuntimeError("No se encontró el módulo del router de gastos (create_gasto + obtener_tipo_cambio)")
 
+
+
+# ---------------------------------------------------------------------------
+# US-85: saldos y deudas se calculan con el importe convertido
+# ---------------------------------------------------------------------------
+
+def test_liquidacion_usa_el_importe_convertido_de_gastos_en_otra_moneda(
+    client,
+    db_session,
+    auth_headers,
+    viaje_con_admin,
+    categoria_gasto,
+    monkeypatch,
+):
+    viaje, admin_participante = viaje_con_admin
+    bruno = _crear_participante_aceptado(db_session, viaje, "Bruno")
+    moneda_extranjera = "EUR" if (viaje.Moneda or "").upper() != "EUR" else "USD"
+
+    # 1 unidad de moneda extranjera = 2 de la moneda base (sin red)
+    monkeypatch.setattr(
+        _modulo_router_gastos(client),
+        "obtener_tipo_cambio",
+        lambda origen, destino, fecha=None: Decimal("2"),
+    )
+
+    # Ana paga 100 en moneda extranjera (= 200 en moneda base)
+    _crear_gasto(
+        client,
+        auth_headers,
+        {
+            "IdViaje": viaje.IdViaje,
+            "Nombre": "Hotel",
+            "MontoOriginal": "100.00",
+            "MonedaOriginal": moneda_extranjera,
+            "IdCategoria": categoria_gasto.IdCategoria,
+            "FechaGasto": str(date.today()),
+            "EsCompartido": True,
+            "DividirEntreTodos": True,
+            "TipoDivision": "igualitaria",
+            "IdPagador": admin_participante.IdParticipanteViaje,
+        },
+    )
+    # Bruno paga 40 en moneda base
+    _crear_gasto(
+        client,
+        auth_headers,
+        {
+            "IdViaje": viaje.IdViaje,
+            "Nombre": "Taxi",
+            "MontoOriginal": "40.00",
+            "MonedaOriginal": viaje.Moneda,
+            "IdCategoria": categoria_gasto.IdCategoria,
+            "FechaGasto": str(date.today()),
+            "EsCompartido": True,
+            "DividirEntreTodos": True,
+            "TipoDivision": "igualitaria",
+            "IdPagador": bruno.IdParticipanteViaje,
+        },
+    )
+
+    data = client.get(f"/api/v1/trips/{viaje.IdViaje}/settlement", headers=auth_headers).json()
+
+    assert Decimal(data["TotalGastosViaje"]) == Decimal("240.00")
+    resumen = {item["NombreCompleto"]: item for item in data["ResumenParticipantes"]}
+    assert Decimal(resumen["Ana Test"]["TotalPagado"]) == Decimal("200.00")
+    assert Decimal(resumen["Ana Test"]["GastoIndividual"]) == Decimal("120.00")
+    assert Decimal(resumen["Ana Test"]["BalanceOriginal"]) == Decimal("80.00")
+    assert Decimal(resumen["Bruno Test"]["TotalPagado"]) == Decimal("40.00")
+    assert Decimal(resumen["Bruno Test"]["BalanceOriginal"]) == Decimal("-80.00")
+
+    assert len(data["Transferencias"]) == 1
+    transferencia = data["Transferencias"][0]
+    assert transferencia["NombreDeudor"] == "Bruno Test"
+    assert transferencia["NombreAcreedor"] == "Ana Test"
+    assert Decimal(transferencia["Monto"]) == Decimal("80.00")

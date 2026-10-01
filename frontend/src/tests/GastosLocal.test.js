@@ -90,6 +90,14 @@ describe("gastosLocal - cola offline", () => {
       expect(params[6]).toBe("2026-08-20"); // fecha_gasto
     });
 
+    it("no guarda ninguna conversión: la cotización se aplica recién al sincronizar", () => {
+      guardarGastoOffline({ ...gastoBase, MontoOriginal: 100, MonedaOriginal: "EUR" });
+
+      const [sql] = db.runSync.mock.calls[0];
+      expect(sql).not.toContain("tipo_cambio");
+      expect(sql).not.toMatch(/\bmonto\b/); // solo monto_original, no un monto convertido
+    });
+
     it("serializa un gasto personal con los flags en 0 y listas vacías", () => {
       guardarGastoOffline(gastoBase);
 
@@ -289,6 +297,20 @@ describe("gastosLocal - cola offline", () => {
       });
     });
 
+    it("sincroniza con la fecha del gasto y no con la fecha en que vuelve la conexión", async () => {
+      jest.useFakeTimers().setSystemTime(new Date("2026-09-05T12:00:00Z")); // 16 días después del gasto
+      db.getAllSync.mockReturnValue([{ ...filaPendiente, moneda_original: "EUR", monto_original: 100 }]);
+      createExpense.mockResolvedValue({ IdGasto: 99 });
+
+      try {
+        await sincronizarGastosOffline();
+      } finally {
+        jest.useRealTimers();
+      }
+
+      expect(createExpense.mock.calls[0][0].FechaGasto).toBe("2026-08-20");
+    });
+
     it("sincroniza varios gastos en orden y borra cada uno al confirmarse", async () => {
       db.getAllSync.mockReturnValue([
         filaPendiente,
@@ -350,6 +372,36 @@ describe("gastosLocal - cola offline", () => {
 
       expect(createExpense).toHaveBeenCalledTimes(2);
       expect(db.runSync).toHaveBeenCalledWith(expect.stringContaining("DELETE"), [1]);
+    });
+
+    it("si el servicio de cotización no está disponible (503), el gasto queda pendiente sin modificarse", async () => {
+      db.getAllSync.mockReturnValue([{ ...filaPendiente, moneda_original: "EUR", monto_original: 100 }]);
+      createExpense.mockRejectedValue(
+        Object.assign(new Error("Servicio de cotización no disponible"), { status: 503 })
+      );
+
+      await sincronizarGastosOffline();
+
+      expect(createExpense).toHaveBeenCalledTimes(1);
+      expect(db.runSync).not.toHaveBeenCalled(); // no se borra ni se altera la fila
+    });
+
+    it("al reintentar reenvía los mismos datos originales (importe, moneda y fecha)", async () => {
+      db.getAllSync.mockReturnValue([{ ...filaPendiente, moneda_original: "EUR", monto_original: 100 }]);
+      createExpense
+        .mockRejectedValueOnce(
+          Object.assign(new Error("Servicio de cotización no disponible"), { status: 503 })
+        )
+        .mockResolvedValueOnce({ IdGasto: 99 });
+
+      await sincronizarGastosOffline();
+      await sincronizarGastosOffline(); // vuelve el servicio
+
+      expect(createExpense).toHaveBeenCalledTimes(2);
+      expect(createExpense.mock.calls[1][0]).toEqual(createExpense.mock.calls[0][0]);
+      expect(createExpense.mock.calls[1][0]).toEqual(
+        expect.objectContaining({ MontoOriginal: 100, MonedaOriginal: "EUR", FechaGasto: "2026-08-20" })
+      );
     });
   });
 

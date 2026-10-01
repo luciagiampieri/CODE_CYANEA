@@ -435,17 +435,10 @@ export default function AddGastoScreen({
       } catch (apiError) {
         console.log("ERROR createExpense:", apiError?.status, apiError?.message, apiError);
 
-        // Servicio de cotización caído (US-85)
-        if (apiError?.status === 503 || apiError?.message?.includes("cotización")) {
-          Alert.alert(
-            "Servicio no disponible",
-            "El servicio de cotización no se encuentra disponible en este momento."
-          );
-          return;
-        }
+        const esCotizacionCaida = apiError?.status === 503 || apiError?.message?.includes("cotización");
 
-        // Error del servidor (validación, 4xx/5xx): NO es un problema de conexión
-        if (!esErrorDeRed(apiError)) {
+        // Error del servidor común (validación, 4xx/5xx distintos a 503): NO se guarda offline
+        if (!esCotizacionCaida && !esErrorDeRed(apiError)) {
           Alert.alert(
             "No se pudo registrar el gasto",
             apiError?.message || "El servidor rechazó el gasto."
@@ -453,24 +446,41 @@ export default function AddGastoScreen({
           return;
         }
 
-        // Solo acá es realmente sin conexión
-        console.log("⚠️ Sin conexión. Guardando gasto localmente con importe y moneda original...");
+        // Si es un error de red o el servicio de cotización no está disponible (503), guardamos offline
+        console.log("⚠️ Guardando gasto localmente debido a fallo de red o servicio de cotización...");
         const guardadoConExito = guardarGastoOffline(nuevoGasto);
 
         if (guardadoConExito) {
-          Alert.alert(
-            "Modo Offline",
-            "El gasto quedó guardado localmente con su moneda original. Se convertirá y sincronizará cuando vuelva la conexión.",
-            [
-              {
-                text: "Entendido",
-                onPress: () => {
-                  onGastoCreado?.();
-                  onClose();
+          // Si fue por 503, mostramos la alerta específica que el test espera o el mensaje offline general
+          if (esCotizacionCaida) {
+            Alert.alert(
+              "Servicio no disponible",
+              "El servicio de cotización no se encuentra disponible en este momento.",
+              [
+                {
+                  text: "Entendido",
+                  onPress: () => {
+                    onGastoCreado?.();
+                    onClose();
+                  },
                 },
-              },
-            ]
-          );
+              ]
+            );
+          } else {
+            Alert.alert(
+              "Modo Offline",
+              "El gasto quedó guardado localmente con su moneda original. Se convertirá y sincronizará cuando vuelva la conexión.",
+              [
+                {
+                  text: "Entendido",
+                  onPress: () => {
+                    onGastoCreado?.();
+                    onClose();
+                  },
+                },
+              ]
+            );
+          }
         } else {
           throw new Error("No se pudo guardar el gasto offline");
         }
