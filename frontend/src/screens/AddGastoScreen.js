@@ -97,6 +97,8 @@ export default function AddGastoScreen({
   Moneda,
   onGastoCreado,
   puedeEscanear = true,
+  initialData = null,
+  mostrarAlertaExito = true,
 }) {
   const monedaBase = Moneda || "USD";
 
@@ -149,6 +151,13 @@ export default function AddGastoScreen({
   const slideAnimCategoria = useRef(new Animated.Value(300)).current;
   const slideAnimPagador = useRef(new Animated.Value(300)).current;
   const slideAnimParticipantes = useRef(new Animated.Value(300)).current;
+
+  // Añadimos este efecto para que cuando carguen los datos y haya initialData, se autocomplemente el formulario
+  useEffect(() => {
+    if (initialData && !loading && categorias.length > 0) {
+      aplicarEscaneo(initialData);
+    }
+  }, [initialData, loading, categorias]);
 
   function animarSheet(anim, visible) {
     if (visible) {
@@ -429,7 +438,10 @@ export default function AddGastoScreen({
 
       try {
         await createExpense(nuevoGasto);
-        Alert.alert("Éxito", "Gasto registrado correctamente en el servidor.");
+        // Cuando el padre muestra su propio cartel (ej: subida de documento con gasto), no duplicamos
+        if (mostrarAlertaExito) {
+          Alert.alert("Éxito", "Gasto registrado correctamente en el servidor.");
+        }
         onGastoCreado?.();
         onClose();
       } catch (apiError) {

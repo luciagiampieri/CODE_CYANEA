@@ -41,7 +41,7 @@ from app.services.receipt_ai import (
     construir_resultado,
     get_receipt_extractor,
     validar_esquema,
-    validar_imagen,
+    validar_documento,
 )
 from app.services.receipt_ai.base import (
     AI_CONSENT_REQUIRED,
@@ -365,7 +365,7 @@ async def escanear_comprobante(
     # AC3: formato y tamaño (se lee un byte de más para detectar el exceso).
     contenido = await archivo.read(MAX_RECEIPT_BYTES + 1)
     try:
-        mime = validar_imagen(contenido)
+        mime = validar_documento(contenido)
     except ReceiptScanError as error:
         raise _error_escaneo(error)
 

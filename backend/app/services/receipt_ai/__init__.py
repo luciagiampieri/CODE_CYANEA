@@ -14,7 +14,7 @@ from app.services.receipt_ai.processing import (
     ResultadoEscaneo,
     construir_resultado,
     validar_esquema,
-    validar_imagen,
+    validar_documento,
 )
 
 
@@ -40,5 +40,5 @@ __all__ = [
     "construir_resultado",
     "get_receipt_extractor",
     "validar_esquema",
-    "validar_imagen",
+    "validar_documento",
 ]

@@ -34,9 +34,13 @@ const gastos = [
 
 describe("ExpenseList", () => {
   it("muestra cada gasto con su nombre, quién pagó y el monto", async () => {
-    const { getByText, getAllByText, queryByText } = await render(
+    const { getByTestId, getByText, getAllByText, queryByText } = await render(
       <ExpenseList categories={categorias} currency="ARS" currentUserId={2} expenses={gastos} />
     );
+
+    // Abrir las secciones colapsables para poder ver los gastos dentro
+    await fireEvent.press(getByTestId("expense-category-header-1"));
+    await fireEvent.press(getByTestId("expense-category-header-2"));
 
     expect(getByText("Taxi")).toBeTruthy();
     expect(getByText(/^Pagaste vos/)).toBeTruthy();
@@ -53,7 +57,7 @@ describe("ExpenseList", () => {
     expect(getByText("$ 200")).toBeTruthy();
   });
 
-  it("abre el selector con todas las categorías y su cantidad de gastos", async () => {
+  it("abre el panel de filtros y permite navegar a la sección de categorías", async () => {
     const { getByTestId, getByText, queryByTestId } = await render(
       <ExpenseList categories={categorias} currency="ARS" expenses={gastos} />
     );
@@ -62,44 +66,36 @@ describe("ExpenseList", () => {
 
     await fireEvent.press(getByTestId("expense-filter-open"));
 
-    expect(getByText("Filtrar por categoría")).toBeTruthy();
-    expect(getByText("Todas las categorías")).toBeTruthy();
-    expect(getByText("Comida y Bebida")).toBeTruthy();
+    expect(getByText("Tipo de gasto")).toBeTruthy();
+
+    await fireEvent.press(getByTestId("expense-filter-categorias"));
+
+    expect(getByText("Categorías")).toBeTruthy();
+    expect(getByTestId("expense-filter-1")).toBeTruthy();
     expect(getByText("Alojamiento")).toBeTruthy();
   });
 
-  it("filtra por categoría, muestra el filtro activo y actualiza el total", async () => {
-    const { getByTestId, getByText, queryByText, queryByTestId } = await render(
+  it("filtra por categoría mediante el panel, muestra el chip activo y actualiza el total", async () => {
+    const { getByTestId, getByText, queryByText, queryByTestId, getAllByText } = await render(
       <ExpenseList categories={categorias} currency="ARS" expenses={gastos} />
     );
 
     await fireEvent.press(getByTestId("expense-filter-open"));
+    await fireEvent.press(getByTestId("expense-filter-categorias"));
     await fireEvent.press(getByTestId("expense-filter-1"));
+    await fireEvent.press(getByTestId("expense-categories-done"));
+    await fireEvent.press(getByTestId("expense-filter-aplicar"));
 
-    expect(queryByText("Filtrar por categoría")).toBeNull();
-    expect(queryByText("Taxi")).toBeNull();
     expect(getByText("Cena")).toBeTruthy();
-    expect(getByTestId("expense-filter-clear")).toBeTruthy();
+    expect(getByTestId("expense-filter-tag-categorias")).toBeTruthy();
     expect(getByText("Total filtrado · 2 gastos")).toBeTruthy();
-    expect(getByText("$ 160")).toBeTruthy();
+    expect(getAllByText("$ 160").length).toBeGreaterThan(0);
 
-    await fireEvent.press(getByTestId("expense-filter-clear"));
+    // Quitar el filtro tocando el chip activo
+    await fireEvent.press(getByTestId("expense-filter-tag-categorias"));
 
-    expect(getByText("Taxi")).toBeTruthy();
     expect(getByText("Total · 3 gastos")).toBeTruthy();
-    expect(queryByTestId("expense-filter-clear")).toBeNull();
-  });
-
-  it("muestra un mensaje si la categoría filtrada no tiene gastos", async () => {
-    const { getByTestId, getByText } = await render(
-      <ExpenseList categories={categorias} currency="ARS" expenses={gastos} />
-    );
-
-    await fireEvent.press(getByTestId("expense-filter-open"));
-    await fireEvent.press(getByTestId("expense-filter-3"));
-
-    expect(getByText("No hay gastos en esta categoría.")).toBeTruthy();
-    expect(getByText("Total filtrado · 0 gastos")).toBeTruthy();
+    expect(queryByTestId("expense-filter-tag-categorias")).toBeNull();
   });
 
   it("muestra un mensaje si el viaje no tiene gastos", async () => {

@@ -1,3 +1,5 @@
+import asyncio
+import logging
 import mimetypes
 from urllib.parse import quote
 
@@ -17,6 +19,8 @@ from app.models import (
     DocumentoViaje,
     ParticipanteViaje,
     EstadoParticipacion,
+    CategoriasGastos,
+    Moneda,
 )
 from app.schemas.documento_viaje import DocumentoViajeRead
 
@@ -30,8 +34,19 @@ from app.services.supabase.storage import (
 
 from app.services.websocket_manager import manager
 from app.services.trip_access import get_trip_with_relations, require_trip_access, require_trip_edit_access, require_trip_not_finished
+from app.services.receipt_ai import (
+    MAX_RECEIPT_BYTES,
+    ReceiptExtractor,
+    ReceiptScanError,
+    construir_resultado,
+    get_receipt_extractor,
+    validar_esquema,
+    validar_documento,
+)
+from app.core.config import settings
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 def _serializar_documento(
     documento: DocumentoViaje, current_user_id: int
@@ -86,6 +101,7 @@ async def subir_documento_viaje(
     EsPublico: bool = Form(True),
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
+    extractor: ReceiptExtractor = Depends(get_receipt_extractor),
 ):
     viaje = require_trip_edit_access(
         get_trip_with_relations(db, trip_id),
@@ -111,8 +127,11 @@ async def subir_documento_viaje(
     ".png"
     }
 
+    # Leemos el contenido completo del archivo (con un byte extra para control de tamaño)
+    contenido = await archivo.read(MAX_RECEIPT_BYTES + 1)
+    
+    # Validamos formato básico de archivo de imagen permitidos
     extension = Path(archivo.filename).suffix.lower()
-
     if extension not in extensiones_permitidas:
         raise HTTPException(
             status_code=400,
@@ -122,10 +141,10 @@ async def subir_documento_viaje(
     nombre_final = NombreArchivo or archivo.filename
 
     if not nombre_final:
-            raise HTTPException(
-                status_code=400,
-                detail="El nombre del documento es obligatorio."
-            )
+        raise HTTPException(
+            status_code=400,
+            detail="El nombre del documento es obligatorio."
+        )
 
     nombre_final = nombre_final.strip()
 
@@ -156,6 +175,13 @@ async def subir_documento_viaje(
             status_code=409,
             detail="Ya existe un documento con ese nombre en este viaje."
         )
+
+    # Reiniciamos el puntero del archivo o volvemos a pasarlo al storage
+    # Como UploadFile ya fue leído parcialmente, recreamos un UploadFile o pasamos el contenido al storage si la función lo soporta.
+    # Nota: subir_documento espera un UploadFile. Para evitar problemas de EOF, podemos reasignarlo o reubicar el puntero si es un file-like, 
+    # o pasarlo adecuadamente. Revisemos cómo recibe `subir_documento` el archivo.
+    # Dado que `subir_documento` suele leer desde el principio, rebobinamos el archivo:
+    await archivo.seek(0)
 
     url_archivo = subir_documento(
         archivo,
@@ -189,10 +215,50 @@ async def subir_documento_viaje(
         {"tipo": "documento_actualizado"}
     )
 
-    return {
+    # === US 84: DETECCIÓN DE GASTOS ASOCIADOS AL DOCUMENTO ===
+    sugerencia_gasto = None
+    try:
+        # Validamos si el usuario tiene consentimiento de IA y si la extensión es válida para analizar (ahora incluimos .pdf)
+        if current_user.ConsienteProcesamientoIA and extension in {".jpg", ".jpeg", ".png", ".pdf"}:
+            
+            # Usamos validar_documento (asegúrate de importarlo arriba en lugar de validar_imagen)
+            mime = validar_documento(contenido, archivo.filename)
+            
+            categorias_gastos = {
+                cat.Nombre: cat.IdCategoria
+                for cat in db.scalars(select(CategoriasGastos).where(CategoriasGastos.Activo.is_(True))).all()
+            }
+            monedas = {codigo.upper() for codigo in db.scalars(select(Moneda.Codigo)).all()}
+
+            crudo = await asyncio.wait_for(
+                extractor.extraer(contenido, mime, list(categorias_gastos.keys())),
+                timeout=settings.ai_receipt_timeout_seconds + 1,
+            )
+            resultado_ia = construir_resultado(validar_esquema(crudo), categorias_gastos, monedas)
+            
+            if resultado_ia and resultado_ia.MontoOriginal is not None:
+                sugerencia_gasto = {
+                    "Nombre": resultado_ia.Nombre,
+                    "MontoOriginal": float(resultado_ia.MontoOriginal) if resultado_ia.MontoOriginal else None,
+                    "MonedaOriginal": resultado_ia.MonedaOriginal,
+                    "FechaGasto": resultado_ia.FechaGasto.isoformat() if resultado_ia.FechaGasto else None,
+                    "IdCategoria": resultado_ia.IdCategoria,
+                    "CamposBajaConfianza": resultado_ia.CamposBajaConfianza,
+                }
+    except Exception as e:
+        # Criterio de aceptación: Si se produce un error durante el análisis, la subida del documento 
+        # debe conservarse correctamente y el sistema simplemente no genera sugerencia o informa que no fue posible.
+        logger.warning("No se pudo realizar la detección automática de gasto en el documento subido: %s", e)
+    # ========================================================
+
+    response_data = {
         "message": "Documento subido correctamente",
-        "IdDocumento": documento.IdDocumento
+        "IdDocumento": documento.IdDocumento,
     }
+    if sugerencia_gasto:
+        response_data["sugerencia_gasto"] = sugerencia_gasto
+
+    return response_data
 
 
 @router.get("/{trip_id}/documents", response_model=list[DocumentoViajeRead])

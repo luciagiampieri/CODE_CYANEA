@@ -98,6 +98,15 @@ async function elegirCategoria(utils, nombre) {
   await press(utils, nombre);
 }
 
+jest.mock("expo-sqlite", () => ({
+  openDatabaseSync: jest.fn(() => ({
+    execSync: jest.fn(),
+    runSync: jest.fn(),
+    getAllSync: jest.fn(() => []),
+    getFirstSync: jest.fn(() => null),
+  })),
+}));
+
 describe("DocumentsScreen", () => {
   beforeEach(() => {
     jest.clearAllMocks();

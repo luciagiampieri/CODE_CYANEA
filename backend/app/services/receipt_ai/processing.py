@@ -57,19 +57,23 @@ class ResultadoEscaneo:
     CamposBajaConfianza: list[str] = field(default_factory=list)
 
 
-def validar_imagen(contenido: bytes) -> str:
-    """Valida tamaño y formato (por la firma real del archivo, no por la
-    extensión). Devuelve el tipo MIME."""
+def validar_documento(contenido: bytes, nombre_archivo: str = "") -> str:
+    """Valida tamaño y formato. Devuelve el tipo MIME."""
     if not contenido:
-        raise ReceiptScanError("No se recibió ninguna imagen.", 400, RECEIPT_INVALID_FORMAT)
+        raise ReceiptScanError("No se recibió ningún documento.", 400, RECEIPT_INVALID_FORMAT)
     if len(contenido) > MAX_RECEIPT_BYTES:
         raise ReceiptScanError(
-            "La imagen supera el tamaño máximo de 10 MB.", 413, RECEIPT_TOO_LARGE
+            "El documento supera el tamaño máximo de 10 MB.", 413, RECEIPT_TOO_LARGE
         )
+    
+    # Verificamos si la firma de los bytes corresponde a un PDF (%PDF-)
+    if contenido.startswith(b"%PDF-"):
+        return "application/pdf"
+    
     mime = detect_image_mime(contenido)
     if mime is None:
         raise ReceiptScanError(
-            "Formato no soportado. Solo se permiten imágenes JPG, JPEG o PNG.",
+            "Formato no soportado. Solo se permiten imágenes JPG, JPEG, PNG o documentos PDF.",
             415,
             RECEIPT_INVALID_FORMAT,
         )

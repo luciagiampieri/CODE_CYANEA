@@ -38,7 +38,7 @@ from app.services.receipt_ai import (
     construir_resultado,
     get_receipt_extractor,
     validar_esquema,
-    validar_imagen,
+    validar_documento,
 )
 
 # Las mismas categorías que siembra scripts/sql/007_datos_maestros.sql.
@@ -97,7 +97,7 @@ async def _procesar(extractor, ruta: Path) -> tuple[dict, float, str | None]:
     inicio = time.perf_counter()
     try:
         contenido = ruta.read_bytes()
-        mime = validar_imagen(contenido)
+        mime = validar_documento(contenido, ruta.name)
         crudo = await extractor.extraer(contenido, mime, list(CATEGORIAS.keys()))
         resultado = construir_resultado(validar_esquema(crudo), CATEGORIAS, MONEDAS)
         obtenido = {

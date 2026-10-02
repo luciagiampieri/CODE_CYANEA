@@ -7,10 +7,12 @@ import {
   ActivityIndicator,
   Alert,
   ImageBackground,
+  Keyboard,
   Linking,
   Platform,
   Pressable,
   ScrollView,
+  StatusBar,
   StyleSheet,
   Text,
   View,
@@ -28,6 +30,7 @@ import SettlementTransfers from "../components/trip/SettlementTransfers";
 import SentInvitationsList from "../components/trip/SentInvitationsList";
 import ResultadosVotacion from "../components/trip/ResultadosVotacion";
 import DocumentosPorCategoria, { ID_TODAS } from "../components/trip/DocumentsByCategory";
+import InformacionRelevantePorTipo, { ID_TODAS as ID_TODAS_INFO } from "../components/trip/InformationByCategory";
 import ChecklistsByCategory, { ID_TODAS as ID_TODAS_CHECKLIST } from "../components/trip/ChecklistsByCategory";
 import AvatarStack from "../components/ui/AvatarStack";
 import IconCircleButton from "../components/ui/IconCircleButton";
@@ -93,6 +96,7 @@ import { buildRouteMarkers } from "../utils/routeMarkers";
 import { getTripLock } from "../utils/tripLock";
 import { getRouteHint } from "../utils/routeMessages";
 import { formatMoney } from "../utils/money";
+import { centerInScroll } from "../utils/scrollHelpers";
 
 const tabs = [
   { id: "resumen", label: "Resumen", icon: "chart-pie" },
@@ -235,10 +239,6 @@ function confirmar(titulo, mensaje, onConfirmar) {
   }
 }
 
-
-// Calcula el centro geográfico (centroide) de un conjunto de marcadores,
-// para que el mapa del popup quede bien centrado sobre todo el recorrido
-// en lugar de solo sobre el primer punto.
 function computeCenterFromMarkers(markers) {
   if (!Array.isArray(markers) || markers.length === 0) return undefined;
 
@@ -319,6 +319,61 @@ export default function TripDetailScreen({ navigation, route }) {
   const socketRef = useRef(null);
   const pendingEditRef = useRef(null);
   const [itinerarioView, setItinerarioView] = useItinerarioViewPreference();
+
+  const scrollRef = useRef(null);
+  const gastosCardRef = useRef(null);
+  const pendingCenterGastos = useRef(false);
+
+  const [keyboardInset, setKeyboardInset] = useState(0);
+
+  useEffect(() => {
+    const isIos = Platform.OS === "ios";
+    const showSubscription = Keyboard.addListener(
+      isIos ? "keyboardWillShow" : "keyboardDidShow",
+      (event) => {
+        const keyboardTop = event.endCoordinates?.screenY;
+        const scroller = scrollRef.current;
+        if (keyboardTop == null || typeof scroller?.measureInWindow !== "function") return;
+
+        scroller.measureInWindow((_x, y, _width, height) => {
+          const statusBar = Platform.OS === "android" ? StatusBar.currentHeight ?? 0 : 0;
+          setKeyboardInset(Math.max(0, y + statusBar + height - keyboardTop));
+        });
+      }
+    );
+    const hideSubscription = Keyboard.addListener(
+      isIos ? "keyboardWillHide" : "keyboardDidHide",
+      () => setKeyboardInset(0)
+    );
+
+    return () => {
+      showSubscription.remove();
+      hideSubscription.remove();
+    };
+  }, []);
+
+  function centerGastosCardTop() {
+    if (scrollRef.current && gastosCardRef.current) {
+      centerInScroll(scrollRef.current, gastosCardRef.current, { align: "top", margin: spacing.sm });
+    }
+  }
+
+  function handleGastosViewChange(view) {
+    Keyboard.dismiss();
+    setGastosView(view);
+    pendingCenterGastos.current = true;
+    setTimeout(() => {
+      if (!pendingCenterGastos.current) return;
+      pendingCenterGastos.current = false;
+      centerGastosCardTop();
+    }, 300);
+  }
+
+  function handleGastosCardLayout() {
+    if (!pendingCenterGastos.current) return;
+    pendingCenterGastos.current = false;
+    centerGastosCardTop();
+  }
 
   const [showLeaveModal, setShowLeaveModal] = useState(false);
   const [nuevoAdminId, setNuevoAdminId] = useState(null);
@@ -419,8 +474,6 @@ export default function TripDetailScreen({ navigation, route }) {
       socketRef.current.send(JSON.stringify(mensaje));
       return true;
     }
-
-    console.error("El WebSocket no está conectado.");
     return false;
   }
 
@@ -483,7 +536,6 @@ export default function TripDetailScreen({ navigation, route }) {
     [pendingTransfers]
   );
 
-  // Tab Gastos: vista activa y saldo del usuario actual (null si no figura).
   const [gastosView, setGastosView] = useState("gastos");
   const [expenses, setExpenses] = useState([]);
   const [expenseCategories, setExpenseCategories] = useState([]);
@@ -502,7 +554,6 @@ export default function TripDetailScreen({ navigation, route }) {
       setExpenses(Array.isArray(data) ? data : []);
       if (Array.isArray(categorias) && categorias.length) setExpenseCategories(categorias);
     } catch (error) {
-      console.warn("Error al obtener los gastos del viaje:", error?.message);
       setExpensesError("No pudimos cargar los gastos del viaje.");
     } finally {
       setExpensesLoading(false);
@@ -514,6 +565,7 @@ export default function TripDetailScreen({ navigation, route }) {
       loadExpenses();
     }
   }, [activeTab, loadExpenses]);
+
   const mySettlementBalance = useMemo(() => {
     if (!currentUser || !settlement?.ResumenParticipantes) return null;
     const mine = settlement.ResumenParticipantes.find(
@@ -549,9 +601,7 @@ export default function TripDetailScreen({ navigation, route }) {
   useEffect(() => onTripFinishedError(() => loadTripDetail()), [loadTripDetail]);
 
   const loadSettlement = useCallback(async () => {
-    if (!initialTrip?.id) {
-      return;
-    }
+    if (!initialTrip?.id) return;
 
     try {
       setLoadingSettlement(true);
@@ -566,9 +616,7 @@ export default function TripDetailScreen({ navigation, route }) {
   }, [initialTrip?.id]);
 
   async function loadDocumentos() {
-    if (!initialTrip?.id) {
-      return;
-    }
+    if (!initialTrip?.id) return;
 
     try {
       setLoadingDocumentos(true);
@@ -576,18 +624,14 @@ export default function TripDetailScreen({ navigation, route }) {
       const data = await getTripDocuments(initialTrip.id);
       setDocumentos(data);
     } catch (error) {
-      setDocumentosError(
-        error.message || "No se pudieron cargar los documentos del viaje."
-      );
+      setDocumentosError(error.message || "No se pudieron cargar los documentos del viaje.");
     } finally {
       setLoadingDocumentos(false);
     }
   }
 
   async function loadRepositorio() {
-    if (!initialTrip?.id) {
-      return;
-    }
+    if (!initialTrip?.id) return;
 
     try {
       setLoadingRepositorio(true);
@@ -595,18 +639,14 @@ export default function TripDetailScreen({ navigation, route }) {
       const data = await getRepositorioItems(initialTrip.id);
       setRepositorioItems(data);
     } catch (error) {
-      setRepositorioError(
-        error.message || "No se pudo cargar la información del repositorio."
-      );
+      setRepositorioError(error.message || "No se pudo cargar la información del repositorio.");
     } finally {
       setLoadingRepositorio(false);
     }
   }
 
   async function loadChecklists() {
-    if (!initialTrip?.id) {
-      return;
-    }
+    if (!initialTrip?.id) return;
 
     try {
       setLoadingChecklists(true);
@@ -614,9 +654,7 @@ export default function TripDetailScreen({ navigation, route }) {
       const data = await getChecklists(initialTrip.id);
       setChecklists(data);
     } catch (error) {
-      setChecklistsError(
-        error.message || "No se pudieron cargar los checklists del viaje."
-      );
+      setChecklistsError(error.message || "No se pudieron cargar los checklists del viaje.");
     } finally {
       setLoadingChecklists(false);
     }
@@ -660,10 +698,7 @@ export default function TripDetailScreen({ navigation, route }) {
         await deleteChecklist(trip.id, checklist.IdChecklist);
         setChecklists((prev) => prev.filter((c) => c.IdChecklist !== checklist.IdChecklist));
       } catch (error) {
-        avisar(
-          "No se pudo eliminar",
-          error.message || "Ocurrió un error al eliminar el checklist."
-        );
+        avisar("No se pudo eliminar", error.message || "Ocurrió un error al eliminar el checklist.");
       } finally {
         setEliminandoChecklistId(null);
       }
@@ -700,11 +735,7 @@ export default function TripDetailScreen({ navigation, route }) {
       }
     };
 
-    confirmar(
-      "Eliminar información",
-      `¿Seguro que querés eliminar "${item.Titulo}"?`,
-      ejecutar
-    );
+    confirmar("Eliminar información", `¿Seguro que querés eliminar "${item.Titulo}"?`, ejecutar);
   }
 
   async function abrirDocumento(url) {
@@ -726,10 +757,7 @@ export default function TripDetailScreen({ navigation, route }) {
           : "El documento se guardó en tu dispositivo."
       );
     } catch (error) {
-      avisar(
-        "Error",
-        error.message || "No se pudo descargar el documento. Intentá nuevamente."
-      );
+      avisar("Error", error.message || "No se pudo descargar el documento. Intentá nuevamente.");
     } finally {
       setDescargandoDocId(null);
     }
@@ -1098,19 +1126,15 @@ export default function TripDetailScreen({ navigation, route }) {
     return participantItems.filter((p) => p.status === "invitado");
   }, [participantItems]);
 
-  // Tab "Grupo": vista activa (solo admin) y panel de búsqueda para invitar.
   const [groupView, setGroupView] = useState("participantes");
   const [showInvitePanel, setShowInvitePanel] = useState(false);
   const canInviteToGroup = isAdmin && lock.canEdit("participantes");
 
-  // Quien no es admin no ve el listado de invitaciones: los invitados
-  // pendientes se muestran dentro de la lista del grupo.
   const groupMembersForViewer = useMemo(
     () => [...participantesActivos, ...invitadosPendientes],
     [participantesActivos, invitadosPendientes]
   );
 
-  // HU 71 - Invitaciones enviadas (solo administrador).
   const [sentInvitations, setSentInvitations] = useState([]);
   const [sentInvitationsLoading, setSentInvitationsLoading] = useState(false);
   const [sentInvitationsError, setSentInvitationsError] = useState("");
@@ -1128,15 +1152,12 @@ export default function TripDetailScreen({ navigation, route }) {
       const data = await getSentInvitations(trip.id);
       setSentInvitations(Array.isArray(data) ? data : []);
     } catch (error) {
-      console.warn("Error al obtener invitaciones enviadas:", error?.status, error?.message);
       setSentInvitationsError("No pudimos cargar las invitaciones enviadas.");
     } finally {
       setSentInvitationsLoading(false);
     }
   }, [trip?.id, isAdmin]);
 
-  // Se recarga al entrar a "Grupo" y cada vez que cambia la lista de
-  // participantes (por ejemplo, después de invitar a alguien).
   useEffect(() => {
     if (activeTab === "grupo" && isAdmin) {
       loadSentInvitations();
@@ -1152,14 +1173,9 @@ export default function TripDetailScreen({ navigation, route }) {
         try {
           setMutatingParticipants(true);
           const resultado = await cancelSentInvitation(trip.id, invitation.userId);
-          avisar(
-            "Invitación cancelada",
-            resultado?.message || "Invitación cancelada correctamente"
-          );
+          avisar("Invitación cancelada", resultado?.message || "Invitación cancelada correctamente");
           await loadTripDetail();
         } catch (error) {
-          // Puede pasar si el invitado respondió mientras tanto: se avisa y
-          // se recarga el listado para mostrar el estado real.
           avisar("No se pudo cancelar", error.message || "No se pudo cancelar la invitación.");
           await loadSentInvitations();
         } finally {
@@ -1233,7 +1249,6 @@ export default function TripDetailScreen({ navigation, route }) {
     participantesActivos,
   ]);
 
-  // Checklist: cálculos de progreso y filtros por categoría
   const checklistStats = useMemo(() => {
     const total = checklists.length;
     const completadas = checklists.filter((c) => c.Completada).length;
@@ -1259,7 +1274,6 @@ export default function TripDetailScreen({ navigation, route }) {
       await addTripParticipant(trip.id, payload);
       setParticipantSearch("");
       setUserOptions([]);
-      // Mostrar la invitación recién enviada en su listado.
       if (payload.userId && isAdmin) setGroupView("invitaciones");
       await loadTripDetail();
     } catch (error) {
@@ -1360,7 +1374,6 @@ export default function TripDetailScreen({ navigation, route }) {
   const [activityFeedback, setActivityFeedback] = useState(null);
   const [displayedFeedback, setDisplayedFeedback] = useState(null);
   const [generandoRutaDayId, setGenerandoRutaDayId] = useState(null);
-  // Guardamos todo lo necesario para el popup del mapa en un solo estado.
   const [mapaModalData, setMapaModalData] = useState(null);
   const [modoTransporteDayId, setModoTransporteDayId] = useState({});
 
@@ -1401,12 +1414,11 @@ export default function TripDetailScreen({ navigation, route }) {
           : resultado.message,
       });
     } catch (error) {
-      console.error("Error al generar la ruta:", error);
       setActivityFeedback({
         success: false,
         message:
           (error && error.message) ||
-          "No se pudo generar la ruta para este día. Revisá la consola del navegador para más detalles.",
+          "No se pudo generar la ruta para este día.",
       });
     } finally {
       setGenerandoRutaDayId(null);
@@ -1482,8 +1494,7 @@ export default function TripDetailScreen({ navigation, route }) {
     } catch (error) {
       setActivityFeedback({
         success: false,
-        message:
-          error.message || "Ocurrió un problema al intentar eliminar la actividad.",
+        message: error.message || "Ocurrió un problema al intentar eliminar la actividad.",
       });
     }
   }
@@ -1515,10 +1526,7 @@ export default function TripDetailScreen({ navigation, route }) {
     } catch (error) {
       setLoading(false);
       setTimeout(() => {
-        Alert.alert(
-          "Error",
-          error.message || "Ocurrió un problema al intentar eliminar el viaje."
-        );
+        Alert.alert("Error", error.message || "Ocurrió un problema al intentar eliminar el viaje.");
       }, 300);
     }
   }
@@ -1546,7 +1554,9 @@ export default function TripDetailScreen({ navigation, route }) {
         </View>
       ) : null}
       <ScrollView
-        contentContainerStyle={styles.scrollContent}
+        contentContainerStyle={[styles.scrollContent, { paddingBottom: 132 + keyboardInset }]}
+        keyboardShouldPersistTaps="handled"
+        ref={scrollRef}
         showsVerticalScrollIndicator={false}
       >
         <ImageBackground
@@ -1713,12 +1723,10 @@ export default function TripDetailScreen({ navigation, route }) {
         {trip?.hasLeft ? (
           <View style={styles.readOnlyBanner}>
             <FontAwesome6 name="triangle-exclamation" size={16} color={colors.warning} />
-
             <View style={styles.readOnlyBannerContent}>
               <Text style={styles.readOnlyBannerTitle}>
                 Ya no formás parte de este viaje
               </Text>
-
               <Text style={styles.readOnlyBannerText}>
                 Podés consultar la información del viaje, pero ya no podés realizar modificaciones.
               </Text>
@@ -2007,9 +2015,7 @@ export default function TripDetailScreen({ navigation, route }) {
                                         idActividad: item.id,
                                       });
 
-                                      if (!enviado) {
-                                        return;
-                                      }
+                                      if (!enviado) return;
 
                                       pendingEditRef.current = {
                                         id: dayId,
@@ -2074,8 +2080,7 @@ export default function TripDetailScreen({ navigation, route }) {
 
                         {(() => {
                           const actividadesConUbicacion = actividades.filter(
-                            (item) =>
-                              item.idLugarInteres || item.lugarInteres
+                            (item) => item.idLugarInteres || item.lugarInteres
                           );
                           const puedeGenerarRuta = actividadesConUbicacion.length >= 2;
                           const generando = generandoRutaDayId === dayId;
@@ -2251,9 +2256,7 @@ export default function TripDetailScreen({ navigation, route }) {
                         idActividad: actividad.id,
                       });
 
-                      if (!enviado) {
-                        return;
-                      }
+                      if (!enviado) return;
 
                       pendingEditRef.current = {
                         id: day.dayId,
@@ -2279,16 +2282,21 @@ export default function TripDetailScreen({ navigation, route }) {
                   mySaldo={mySettlementBalance}
                   onAddExpense={() => setShowAddGastoModal(true)}
                   onRebuild={handleRebuildSettlement}
-                  onShowMyTransfers={() => setGastosView("transferencias")}
+                  onShowMyTransfers={() => handleGastosViewChange("transferencias")}
                   pendingTotal={totalPendienteLiquidacion}
                   rebuilding={loadingSettlement}
                   totalSpent={settlement?.TotalGastosViaje ?? 0}
                 />
               </View>
 
-              <View style={[styles.sectionCard, styles.groupCard]}>
+              <View
+                collapsable={false}
+                onLayout={handleGastosCardLayout}
+                ref={gastosCardRef}
+                style={[styles.sectionCard, styles.groupCard]}
+              >
                 <SegmentedControl
-                  onChange={setGastosView}
+                  onChange={handleGastosViewChange}
                   options={[
                     { id: "gastos", label: "Gastos" },
                     { id: "saldos", label: "Saldos" },
@@ -2311,6 +2319,8 @@ export default function TripDetailScreen({ navigation, route }) {
                     expenses={expenses}
                     loading={expensesLoading}
                     onRetry={loadExpenses}
+                    scrollRef={scrollRef}
+                    cardRef={gastosCardRef}
                   />
                 ) : gastosView === "transferencias" ? (
                   <SettlementTransfers
@@ -2338,7 +2348,11 @@ export default function TripDetailScreen({ navigation, route }) {
           {/* TAB 3: DOCS */}
           {activeTab === "docs" ? (
             <>
-              <View style={styles.sectionCard}>
+              <View 
+                collapsable={false}
+                ref={gastosCardRef}
+                style={styles.sectionCard}
+              >
                 <Text style={styles.sectionHeading}>Documentos</Text>
                 {loadingDocumentos ? (
                   <ActivityIndicator
@@ -2363,6 +2377,8 @@ export default function TripDetailScreen({ navigation, route }) {
                       onEliminar={lock.canEdit("documentos") ? eliminarDocumento : undefined}
                       descargandoDocId={descargandoDocId}
                       eliminandoDocId={eliminandoDocId}
+                      scrollRef={scrollRef}
+                      cardRef={gastosCardRef}
                     />
                   </View>
                 )}
@@ -2378,7 +2394,11 @@ export default function TripDetailScreen({ navigation, route }) {
                 ) : null}
               </View>
 
-              <View style={[styles.sectionCard, { marginTop: spacing.md }]}>
+              <View 
+                collapsable={false}
+                ref={gastosCardRef}
+                style={[styles.sectionCard, { marginTop: spacing.md }]}
+              >
                 <Text style={styles.sectionHeading}>Información relevante</Text>
 
                 {loadingRepositorio ? (
@@ -2388,204 +2408,31 @@ export default function TripDetailScreen({ navigation, route }) {
                   />
                 ) : repositorioError ? (
                   <Text style={styles.settlementError}>{repositorioError}</Text>
-                ) : repositorioItems.length === 0 ? (
-                  <Text style={styles.sectionCopy}>
-                    Enlaces, direcciones y contactos útiles para el viaje aparecerán aquí.
-                  </Text>
                 ) : (
-                  <View style={{ gap: spacing.sm, marginTop: spacing.sm }}>
-                    {repositorioItems.map((item) => {
-                      const eliminandoEsteItem =
-                        eliminandoItemId === item.IdItemRepositorio;
-                      const iconoPorTipo = {
-                        enlace: "link",
-                        direccion: "location-dot",
-                        contacto: "address-book",
-                        otro: "circle-info",
-                      };
-                      return (
-                        <View
-                          key={item.IdItemRepositorio}
-                          style={{
-                            borderWidth: 1,
-                            borderColor: colors.border,
-                            borderRadius: radii.md,
-                            padding: spacing.md,
-                            gap: 6,
-                          }}
-                        >
-                          <View
-                            style={{
-                              flexDirection: "row",
-                              alignItems: "flex-start",
-                              gap: spacing.sm,
-                            }}
-                          >
-                            <FontAwesome6
-                              name={iconoPorTipo[item.Tipo] || "circle-info"}
-                              size={16}
-                              color={colors.primary}
-                            />
-                            <View style={{ flex: 1 }}>
-                              <View
-                                style={{
-                                  flexDirection: "row",
-                                  alignItems: "center",
-                                  gap: 6,
-                                }}
-                              >
-                                <Text
-                                  style={{
-                                    fontSize: 15,
-                                    fontWeight: "600",
-                                    color: colors.textPrimary,
-                                  }}
-                                >
-                                  {item.Titulo}
-                                </Text>
-                                <View
-                                  style={{
-                                    paddingHorizontal: 6,
-                                    paddingVertical: 2,
-                                    borderRadius: 6,
-                                    backgroundColor: item.EsPublico
-                                      ? "#e0f2fe"
-                                      : "#f3e8ff",
-                                  }}
-                                >
-                                  <Text
-                                    style={{
-                                      fontSize: 10,
-                                      fontWeight: "700",
-                                      color: item.EsPublico ? "#0369a1" : "#6b21a8",
-                                    }}
-                                  >
-                                    {item.EsPublico ? "PÚBLICO" : "PRIVADO"}
-                                  </Text>
-                                </View>
-                              </View>
-                              <Text
-                                style={[
-                                  styles.sectionCopy,
-                                  { fontSize: 13, marginTop: 2 },
-                                ]}
-                              >
-                                {item.Contenido}
-                              </Text>
-                              {item.Descripcion ? (
-                                <Text
-                                  style={[
-                                    styles.sectionCopy,
-                                    { fontSize: 12, opacity: 0.7, marginTop: 2 },
-                                  ]}
-                                >
-                                  {item.Descripcion}
-                                </Text>
-                              ) : null}
-                              <Text
-                                style={[
-                                  styles.sectionCopy,
-                                  { fontSize: 11, opacity: 0.6, marginTop: 2 },
-                                ]}
-                              >
-                                Subido por {item.NombreUsuarioCreador}
-                              </Text>
-                            </View>
-                          </View>
-
-                          <View
-                            style={{
-                              flexDirection: "row",
-                              gap: spacing.md,
-                              marginTop: 6,
-                            }}
-                          >
-                            <Pressable
-                              onPress={() => copiarContenido(item.Contenido)}
-                              style={{
-                                flexDirection: "row",
-                                alignItems: "center",
-                                gap: 4,
-                              }}
-                            >
-                              <FontAwesome6
-                                name="copy"
-                                size={12}
-                                color={colors.textSecondary}
-                              />
-                              <Text
-                                style={{
-                                  fontSize: 12,
-                                  color: colors.textSecondary,
-                                  fontWeight: "600",
-                                }}
-                              >
-                                Copiar
-                              </Text>
-                            </Pressable>
-
-                            {item.EsPropio && lock.canEdit("documentos") ? (
-                              <>
-                                <Pressable
-                                  onPress={() => {
-                                    setInfoItemToEdit(item);
-                                    setShowInfoModal(true);
-                                  }}
-                                  style={{
-                                    flexDirection: "row",
-                                    alignItems: "center",
-                                    gap: 4,
-                                  }}
-                                >
-                                  <FontAwesome6
-                                    name="pen"
-                                    size={13}
-                                    color={colors.textSecondary}
-                                  />
-                                  <Text
-                                    style={{
-                                      fontSize: 12,
-                                      color: colors.textSecondary,
-                                      fontWeight: "600",
-                                    }}
-                                  >
-                                    Editar
-                                  </Text>
-                                </Pressable>
-
-                                <Pressable
-                                  onPress={() => eliminarItemRepositorio(item)}
-                                  disabled={eliminandoEsteItem}
-                                  style={{
-                                    flexDirection: "row",
-                                    alignItems: "center",
-                                    gap: 4,
-                                    opacity: eliminandoEsteItem ? 0.6 : 1,
-                                  }}
-                                >
-                                  <FontAwesome6
-                                    name="trash"
-                                    size={12}
-                                    color={colors.danger}
-                                  />
-                                  <Text
-                                    style={{
-                                      fontSize: 12,
-                                      color: colors.danger,
-                                      fontWeight: "600",
-                                    }}
-                                  >
-                                    {eliminandoEsteItem ? "Eliminando..." : "Eliminar"}
-                                  </Text>
-                                </Pressable>
-                              </>
-                            ) : null}
-                          </View>
-                        </View>
-                      );
-                    })}
+                  <View style={{ marginTop: spacing.sm }}>
+                    <InformacionRelevantePorTipo
+                      items={repositorioItems}
+                      onCopiar={copiarContenido}
+                      onEditar={
+                        lock.canEdit("documentos")
+                          ? (item) => {
+                              setInfoItemToEdit(item);
+                              setShowInfoModal(true);
+                            }
+                          : undefined
+                      }
+                      onEliminar={
+                        lock.canEdit("documentos")
+                          ? eliminarItemRepositorio
+                          : undefined
+                      }
+                      eliminandoItemId={eliminandoItemId}
+                      scrollRef={scrollRef}
+                      cardRef={gastosCardRef}
+                    />
                   </View>
                 )}
+
                 {lock.canEdit("documentos") ? (
                   <PrimaryButton
                     label="Agregar información"
@@ -2605,7 +2452,6 @@ export default function TripDetailScreen({ navigation, route }) {
           {/* TAB 4: CHECKLIST */}
           {activeTab === "checklist" ? (
             <View style={styles.sectionStack}>
-              {/* 1. Tarjeta de Progreso General */}
               <View style={styles.checklistProgressCard}>
                 <View style={styles.checklistProgressHeader}>
                   <Text style={styles.checklistProgressTitle}>Progreso general</Text>
@@ -2626,7 +2472,6 @@ export default function TripDetailScreen({ navigation, route }) {
                 </Text>
               </View>
 
-              {/* 2. Encabezado de la lista con Tareas (X) y botón + Agregar */}
               <View style={styles.checklistHeaderRow}>
                 <Text style={styles.checklistSectionTitle}>
                   TAREAS ({checklists.length})
@@ -2645,7 +2490,6 @@ export default function TripDetailScreen({ navigation, route }) {
                 ) : null}
               </View>
 
-              {/* 3. Lista de tareas (filtros por categoría y "Mis tareas" incluidos) */}
               {loadingChecklists ? (
                 <ActivityIndicator color={colors.primary} style={{ marginTop: spacing.md }} />
               ) : checklistsError ? (
@@ -3269,17 +3113,6 @@ export default function TripDetailScreen({ navigation, route }) {
         }}
       />
 
-      {/*
-        Popup del mapa de recorrido diario.
-        Ahora usa el mismo lenguaje visual que el resto de los popups de la
-        pantalla (fondo semitransparente + tarjeta centrada con bordes
-        redondeados), en lugar de una pantalla completa deslizante.
-        Se sigue renderizando FUERA del ScrollView: en Android, un MapView
-        (react-native-maps) anidado dentro de un ScrollView puede inicializarse
-        y disparar sus eventos (onMapReady/onMapLoaded) sin llegar a componer
-        los tiles, mostrando un rectángulo blanco. Al vivir en un Modal, el mapa
-        queda en una jerarquía nativa separada y se renderiza correctamente.
-      */}
       <Modal
         animationType="fade"
         transparent
@@ -3812,7 +3645,6 @@ const styles = StyleSheet.create({
     fontSize: 12,
     marginTop: 2,
   },
-
   itinerarioHeader: {
     flexDirection: "row",
     justifyContent: "flex-end",
@@ -3975,9 +3807,6 @@ const styles = StyleSheet.create({
     ...textStyles.meta,
     color: colors.primary,
     fontWeight: "600",
-  },
-  routeMapWrap: {
-    marginTop: spacing.xs,
   },
   routeHint: {
     ...textStyles.meta,
@@ -4293,8 +4122,6 @@ const styles = StyleSheet.create({
     color: colors.primary,
     fontSize: 13,
   },
-  // Popup del mapa: mismo lenguaje visual que modalOverlay/modalContent,
-  // pero más ancho/alto para que el mapa tenga espacio real.
   mapPopupOverlay: {
     flex: 1,
     justifyContent: "center",
@@ -4346,7 +4173,6 @@ const styles = StyleSheet.create({
     color: colors.textInverse,
     fontSize: 13,
   },
-
   checklistProgressCard: {
     backgroundColor: colors.primary,
     borderRadius: 20,
@@ -4385,29 +4211,6 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: "500",
   },
-  checklistChipsContainer: {
-    flexDirection: "row",
-    gap: 8,
-    paddingVertical: 4,
-  },
-  checklistFilterChip: {
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 999,
-    backgroundColor: "#e2e8f0",
-  },
-  checklistFilterChipActive: {
-    backgroundColor: colors.primary,
-  },
-  checklistFilterChipText: {
-    fontSize: 13,
-    color: "#475569",
-    fontWeight: "600",
-  },
-  checklistFilterChipTextActive: {
-    color: colors.textInverse,
-    fontWeight: "700",
-  },
   checklistHeaderRow: {
     flexDirection: "row",
     justifyContent: "space-between",
@@ -4431,62 +4234,5 @@ const styles = StyleSheet.create({
     color: colors.accent,
     fontSize: 13,
     fontWeight: "700",
-  },
-  checklistItemCard: {
-    backgroundColor: colors.surface,
-    borderWidth: 1.5,
-    borderColor: "#e2e8f0",
-    borderRadius: 18,
-    padding: spacing.md,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-  },
-  checklistItemCardCompleted: {
-    backgroundColor: "#f0fdf4",
-    borderColor: "#a7f3d0",
-  },
-  checklistItemLeft: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-    flex: 1,
-  },
-  checklistItemTitle: {
-    fontSize: 15,
-    fontWeight: "600",
-    color: "#1e293b",
-  },
-  checklistItemTitleCompleted: {
-    textDecorationLine: "line-through",
-    color: "#64748b",
-  },
-  checklistItemDetailsRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    marginTop: 5,
-    flexWrap: "wrap",
-  },
-  checklistItemCategoryPill: {
-    backgroundColor: "#f1f5f9",
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: 6,
-  },
-  checklistItemCategoryPillText: {
-    fontSize: 11,
-    fontWeight: "600",
-    color: "#64748b",
-  },
-  checklistItemResponsablesText: {
-    fontSize: 12,
-    color: "#64748b",
-  },
-  checklistItemActions: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing.sm,
-    marginLeft: spacing.sm,
   },
 });

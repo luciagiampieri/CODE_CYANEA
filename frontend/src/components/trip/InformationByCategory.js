@@ -36,16 +36,22 @@ const ETIQUETA_VISIBILIDAD = {
     [FILTRO_VISIBILIDAD.PRIVADOS]: "Privados",
 };
 
-const ICONOS_CATEGORIAS_DOCUMENTOS = {
-    Vuelos: "plane",
-    Alojamiento: "hotel",
-    Excursiones: "map-location-dot",
-    Seguros: "shield-halved",
-    Documentación: "id-card",
-    Otros: "ellipsis",
-};
+const TIPOS_INFORMACION = [
+    { id: "enlace", nombre: "Enlaces", icono: "link" },
+    { id: "direccion", nombre: "Direcciones", icono: "location-dot" },
+    { id: "contacto", nombre: "Contactos", icono: "address-book" },
+    { id: "otro", nombre: "Otros", icono: "circle-info" },
+];
 
-const iconoCategoria = (nombre) => ICONOS_CATEGORIAS_DOCUMENTOS[nombre] || "tags";
+const iconoParaTipo = (tipo) => {
+    const iconos = {
+        enlace: "link",
+        direccion: "location-dot",
+        contacto: "address-book",
+        otro: "circle-info",
+    };
+    return iconos[tipo?.toLowerCase()] || "circle-info";
+};
 
 const TINTE_PRIMARIO = colors.primarySoft ? `${colors.primarySoft}22` : "#eef4ff";
 
@@ -56,25 +62,26 @@ const normalizarTexto = (texto) =>
         .toLowerCase()
         .trim();
 
-function coincideBusqueda(documento, busquedaNormalizada) {
+function coincideBusqueda(item, busquedaNormalizada) {
     if (!busquedaNormalizada) return true;
-    return normalizarTexto(documento.NombreArchivo).includes(busquedaNormalizada);
+    const titulo = normalizarTexto(item.Titulo);
+    const contenido = normalizarTexto(item.Contenido);
+    const descripcion = normalizarTexto(item.Descripcion);
+    return titulo.includes(busquedaNormalizada) || contenido.includes(busquedaNormalizada) || descripcion.includes(busquedaNormalizada);
 }
 
-function coincideVisibilidad(documento, filtro) {
-    if (filtro === FILTRO_VISIBILIDAD.PUBLICOS) return !!documento.EsPublico;
-    if (filtro === FILTRO_VISIBILIDAD.PRIVADOS) return !documento.EsPublico;
+function coincideVisibilidad(item, filtro) {
+    if (filtro === FILTRO_VISIBILIDAD.PUBLICOS) return !!item.EsPublico;
+    if (filtro === FILTRO_VISIBILIDAD.PRIVADOS) return !item.EsPublico;
     return true;
 }
 
-export default function DocumentosPorCategoria({
-    documentos = [],
-    onAbrir,
-    onDescargar,
+export default function InformacionRelevantePorTipo({
+    items = [],
+    onCopiar,
     onEditar,
     onEliminar,
-    descargandoDocId = null,
-    eliminandoDocId = null,
+    eliminandoItemId = null,
     scrollRef,
     cardRef,
 }) {
@@ -88,130 +95,119 @@ export default function DocumentosPorCategoria({
     const busquedaNormalizada = normalizarTexto(busqueda);
     const hayBusqueda = busquedaNormalizada.length > 0;
 
-    const [categoriasFiltro, setCategoriasFiltro] = useState([]);
+    const [tiposFiltro, setTiposFiltro] = useState([]);
 
     const [panelVisible, setPanelVisible] = useState(false);
     const [panelVista, setPanelVista] = useState("main");
-    const [borradorCategorias, setBorradorCategorias] = useState([]);
+    const [borradorTipos, setBorradorTipos] = useState([]);
     const [borradorVisibilidad, setBorradorVisibilidad] = useState(FILTRO_VISIBILIDAD.TODOS);
 
-    const documentosBuscados = useMemo(
-        () => documentos.filter((d) => coincideBusqueda(d, busquedaNormalizada)),
-        [documentos, busquedaNormalizada]
+    const itemsBuscados = useMemo(
+        () => items.filter((i) => coincideBusqueda(i, busquedaNormalizada)),
+        [items, busquedaNormalizada]
     );
 
-    const categoriasMaestras = useMemo(() => {
+    const tiposMaestros = useMemo(() => {
         const mapa = new Map();
 
-        documentos.forEach((doc) => {
-            const key = String(doc.IdCategoriaDocumento);
-            if (!mapa.has(key)) {
-                mapa.set(key, {
-                    id: key,
-                    nombre: doc.NombreCategoria,
-                    documentos: [],
+        TIPOS_INFORMACION.forEach((t) => {
+            mapa.set(t.id, {
+                id: t.id,
+                nombre: t.nombre,
+                icono: t.icono,
+                items: [],
+            });
+        });
+
+        items.forEach((item) => {
+            const tipoKey = String(item.Tipo || "otro").toLowerCase();
+            if (!mapa.has(tipoKey)) {
+                mapa.set(tipoKey, {
+                    id: tipoKey,
+                    nombre: item.Tipo ? item.Tipo.charAt(0).toUpperCase() + item.Tipo.slice(1) : "Otros",
+                    icono: "circle-info",
+                    items: [],
                 });
             }
-            if (coincideBusqueda(doc, busquedaNormalizada)) {
-                mapa.get(key).documentos.push(doc);
+            if (coincideBusqueda(item, busquedaNormalizada)) {
+                mapa.get(tipoKey).items.push(item);
             }
         });
 
-        Object.keys(ICONOS_CATEGORIAS_DOCUMENTOS).forEach((nombreStd, index) => {
-            const existe = Array.from(mapa.values()).some(
-                (c) => c.nombre.trim().toLowerCase() === nombreStd.trim().toLowerCase()
-            );
-            if (!existe) {
-                mapa.set(`std-${index}`, {
-                    id: `std-${index}`,
-                    nombre: nombreStd,
-                    documentos: [],
-                });
-            }
-        });
+        return Array.from(mapa.values()).sort((a, b) => a.nombre.localeCompare(b.nombre));
+    }, [items, busquedaNormalizada]);
 
-        const esOtros = (nombre) => (nombre || "").trim().toLowerCase() === "otros";
-
-        return Array.from(mapa.values()).sort((a, b) => {
-            const aEsOtros = esOtros(a.nombre);
-            const bEsOtros = esOtros(b.nombre);
-            if (aEsOtros && !bEsOtros) return 1;
-            if (!aEsOtros && bEsOtros) return -1;
-            return a.nombre.localeCompare(b.nombre);
-        });
-    }, [documentos, busquedaNormalizada]);
-
-    const categoriasConResultados = useMemo(
+    const tiposConResultados = useMemo(
         () =>
-            categoriasMaestras
-                .map((cat) => ({
-                    ...cat,
-                    documentos: cat.documentos.filter((d) => coincideVisibilidad(d, filtroVisibilidad)),
+            tiposMaestros
+                .map((grupo) => ({
+                    ...grupo,
+                    items: grupo.items.filter((i) => coincideVisibilidad(i, filtroVisibilidad)),
                 }))
-                .filter((cat) => {
-                    const pasaFiltroCategoria = categoriasFiltro.length === 0 || categoriasFiltro.includes(cat.id);
-                    return cat.documentos.length > 0 && pasaFiltroCategoria;
+                .filter((grupo) => {
+                    const pasaFiltroTipo = tiposFiltro.length === 0 || tiposFiltro.includes(grupo.id);
+                    return grupo.items.length > 0 && pasaFiltroTipo;
                 }),
-        [categoriasMaestras, filtroVisibilidad, categoriasFiltro]
+        [tiposMaestros, filtroVisibilidad, tiposFiltro]
     );
 
     // Mantiene las secciones abiertas si hay filtros activos o búsqueda, sin alterar el scroll al escribir
     useEffect(() => {
-        if (hayBusqueda || categoriasFiltro.length > 0 || filtroVisibilidad !== FILTRO_VISIBILIDAD.TODOS) {
+        if (hayBusqueda || tiposFiltro.length > 0 || filtroVisibilidad !== FILTRO_VISIBILIDAD.TODOS) {
             const nextOpened = {};
-            categoriasConResultados.forEach((cat) => {
-                nextOpened[cat.id] = true;
+            tiposConResultados.forEach((grupo) => {
+                nextOpened[grupo.id] = true;
             });
             setAbiertas(nextOpened);
         }
-    }, [hayBusqueda, categoriasFiltro, filtroVisibilidad, categoriasConResultados]);
+    }, [hayBusqueda, tiposFiltro, filtroVisibilidad, tiposConResultados]);
 
     const totalVisibles = useMemo(
-        () => categoriasConResultados.reduce((acc, cat) => acc + cat.documentos.length, 0),
-        [categoriasConResultados]
+        () => tiposConResultados.reduce((acc, grupo) => acc + grupo.items.length, 0),
+        [tiposConResultados]
     );
 
-    const conteoCategoriasBorrador = useMemo(() => {
-        const porCategoria = {};
+    const conteoTiposBorrador = useMemo(() => {
+        const porTipo = {};
         let total = 0;
-        categoriasMaestras.forEach((cat) => {
-            const n = cat.documentos.filter((d) => coincideVisibilidad(d, borradorVisibilidad)).length;
-            porCategoria[cat.id] = n;
+        tiposMaestros.forEach((grupo) => {
+            const n = grupo.items.filter((i) => coincideVisibilidad(i, borradorVisibilidad)).length;
+            porTipo[grupo.id] = n;
             total += n;
         });
-        return { porCategoria, total };
-    }, [categoriasMaestras, borradorVisibilidad]);
+        return { porTipo, total };
+    }, [tiposMaestros, borradorVisibilidad]);
 
     const conteoVisibilidadBorrador = useMemo(() => {
         const base =
-            borradorCategorias.length === 0
-                ? documentosBuscados
-                : documentosBuscados.filter((d) => borradorCategorias.includes(String(d.IdCategoriaDocumento)));
-        const publicos = base.filter((d) => d.EsPublico).length;
+            borradorTipos.length === 0
+                ? itemsBuscados
+                : itemsBuscados.filter((i) => borradorTipos.includes(String(i.Tipo || "otro").toLowerCase()));
+        const publicos = base.filter((i) => i.EsPublico).length;
         return {
             [FILTRO_VISIBILIDAD.TODOS]: base.length,
             [FILTRO_VISIBILIDAD.PUBLICOS]: publicos,
             [FILTRO_VISIBILIDAD.PRIVADOS]: base.length - publicos,
         };
-    }, [documentosBuscados, borradorCategorias]);
+    }, [itemsBuscados, borradorTipos]);
 
     const resultadosBorrador = conteoVisibilidadBorrador[borradorVisibilidad];
 
     useEffect(() => {
-        if (documentos.length === 0) return;
-        setCategoriasFiltro((actual) => {
-            const vigentes = actual.filter((id) => categoriasMaestras.some((c) => c.id === id));
+        if (items.length === 0) return;
+        setTiposFiltro((actual) => {
+            const vigentes = actual.filter((id) => tiposMaestros.some((t) => t.id === id));
             return vigentes.length === actual.length ? actual : vigentes;
         });
-    }, [categoriasMaestras, documentos.length]);
+    }, [tiposMaestros, items.length]);
 
-    const abiertaPorDefecto = categoriasConResultados.length === 1 || hayBusqueda;
+    const abiertaPorDefecto = tiposConResultados.length === 1 || hayBusqueda;
 
     function estaAbierta(id) {
         return abiertas[id] ?? abiertaPorDefecto;
     }
 
-    function alternarCategoria(id) {
+    function alternarGrupo(id) {
         Keyboard.dismiss();
         const willOpen = !(abiertas[id] ?? abiertaPorDefecto);
         pendingScrollId.current = willOpen ? id : null;
@@ -257,18 +253,18 @@ export default function DocumentosPorCategoria({
         );
     }
 
-    function abrirSoloCategorias(ids) {
+    function abrirSoloTipos(ids) {
         if (ids.length === 0) return;
         const nuevoEstado = {};
-        categoriasMaestras.forEach((cat) => {
-            nuevoEstado[cat.id] = ids.includes(cat.id);
+        tiposMaestros.forEach((grupo) => {
+            nuevoEstado[grupo.id] = ids.includes(grupo.id);
         });
         setAbiertas(nuevoEstado);
     }
 
     function abrirPanel() {
         Keyboard.dismiss();
-        setBorradorCategorias(categoriasFiltro);
+        setBorradorTipos(tiposFiltro);
         setBorradorVisibilidad(filtroVisibilidad);
         setPanelVista("main");
         setPanelVisible(true);
@@ -279,60 +275,60 @@ export default function DocumentosPorCategoria({
     }
 
     function limpiarBorrador() {
-        setBorradorCategorias([]);
+        setBorradorTipos([]);
         setBorradorVisibilidad(FILTRO_VISIBILIDAD.TODOS);
     }
 
-    function alternarBorradorCategoria(id, count) {
+    function alternarBorradorTipo(id, count) {
         if (count === 0) return;
-        setBorradorCategorias((actual) =>
+        setBorradorTipos((actual) =>
             actual.includes(id) ? actual.filter((x) => x !== id) : [...actual, id]
         );
     }
 
     function aplicarFiltros() {
         setFiltroVisibilidad(borradorVisibilidad);
-        setCategoriasFiltro(borradorCategorias);
-        abrirSoloCategorias(borradorCategorias);
+        setTiposFiltro(borradorTipos);
+        abrirSoloTipos(borradorTipos);
         setPanelVisible(false);
     }
 
     function limpiarFiltros() {
         setFiltroVisibilidad(FILTRO_VISIBILIDAD.TODOS);
-        setCategoriasFiltro([]);
+        setTiposFiltro([]);
         setBusqueda("");
     }
 
-    function quitarCategoriaFiltro(id) {
-        setCategoriasFiltro((actual) => actual.filter((x) => x !== id));
+    function quitarTipoFiltro(id) {
+        setTiposFiltro((actual) => actual.filter((x) => x !== id));
     }
 
     const visibilidadActiva = filtroVisibilidad !== FILTRO_VISIBILIDAD.TODOS;
-    const cantidadFiltrosActivos = categoriasFiltro.length + (visibilidadActiva ? 1 : 0);
+    const cantidadFiltrosActivos = tiposFiltro.length + (visibilidadActiva ? 1 : 0);
 
-    const resumenCategoriasBorrador =
-        borradorCategorias.length === 0
-            ? "Todas"
-            : borradorCategorias.length === 1
-            ? categoriasMaestras.find((c) => c.id === borradorCategorias[0])?.nombre ?? "1 seleccionada"
-            : `${borradorCategorias.length} seleccionadas`;
+    const resumenTiposBorrador =
+        borradorTipos.length === 0
+            ? "Todos"
+            : borradorTipos.length === 1
+            ? tiposMaestros.find((t) => t.id === borradorTipos[0])?.nombre ?? "1 seleccionado"
+            : `${borradorTipos.length} seleccionados`;
 
-    if (documentos.length === 0) {
+    if (items.length === 0) {
         return (
             <View style={styles.emptyState}>
-                <FontAwesome6 name="folder-open" size={22} color={colors.textMuted} />
+                <FontAwesome6 name="address-book" size={22} color={colors.textMuted} />
                 <Text style={styles.emptyText}>
-                    Todavía no hay documentos cargados en este viaje.
+                    Enlaces, direcciones y contactos útiles para el viaje aparecerán aquí.
                 </Text>
             </View>
         );
     }
 
-    const categoriasElegidas = categoriasMaestras.filter((c) => categoriasFiltro.includes(c.id));
-    const categoriasElegidasSinResultados =
-        categoriasFiltro.length > 0 &&
-        !categoriasConResultados.some((c) => categoriasFiltro.includes(c.id));
-    const hayVacio = totalVisibles === 0 || categoriasElegidasSinResultados;
+    const tiposElegidos = tiposMaestros.filter((t) => tiposFiltro.includes(t.id));
+    const tiposElegidosSinResultados =
+        tiposFiltro.length > 0 &&
+        !tiposConResultados.some((t) => tiposFiltro.includes(t.id));
+    const hayVacio = totalVisibles === 0 || tiposElegidosSinResultados;
 
     function listaNombres(nombres) {
         if (nombres.length <= 1) return nombres.join("");
@@ -341,16 +337,16 @@ export default function DocumentosPorCategoria({
 
     function mensajeVacio() {
         if (hayBusqueda) {
-            return `No se encontraron documentos para "${busqueda.trim()}"${
+            return `No se encontró información para "${busqueda.trim()}"${
                 cantidadFiltrosActivos > 0 ? " con los filtros aplicados" : ""
             }.`;
         }
         const tipo = ETIQUETA_VISIBILIDAD[filtroVisibilidad]?.toLowerCase();
-        const nombres = listaNombres(categoriasElegidas.map((c) => c.nombre));
-        if (tipo && nombres) return `No hay documentos ${tipo} en ${nombres}.`;
-        if (tipo) return `No hay documentos ${tipo}.`;
-        if (nombres) return `No hay documentos en ${nombres}.`;
-        return "No hay documentos para mostrar.";
+        const nombres = listaNombres(tiposElegidos.map((t) => t.nombre));
+        if (tipo && nombres) return `No hay información ${tipo} en ${nombres}.`;
+        if (tipo) return `No hay información ${tipo}.`;
+        if (nombres) return `No hay información en ${nombres}.`;
+        return "No hay información para mostrar.";
     }
 
     return (
@@ -362,12 +358,12 @@ export default function DocumentosPorCategoria({
                         style={styles.buscadorInput}
                         value={busqueda}
                         onChangeText={setBusqueda}
-                        placeholder="Buscar documento"
+                        placeholder="Buscar información"
                         placeholderTextColor={colors.overlay || colors.textMuted}
                         returnKeyType="search"
                         autoCorrect={false}
                         autoCapitalize="none"
-                        testID="documentos-buscador"
+                        testID="repositorio-buscador"
                         onFocus={() => {
                             if (scrollRef?.current && cardRef?.current) {
                                 setTimeout(() => {
@@ -380,7 +376,7 @@ export default function DocumentosPorCategoria({
                         <Pressable
                             onPress={() => setBusqueda("")}
                             hitSlop={10}
-                            testID="documentos-buscador-limpiar"
+                            testID="repositorio-buscador-limpiar"
                         >
                             <FontAwesome6 name="circle-xmark" size={15} color={colors.textMuted} />
                         </Pressable>
@@ -391,7 +387,7 @@ export default function DocumentosPorCategoria({
                     onPress={abrirPanel}
                     style={[styles.botonFiltros, cantidadFiltrosActivos > 0 && styles.botonFiltrosActivo]}
                     accessibilityRole="button"
-                    testID="documentos-filtros-abrir"
+                    testID="repositorio-filtros-abrir"
                 >
                     <FontAwesome6
                         name="sliders"
@@ -414,19 +410,19 @@ export default function DocumentosPorCategoria({
                 </Pressable>
             </View>
 
-            {(categoriasElegidas.length > 0 || visibilidadActiva) && (
+            {(tiposElegidos.length > 0 || visibilidadActiva) && (
                 <View style={styles.barraFiltros}>
-                    {categoriasElegidas.map((cat) => (
+                    {tiposElegidos.map((grupo) => (
                         <Pressable
-                            key={cat.id}
-                            onPress={() => quitarCategoriaFiltro(cat.id)}
+                            key={grupo.id}
+                            onPress={() => quitarTipoFiltro(grupo.id)}
                             style={styles.tagActivo}
                             hitSlop={6}
-                            testID={`documentos-filtro-tag-categoria-${cat.id}`}
+                            testID={`repositorio-filtro-tag-tipo-${grupo.id}`}
                         >
-                            <FontAwesome6 name={iconoCategoria(cat.nombre)} size={11} color={colors.primary} />
+                            <FontAwesome6 name={grupo.icono} size={11} color={colors.primary} />
                             <Text style={styles.tagActivoTexto} numberOfLines={1}>
-                                {cat.nombre}
+                                {grupo.nombre}
                             </Text>
                             <FontAwesome6 name="xmark" size={11} color={colors.primary} />
                         </Pressable>
@@ -437,7 +433,7 @@ export default function DocumentosPorCategoria({
                             onPress={() => setFiltroVisibilidad(FILTRO_VISIBILIDAD.TODOS)}
                             style={styles.tagActivo}
                             hitSlop={6}
-                            testID="documentos-filtro-tag-visibilidad"
+                            testID="repositorio-filtro-tag-visibilidad"
                         >
                             <FontAwesome6
                                 name={filtroVisibilidad === FILTRO_VISIBILIDAD.PUBLICOS ? "users" : "lock"}
@@ -453,10 +449,10 @@ export default function DocumentosPorCategoria({
 
             {hayVacio && (
                 <View style={styles.vacioFiltros}>
-                    <FontAwesome6 name="folder-open" size={22} color={colors.textMuted} />
+                    <FontAwesome6 name="address-book" size={22} color={colors.textMuted} />
                     <Text style={styles.emptyText}>{mensajeVacio()}</Text>
                     {(cantidadFiltrosActivos > 0 || hayBusqueda) && (
-                        <Pressable onPress={limpiarFiltros} hitSlop={8} testID="documentos-vacio-limpiar">
+                        <Pressable onPress={limpiarFiltros} hitSlop={8} testID="repositorio-vacio-limpiar">
                             <Text style={styles.vacioLimpiarTexto}>
                                 {cantidadFiltrosActivos > 0 ? "Limpiar filtros" : "Limpiar búsqueda"}
                             </Text>
@@ -465,25 +461,23 @@ export default function DocumentosPorCategoria({
                 </View>
             )}
 
-            {categoriasConResultados.map((cat) => (
+            {tiposConResultados.map((grupo) => (
                 <View
-                    key={cat.id}
+                    key={grupo.id}
                     collapsable={false}
-                    onLayout={() => handleSectionLayout(cat.id)}
+                    onLayout={() => handleSectionLayout(grupo.id)}
                     ref={(node) => {
-                        sectionRefs.current[cat.id] = node;
+                        sectionRefs.current[grupo.id] = node;
                     }}
                 >
-                    <SeccionCategoria
-                        categoria={cat}
-                        abierta={estaAbierta(cat.id)}
-                        onToggle={() => alternarCategoria(cat.id)}
-                        onAbrir={onAbrir}
-                        onDescargar={onDescargar}
+                    <SeccionGrupo
+                        grupo={grupo}
+                        abierta={estaAbierta(grupo.id)}
+                        onToggle={() => alternarGrupo(grupo.id)}
+                        onCopiar={onCopiar}
                         onEditar={onEditar}
                         onEliminar={onEliminar}
-                        descargandoDocId={descargandoDocId}
-                        eliminandoDocId={eliminandoDocId}
+                        eliminandoItemId={eliminandoItemId}
                     />
                 </View>
             ))}
@@ -499,7 +493,7 @@ export default function DocumentosPorCategoria({
                             <>
                                 <View style={styles.sheetHeader}>
                                     <Text style={styles.sheetTitulo}>Filtros</Text>
-                                    <Pressable onPress={cerrarPanel} hitSlop={12} testID="documentos-filtros-cerrar">
+                                    <Pressable onPress={cerrarPanel} hitSlop={12} testID="repositorio-filtros-cerrar">
                                         <FontAwesome6 name="xmark" size={18} color={colors.textMuted} />
                                     </Pressable>
                                 </View>
@@ -520,7 +514,7 @@ export default function DocumentosPorCategoria({
                                                     style={[styles.visibilidadOpcion, activo && styles.visibilidadOpcionActiva]}
                                                     accessibilityRole="button"
                                                     accessibilityState={{ selected: activo }}
-                                                    testID={`documentos-visibilidad-${op.valor}`}
+                                                    testID={`repositorio-visibilidad-${op.valor}`}
                                                 >
                                                     <FontAwesome6
                                                         name={op.icono}
@@ -541,12 +535,12 @@ export default function DocumentosPorCategoria({
                                     <Text style={[styles.filtroLabel, { marginTop: spacing.lg }]}>Más filtros</Text>
                                     <View style={styles.settingsCard}>
                                         <SettingsRow
-                                            active={borradorCategorias.length > 0}
+                                            active={borradorTipos.length > 0}
                                             icon="tags"
                                             label="Categorías"
-                                            value={resumenCategoriasBorrador}
-                                            onPress={() => setPanelVista("categories")}
-                                            testID="documentos-filtro-categorias"
+                                            value={resumenTiposBorrador}
+                                            onPress={() => setPanelVista("types")}
+                                            testID="repositorio-filtro-tipos"
                                         />
                                     </View>
                                 </ScrollView>
@@ -555,7 +549,7 @@ export default function DocumentosPorCategoria({
                                     <Pressable
                                         onPress={limpiarBorrador}
                                         style={styles.botonSecundario}
-                                        testID="documentos-filtros-limpiar"
+                                        testID="repositorio-filtros-limpiar"
                                     >
                                         <Text style={styles.botonSecundarioTexto}>Limpiar</Text>
                                     </Pressable>
@@ -564,12 +558,12 @@ export default function DocumentosPorCategoria({
                                         onPress={aplicarFiltros}
                                         disabled={resultadosBorrador === 0}
                                         style={[styles.botonPrimario, resultadosBorrador === 0 && styles.botonPrimarioDeshabilitado]}
-                                        testID="documentos-filtros-aplicar"
+                                        testID="repositorio-filtros-aplicar"
                                     >
                                         <Text style={styles.botonPrimarioTexto}>
                                             {resultadosBorrador === 0
                                                 ? "Sin resultados"
-                                                : `Ver ${resultadosBorrador} documento${resultadosBorrador === 1 ? "" : "s"}`}
+                                                : `Ver ${resultadosBorrador} ítem${resultadosBorrador === 1 ? "" : "s"}`}
                                         </Text>
                                     </Pressable>
                                 </View>
@@ -580,13 +574,13 @@ export default function DocumentosPorCategoria({
                                     <Pressable
                                         onPress={() => setPanelVista("main")}
                                         style={styles.backButton}
-                                        testID="documentos-categories-back"
+                                        testID="repositorio-types-back"
                                     >
                                         <FontAwesome6 color={colors.primary} name="chevron-left" size={16} />
                                         <Text style={styles.sheetTitulo}>Categorías</Text>
                                     </Pressable>
-                                    {borradorCategorias.length > 0 ? (
-                                        <Pressable onPress={() => setBorradorCategorias([])} testID="documentos-categories-clear">
+                                    {borradorTipos.length > 0 ? (
+                                        <Pressable onPress={() => setBorradorTipos([])} testID="repositorio-types-clear">
                                             <Text style={styles.headerLink}>Borrar</Text>
                                         </Pressable>
                                     ) : null}
@@ -595,30 +589,30 @@ export default function DocumentosPorCategoria({
                                 <Text style={styles.subHint}>Podés elegir varias. Sin selección se muestran todas.</Text>
 
                                 <ScrollView showsVerticalScrollIndicator={false} style={styles.sheetScroll}>
-                                    {categoriasMaestras.map((cat, index) => {
-                                        const active = borradorCategorias.includes(cat.id);
-                                        const count = conteoCategoriasBorrador.porCategoria[cat.id] ?? 0;
-                                        const isLast = index === categoriasMaestras.length - 1;
+                                    {tiposMaestros.map((grupo, index) => {
+                                        const active = borradorTipos.includes(grupo.id);
+                                        const count = conteoTiposBorrador.porTipo[grupo.id] ?? 0;
+                                        const isLast = index === tiposMaestros.length - 1;
                                         return (
                                             <Pressable
-                                                key={cat.id}
-                                                onPress={() => alternarBorradorCategoria(cat.id, count)}
+                                                key={grupo.id}
+                                                onPress={() => alternarBorradorTipo(grupo.id, count)}
                                                 style={[
                                                     styles.categoryRow,
                                                     !isLast && styles.categoryRowDivider,
                                                     count === 0 && styles.categoryRowEmpty,
                                                 ]}
-                                                testID={`documentos-filter-${cat.id}`}
+                                                testID={`repositorio-filter-${grupo.id}`}
                                             >
                                                 <View style={styles.settingsIcon}>
                                                     <FontAwesome6
                                                         color={colors.primary}
-                                                        name={iconoCategoria(cat.nombre)}
+                                                        name={grupo.icono}
                                                         size={13}
                                                     />
                                                 </View>
                                                 <Text numberOfLines={1} style={styles.categoryName}>
-                                                    {cat.nombre}
+                                                    {grupo.nombre}
                                                 </Text>
                                                 <Text style={styles.categoryCount}>{count}</Text>
                                                 <View style={[styles.checkbox, active && styles.checkboxActive]}>
@@ -635,7 +629,7 @@ export default function DocumentosPorCategoria({
                                     <Pressable
                                         onPress={() => setPanelVista("main")}
                                         style={styles.botonPrimario}
-                                        testID="documentos-categories-done"
+                                        testID="repositorio-types-done"
                                     >
                                         <Text style={styles.botonPrimarioTexto}>Listo</Text>
                                     </Pressable>
@@ -669,16 +663,14 @@ function SettingsRow({ icon, label, value, active, onPress, testID }) {
     );
 }
 
-function SeccionCategoria({
-    categoria,
+function SeccionGrupo({
+    grupo,
     abierta,
     onToggle,
-    onAbrir,
-    onDescargar,
+    onCopiar,
     onEditar,
     onEliminar,
-    descargandoDocId,
-    eliminandoDocId,
+    eliminandoItemId,
 }) {
     return (
         <View style={styles.seccion}>
@@ -687,7 +679,7 @@ function SeccionCategoria({
                 style={[styles.seccionHeader, abierta && styles.seccionHeaderAbierta]}
                 accessibilityRole="button"
                 accessibilityState={{ expanded: abierta }}
-                testID={`documentos-categoria-header-${categoria.id}`}
+                testID={`repositorio-categoria-header-${grupo.id}`}
             >
                 <FontAwesome6
                     name={abierta ? "chevron-down" : "chevron-right"}
@@ -696,15 +688,15 @@ function SeccionCategoria({
                     style={styles.seccionChevron}
                 />
                 <FontAwesome6
-                    name={iconoCategoria(categoria.nombre)}
+                    name={grupo.icono}
                     size={14}
                     color={colors.primary}
                 />
                 <Text style={styles.seccionTitulo} numberOfLines={1}>
-                    {categoria.nombre}
+                    {grupo.nombre}
                 </Text>
                 <View style={styles.seccionContadorBadge}>
-                    <Text style={styles.seccionContador}>{categoria.documentos.length}</Text>
+                    <Text style={styles.seccionContador}>{grupo.items.length}</Text>
                 </View>
             </Pressable>
 
@@ -715,16 +707,14 @@ function SeccionCategoria({
                     nestedScrollEnabled
                     showsVerticalScrollIndicator
                 >
-                    {categoria.documentos.map((documento) => (
-                        <DocumentoCard
-                            key={documento.IdDocumento}
-                            documento={documento}
-                            onAbrir={onAbrir}
-                            onDescargar={onDescargar}
+                    {grupo.items.map((item) => (
+                        <RepositorioItemCard
+                            key={item.IdItemRepositorio}
+                            item={item}
+                            onCopiar={onCopiar}
                             onEditar={onEditar}
                             onEliminar={onEliminar}
-                            descargando={descargandoDocId === documento.IdDocumento}
-                            eliminando={eliminandoDocId === documento.IdDocumento}
+                            eliminando={eliminandoItemId === item.IdItemRepositorio}
                         />
                     ))}
                 </ScrollView>
@@ -733,80 +723,72 @@ function SeccionCategoria({
     );
 }
 
-function DocumentoCard({ documento, onAbrir, onDescargar, onEditar, onEliminar, descargando, eliminando }) {
+function RepositorioItemCard({ item, onCopiar, onEditar, onEliminar, eliminando }) {
     return (
         <View style={styles.card}>
-            <Pressable
-                onPress={() => onAbrir?.(documento)}
-                style={styles.cardHeaderRow}
-                testID={`documento-abrir-${documento.IdDocumento}`}
-            >
-                <FontAwesome6 name="file-lines" size={18} color={colors.primary} />
-
+            <View style={styles.cardHeaderRow}>
+                <FontAwesome6 name={iconoParaTipo(item.Tipo)} size={16} color={colors.primary} />
                 <View style={styles.cardBody}>
                     <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 2 }}>
                         <Text style={[styles.cardNombre, { flexShrink: 1 }]} numberOfLines={1}>
-                            {documento.NombreArchivo}
+                            {item.Titulo}
                         </Text>
                         <View
                             style={{
                                 paddingHorizontal: 6,
                                 paddingVertical: 2,
                                 borderRadius: 6,
-                                backgroundColor: documento.EsPublico ? "#e0f2fe" : "#f3e8ff",
-                                marginTop: 2,
+                                backgroundColor: item.EsPublico ? "#e0f2fe" : "#f3e8ff",
                             }}
                         >
-                            <Text style={{ fontSize: 10, fontWeight: "700", color: documento.EsPublico ? "#0369a1" : "#6b21a8" }}>
-                                {documento.EsPublico ? "PÚBLICO" : "PRIVADO"}
+                            <Text style={{ fontSize: 10, fontWeight: "700", color: item.EsPublico ? "#0369a1" : "#6b21a8" }}>
+                                {item.EsPublico ? "PÚBLICO" : "PRIVADO"}
                             </Text>
                         </View>
                     </View>
-
+                    <Text style={styles.cardContenido} numberOfLines={2}>
+                        {item.Contenido}
+                    </Text>
+                    {item.Descripcion ? (
+                        <Text style={styles.cardDescripcion} numberOfLines={2}>
+                            {item.Descripcion}
+                        </Text>
+                    ) : null}
                     <Text style={styles.cardMeta}>
-                        {documento.NombreCategoria} · Subido por {documento.NombreUsuarioSubida}
+                        Subido por {item.NombreUsuarioCreador}
                     </Text>
                 </View>
-
-                <FontAwesome6 name="up-right-from-square" size={13} color={colors.textSecondary} />
-            </Pressable>
+            </View>
 
             <View style={styles.cardAcciones}>
                 <Pressable
-                    onPress={() => onDescargar?.(documento)}
-                    disabled={descargando}
-                    style={[styles.accionBoton, descargando && styles.accionBotonDisabled]}
+                    onPress={() => onCopiar?.(item.Contenido)}
+                    style={styles.accionBoton}
                     hitSlop={8}
-                    testID={`documento-descargar-${documento.IdDocumento}`}
+                    testID={`repositorio-copiar-${item.IdItemRepositorio}`}
                 >
-                    {descargando ? (
-                        <ActivityIndicator size="small" color={colors.primary} />
-                    ) : (
-                        <FontAwesome6 name="download" size={12} color={colors.primary} />
-                    )}
-                    <Text style={styles.accionTexto}>
-                        {descargando ? "Descargando..." : "Descargar"}
-                    </Text>
+                    <FontAwesome6 name="copy" size={12} color={colors.textSecondary} />
+                    <Text style={styles.accionTexto}>Copiar</Text>
                 </Pressable>
 
-                {documento.EsPropio && (
+                {item.EsPropio && (
                     <>
                         <Pressable
-                            onPress={() => onEditar?.(documento)}
+                            onPress={() => onEditar?.(item)}
                             style={styles.accionBoton}
                             hitSlop={8}
-                            testID={`documento-editar-${documento.IdDocumento}`}
+                            testID={`repositorio-editar-${item.IdItemRepositorio}`}
                         >
-                            <FontAwesome6 name="pen" size={12} color={colors.primary} />
+                            <FontAwesome6 name="pen" size={12} color={colors.textSecondary} />
                             <Text style={styles.accionTexto}>Editar</Text>
                         </Pressable>
 
                         <Pressable
-                            onPress={() => onEliminar?.(documento)}
+                            onPress={() => onEliminar?.(item)}
                             disabled={eliminando}
                             style={[styles.accionBoton, eliminando && styles.accionBotonDisabled]}
                             hitSlop={8}
-                            testID={`documento-eliminar-${documento.IdDocumento}`}
+                            testID={`repositorio-eliminar-${item.IdItemRepositorio}`}
                         >
                             {eliminando ? (
                                 <ActivityIndicator size="small" color={colors.danger || "#dc2626"} />
@@ -1060,10 +1042,6 @@ const styles = StyleSheet.create({
         minHeight: 54,
         paddingHorizontal: spacing.md,
     },
-    settingsDivider: {
-        height: StyleSheet.hairlineWidth,
-        backgroundColor: colors.border,
-    },
     settingsIcon: {
         width: 30,
         height: 30,
@@ -1188,7 +1166,7 @@ const styles = StyleSheet.create({
     },
     cardHeaderRow: {
         flexDirection: "row",
-        alignItems: "center",
+        alignItems: "flex-start",
         gap: spacing.sm,
     },
     cardBody: {
@@ -1198,10 +1176,21 @@ const styles = StyleSheet.create({
         ...textStyles.bodyStrong,
         color: colors.textPrimary,
     },
-    cardMeta: {
-        ...textStyles.meta,
+    cardContenido: {
+        ...textStyles.body,
         color: colors.textSecondary,
         marginTop: 2,
+    },
+    cardDescripcion: {
+        ...textStyles.meta,
+        color: colors.textMuted,
+        marginTop: 2,
+    },
+    cardMeta: {
+        ...textStyles.meta,
+        color: colors.textMuted,
+        fontSize: 11,
+        marginTop: 4,
     },
     cardAcciones: {
         flexDirection: "row",

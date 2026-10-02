@@ -20,6 +20,7 @@ import * as DocumentPicker from "expo-document-picker";
 import { FontAwesome6 } from "@expo/vector-icons";
 
 import PrimaryButton from "../components/ui/PrimaryButton";
+import AddGastoScreen from "./AddGastoScreen";
 
 import {
     getDocumentCategories,
@@ -52,7 +53,7 @@ const ICONOS_CATEGORIAS_DOCUMENTOS = {
 };
 
 
-export default function DocumentsScreen({ visible, onClose, tripId, onDocumentoSubido }) {
+export default function DocumentsScreen({ visible, onClose, tripId, tripMoneda, onDocumentoSubido }) {
 
     const [loading, setLoading] = useState(true);
     const [loadError, setLoadError] = useState("");
@@ -69,6 +70,12 @@ export default function DocumentsScreen({ visible, onClose, tripId, onDocumentoS
     const [esPublico, setEsPublico] = useState(true);
 
     const [errores, setErrores] = useState({});
+
+    // Estados para controlar la sugerencia de gastos (US 84)
+    const [gastoSugeridoModalVisible, setGastoSugeridoModalVisible] = useState(false);
+    const [datosGastoSugerido, setDatosGastoSugerido] = useState(null);
+    // Ref (y no state) para que onClose vea el valor actualizado en el mismo ciclo que onGastoCreado
+    const gastoRegistradoRef = useRef(false);
 
     const categoriaSeleccionada = categorias.find(
         (c) => c.IdCategoriaDocumento === idCategoria
@@ -111,6 +118,7 @@ export default function DocumentsScreen({ visible, onClose, tripId, onDocumentoS
             setIdCategoria(null);
             setEsPublico(true);
             setErrores({});
+            gastoRegistradoRef.current = false;
         }
     }, [visible, tripId]);
 
@@ -186,13 +194,66 @@ export default function DocumentsScreen({ visible, onClose, tripId, onDocumentoS
                 ? `${nombreDocumento}.${extensionArchivo}`
                 : nombreDocumento;
 
-            await uploadTripDocument(tripId, archivo, idCategoria, nombreFinal, esPublico);
+            const respuesta = await uploadTripDocument(tripId, archivo, idCategoria, nombreFinal, esPublico);
 
+            if (onDocumentoSubido) onDocumentoSubido();
+
+            // Verificamos si la IA detectó un gasto asociado en el documento subido (US 84)
+            if (respuesta && respuesta.sugerencia_gasto) {
+                const sugg = respuesta.sugerencia_gasto;
+                setSaving(false); 
+                gastoRegistradoRef.current = false;
+                
+                if (Platform.OS === "web") {
+                    const deseaRegistrar = window.confirm(
+                        "¡Se encontró un gasto asociado a este documento!\n\n" +
+                        `Concepto: ${sugg.Nombre || "Sin nombre"}\n` +
+                        `Monto: ${sugg.MonedaOriginal || ""} ${sugg.MontoOriginal || ""}\n\n` +
+                        "¿Deseás registrar este gasto ahora?"
+                    );
+                    if (deseaRegistrar) {
+                        setDatosGastoSugerido(sugg);
+                        setGastoSugeridoModalVisible(true);
+                        return;
+                    } else {
+                        mostrarAlertaConfirmacion("Éxito", "Documento subido correctamente.", () => {
+                            onClose();
+                        });
+                        return;
+                    }
+                } else {
+                    Alert.alert(
+                        "¡Gasto detectado!",
+                        "El sistema analizó el documento y encontró un posible gasto asociado. ¿Deseás registrarlo?",
+                        [
+                            {
+                                text: "No",
+                                style: "cancel",
+                                onPress: () => {
+                                    mostrarAlertaConfirmacion("Éxito", "Documento subido correctamente.", () => {
+                                        onClose();
+                                    });
+                                }
+                            },
+                            {
+                                text: "Sí, registrar",
+                                onPress: () => {
+                                    setDatosGastoSugerido(sugg);
+                                    setGastoSugeridoModalVisible(true);
+                                }
+                            }
+                        ]
+                    );
+                    return;
+                }
+            }
+
+            setSaving(false);
             mostrarAlertaConfirmacion("Éxito", "Documento subido correctamente.", () => {
-                if (onDocumentoSubido) onDocumentoSubido();
                 onClose();
             });
         } catch (error) {
+            setSaving(false);
             console.log("ERROR uploadTripDocument:", error);
 
             const mensajeError = (error?.message || "").toLowerCase();
@@ -210,8 +271,6 @@ export default function DocumentsScreen({ visible, onClose, tripId, onDocumentoS
                     error?.message || "No se pudo subir el documento."
                 );
             }
-        } finally {
-            setSaving(false);
         }
     }
 
@@ -331,9 +390,17 @@ export default function DocumentsScreen({ visible, onClose, tripId, onDocumentoS
                                             : "Solo vos vas a poder verlo."}
                                     </Text>
 
+                                    {/* Indicador de estado visible mientras sube y analiza con IA */}
+                                    {saving && (
+                                        <View style={styles.analyzingBox}>
+                                            <ActivityIndicator size="small" color={colors.primary} />
+                                            <Text style={styles.analyzingText}>Subiendo documento y analizando si tiene gastos...</Text>
+                                        </View>
+                                    )}
+
                                     <PrimaryButton
-                                        label={saving ? "Subiendo..." : "Subir documento"}
-                                        loading={saving}
+                                        label="Subir documento"
+                                        loading={false}
                                         onPress={handleSubir}
                                         disabled={saving}
                                         style={styles.submitButton}
@@ -396,7 +463,36 @@ export default function DocumentsScreen({ visible, onClose, tripId, onDocumentoS
                             </Animated.View>
                         </View>
                     )}
-                </View>                
+                </View>
+
+                {/* Modal de AddGastoScreen que se abre automáticamente con los datos sugeridos por la IA (US 84) */}
+                {gastoSugeridoModalVisible && datosGastoSugerido && (
+                    <AddGastoScreen
+                        visible={gastoSugeridoModalVisible}
+                        mostrarAlertaExito={false}
+                        onClose={() => {
+                            setGastoSugeridoModalVisible(false);
+                            // Si el gasto se registró, el cartel único ya lo maneja onGastoCreado
+                            if (gastoRegistradoRef.current) return;
+                            // Si cierra con la cruz sin registrar el gasto, informamos solo que el documento se subió correctamente
+                            mostrarAlertaConfirmacion("Éxito", "Documento subido correctamente.", () => {
+                                onClose();
+                            });
+                        }}
+                        IdViaje={tripId}
+                        Moneda={tripMoneda}
+                        onGastoCreado={() => {
+                            gastoRegistradoRef.current = true;
+                            setGastoSugeridoModalVisible(false);
+                            // Cartel único y definitivo indicando que ambos se registraron
+                            mostrarAlertaConfirmacion("Éxito", "El documento y el gasto se registraron correctamente.", () => {
+                                onClose();
+                            });
+                        }}
+                        initialData={datosGastoSugerido}
+                        puedeEscanear={false}
+                    />
+                )}
             </Modal>
     );
 }
@@ -440,6 +536,24 @@ const styles = StyleSheet.create({
         color: colors.primary,
         marginTop: spacing.md,
         marginBottom: spacing.xs,
+    },
+    analyzingBox: {
+        flexDirection: "column",
+        alignItems: "center",
+        justifyContent: "center",
+        gap: spacing.xs,
+        backgroundColor: colors.primarySoft ? `${colors.primarySoft}22` : "#eef4ff",
+        paddingVertical: spacing.md,
+        paddingHorizontal: spacing.md,
+        borderRadius: radii.md,
+        marginTop: spacing.md,
+    },
+    analyzingText: {
+        ...textStyles.body,
+        color: colors.primary,
+        fontWeight: "600",
+        fontSize: 13,
+        textAlign: "center",
     },
     inputBox: {
         minHeight: 48,

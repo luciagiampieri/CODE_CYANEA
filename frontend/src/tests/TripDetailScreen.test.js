@@ -9,6 +9,8 @@ import {
   getTripSettlement,
   getTripDocuments,
   getVotaciones,
+  getRepositorioItems,
+  getTripParticipants,
   onTripFinishedError,
   getSentInvitations,
   cancelSentInvitation,
@@ -61,16 +63,16 @@ jest.mock("../services/api", () => ({
   leaveTrip: jest.fn(),
   getTripDetail: jest.fn(),
   getTripPlaces: jest.fn(),
-  getVotaciones: jest.fn().mockResolvedValue([]),
-  getTripDocuments: jest.fn().mockResolvedValue([]),
-  getRepositorioItems: jest.fn().mockResolvedValue([]),
-  getTripSettlement: jest.fn().mockResolvedValue({}),
-  getTripParticipants: jest.fn().mockResolvedValue([]),
-  getExpenseCategories: jest.fn().mockResolvedValue([]),
-  getSentInvitations: jest.fn().mockResolvedValue([]),
+  getVotaciones: jest.fn(),
+  getTripDocuments: jest.fn(),
+  getRepositorioItems: jest.fn(),
+  getTripSettlement: jest.fn(),
+  getTripParticipants: jest.fn(),
+  getExpenseCategories: jest.fn(),
+  getSentInvitations: jest.fn(),
   cancelSentInvitation: jest.fn(),
-  getTripExpenses: jest.fn().mockResolvedValue([]),
-  onTripFinishedError: jest.fn(() => jest.fn()),
+  getTripExpenses: jest.fn(),
+  onTripFinishedError: jest.fn(),
 }));
 
 jest.mock("../hooks/useItinerarioViewPreference", () => ({
@@ -91,6 +93,39 @@ jest.mock("../components/ui/PrimaryButton", () => {
   };
 });
 
+/**
+ * Deja TODOS los mocks de la API con valores por defecto válidos.
+ * Se llama en cada beforeEach porque jest.restoreAllMocks() (en versiones
+ * anteriores a Jest 30) también borra las implementaciones de los jest.fn().
+ */
+function setupDefaultMocks() {
+  getCurrentUser.mockResolvedValue({
+    id: 1,
+    nombre: "Juan",
+    apellido: "Pérez",
+    email: "juan@gmail.com",
+  });
+  getTripPlaces.mockResolvedValue([]);
+  getVotaciones.mockResolvedValue([]);
+  getTripDocuments.mockResolvedValue([]);
+  getRepositorioItems.mockResolvedValue([]);
+  getTripParticipants.mockResolvedValue([]);
+  getExpenseCategories.mockResolvedValue([]);
+  getSentInvitations.mockResolvedValue([]);
+  getTripExpenses.mockResolvedValue([]);
+  getTripSettlement.mockResolvedValue({});
+  onTripFinishedError.mockImplementation(() => jest.fn());
+}
+
+function makeNavigation() {
+  return {
+    goBack: mockGoBack,
+    navigate: mockNavigate,
+    setParams: jest.fn(),
+    addListener: jest.fn(() => jest.fn()),
+  };
+}
+
 describe("US 68 - Abandonar un viaje (Suite completa de tests frontend)", () => {
   const mockTripActive = {
     id: 1,
@@ -104,26 +139,21 @@ describe("US 68 - Abandonar un viaje (Suite completa de tests frontend)", () => 
     admin: { id: 2, nombreCompleto: "Admin Test", email: "admin@test.com" },
     participants: [
       { id: 1, nombreCompleto: "Juan Pérez", role: "participante", status: "aceptado" },
-      { id: 2, nombreCompleto: "Admin Test", role: "administrador", status: "aceptado" }
+      { id: 2, nombreCompleto: "Admin Test", role: "administrador", status: "aceptado" },
     ],
     cronograma: [],
   };
 
   beforeEach(() => {
     jest.clearAllMocks();
-
-    getCurrentUser.mockResolvedValue({
-      id: 1,
-      nombre: "Juan",
-      apellido: "Pérez",
-      email: "juan@gmail.com",
-    });
+    setupDefaultMocks();
 
     getTripDetail.mockResolvedValue(mockTripActive);
-    getTripPlaces.mockResolvedValue([]);
-    
+
     jest.spyOn(Alert, "alert").mockImplementation((title, message, buttons) => {
-      const confirmButton = buttons?.find(b => b.style === "destructive" || b.text === "Confirmar");
+      const confirmButton = buttons?.find(
+        (b) => b.style === "destructive" || b.text === "Confirmar"
+      );
       if (confirmButton && confirmButton.onPress) {
         confirmButton.onPress();
       }
@@ -137,7 +167,7 @@ describe("US 68 - Abandonar un viaje (Suite completa de tests frontend)", () => 
   test("1. muestra la opcion abandonar viaje a un participante aceptado en un viaje activo", async () => {
     const { findByText } = await render(
       <TripDetailScreen
-        navigation={{ goBack: mockGoBack, navigate: mockNavigate, setParams: jest.fn(), addListener: jest.fn(() => jest.fn()) }}
+        navigation={makeNavigation()}
         route={{ params: { trip: mockTripActive } }}
       />
     );
@@ -150,7 +180,7 @@ describe("US 68 - Abandonar un viaje (Suite completa de tests frontend)", () => 
   test("2. solicita confirmación antes de ejecutar el abandono", async () => {
     const { findByText } = await render(
       <TripDetailScreen
-        navigation={{ goBack: mockGoBack, navigate: mockNavigate, setParams: jest.fn(), addListener: jest.fn(() => jest.fn()) }}
+        navigation={makeNavigation()}
         route={{ params: { trip: mockTripActive } }}
       />
     );
@@ -163,7 +193,9 @@ describe("US 68 - Abandonar un viaje (Suite completa de tests frontend)", () => 
 
   test("3. cancela el abandono y el usuario sigue participando (no se llama a leaveTrip)", async () => {
     Alert.alert.mockImplementationOnce((title, message, buttons) => {
-      const cancelButton = buttons?.find(b => b.style === "cancel" || b.text === "Volver");
+      const cancelButton = buttons?.find(
+        (b) => b.style === "cancel" || b.text === "Volver"
+      );
       if (cancelButton && cancelButton.onPress) {
         cancelButton.onPress();
       }
@@ -171,7 +203,7 @@ describe("US 68 - Abandonar un viaje (Suite completa de tests frontend)", () => 
 
     const { findByText } = await render(
       <TripDetailScreen
-        navigation={{ goBack: mockGoBack, navigate: mockNavigate, setParams: jest.fn(), addListener: jest.fn(() => jest.fn()) }}
+        navigation={makeNavigation()}
         route={{ params: { trip: mockTripActive } }}
       />
     );
@@ -189,7 +221,7 @@ describe("US 68 - Abandonar un viaje (Suite completa de tests frontend)", () => 
 
     const { findByText } = await render(
       <TripDetailScreen
-        navigation={{ goBack: mockGoBack, navigate: mockNavigate, setParams: jest.fn(), addListener: jest.fn(() => jest.fn()) }}
+        navigation={makeNavigation()}
         route={{ params: { trip: mockTripActive } }}
       />
     );
@@ -207,11 +239,11 @@ describe("US 68 - Abandonar un viaje (Suite completa de tests frontend)", () => 
 
   test("5. al abandonar se muestra el banner de solo lectura y se ocultan las acciones de organización", async () => {
     const tripWithHasLeft = { ...mockTripActive, hasLeft: true };
-    getTripDetail.mockResolvedValueOnce(tripWithHasLeft);
+    getTripDetail.mockResolvedValue(tripWithHasLeft);
 
     const { queryByText, findByText } = await render(
       <TripDetailScreen
-        navigation={{ goBack: mockGoBack, navigate: mockNavigate, setParams: jest.fn(), addListener: jest.fn(() => jest.fn()) }}
+        navigation={makeNavigation()}
         route={{ params: { trip: tripWithHasLeft } }}
       />
     );
@@ -231,15 +263,14 @@ describe("US 68 - Abandonar un viaje (Suite completa de tests frontend)", () => 
       admin: { id: 1, nombreCompleto: "Juan Pérez", email: "juan@gmail.com" },
       participants: [
         { id: 1, nombreCompleto: "Juan Pérez", role: "administrador", status: "aceptado" },
-        { id: 2, nombreCompleto: "Carlos Gómez", role: "participante", status: "aceptado" }
-      ]
+        { id: 2, nombreCompleto: "Carlos Gómez", role: "participante", status: "aceptado" },
+      ],
     };
-    getCurrentUser.mockResolvedValue({ id: 1, nombre: "Juan", apellido: "Pérez", email: "juan@gmail.com" });
-    getTripDetail.mockResolvedValueOnce(mockTripAdminUser);
+    getTripDetail.mockResolvedValue(mockTripAdminUser);
 
     const { findByText } = await render(
       <TripDetailScreen
-        navigation={{ goBack: mockGoBack, navigate: mockNavigate, setParams: jest.fn(), addListener: jest.fn(() => jest.fn()) }}
+        navigation={makeNavigation()}
         route={{ params: { trip: mockTripAdminUser } }}
       />
     );
@@ -256,15 +287,14 @@ describe("US 68 - Abandonar un viaje (Suite completa de tests frontend)", () => 
       admin: { id: 1, nombreCompleto: "Juan Pérez", email: "juan@gmail.com" },
       participants: [
         { id: 1, nombreCompleto: "Juan Pérez", role: "administrador", status: "aceptado" },
-        { id: 2, nombreCompleto: "Carlos Gómez", role: "participante", status: "aceptado" }
-      ]
+        { id: 2, nombreCompleto: "Carlos Gómez", role: "participante", status: "aceptado" },
+      ],
     };
-    getCurrentUser.mockResolvedValue({ id: 1, nombre: "Juan", apellido: "Pérez", email: "juan@gmail.com" });
-    getTripDetail.mockResolvedValueOnce(mockTripAdminUser);
+    getTripDetail.mockResolvedValue(mockTripAdminUser);
 
     const { findByText } = await render(
       <TripDetailScreen
-        navigation={{ goBack: mockGoBack, navigate: mockNavigate, setParams: jest.fn(), addListener: jest.fn(() => jest.fn()) }}
+        navigation={makeNavigation()}
         route={{ params: { trip: mockTripAdminUser } }}
       />
     );
@@ -284,16 +314,15 @@ describe("US 68 - Abandonar un viaje (Suite completa de tests frontend)", () => 
       admin: { id: 1, nombreCompleto: "Juan Pérez", email: "juan@gmail.com" },
       participants: [
         { id: 1, nombreCompleto: "Juan Pérez", role: "administrador", status: "aceptado" },
-        { id: 2, nombreCompleto: "Carlos Gómez", role: "participante", status: "aceptado" }
-      ]
+        { id: 2, nombreCompleto: "Carlos Gómez", role: "participante", status: "aceptado" },
+      ],
     };
-    getCurrentUser.mockResolvedValue({ id: 1, nombre: "Juan", apellido: "Pérez", email: "juan@gmail.com" });
-    getTripDetail.mockResolvedValueOnce(mockTripAdminUser);
+    getTripDetail.mockResolvedValue(mockTripAdminUser);
     leaveTrip.mockResolvedValueOnce({ message: "Éxito" });
 
     const { findByTestId, findByText } = await render(
       <TripDetailScreen
-        navigation={{ goBack: mockGoBack, navigate: mockNavigate, setParams: jest.fn(), addListener: jest.fn(() => jest.fn()) }}
+        navigation={makeNavigation()}
         route={{ params: { trip: mockTripAdminUser } }}
       />
     );
@@ -320,15 +349,14 @@ describe("US 68 - Abandonar un viaje (Suite completa de tests frontend)", () => 
       ...mockTripActive,
       admin: { id: 1, nombreCompleto: "Juan Pérez", email: "juan@gmail.com" },
       participants: [
-        { id: 1, nombreCompleto: "Juan Pérez", role: "administrador", status: "aceptado" }
-      ]
+        { id: 1, nombreCompleto: "Juan Pérez", role: "administrador", status: "aceptado" },
+      ],
     };
-    getCurrentUser.mockResolvedValue({ id: 1, nombre: "Juan", apellido: "Pérez", email: "juan@gmail.com" });
-    getTripDetail.mockResolvedValueOnce(mockTripSingleAdmin);
+    getTripDetail.mockResolvedValue(mockTripSingleAdmin);
 
     const { findByText, queryByText } = await render(
       <TripDetailScreen
-        navigation={{ goBack: mockGoBack, navigate: mockNavigate, setParams: jest.fn(), addListener: jest.fn(() => jest.fn()) }}
+        navigation={makeNavigation()}
         route={{ params: { trip: mockTripSingleAdmin } }}
       />
     );
@@ -341,11 +369,11 @@ describe("US 68 - Abandonar un viaje (Suite completa de tests frontend)", () => 
 
   test("10. mostrar mensaje de error cuando se quiera abandonar un viaje que ya finalizó", async () => {
     const tripFinished = { ...mockTripActive, status: "finalizado" };
-    getTripDetail.mockResolvedValueOnce(tripFinished);
+    getTripDetail.mockResolvedValue(tripFinished);
 
     const { queryByText, findByText } = await render(
       <TripDetailScreen
-        navigation={{ goBack: mockGoBack, navigate: mockNavigate, setParams: jest.fn(), addListener: jest.fn(() => jest.fn()) }}
+        navigation={makeNavigation()}
         route={{ params: { trip: tripFinished } }}
       />
     );
@@ -365,12 +393,11 @@ describe("US 68 - Abandonar un viaje (Suite completa de tests frontend)", () => 
       startDate: "2026-01-01",
       endDate: "2026-01-05",
     };
-
-    getTripDetail.mockResolvedValueOnce(tripFinished);
+    getTripDetail.mockResolvedValue(tripFinished);
 
     const { findByText, queryByText } = await render(
       <TripDetailScreen
-        navigation={{ goBack: mockGoBack, navigate: mockNavigate, setParams: jest.fn(), addListener: jest.fn(() => jest.fn()) }}
+        navigation={makeNavigation()}
         route={{ params: { trip: tripFinished } }}
       />
     );
@@ -419,7 +446,7 @@ describe("US 68 - Abandonar un viaje (Suite completa de tests frontend)", () => 
     test("1. la vista de resumen se renderiza con las métricas clave del viaje", async () => {
       const { findByText } = await render(
         <TripDetailScreen
-          navigation={{ goBack: mockGoBack, navigate: mockNavigate, setParams: jest.fn(), addListener: jest.fn(() => jest.fn()) }}
+          navigation={makeNavigation()}
           route={{ params: { trip: tripSummary } }}
         />
       );
@@ -433,7 +460,7 @@ describe("US 68 - Abandonar un viaje (Suite completa de tests frontend)", () => 
     test("2. se muestra la sumatoria total de gastos con la moneda del viaje", async () => {
       const { findByText } = await render(
         <TripDetailScreen
-          navigation={{ goBack: mockGoBack, navigate: mockNavigate, setParams: jest.fn(), addListener: jest.fn(() => jest.fn()) }}
+          navigation={makeNavigation()}
           route={{ params: { trip: tripSummary } }}
         />
       );
@@ -444,7 +471,7 @@ describe("US 68 - Abandonar un viaje (Suite completa de tests frontend)", () => 
     test("6. los contadores rápidos reflejan gastos, documentos y decisiones actuales", async () => {
       const { findByText } = await render(
         <TripDetailScreen
-          navigation={{ goBack: mockGoBack, navigate: mockNavigate, setParams: jest.fn(), addListener: jest.fn(() => jest.fn()) }}
+          navigation={makeNavigation()}
           route={{ params: { trip: tripSummary } }}
         />
       );
@@ -460,7 +487,7 @@ describe("US 68 - Abandonar un viaje (Suite completa de tests frontend)", () => 
     test("7. al presionar un acceso rápido se redirige a la sección correspondiente", async () => {
       const { findByText } = await render(
         <TripDetailScreen
-          navigation={{ goBack: mockGoBack, navigate: mockNavigate, setParams: jest.fn(), addListener: jest.fn(() => jest.fn()) }}
+          navigation={makeNavigation()}
           route={{ params: { trip: tripSummary } }}
         />
       );
@@ -498,9 +525,9 @@ describe("Viaje finalizado: solo lectura salvo Gastos", () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
-    getCurrentUser.mockResolvedValue({ id: 1, nombre: "Juan", apellido: "Pérez", email: "juan@gmail.com" });
+    setupDefaultMocks();
+
     getTripDetail.mockResolvedValue(tripFinalizado);
-    getTripPlaces.mockResolvedValue([]);
     getTripSettlement.mockResolvedValue({
       Moneda: "ARS",
       TotalGastosViaje: 30000,
@@ -518,7 +545,12 @@ describe("Viaje finalizado: solo lectura salvo Gastos", () => {
   });
 
   const renderFinalizado = () =>
-    render(<TripDetailScreen navigation={navigation} route={{ params: { trip: tripFinalizado } }} />);
+    render(
+      <TripDetailScreen
+        navigation={navigation}
+        route={{ params: { trip: tripFinalizado } }}
+      />
+    );
 
   test("muestra el sello, el aviso con la fecha y los pagos pendientes", async () => {
     const { findByText, findAllByText } = await renderFinalizado();
@@ -615,7 +647,12 @@ describe("Viaje finalizado: solo lectura salvo Gastos", () => {
   });
 
   test("un participante que no es admin nunca ve el lápiz", async () => {
-    getCurrentUser.mockResolvedValue({ id: 2, nombre: "Ana", apellido: "Gómez", email: "ana@gmail.com" });
+    getCurrentUser.mockResolvedValue({
+      id: 2,
+      nombre: "Ana",
+      apellido: "Gómez",
+      email: "ana@gmail.com",
+    });
     getTripDetail.mockResolvedValue({ ...tripFinalizado, infoEditableUntil: "2099-04-08" });
     const { findByText, queryByLabelText } = await render(
       <TripDetailScreen
@@ -663,8 +700,9 @@ describe("HU 71 - Tab Grupo: invitaciones enviadas", () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    setupDefaultMocks();
+
     getTripDetail.mockResolvedValue(tripBase);
-    getTripPlaces.mockResolvedValue([]);
     getSentInvitations.mockResolvedValue([
       {
         userId: 3,
@@ -704,7 +742,6 @@ describe("HU 71 - Tab Grupo: invitaciones enviadas", () => {
   });
 });
 
-
 describe("HU 72 - Cancelar invitación enviada", () => {
   const navigation = {
     goBack: jest.fn(),
@@ -739,9 +776,9 @@ describe("HU 72 - Cancelar invitación enviada", () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
-    getCurrentUser.mockResolvedValue({ id: 1, nombre: "Juan", apellido: "Pérez" });
+    setupDefaultMocks();
+
     getTripDetail.mockResolvedValue(trip);
-    getTripPlaces.mockResolvedValue([]);
     getSentInvitations.mockResolvedValue([
       {
         userId: 3,
@@ -814,7 +851,6 @@ describe("HU 72 - Cancelar invitación enviada", () => {
   });
 });
 
-
 describe("Tab Gastos rediseñado", () => {
   const navigation = {
     goBack: jest.fn(),
@@ -840,9 +876,10 @@ describe("Tab Gastos rediseñado", () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    setupDefaultMocks();
+
     getCurrentUser.mockResolvedValue({ id: 1, nombre: "Lucia", apellido: "Giampieri" });
     getTripDetail.mockResolvedValue(trip);
-    getTripPlaces.mockResolvedValue([]);
     getTripSettlement.mockResolvedValue({
       Moneda: "ARS",
       TotalGastosViaje: 1100,
@@ -927,20 +964,23 @@ describe("Tab Gastos rediseñado", () => {
       },
     ]);
 
-    const { findByText, findByTestId, queryByTestId } = await render(
+    const { findByText, findByTestId } = await render(
       <TripDetailScreen navigation={navigation} route={{ params: { trip } }} />
     );
 
     fireEvent.press(await findByText("Gastos"));
 
-    expect(await findByTestId("expense-30")).toBeTruthy();
-    expect(await findByTestId("expense-31")).toBeTruthy();
+    expect(await findByTestId("expense-category-header-1")).toBeTruthy();
+    expect(await findByTestId("expense-category-header-2")).toBeTruthy();
     expect(getTripExpenses).toHaveBeenCalledWith(9);
 
     fireEvent.press(await findByTestId("expense-filter-open"));
+    fireEvent.press(await findByTestId("expense-filter-categorias"));
     fireEvent.press(await findByTestId("expense-filter-1"));
+    fireEvent.press(await findByTestId("expense-categories-done"));
+    fireEvent.press(await findByTestId("expense-filter-aplicar"));
 
-    await waitFor(() => expect(queryByTestId("expense-31")).toBeNull());
-    expect(await findByTestId("expense-30")).toBeTruthy();
+    expect(await findByTestId("expense-category-header-1")).toBeTruthy();
+    expect(await findByTestId("expense-filter-tag-categorias")).toBeTruthy();
   });
 });

@@ -1,8 +1,6 @@
 import { act, fireEvent, render } from "@testing-library/react-native";
 
-import DocumentosPorCategoria, {
-  ID_TODAS,
-} from "../components/trip/DocumentsByCategory";
+import DocumentosPorCategoria from "../components/trip/DocumentsByCategory";
 
 function documento(overrides = {}) {
   return {
@@ -22,8 +20,6 @@ describe("DocumentsByCategory", () => {
     const { getByText } = await render(
       <DocumentosPorCategoria
         documentos={[]}
-        categoriaFiltro={ID_TODAS}
-        onCategoriaChange={jest.fn()}
       />
     );
 
@@ -32,7 +28,7 @@ describe("DocumentsByCategory", () => {
     ).toBeTruthy();
   });
 
-  it("agrupa los documentos por categoría y muestra el contador de cada chip", async () => {
+  it("agrupa los documentos por categoría y muestra el contador de cada sección", async () => {
     const documentos = [
       documento({ IdDocumento: 1, IdCategoriaDocumento: 10, NombreCategoria: "Pasajes" }),
       documento({ IdDocumento: 2, IdCategoriaDocumento: 10, NombreCategoria: "Pasajes" }),
@@ -42,14 +38,13 @@ describe("DocumentsByCategory", () => {
     const { getByText } = await render(
       <DocumentosPorCategoria
         documentos={documentos}
-        categoriaFiltro={ID_TODAS}
-        onCategoriaChange={jest.fn()}
       />
     );
 
-    expect(getByText("Todos (3)")).toBeTruthy();
-    expect(getByText("Pasajes (2)")).toBeTruthy();
-    expect(getByText("Alojamiento (1)")).toBeTruthy();
+    expect(getByText("Pasajes")).toBeTruthy();
+    expect(getByText("2")).toBeTruthy();
+    expect(getByText("Alojamiento")).toBeTruthy();
+    expect(getByText("1")).toBeTruthy();
   });
 
   it("ordena las categorías alfabéticamente y deja 'Otros' siempre al final", async () => {
@@ -62,96 +57,19 @@ describe("DocumentsByCategory", () => {
     const { getAllByText } = await render(
       <DocumentosPorCategoria
         documentos={documentos}
-        categoriaFiltro={ID_TODAS}
-        onCategoriaChange={jest.fn()}
       />
     );
 
-    // Los títulos de sección se renderizan en el mismo orden que las chips.
     const titulos = getAllByText(/^(Otros|Vuelos|Alojamiento)$/).map(
       (n) => n.props.children
     );
     expect(titulos).toEqual(["Alojamiento", "Vuelos", "Otros"]);
   });
 
-  it("al tocar un chip de categoría, llama a onCategoriaChange con el id correspondiente", async () => {
-    const onCategoriaChange = jest.fn();
-    const documentos = [
-      documento({ IdDocumento: 1, IdCategoriaDocumento: 10, NombreCategoria: "Pasajes" }),
-    ];
-
-    const { getByTestId } = await render(
-      <DocumentosPorCategoria
-        documentos={documentos}
-        categoriaFiltro={ID_TODAS}
-        onCategoriaChange={onCategoriaChange}
-      />
-    );
-
-    fireEvent.press(getByTestId("documentos-categoria-10"));
-
-    expect(onCategoriaChange).toHaveBeenCalledWith(10);
-  });
-
-  it("al tocar el chip 'Todos', llama a onCategoriaChange con ID_TODAS", async () => {
-    const onCategoriaChange = jest.fn();
-    const documentos = [documento({ IdCategoriaDocumento: 10, NombreCategoria: "Pasajes" })];
-
-    const { getByTestId } = await render(
-      <DocumentosPorCategoria
-        documentos={documentos}
-        categoriaFiltro={10}
-        onCategoriaChange={onCategoriaChange}
-      />
-    );
-
-    fireEvent.press(getByTestId("documentos-categoria-todas"));
-
-    expect(onCategoriaChange).toHaveBeenCalledWith(ID_TODAS);
-  });
-
-  it("al filtrar por una categoría puntual, oculta el título de sección y solo muestra esos documentos", async () => {
-    const documentos = [
-      documento({ IdDocumento: 1, IdCategoriaDocumento: 10, NombreCategoria: "Pasajes", NombreArchivo: "vuelo.pdf" }),
-      documento({ IdDocumento: 2, IdCategoriaDocumento: 20, NombreCategoria: "Alojamiento", NombreArchivo: "hotel.pdf" }),
-    ];
-
-    const { getByText, queryByText } = await render(
-      <DocumentosPorCategoria
-        documentos={documentos}
-        categoriaFiltro={10}
-        onCategoriaChange={jest.fn()}
-      />
-    );
-
-    expect(getByText("vuelo.pdf")).toBeTruthy();
-    expect(queryByText("hotel.pdf")).toBeNull();
-    // ocultarTitulo: el nombre de categoría no debe aparecer como título de sección
-    expect(queryByText("Pasajes")).toBeNull();
-  });
-
-  it("si categoriaFiltro no corresponde a ninguna categoría existente, avisa y pide volver a 'Todos'", async () => {
-    const onCategoriaChange = jest.fn();
-    const documentos = [documento({ IdCategoriaDocumento: 10, NombreCategoria: "Pasajes" })];
-
-    const { getByText } = await render(
-      <DocumentosPorCategoria
-        documentos={documentos}
-        categoriaFiltro={999}
-        onCategoriaChange={onCategoriaChange}
-      />
-    );
-
-    expect(getByText("No hay documentos en esta categoría.")).toBeTruthy();
-    expect(onCategoriaChange).toHaveBeenCalledWith(ID_TODAS);
-  });
-
   it("muestra el badge PÚBLICO cuando el documento es público", async () => {
     const { getByText } = await render(
       <DocumentosPorCategoria
         documentos={[documento({ EsPublico: true })]}
-        categoriaFiltro={ID_TODAS}
-        onCategoriaChange={jest.fn()}
       />
     );
 
@@ -162,8 +80,6 @@ describe("DocumentsByCategory", () => {
     const { getByText } = await render(
       <DocumentosPorCategoria
         documentos={[documento({ EsPublico: false })]}
-        categoriaFiltro={ID_TODAS}
-        onCategoriaChange={jest.fn()}
       />
     );
 
@@ -177,8 +93,6 @@ describe("DocumentsByCategory", () => {
     const { getByTestId, queryByTestId } = await render(
       <DocumentosPorCategoria
         documentos={[propio, ajeno]}
-        categoriaFiltro={ID_TODAS}
-        onCategoriaChange={jest.fn()}
       />
     );
 
@@ -198,8 +112,6 @@ describe("DocumentsByCategory", () => {
     const { getByTestId } = await render(
       <DocumentosPorCategoria
         documentos={[doc]}
-        categoriaFiltro={ID_TODAS}
-        onCategoriaChange={jest.fn()}
         onAbrir={onAbrir}
         onDescargar={onDescargar}
         onEditar={onEditar}
@@ -232,8 +144,6 @@ describe("DocumentsByCategory", () => {
     const { getByText, getByTestId } = await render(
       <DocumentosPorCategoria
         documentos={[doc]}
-        categoriaFiltro={ID_TODAS}
-        onCategoriaChange={jest.fn()}
         descargandoDocId={7}
       />
     );
@@ -248,8 +158,6 @@ describe("DocumentsByCategory", () => {
     const { getByText, getByTestId } = await render(
       <DocumentosPorCategoria
         documentos={[doc]}
-        categoriaFiltro={ID_TODAS}
-        onCategoriaChange={jest.fn()}
         eliminandoDocId={8}
       />
     );
@@ -267,8 +175,6 @@ describe("DocumentsByCategory", () => {
     const { getByText } = await render(
       <DocumentosPorCategoria
         documentos={[doc]}
-        categoriaFiltro={ID_TODAS}
-        onCategoriaChange={jest.fn()}
       />
     );
 

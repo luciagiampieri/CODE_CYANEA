@@ -218,28 +218,28 @@ def test_cp3_se_usa_el_total_y_el_prompt_exige_ignorar_subtotales(
     assert "subtotal" in prompt
 
 
-def test_cp4_formato_no_soportado(
+def test_cp4_formato_soportado_pdf(
     client, auth_headers, viaje_con_admin, datos_gastos, con_consentimiento, extractor
 ):
     viaje, _ = viaje_con_admin
 
     response = _escanear(client, viaje.IdViaje, auth_headers, PDF, "ticket.pdf", "application/pdf")
 
-    assert response.status_code == 415
-    assert response.headers["X-Error-Code"] == "RECEIPT_INVALID_FORMAT"
-    assert extractor.llamadas == []
+    assert response.status_code == 200
+    assert extractor.llamadas != []
+    assert extractor.llamadas[0]["mime_type"] == "application/pdf"
 
 
-def test_cp4_extension_valida_con_contenido_invalido(
+def test_cp4_extension_con_contenido_pdf(
     client, auth_headers, viaje_con_admin, datos_gastos, con_consentimiento, extractor
 ):
-    """El formato se valida por la firma real del archivo, no por la extensión."""
+    """Si el archivo contiene bytes de PDF, ahora se procesa correctamente como PDF."""
     viaje, _ = viaje_con_admin
 
-    response = _escanear(client, viaje.IdViaje, auth_headers, PDF, "trucho.jpg", "image/jpeg")
+    response = _escanear(client, viaje.IdViaje, auth_headers, PDF, "archivo.jpg", "application/pdf")
 
-    assert response.status_code == 415
-    assert extractor.llamadas == []
+    assert response.status_code == 200
+    assert extractor.llamadas != []
 
 
 def test_cp5_imagen_mayor_a_10_mb(
