@@ -750,6 +750,18 @@ export async function getCurrencies() {
   );
 }
 
+// Convierte un monto con la cotización del servicio de la US-85. Lo usa el
+// formulario de gasto precargado desde un comprobante para completar el monto
+// en ARS automáticamente (US 94). Responde 503 si la cotización no está disponible.
+export async function getExchangeRate({ origen, destino = "ARS", monto, fecha }) {
+  const params = new URLSearchParams({ origen, destino, monto: String(monto) });
+  if (fecha) params.append("fecha", fecha);
+  const response = await fetch(`${API_BASE_URL}/monedas/cotizacion?${params.toString()}`, {
+    headers: await authHeaders(),
+  });
+  return parseResponse(response, "No se pudo obtener la cotización");
+}
+
 export async function searchCurrencies(search = "") {
   const params = new URLSearchParams();
 

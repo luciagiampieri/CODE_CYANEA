@@ -89,7 +89,7 @@ describe("US 93 - ReceiptScanButton", () => {
 
     await escanearDesde(utils, "Tomar foto");
 
-    await waitFor(() => expect(onScanned).toHaveBeenCalledWith(DATOS));
+    await waitFor(() => expect(onScanned).toHaveBeenCalledWith(DATOS, expect.objectContaining({ uri: expect.any(String) })));
     expect(ImagePicker.requestCameraPermissionsAsync).toHaveBeenCalled();
     expect(ImagePicker.launchCameraAsync).toHaveBeenCalled();
     // Se envía la imagen comprimida, no la original (AC4).
@@ -104,7 +104,7 @@ describe("US 93 - ReceiptScanButton", () => {
 
     await escanearDesde(utils, "Elegir de la galería");
 
-    await waitFor(() => expect(onScanned).toHaveBeenCalledWith(DATOS));
+    await waitFor(() => expect(onScanned).toHaveBeenCalledWith(DATOS, expect.objectContaining({ uri: expect.any(String) })));
     expect(ImagePicker.launchImageLibraryAsync).toHaveBeenCalled();
     expect(ImagePicker.launchCameraAsync).not.toHaveBeenCalled();
   });
@@ -123,7 +123,7 @@ describe("US 93 - ReceiptScanButton", () => {
     expect(ImagePicker.launchImageLibraryAsync).toHaveBeenCalledWith(
       expect.objectContaining({ preferredAssetRepresentationMode: "compatible" })
     );
-    await waitFor(() => expect(onScanned).toHaveBeenCalledWith(DATOS));
+    await waitFor(() => expect(onScanned).toHaveBeenCalledWith(DATOS, expect.objectContaining({ uri: expect.any(String) })));
     // Lo que se envía es el JPEG comprimido, no el HEIC original.
     expect(scanReceipt).toHaveBeenCalledWith(10, expect.objectContaining({ mimeType: "image/jpeg" }));
   });
@@ -177,7 +177,7 @@ describe("US 93 - ReceiptScanButton", () => {
     await escanearDesde(utils);
     await presionar(utils, "Aceptar y continuar");
 
-    await waitFor(() => expect(onScanned).toHaveBeenCalledWith(DATOS));
+    await waitFor(() => expect(onScanned).toHaveBeenCalledWith(DATOS, expect.objectContaining({ uri: expect.any(String) })));
     expect(updateAiConsent).toHaveBeenCalledWith(true);
   });
 
@@ -249,7 +249,7 @@ describe("US 93 - ReceiptScanButton", () => {
 
     await act(async () => resolver(DATOS));
     await waitFor(() => expect(utils.queryByTestId("receipt-scan-progress")).toBeNull());
-    expect(onScanned).toHaveBeenCalledWith(DATOS);
+    expect(onScanned).toHaveBeenCalledWith(DATOS, expect.objectContaining({ uri: expect.any(String) }));
   });
 
   it("AC15: si supera el tiempo máximo corta la espera y ofrece la carga manual", async () => {

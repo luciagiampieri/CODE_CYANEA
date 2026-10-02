@@ -17,7 +17,9 @@ const CREATE_GASTOS_PENDIENTES = `
     tipo_division TEXT,
     ids_participantes TEXT,
     detalle_montos TEXT,
-    creado_en TEXT
+    creado_en TEXT,
+    desde_comprobante INTEGER NOT NULL DEFAULT 0,
+    monto_convertido_ars REAL
   );
 `;
 
@@ -37,6 +39,9 @@ const COLUMNAS_ESPERADAS = [
   "ids_participantes",
   "detalle_montos",
   "creado_en",
+  // US 94: gasto confirmado desde un comprobante y su monto convertido a ARS (RN-39)
+  "desde_comprobante",
+  "monto_convertido_ars",
 ];
 
 function migrarGastosPendientes() {
@@ -83,7 +88,7 @@ function migrarGastosPendientes() {
       INSERT INTO gastos_pendientes
         (id_viaje, nombre, monto_original, moneda_original, id_categoria, id_pagador,
          fecha_gasto, es_compartido, dividir_entre_todos, tipo_division,
-         ids_participantes, detalle_montos, creado_en)
+         ids_participantes, detalle_montos, creado_en, desde_comprobante, monto_convertido_ars)
       SELECT
         ${col("id_viaje", "0")},
         ${col("nombre", "''")},
@@ -97,7 +102,9 @@ function migrarGastosPendientes() {
         ${col("tipo_division", "NULL")},
         ${col("ids_participantes", "'[]'")},
         ${col("detalle_montos", "'[]'")},
-        ${col("creado_en", "NULL")}
+        ${col("creado_en", "NULL")},
+        ${col("desde_comprobante", "0")},
+        ${col("monto_convertido_ars", "NULL")}
       FROM gastos_pendientes_old;
     `);
 
@@ -110,6 +117,17 @@ function migrarGastosPendientes() {
     db.execSync(`DROP TABLE IF EXISTS gastos_pendientes_old;`);
     db.execSync(`DROP TABLE IF EXISTS gastos_pendientes;`);
     db.execSync(CREATE_GASTOS_PENDIENTES);
+  }
+}
+
+// US 94: marca al usuario actual para precargarlo como pagador sin conexión.
+// CREATE TABLE IF NOT EXISTS no agrega columnas a instalaciones existentes.
+function migrarCacheParticipantes() {
+  const columnas = db.getAllSync(`PRAGMA table_info(cache_participantes)`).map((c) => c.name);
+  if (columnas.length > 0 && !columnas.includes("es_usuario_actual")) {
+    db.execSync(
+      `ALTER TABLE cache_participantes ADD COLUMN es_usuario_actual INTEGER NOT NULL DEFAULT 0;`
+    );
   }
 }
 
@@ -130,9 +148,11 @@ export function inicializarBaseDeDatos() {
         id_viaje INTEGER NOT NULL,
         nombre TEXT NOT NULL,
         apellido TEXT,
-        nombre_usuario TEXT NOT NULL
+        nombre_usuario TEXT NOT NULL,
+        es_usuario_actual INTEGER NOT NULL DEFAULT 0
       );
     `);
+    migrarCacheParticipantes();
   } catch (error) {
     console.error("Error SQLite:", error);
   }

@@ -763,7 +763,7 @@ export default function CreateTripScreen({ navigation }) {
                     label="Título del viaje *"
                     name="title"
                     onChange={handleInputChange}
-                    placeholder="Ej: Escapada a Bariloche"
+                    placeholder="Escapada a Bariloche"
                     value={form.title}
                   />
 

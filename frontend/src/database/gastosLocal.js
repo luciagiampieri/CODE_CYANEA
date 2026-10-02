@@ -19,8 +19,8 @@ export function guardarGastoOffline(gasto) {
     db.runSync(
       `
       INSERT INTO gastos_pendientes 
-      (id_viaje, nombre, monto_original, moneda_original, id_categoria, id_pagador, fecha_gasto, es_compartido, dividir_entre_todos, tipo_division, ids_participantes, detalle_montos, creado_en)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      (id_viaje, nombre, monto_original, moneda_original, id_categoria, id_pagador, fecha_gasto, es_compartido, dividir_entre_todos, tipo_division, ids_participantes, detalle_montos, creado_en, desde_comprobante, monto_convertido_ars)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `,
       [
         gasto.IdViaje,
@@ -35,7 +35,11 @@ export function guardarGastoOffline(gasto) {
         gasto.TipoDivision || null,
         JSON.stringify(gasto.IdParticipantes || []),
         JSON.stringify(gasto.DetalleMontosPersonalizados || []),
-        new Date().toISOString()
+        new Date().toISOString(),
+        // US 94: sin esto, al sincronizar se aplicaría la cotización automática
+        // en lugar del monto en ARS que ingresó el usuario (RN-39).
+        gasto.DesdeComprobante ? 1 : 0,
+        gasto.MontoConvertidoARS ?? null,
       ]
     );
     return true;
@@ -91,6 +95,11 @@ export async function sincronizarGastosOffline() {
           IdParticipantes: JSON.parse(gasto.ids_participantes || "[]"),
           DetalleMontosPersonalizados: JSON.parse(gasto.detalle_montos || "[]")
         };
+
+        if (gasto.desde_comprobante === 1) {
+          payload.DesdeComprobante = true;
+          payload.MontoConvertidoARS = gasto.monto_convertido_ars ?? null;
+        }
 
         await createExpense(payload);
 
@@ -163,8 +172,8 @@ export function guardarParticipantesEnCache(idViaje, participantes) {
     db.runSync(`DELETE FROM cache_participantes WHERE id_viaje = ?`, [idViaje]);
     for (const p of participantes) {
       db.runSync(
-        `INSERT OR REPLACE INTO cache_participantes (id_participante_viaje, id_viaje, nombre, apellido, nombre_usuario) VALUES (?, ?, ?, ?, ?)`,
-        [p.IdParticipanteViaje, idViaje, p.Nombre, p.Apellido, p.NombreUsuario]
+        `INSERT OR REPLACE INTO cache_participantes (id_participante_viaje, id_viaje, nombre, apellido, nombre_usuario, es_usuario_actual) VALUES (?, ?, ?, ?, ?, ?)`,
+        [p.IdParticipanteViaje, idViaje, p.Nombre, p.Apellido, p.NombreUsuario, p.EsUsuarioActual ? 1 : 0]
       );
     }
   } catch (e) {
@@ -179,11 +188,11 @@ export function obtenerParticipantesCache(idViaje) {
 
   try {
     const rows = db.getAllSync(
-      `SELECT id_participante_viaje AS IdParticipanteViaje, id_viaje AS IdViaje, nombre AS Nombre, apellido AS Apellido, nombre_usuario AS NombreUsuario 
+      `SELECT id_participante_viaje AS IdParticipanteViaje, id_viaje AS IdViaje, nombre AS Nombre, apellido AS Apellido, nombre_usuario AS NombreUsuario, es_usuario_actual AS EsUsuarioActual
        FROM cache_participantes WHERE id_viaje = ?`,
       [idViaje]
     );
-    return rows;
+    return rows.map((p) => ({ ...p, EsUsuarioActual: p.EsUsuarioActual === 1 }));
   } catch (e) {
     console.error("Error leyendo caché de participantes de SQLite:", e);
     return [];

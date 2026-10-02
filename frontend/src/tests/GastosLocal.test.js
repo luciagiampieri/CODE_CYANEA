@@ -111,6 +111,23 @@ describe("gastosLocal - cola offline", () => {
       expect(Number.isNaN(Date.parse(params[12]))).toBe(false);
     });
 
+    it("un gasto manual se guarda sin marca de comprobante", () => {
+      guardarGastoOffline(gastoBase);
+
+      const [, params] = db.runSync.mock.calls[0];
+      expect(params[13]).toBe(0); // desde_comprobante
+      expect(params[14]).toBeNull(); // monto_convertido_ars
+    });
+
+    it("US 94: conserva el monto convertido a ARS de un comprobante en otra moneda", () => {
+      guardarGastoOffline({ ...gastoBase, MontoOriginal: 50, DesdeComprobante: true, MontoConvertidoARS: 60000 });
+
+      const [sql, params] = db.runSync.mock.calls[0];
+      expect(sql).toContain("monto_convertido_ars");
+      expect(params[13]).toBe(1);
+      expect(params[14]).toBe(60000);
+    });
+
     it("serializa un gasto compartido con división personalizada", () => {
       guardarGastoOffline({
         ...gastoBase,
@@ -297,6 +314,35 @@ describe("gastosLocal - cola offline", () => {
       });
     });
 
+    it("US 94: al sincronizar un gasto de comprobante envía el monto en ARS ingresado (RN-39)", async () => {
+      db.getAllSync.mockReturnValue([
+        { ...filaPendiente, monto_original: 50, desde_comprobante: 1, monto_convertido_ars: 60000 },
+      ]);
+      createExpense.mockResolvedValue({ IdGasto: 99 });
+
+      await sincronizarGastosOffline();
+
+      expect(createExpense).toHaveBeenCalledWith(
+        expect.objectContaining({
+          MontoOriginal: 50,
+          MonedaOriginal: "USD",
+          DesdeComprobante: true,
+          MontoConvertidoARS: 60000,
+        })
+      );
+    });
+
+    it("un gasto manual pendiente se sincroniza sin los campos del comprobante", async () => {
+      db.getAllSync.mockReturnValue([{ ...filaPendiente, desde_comprobante: 0, monto_convertido_ars: null }]);
+      createExpense.mockResolvedValue({ IdGasto: 99 });
+
+      await sincronizarGastosOffline();
+
+      const [payload] = createExpense.mock.calls[0];
+      expect(payload).not.toHaveProperty("DesdeComprobante");
+      expect(payload).not.toHaveProperty("MontoConvertidoARS");
+    });
+
     it("sincroniza con la fecha del gasto y no con la fecha en que vuelve la conexión", async () => {
       jest.useFakeTimers().setSystemTime(new Date("2026-09-05T12:00:00Z")); // 16 días después del gasto
       db.getAllSync.mockReturnValue([{ ...filaPendiente, moneda_original: "EUR", monto_original: 100 }]);
@@ -465,15 +511,31 @@ describe("gastosLocal - cola offline", () => {
         "Juan",
         "Pérez",
         "jperez",
+        0,
       ]);
     });
 
+    it("US 94: guarda qué participante es el usuario actual", () => {
+      guardarParticipantesEnCache(10, [{ ...participante, EsUsuarioActual: true }]);
+
+      const [sql, params] = db.runSync.mock.calls[1];
+      expect(sql).toContain("es_usuario_actual");
+      expect(params[5]).toBe(1);
+    });
+
     it("en nativo lee los participantes cacheados del viaje", () => {
-      db.getAllSync.mockReturnValue([{ IdParticipanteViaje: 5, IdViaje: 10, Nombre: "Juan" }]);
+      db.getAllSync.mockReturnValue([
+        { IdParticipanteViaje: 5, IdViaje: 10, Nombre: "Juan", EsUsuarioActual: 1 },
+        { IdParticipanteViaje: 6, IdViaje: 10, Nombre: "Ana", EsUsuarioActual: 0 },
+      ]);
 
       const resultado = obtenerParticipantesCache(10);
 
-      expect(resultado).toEqual([{ IdParticipanteViaje: 5, IdViaje: 10, Nombre: "Juan" }]);
+      // SQLite devuelve 0/1: se convierte a booleano como lo entrega la API (US 94).
+      expect(resultado).toEqual([
+        { IdParticipanteViaje: 5, IdViaje: 10, Nombre: "Juan", EsUsuarioActual: true },
+        { IdParticipanteViaje: 6, IdViaje: 10, Nombre: "Ana", EsUsuarioActual: false },
+      ]);
       expect(db.getAllSync).toHaveBeenCalledWith(expect.stringContaining("WHERE id_viaje = ?"), [10]);
     });
   });

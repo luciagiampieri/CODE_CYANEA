@@ -17,7 +17,7 @@ const DISABLED_DAY_COLOR = "#c9ced6";
  *
  * @param {boolean} visible
  * @param {() => void} onClose
- * @param {string} title - texto arriba del calendario (ej: "Fecha de ida")
+ * @param {string} title - texto arriba del calendario ("Fecha de ida")
  * @param {string} value - fecha seleccionada en formato "YYYY-MM-DD", o ""
  * @param {(ymd: string) => void} onChange
  * @param {Date} [minDate] - fecha mínima seleccionable

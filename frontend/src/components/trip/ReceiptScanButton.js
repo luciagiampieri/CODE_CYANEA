@@ -1,9 +1,10 @@
 /**
  * Escanear comprobante de gasto mediante IA (US 93).
  *
- * Maneja todo el flujo y entrega a `onScanned` los datos para precargar el
- * formulario. Nunca registra el gasto: eso lo hace el usuario al confirmar
- * el formulario (RNF-31).
+ * Maneja todo el flujo y entrega a `onScanned(datos, imagen)` los datos para
+ * precargar el formulario y la imagen procesada (`imagen.uri`), que el
+ * formulario muestra como vista previa (US 94, AC1). Nunca registra el gasto:
+ * eso lo hace el usuario al confirmar el formulario (RNF-31).
  *
  * Flujo: origen (cámara o galería, AC2) -> consentimiento la primera vez
  * (AC5) -> validación de formato y tamaño (AC3) -> compresión (AC4) ->
@@ -148,7 +149,7 @@ export default function ReceiptScanButton({
     try {
       const imagen = await comprimirImagenComprobante(asset);
       const datos = await conTiempoMaximo(scanReceipt(tripId, imagen), timeoutMs);
-      if (montadoRef.current) onScanned?.(datos);
+      if (montadoRef.current) onScanned?.(datos, imagen);
     } catch (e) {
       if (e?.code === "AI_CONSENT_REQUIRED") {
         // El backend no tiene el consentimiento (por ejemplo, se revocó en otro dispositivo).

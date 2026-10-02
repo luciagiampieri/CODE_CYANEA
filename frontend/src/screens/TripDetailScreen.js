@@ -3041,6 +3041,8 @@ export default function TripDetailScreen({ navigation, route }) {
         visible={showAddGastoModal}
         IdViaje={trip?.id}
         Moneda={trip?.currency}
+        FechaInicioViaje={trip?.startDate}
+        FechaFinViaje={trip?.endDate}
         puedeEscanear={!lock.isFinished}
         onClose={() => setShowAddGastoModal(false)}
         onGastoCreado={() => {
@@ -3063,6 +3065,9 @@ export default function TripDetailScreen({ navigation, route }) {
         visible={showAddDocumentModal}
         onClose={() => setShowAddDocumentModal(false)}
         tripId={trip?.id}
+        tripMoneda={trip?.currency}
+        tripFechaInicio={trip?.startDate}
+        tripFechaFin={trip?.endDate}
         onDocumentoSubido={() => loadDocumentos()}
       />
       <EditDocumentScreen

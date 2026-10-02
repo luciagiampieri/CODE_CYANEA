@@ -145,6 +145,10 @@ function errorDelServidor(status, message) {
 async function registrarGastoEnEurosConFechaPasada(utils) {
   mockDatosEscaneo = GASTO_EN_EUR_PASADO;
   await press(utils, "Simular escaneo");
+  // US 94 (RN-39): un comprobante en otra moneda exige el monto convertido a ARS.
+  await act(async () => {
+    fireEvent.changeText(utils.getByTestId("monto-ars-input"), "180000");
+  });
   await press(utils, "Registrar gasto");
 }
 

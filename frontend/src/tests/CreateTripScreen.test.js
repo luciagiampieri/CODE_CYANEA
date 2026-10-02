@@ -190,7 +190,7 @@ describe("US - Crear viaje (CreateTripScreen)", () => {
     // PASO 1
     await act(async () => {
       fireEvent.changeText(
-        utils.getByPlaceholderText("Ej: Escapada a Bariloche"),
+        utils.getByPlaceholderText("Escapada a Bariloche"),
         "Viaje de prueba"
       );
     });
@@ -266,7 +266,7 @@ describe("US - Crear viaje (CreateTripScreen)", () => {
 
     await act(async () => {
       fireEvent.changeText(
-        utils.getByPlaceholderText("Ej: Escapada a Bariloche"),
+        utils.getByPlaceholderText("Escapada a Bariloche"),
         "Viaje de prueba"
       );
     });
@@ -299,7 +299,7 @@ describe("US - Crear viaje (CreateTripScreen)", () => {
 
     await act(async () => {
       fireEvent.changeText(
-        utils.getByPlaceholderText("Ej: Escapada a Bariloche"),
+        utils.getByPlaceholderText("Escapada a Bariloche"),
         "Viaje de prueba"
       );
     });
@@ -347,7 +347,7 @@ describe("US - Crear viaje (CreateTripScreen)", () => {
     // Completar paso 1 y avanzar al paso 2
     await act(async () => {
       fireEvent.changeText(
-        utils.getByPlaceholderText("Ej: Escapada a Bariloche"),
+        utils.getByPlaceholderText("Escapada a Bariloche"),
         "Viaje de prueba"
       );
     });
@@ -416,7 +416,7 @@ describe("US - Crear viaje (CreateTripScreen)", () => {
     // PASO 1: información básica
     await act(async () => {
       fireEvent.changeText(
-        utils.getByPlaceholderText("Ej: Escapada a Bariloche"),
+        utils.getByPlaceholderText("Escapada a Bariloche"),
         "Viaje de egresados"
       );
     });
@@ -522,7 +522,7 @@ describe("US - Crear viaje (CreateTripScreen)", () => {
     // PASO 1: información básica
     await act(async () => {
       fireEvent.changeText(
-        utils.getByPlaceholderText("Ej: Escapada a Bariloche"),
+        utils.getByPlaceholderText("Escapada a Bariloche"),
         "Viaje de egresados"
       );
     });
@@ -606,7 +606,7 @@ describe("US - Crear viaje (CreateTripScreen)", () => {
     // PASO 1: completar información básica
     await act(async () => {
       fireEvent.changeText(
-        utils.getByPlaceholderText("Ej: Escapada a Bariloche"),
+        utils.getByPlaceholderText("Escapada a Bariloche"),
         "Viaje de prueba"
       );
     });
@@ -680,7 +680,7 @@ describe("US - Crear viaje (CreateTripScreen)", () => {
     // PASO 1: información básica
     await act(async () => {
       fireEvent.changeText(
-        utils.getByPlaceholderText("Ej: Escapada a Bariloche"),
+        utils.getByPlaceholderText("Escapada a Bariloche"),
         "Viaje de egresados"
       );
     });
@@ -775,7 +775,7 @@ describe("US - Crear viaje (CreateTripScreen)", () => {
     // PASO 1: completar información básica
     await act(async () => {
       fireEvent.changeText(
-        utils.getByPlaceholderText("Ej: Escapada a Bariloche"),
+        utils.getByPlaceholderText("Escapada a Bariloche"),
         "Viaje de prueba"
       );
     });
@@ -822,7 +822,7 @@ describe("US - Crear viaje (CreateTripScreen)", () => {
     // PASO 1: completar información básica
     await act(async () => {
       fireEvent.changeText(
-        utils.getByPlaceholderText("Ej: Escapada a Bariloche"),
+        utils.getByPlaceholderText("Escapada a Bariloche"),
         "Viaje de prueba"
       );
     });
@@ -867,7 +867,7 @@ describe("US - Crear viaje (CreateTripScreen)", () => {
     // PASO 1: completar información básica
     await act(async () => {
       fireEvent.changeText(
-        utils.getByPlaceholderText("Ej: Escapada a Bariloche"),
+        utils.getByPlaceholderText("Escapada a Bariloche"),
         "Viaje de prueba"
       );
     });
@@ -907,7 +907,7 @@ describe("US - Crear viaje (CreateTripScreen)", () => {
     // PASO 1: completar información básica
     await act(async () => {
       fireEvent.changeText(
-        utils.getByPlaceholderText("Ej: Escapada a Bariloche"),
+        utils.getByPlaceholderText("Escapada a Bariloche"),
         "Viaje de prueba"
       );
     });

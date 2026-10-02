@@ -99,6 +99,72 @@ def _validar_participantes_activos(
         )
 
 
+MONEDA_PESOS_ARGENTINOS = "ARS"
+CONVERSION_REQUIRED_CODE = "CONVERSION_REQUIRED"
+TIPO_CAMBIO_PRECISION = Decimal("0.000001")
+
+
+def _cotizacion(origen: str, destino: str, fecha: date) -> Decimal:
+    try:
+        # Se pasa la fecha del gasto para contemplar registros offline o históricos
+        return Decimal(str(obtener_tipo_cambio(origen, destino, fecha=fecha)))
+    except Exception:
+        # Si el servicio no está disponible, lanzamos 503 (US-85)
+        raise HTTPException(
+            status_code=503,
+            detail="Servicio de cotización no disponible. No se pudo realizar la conversión de moneda.",
+        )
+
+
+def _resolver_conversion(
+    data: GastoCreate,
+    moneda_gasto: str,
+    moneda_base: str,
+    fecha_gasto: date,
+) -> tuple[Decimal, Decimal]:
+    """Devuelve (monto en la moneda base del viaje, tipo de cambio aplicado).
+
+    - Carga manual (US-85): si la moneda difiere de la del viaje, se convierte
+      con el servicio de cotización.
+    - Gasto confirmado desde un comprobante (US 94): si la moneda no es ARS, el
+      usuario informa el monto convertido a pesos argentinos (RN-39) y se usa
+      ese valor en lugar de la cotización automática.
+    """
+    en_otra_moneda = moneda_gasto != MONEDA_PESOS_ARGENTINOS
+
+    if data.MontoConvertidoARS is not None and en_otra_moneda:
+        if data.MontoConvertidoARS <= 0:
+            raise HTTPException(
+                status_code=400,
+                detail="El monto convertido a pesos argentinos debe ser mayor a cero.",
+            )
+        monto_ars = data.MontoConvertidoARS
+        if moneda_base == MONEDA_PESOS_ARGENTINOS:
+            monto_convertido = monto_ars
+        else:
+            # Viaje con otra moneda base: se lleva el monto en ARS a esa moneda.
+            monto_convertido = monto_ars * _cotizacion(MONEDA_PESOS_ARGENTINOS, moneda_base, fecha_gasto)
+        tipo_cambio = (monto_convertido / data.MontoOriginal).quantize(TIPO_CAMBIO_PRECISION)
+        return monto_convertido, tipo_cambio
+
+    if data.DesdeComprobante and en_otra_moneda:
+        # RN-39: no se confirma un gasto escaneado sin la conversión a ARS.
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"El comprobante está en {moneda_gasto}. Ingresá el monto convertido "
+                "a pesos argentinos (ARS) para registrar el gasto."
+            ),
+            headers={"X-Error-Code": CONVERSION_REQUIRED_CODE},
+        )
+
+    if moneda_gasto != moneda_base:
+        tipo_cambio = _cotizacion(moneda_gasto, moneda_base, fecha_gasto)
+        return data.MontoOriginal * tipo_cambio, tipo_cambio
+
+    return data.MontoOriginal, Decimal("1.0")
+
+
 @router.post("")
 async def create_gasto(data: GastoCreate, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)):
 
@@ -117,30 +183,27 @@ async def create_gasto(data: GastoCreate, db: Session = Depends(get_db), current
             detail="La fecha del gasto no puede ser posterior a la fecha actual."
         )
 
-    # === LÓGICA DE CONVERSIÓN DE MONEDA (US-85) ===
-    # Obtenemos la moneda base configurada en el viaje (por defecto USD si no estuviera definida)
-    moneda_base = getattr(viaje, "Moneda", "USD") 
+    # RN-21: el monto debe ser numérico (lo garantiza el schema) y mayor a cero.
+    if data.MontoOriginal is None or data.MontoOriginal <= 0:
+        raise HTTPException(
+            status_code=400,
+            detail="El monto del gasto debe ser mayor a cero.",
+        )
+
+    # RN-19: en un gasto compartido el pagador es obligatorio y debe ser un
+    # participante activo del viaje. En un gasto personal paga el usuario actual.
+    if data.EsCompartido:
+        if data.IdPagador is None:
+            raise HTTPException(
+                status_code=400,
+                detail="Debés indicar quién pagó el gasto.",
+            )
+        _validar_participantes_activos(db, data.IdViaje, [data.IdPagador])
+
+    moneda_base = (getattr(viaje, "Moneda", None) or "USD").upper()
     moneda_gasto = (data.MonedaOriginal or moneda_base).upper()
 
-    tipo_cambio = Decimal("1.0")
-    monto_convertido = data.MontoOriginal
-
-    if moneda_gasto != moneda_base.upper():
-        try:
-            # Se pasa la fecha del gasto para contemplar registros offline o históricos
-            tasa_obtenida = obtener_tipo_cambio(moneda_gasto, moneda_base, fecha=fecha_gasto_dt)
-            tipo_cambio = Decimal(str(tasa_obtenida))
-            monto_convertido = data.MontoOriginal * tipo_cambio
-        except Exception as e:
-            # Si el servicio no está disponible, lanzamos 503 (Criterio de aceptación / Caso de prueba)
-            raise HTTPException(
-                status_code=503,
-                detail="Servicio de cotización no disponible. No se pudo realizar la conversión de moneda."
-            )
-    else:
-        monto_convertido = data.MontoOriginal
-        tipo_cambio = Decimal("1.0")
-    # ===============================================
+    monto_convertido, tipo_cambio = _resolver_conversion(data, moneda_gasto, moneda_base, fecha_gasto_dt)
 
     monto_por_participante = {}
     participantes_ids = []
@@ -494,7 +557,8 @@ def get_trip_participants(
             IdParticipanteViaje=p.IdParticipanteViaje,
             Nombre=p.Usuario.Nombre,
             Apellido=p.Usuario.Apellido,
-            NombreUsuario=p.Usuario.NombreUsuario
+            NombreUsuario=p.Usuario.NombreUsuario,
+            EsUsuarioActual=p.IdUsuario == current_user.IdUsuario,
         )
         for p in participantes
     ]

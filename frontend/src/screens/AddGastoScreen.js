@@ -16,7 +16,9 @@ import {
   Keyboard,
   TouchableWithoutFeedback,
   KeyboardAvoidingView,
+  Image,
 } from "react-native";
+import { File } from "expo-file-system";
 
 import { FontAwesome6 } from "@expo/vector-icons";
 
@@ -32,9 +34,20 @@ import {
   getTripParticipants,
   createExpense,
   getCurrencies, // <-- Asegúrate de tener esta función en tu services/api.js
+  getExchangeRate,
 } from "../services/api";
 
 import { colors, radii, spacing, textStyles } from "../theme/tokens";
+import {
+  MONEDA_PESOS_ARGENTINOS,
+  mensajeFechaFueraDelViaje,
+  parsearMonto,
+  requiereConversionARS,
+} from "../utils/comprobanteGasto";
+import { avisar, confirmar } from "../utils/dialogs";
+
+// Espera antes de pedir la cotización mientras el usuario edita el monto.
+const DEMORA_COTIZACION_MS = 400;
 
 import {
   guardarGastoOffline,
@@ -84,6 +97,18 @@ const CAMPO_MONEDA = "MonedaOriginal";
 const CAMPO_FECHA = "FechaGasto";
 const CAMPO_CATEGORIA = "IdCategoria";
 
+// Borra la imagen comprimida que quedó en caché tras el escaneo (US 94, AC9).
+// En web es un blob/data URI que libera el navegador.
+function eliminarImagenTemporal(uri) {
+  if (!uri || Platform.OS === "web" || !String(uri).startsWith("file:")) return;
+  try {
+    const archivo = new File(uri);
+    if (archivo.exists) archivo.delete();
+  } catch (error) {
+    console.log("No se pudo eliminar la imagen del comprobante:", error?.message);
+  }
+}
+
 function montoParaInput(valor) {
   if (valor === null || valor === undefined || valor === "") return "";
   const numero = Number(valor);
@@ -99,6 +124,8 @@ export default function AddGastoScreen({
   puedeEscanear = true,
   initialData = null,
   mostrarAlertaExito = true,
+  FechaInicioViaje = null,
+  FechaFinViaje = null,
 }) {
   const monedaBase = Moneda || "USD";
 
@@ -134,8 +161,33 @@ export default function AddGastoScreen({
   const [camposRevisar, setCamposRevisar] = useState([]);
   const [escaneoAplicado, setEscaneoAplicado] = useState(false);
 
+  // Confirmación del gasto precargado (US 94).
+  const [comprobanteUri, setComprobanteUri] = useState(null);
+  const [comprobanteAmpliado, setComprobanteAmpliado] = useState(false);
+  const [montoARS, setMontoARS] = useState("");
+  // Conversión a ARS: "auto" la calcula con la cotización del día del gasto
+  // (como la US-85); "manual" respeta lo que corrigió el usuario; "error" pide
+  // ingresarla a mano porque el servicio de cotización no respondió.
+  const [conversion, setConversion] = useState({ estado: "idle", fecha: null });
+
+  // Las reglas de la US 94 aplican cuando el formulario se precargó desde un comprobante.
+  const desdeComprobante = escaneoAplicado;
+  const requiereConversion = desdeComprobante && requiereConversionARS(monedaSeleccionada);
+  const avisoFechaViaje = desdeComprobante
+    ? mensajeFechaFueraDelViaje(fechaIso, FechaInicioViaje, FechaFinViaje)
+    : null;
+  const participanteActual = participantes.find((p) => p.EsUsuarioActual);
+
   const categoriaSeleccionada = categorias.find((c) => c.IdCategoria === idCategoria);
   const pagadorSeleccionado = participantes.find((p) => p.IdParticipanteViaje === idPagador);
+
+  // Monto contra el que se reparte el gasto: si se pidió la conversión a ARS y
+  // el viaje está en pesos, la división se hace sobre el monto convertido.
+  const montoDivision =
+    requiereConversion && monedaBase.toUpperCase() === MONEDA_PESOS_ARGENTINOS
+      ? montoARS
+      : monto;
+  const montoDivisionNum = parsearMonto(montoDivision).valor || 0;
 
   const sumaMontosPersonalizados = idsParticipantesSeleccionados.reduce((acc, id) => {
     const v = parseFloat(montosPersonalizados[id]);
@@ -143,8 +195,8 @@ export default function AddGastoScreen({
   }, 0);
 
   const montoPorPersona =
-    idsParticipantesSeleccionados.length > 0 && monto
-      ? Number(monto) / idsParticipantesSeleccionados.length
+    idsParticipantesSeleccionados.length > 0 && montoDivisionNum
+      ? montoDivisionNum / idsParticipantesSeleccionados.length
       : 0;
 
   // Un valor animado por cada bottom sheet, para que se muevan de forma independiente
@@ -158,6 +210,46 @@ export default function AddGastoScreen({
       aplicarEscaneo(initialData);
     }
   }, [initialData, loading, categorias]);
+
+  // AC6/AC7: si el comprobante no está en ARS, se completa el monto en pesos
+  // con la cotización automática; el usuario puede corregirlo.
+  const montoValido = parsearMonto(monto).valor;
+  useEffect(() => {
+    if (!requiereConversion || conversion.estado === "manual") return undefined;
+    if (!montoValido) {
+      // Sin monto de origen no hay nada que convertir: no se deja un valor viejo.
+      setMontoARS("");
+      setConversion({ estado: "idle", fecha: null });
+      return undefined;
+    }
+
+    let vigente = true;
+    setConversion((prev) => ({ ...prev, estado: "cargando" }));
+    const timer = setTimeout(async () => {
+      try {
+        const resultado = await getExchangeRate({
+          origen: monedaSeleccionada.toUpperCase(),
+          destino: MONEDA_PESOS_ARGENTINOS,
+          monto: montoValido,
+          fecha: fechaIso || undefined,
+        });
+        if (!vigente) return;
+        setMontoARS(String(Number(resultado.MontoConvertido)));
+        setConversion({ estado: "auto", fecha: resultado.Fecha });
+      } catch (error) {
+        if (!vigente) return;
+        console.log("No se pudo obtener la cotización:", error?.message);
+        setConversion({ estado: "error", fecha: null });
+      }
+    }, DEMORA_COTIZACION_MS);
+
+    return () => {
+      vigente = false;
+      clearTimeout(timer);
+    };
+    // conversion.estado solo importa para no pisar una corrección manual
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [requiereConversion, monedaSeleccionada, montoValido, fechaIso, conversion.estado === "manual"]);
 
   function animarSheet(anim, visible) {
     if (visible) {
@@ -229,6 +321,10 @@ export default function AddGastoScreen({
     setErrores({});
     setCamposRevisar([]);
     setEscaneoAplicado(false);
+    setComprobanteUri(null);
+    setComprobanteAmpliado(false);
+    setMontoARS("");
+    setConversion({ estado: "idle", fecha: null });
 
     // Las monedas se cargan aparte: no dependen de que categorías/participantes carguen bien
     async function cargarMonedas() {
@@ -314,8 +410,19 @@ export default function AddGastoScreen({
 
   // Precarga el formulario con los datos del comprobante (AC11). No registra
   // nada: el gasto se guarda recién cuando el usuario confirma (AC12).
-  function aplicarEscaneo(datos) {
+  function aplicarEscaneo(datos, imagen = null) {
     const revisar = new Set(datos?.CamposBajaConfianza || []);
+
+    // AC1: vista previa del comprobante. Si se re-escanea, se descarta la anterior.
+    if (comprobanteUri && comprobanteUri !== imagen?.uri) eliminarImagenTemporal(comprobanteUri);
+    setComprobanteUri(imagen?.uri || null);
+    setComprobanteAmpliado(false);
+    setMontoARS("");
+    setConversion({ estado: "idle", fecha: null });
+
+    // AC4: el pagador se completa con el usuario que escaneó (se puede cambiar).
+    const actual = participantes.find((p) => p.EsUsuarioActual);
+    if (actual) setIdPagador(actual.IdParticipanteViaje);
 
     setNombre(datos?.Nombre || "");
     setMonto(montoParaInput(datos?.MontoOriginal));
@@ -343,6 +450,31 @@ export default function AddGastoScreen({
     setEscaneoAplicado(true);
   }
 
+  function descartarComprobante() {
+    eliminarImagenTemporal(comprobanteUri);
+    setComprobanteUri(null);
+    setComprobanteAmpliado(false);
+  }
+
+  // AC9: cancelar descarta los datos y la imagen procesada sin registrar el gasto.
+  async function handleCancelar() {
+    if (saving) return;
+    if (desdeComprobante) {
+      const descartar = await confirmar({
+        titulo: "Descartar gasto",
+        mensaje: comprobanteUri
+          ? "Se descartarán los datos y la imagen del comprobante. El gasto no se registrará."
+          : "Se descartarán los datos del comprobante. El gasto no se registrará.",
+        textoConfirmar: "Descartar",
+        textoCancelar: "Seguir editando",
+        destructivo: true,
+      });
+      if (!descartar) return;
+      descartarComprobante();
+    }
+    onClose();
+  }
+
   async function handleGuardar() {
     let nuevosErrores = {};
 
@@ -350,10 +482,22 @@ export default function AddGastoScreen({
       nuevosErrores.nombre = "El concepto es obligatorio";
     }
 
-    if (!monto) {
-      nuevosErrores.monto = "El monto es obligatorio";
-    } else if (Number(monto) <= 0) {
-      nuevosErrores.monto = "El monto debe ser mayor a cero";
+    // RN-21: monto numérico y mayor a cero.
+    const montoParseado = parsearMonto(monto);
+    if (montoParseado.error) {
+      nuevosErrores.monto = montoParseado.error;
+    }
+
+    // RN-39: un comprobante en otra moneda requiere el monto convertido a ARS.
+    const montoARSParseado = requiereConversion
+      ? parsearMonto(montoARS, {
+          obligatorio: `Ingresá el monto convertido a pesos argentinos (${MONEDA_PESOS_ARGENTINOS}) para continuar`,
+        })
+      : {};
+    if (requiereConversion && conversion.estado === "cargando") {
+      nuevosErrores.montoARS = "Esperá a que termine de calcularse la conversión a ARS";
+    } else if (montoARSParseado.error) {
+      nuevosErrores.montoARS = montoARSParseado.error;
     }
 
     if (!idCategoria) {
@@ -395,8 +539,10 @@ export default function AddGastoScreen({
 
         if (hayMontosVacios) {
           nuevosErrores.divisionPersonalizada = "Se debe asignar un monto a todos los participantes";
-        } else if (Math.abs(sumaMontos - Number(monto)) > 0.01) {
-          nuevosErrores.divisionPersonalizada = `La suma de los montos individuales debe ser igual al monto total (${monto} ${monedaSeleccionada})`;
+        } else if (Math.abs(sumaMontos - montoDivisionNum) > 0.01) {
+          const monedaDivision =
+            montoDivision === montoARS && requiereConversion ? MONEDA_PESOS_ARGENTINOS : monedaSeleccionada;
+          nuevosErrores.divisionPersonalizada = `La suma de los montos individuales debe ser igual al monto total (${montoDivision} ${monedaDivision})`;
         }
       }
     }
@@ -406,6 +552,9 @@ export default function AddGastoScreen({
     if (Object.keys(nuevosErrores).length > 0) {
       return;
     }
+
+    // AC8: la fecha fuera del viaje se informa en el formulario pero no frena
+    // el registro (pagar antes del viaje, por ejemplo una reserva, es válido).
 
     try {
       setSaving(true);
@@ -420,8 +569,8 @@ export default function AddGastoScreen({
       const nuevoGasto = {
         IdViaje,
         Nombre: nombre,
-        Monto: Number(monto),
-        MontoOriginal: Number(monto),
+        Monto: montoParseado.valor,
+        MontoOriginal: montoParseado.valor,
         MonedaOriginal: monedaSeleccionada,
         IdCategoria: idCategoria,
         IdPagador: esCompartido ? idPagador : null,
@@ -434,13 +583,17 @@ export default function AddGastoScreen({
         TipoDivision: esCompartido ? (esDivisionIgualitaria ? "igualitaria" : "personalizada") : null,
         DetalleMontosPersonalizados:
           !esDivisionIgualitaria && esCompartido ? detalleMontosPersonalizados : [],
+        DesdeComprobante: desdeComprobante,
+        MontoConvertidoARS: requiereConversion ? montoARSParseado.valor : null,
       };
 
       try {
         await createExpense(nuevoGasto);
         // Cuando el padre muestra su propio cartel (ej: subida de documento con gasto), no duplicamos
+        // AC10: confirmación del registro. La imagen no se guarda (fuera de alcance de la US 93).
+        descartarComprobante();
         if (mostrarAlertaExito) {
-          Alert.alert("Éxito", "Gasto registrado correctamente en el servidor.");
+          avisar("Éxito", "Gasto registrado correctamente en el servidor.");
         }
         onGastoCreado?.();
         onClose();
@@ -505,7 +658,7 @@ export default function AddGastoScreen({
   }
 
   return (
-    <Modal animationType="slide" transparent visible={visible} onRequestClose={onClose}>
+    <Modal animationType="slide" transparent visible={visible} onRequestClose={handleCancelar}>
       <KeyboardAvoidingView
       style={{ flex: 1 }}
       behavior={Platform.OS === "ios" ? "padding" : undefined}
@@ -522,7 +675,7 @@ export default function AddGastoScreen({
             <View>
             <View style={styles.headerRow}>
               <Text style={styles.title}>Nuevo gasto</Text>
-              <TouchableOpacity onPress={onClose} hitSlop={10}>
+              <TouchableOpacity onPress={handleCancelar} hitSlop={10} testID="add-gasto-close">
                 <FontAwesome6 name="xmark" size={18} color={colors.overlay} />
               </TouchableOpacity>
             </View>
@@ -545,6 +698,28 @@ export default function AddGastoScreen({
                       Completamos los datos del comprobante. Revisalos antes de registrar el gasto.
                     </Text>
                   </View>
+                ) : null}
+
+                {comprobanteUri ? (
+                  <Pressable
+                    style={styles.comprobantePreview}
+                    onPress={() => setComprobanteAmpliado((v) => !v)}
+                    testID="receipt-preview"
+                    accessibilityRole="imagebutton"
+                    accessibilityLabel={comprobanteAmpliado ? "Achicar comprobante" : "Ampliar comprobante"}
+                  >
+                    <Image
+                      source={{ uri: comprobanteUri }}
+                      style={comprobanteAmpliado ? styles.comprobanteImagenAmpliada : styles.comprobanteMiniatura}
+                      resizeMode="contain"
+                    />
+                    {!comprobanteAmpliado ? (
+                      <View style={styles.comprobanteInfo}>
+                        <Text style={styles.comprobanteTitulo}>Comprobante escaneado</Text>
+                        <Text style={styles.comprobanteHint}>Tocá para ampliar y comparar los datos</Text>
+                      </View>
+                    ) : null}
+                  </Pressable>
                 ) : null}
 
                 <Text style={styles.label}>Concepto</Text>
@@ -597,12 +772,64 @@ export default function AddGastoScreen({
                   />
                 </View>
                 {debeRevisar(CAMPO_MONTO) && <Text style={styles.revisarHint}>Revisá este dato</Text>}
-                {monedaSeleccionada.toUpperCase() !== monedaBase.toUpperCase() && (
+                {!requiereConversion && monedaSeleccionada.toUpperCase() !== monedaBase.toUpperCase() && (
                   <Text style={styles.infoConversionText}>
                     ℹ El importe se convertirá automáticamente a la moneda base del viaje ({monedaBase.toUpperCase()}).
                   </Text>
                 )}
                 {errores.monto && <Text style={styles.error}>{errores.monto}</Text>}
+
+                {requiereConversion ? (
+                  <View style={styles.conversionCard} testID="conversion-ars-warning">
+                    <View style={styles.advertenciaRow}>
+                      <FontAwesome6 name="triangle-exclamation" size={13} color={colors.warning} />
+                      <Text style={styles.advertenciaText}>
+                        El comprobante está en {monedaSeleccionada.toUpperCase()}. El gasto se registra en pesos
+                        argentinos ({MONEDA_PESOS_ARGENTINOS}).
+                      </Text>
+                    </View>
+                    <Text style={styles.label}>Monto en pesos argentinos ({MONEDA_PESOS_ARGENTINOS})</Text>
+                    <View style={[styles.inputBox, errores.montoARS && styles.inputError]}>
+                      <Text style={styles.currencyCodePrefix}>{MONEDA_PESOS_ARGENTINOS}</Text>
+                      <TextInput
+                        style={styles.input}
+                        placeholder="0"
+                        placeholderTextColor={colors.overlay}
+                        keyboardType="numeric"
+                        value={montoARS}
+                        onChangeText={(texto) => {
+                          setMontoARS(texto);
+                          setConversion({ estado: "manual", fecha: null });
+                        }}
+                        testID="monto-ars-input"
+                      />
+                      {conversion.estado === "cargando" ? (
+                        <ActivityIndicator size="small" color={colors.primary} />
+                      ) : null}
+                    </View>
+                    {/* Con la conversión automática el monto ya está cargado: no hace falta texto. */}
+                    {conversion.estado !== "auto" ? (
+                      <Text style={styles.conversionEstado} testID="conversion-ars-estado">
+                        {conversion.estado === "cargando"
+                          ? "Calculando la conversión con la cotización del día..."
+                          : conversion.estado === "error"
+                          ? "No pudimos obtener la cotización. Ingresá el monto convertido manualmente."
+                          : conversion.estado === "manual"
+                          ? "Monto ingresado manualmente."
+                          : "Ingresá el monto para calcular la conversión."}
+                      </Text>
+                    ) : null}
+                    {conversion.estado === "manual" && montoValido ? (
+                      <TouchableOpacity
+                        onPress={() => setConversion({ estado: "idle", fecha: null })}
+                        testID="usar-cotizacion-automatica"
+                      >
+                        <Text style={styles.conversionLink}>Usar la cotización automática</Text>
+                      </TouchableOpacity>
+                    ) : null}
+                    {errores.montoARS && <Text style={styles.error}>{errores.montoARS}</Text>}
+                  </View>
+                ) : null}
 
                 <Text style={styles.label}>Fecha</Text>
                 {Platform.OS === "web" ? (
@@ -645,6 +872,12 @@ export default function AddGastoScreen({
                 )}
                 {debeRevisar(CAMPO_FECHA) && <Text style={styles.revisarHint}>Revisá este dato</Text>}
                 {errores.fecha && <Text style={styles.error}>{errores.fecha}</Text>}
+                {avisoFechaViaje ? (
+                  <View style={styles.advertenciaRow} testID="fecha-fuera-viaje-warning">
+                    <FontAwesome6 name="circle-info" size={13} color={colors.textSecondary} />
+                    <Text style={styles.avisoFechaText}>{avisoFechaViaje}</Text>
+                  </View>
+                ) : null}
 
                 <Text style={styles.label}>Categoría</Text>
                 <TouchableOpacity
@@ -690,6 +923,12 @@ export default function AddGastoScreen({
                     </Text>
                   </TouchableOpacity>
                 </View>
+
+                {desdeComprobante && !esCompartido && participanteActual ? (
+                  <Text style={styles.pagadorPersonalText} testID="pagador-personal">
+                    Pagado por {participanteActual.Nombre} {participanteActual.Apellido} (vos)
+                  </Text>
+                ) : null}
 
                 {esCompartido && (
                   <View style={styles.sharedCard}>
@@ -807,7 +1046,7 @@ export default function AddGastoScreen({
                       </TouchableOpacity>
                     </View>
 
-                    {esDivisionIgualitaria && idsParticipantesSeleccionados.length > 0 && monto ? (
+                    {esDivisionIgualitaria && idsParticipantesSeleccionados.length > 0 && montoDivisionNum ? (
                       <View style={styles.equalSummary}>
                         <FontAwesome6 name="circle-info" size={13} color={colors.primary} />
                         <Text style={styles.equalSummaryText}>
@@ -841,6 +1080,7 @@ export default function AddGastoScreen({
                                 keyboardType="numeric"
                                 value={montosPersonalizados[p.IdParticipanteViaje] || ""}
                                 onChangeText={(val) => handleMontoPersonalizadoChange(p.IdParticipanteViaje, val)}
+                                testID={`monto-personalizado-${p.IdParticipanteViaje}`}
                               />
                             </View>
                           ))}
@@ -850,13 +1090,13 @@ export default function AddGastoScreen({
                           <Text
                             style={[
                               styles.personalizadoResumenValor,
-                              Math.abs(sumaMontosPersonalizados - Number(monto || 0)) > 0.01
+                              Math.abs(sumaMontosPersonalizados - montoDivisionNum) > 0.01
                                 ? styles.personalizadoResumenValorAlerta
                                 : styles.personalizadoResumenValorOk,
                             ]}
                           >
                             {monedaBase.toUpperCase()} {sumaMontosPersonalizados.toFixed(2)} /{" "}
-                            {Number(monto || 0).toFixed(2)}
+                            {montoDivisionNum.toFixed(2)}
                           </Text>
                         </View>
 
@@ -875,6 +1115,16 @@ export default function AddGastoScreen({
                   disabled={saving}
                   style={styles.submitButton}
                 />
+                {desdeComprobante ? (
+                  <PrimaryButton
+                    label="Cancelar"
+                    variant="secondary"
+                    onPress={handleCancelar}
+                    disabled={saving}
+                    style={styles.cancelButton}
+                    testID="add-gasto-cancel"
+                  />
+                ) : null}
               </View>
             )}
             </View>
@@ -1227,6 +1477,86 @@ const styles = StyleSheet.create({
   submitButton: {
     marginTop: spacing.lg,
     marginBottom: spacing.md,
+  },
+  cancelButton: {
+    marginTop: -spacing.xs,
+    marginBottom: spacing.md,
+  },
+  inputError: {
+    borderColor: colors.danger,
+  },
+  comprobantePreview: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+    marginTop: spacing.sm,
+    padding: spacing.sm,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radii.md,
+    backgroundColor: colors.surface,
+  },
+  comprobanteMiniatura: {
+    width: 56,
+    height: 76,
+    borderRadius: radii.sm,
+    backgroundColor: colors.border,
+  },
+  comprobanteImagenAmpliada: {
+    width: "100%",
+    height: 360,
+    borderRadius: radii.sm,
+  },
+  comprobanteInfo: {
+    flex: 1,
+  },
+  comprobanteTitulo: {
+    ...textStyles.bodyStrong,
+    color: colors.primary,
+  },
+  comprobanteHint: {
+    ...textStyles.meta,
+    color: colors.textMuted,
+  },
+  conversionCard: {
+    marginTop: spacing.sm,
+    padding: spacing.sm,
+    borderWidth: 1,
+    borderColor: colors.warning,
+    borderRadius: radii.md,
+    backgroundColor: colors.warningSurface,
+  },
+  advertenciaRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: spacing.xs,
+    marginTop: spacing.xs,
+  },
+  advertenciaText: {
+    ...textStyles.meta,
+    color: colors.textPrimary,
+    flex: 1,
+  },
+  conversionEstado: {
+    ...textStyles.meta,
+    color: colors.textSecondary,
+    marginTop: 2,
+  },
+  conversionLink: {
+    ...textStyles.meta,
+    color: colors.primary,
+    fontWeight: "700",
+    marginTop: spacing.xs,
+  },
+  avisoFechaText: {
+    ...textStyles.meta,
+    color: colors.textSecondary,
+    flex: 1,
+  },
+  pagadorPersonalText: {
+    ...textStyles.meta,
+    color: colors.textSecondary,
+    marginTop: spacing.xs,
   },
   campoRevisar: {
     borderColor: colors.warning,

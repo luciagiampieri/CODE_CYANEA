@@ -430,7 +430,7 @@ export default function EditTripScreen({ navigation, route }) {
                 <TextInput
                     value={destinationSearch}
                     onChangeText={setDestinationSearch}
-                    placeholder="Ej: Córdoba, Bariloche, Chile..."
+                    placeholder="Córdoba, Bariloche, Chile..."
                     placeholderTextColor="#00000059"
                   style={styles.input}
                 />

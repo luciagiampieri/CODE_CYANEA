@@ -133,6 +133,7 @@ def test_create_gasto_personalizada_montos_no_coinciden(client, auth_headers, vi
         "EsCompartido": True,
         "DividirEntreTodos": False,
         "TipoDivision": "personalizada",
+        "IdPagador": participante.IdParticipanteViaje,
         "DetalleMontosPersonalizados": [
             {"IdParticipanteViaje": participante.IdParticipanteViaje, "MontoAsignado": "500.00"}
         ],

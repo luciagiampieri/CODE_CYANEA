@@ -53,7 +53,15 @@ const ICONOS_CATEGORIAS_DOCUMENTOS = {
 };
 
 
-export default function DocumentsScreen({ visible, onClose, tripId, tripMoneda, onDocumentoSubido }) {
+export default function DocumentsScreen({
+    visible,
+    onClose,
+    tripId,
+    tripMoneda,
+    tripFechaInicio = null,
+    tripFechaFin = null,
+    onDocumentoSubido,
+}) {
 
     const [loading, setLoading] = useState(true);
     const [loadError, setLoadError] = useState("");
@@ -481,6 +489,8 @@ export default function DocumentsScreen({ visible, onClose, tripId, tripMoneda, 
                         }}
                         IdViaje={tripId}
                         Moneda={tripMoneda}
+                        FechaInicioViaje={tripFechaInicio}
+                        FechaFinViaje={tripFechaFin}
                         onGastoCreado={() => {
                             gastoRegistradoRef.current = true;
                             setGastoSugeridoModalVisible(false);
