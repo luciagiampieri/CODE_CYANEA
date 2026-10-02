@@ -34,6 +34,26 @@ from app.services.websocket_manager import manager
 router = APIRouter()
 
 
+# Preferencias por tipo de notificación y canal (US 60): campo del payload
+# -> atributo del modelo Usuario.
+_PREFERENCIAS_NOTIFICACION = {
+    "recibeEmailsNuevasActividades": "RecibeEmailsNuevasActividades",
+    "recibeEmailsNuevaVotacion": "RecibeEmailsNuevaVotacion",
+    "recibeEmailsCambiosViaje": "RecibeEmailsCambiosViaje",
+    "recibeEmailsNuevosGastos": "RecibeEmailsNuevosGastos",
+    "recibeEmailsRecordatoriosDeuda": "RecibeEmailsRecordatoriosDeuda",
+    "recibeEmailsRecordatoriosActividad": "RecibeEmailsRecordatoriosActividad",
+    "recibeEmailsRecordatoriosReserva": "RecibeEmailsRecordatoriosReserva",
+    "recibePushNuevasActividades": "RecibePushNuevasActividades",
+    "recibePushNuevaVotacion": "RecibePushNuevaVotacion",
+    "recibePushCambiosViaje": "RecibePushCambiosViaje",
+    "recibePushNuevosGastos": "RecibePushNuevosGastos",
+    "recibePushRecordatoriosDeuda": "RecibePushRecordatoriosDeuda",
+    "recibePushRecordatoriosActividad": "RecibePushRecordatoriosActividad",
+    "recibePushRecordatoriosReserva": "RecibePushRecordatoriosReserva",
+}
+
+
 class PaisesVisitadosRead(BaseModel):
     paises: list[str]
     totalPaises: int
@@ -53,12 +73,16 @@ def _serializar_usuario_actual(usuario: Usuario) -> UsuarioProfileRead:
         consienteNotificacionesEmail=usuario.ConsienteNotificacionesEmail,
         consienteNotificacionesPush=usuario.ConsienteNotificacionesPush,
         consienteProcesamientoIA=usuario.ConsienteProcesamientoIA,
+        fechaConsentimientoNotificacionesEmail=usuario.FechaConsentimientoNotificacionesEmail,
+        fechaConsentimientoNotificacionesPush=usuario.FechaConsentimientoNotificacionesPush,
+        recibeEmailsNuevasActividades=usuario.RecibeEmailsNuevasActividades,
         recibeEmailsNuevaVotacion=usuario.RecibeEmailsNuevaVotacion,
         recibeEmailsCambiosViaje=usuario.RecibeEmailsCambiosViaje,
         recibeEmailsNuevosGastos=usuario.RecibeEmailsNuevosGastos,
         recibeEmailsRecordatoriosDeuda=usuario.RecibeEmailsRecordatoriosDeuda,
         recibeEmailsRecordatoriosActividad=usuario.RecibeEmailsRecordatoriosActividad,
         recibeEmailsRecordatoriosReserva=usuario.RecibeEmailsRecordatoriosReserva,
+        recibePushNuevasActividades=usuario.RecibePushNuevasActividades,
         recibePushNuevaVotacion=usuario.RecibePushNuevaVotacion,
         recibePushCambiosViaje=usuario.RecibePushCambiosViaje,
         recibePushNuevosGastos=usuario.RecibePushNuevosGastos,
@@ -82,14 +106,18 @@ def _anonimizar_usuario(usuario: Usuario) -> None:
 
     usuario.ConsienteNotificacionesEmail = False
     usuario.ConsienteNotificacionesPush = False
+    usuario.FechaConsentimientoNotificacionesEmail = None
+    usuario.FechaConsentimientoNotificacionesPush = None
     usuario.ConsienteProcesamientoIA = False
     usuario.FechaConsentimientoIA = None
+    usuario.RecibeEmailsNuevasActividades = False
     usuario.RecibeEmailsNuevaVotacion = False
     usuario.RecibeEmailsCambiosViaje = False
     usuario.RecibeEmailsNuevosGastos = False
     usuario.RecibeEmailsRecordatoriosDeuda = False
     usuario.RecibeEmailsRecordatoriosActividad = False
     usuario.RecibeEmailsRecordatoriosReserva = False
+    usuario.RecibePushNuevasActividades = False
     usuario.RecibePushNuevaVotacion = False
     usuario.RecibePushCambiosViaje = False
     usuario.RecibePushNuevosGastos = False
@@ -202,40 +230,36 @@ def update_me(
     # Campos opcionales: solo se tocan si vienen en el payload, para no
     # pisar el consentimiento/preferencias cuando se edita el perfil desde
     # la pantalla de "Cuenta" (que no los envía).
+    ahora = datetime.now(timezone.utc)
+
     if payload.consienteNotificacionesEmail is not None:
+        if payload.consienteNotificacionesEmail and not current_user.ConsienteNotificacionesEmail:
+            current_user.FechaConsentimientoNotificacionesEmail = ahora
+        elif not payload.consienteNotificacionesEmail:
+            current_user.FechaConsentimientoNotificacionesEmail = None
         current_user.ConsienteNotificacionesEmail = payload.consienteNotificacionesEmail
+
     if payload.consienteNotificacionesPush is not None:
-        current_user.ConsienteNotificacionesPush = payload.consienteNotificacionesPush
-        if not payload.consienteNotificacionesPush:
+        if payload.consienteNotificacionesPush and not current_user.ConsienteNotificacionesPush:
+            current_user.FechaConsentimientoNotificacionesPush = ahora
+        elif not payload.consienteNotificacionesPush:
+            current_user.FechaConsentimientoNotificacionesPush = None
+            # Al revocar el consentimiento se dan de baja los tokens de todos
+            # los dispositivos de la cuenta.
             db.execute(
                 update(TokenPushUsuario)
-                .where(TokenPushUsuario.IdUsuario == current_user.IdUsuario)
-                .values(Activo=False, FechaBaja=datetime.now(timezone.utc))
+                .where(
+                    TokenPushUsuario.IdUsuario == current_user.IdUsuario,
+                    TokenPushUsuario.Activo.is_(True),
+                )
+                .values(Activo=False, FechaBaja=ahora)
             )
-    if payload.recibeEmailsNuevaVotacion is not None:
-        current_user.RecibeEmailsNuevaVotacion = payload.recibeEmailsNuevaVotacion
-    if payload.recibeEmailsCambiosViaje is not None:
-        current_user.RecibeEmailsCambiosViaje = payload.recibeEmailsCambiosViaje
-    if payload.recibeEmailsNuevosGastos is not None:
-        current_user.RecibeEmailsNuevosGastos = payload.recibeEmailsNuevosGastos
-    if payload.recibeEmailsRecordatoriosDeuda is not None:
-        current_user.RecibeEmailsRecordatoriosDeuda = payload.recibeEmailsRecordatoriosDeuda
-    if payload.recibeEmailsRecordatoriosActividad is not None:
-        current_user.RecibeEmailsRecordatoriosActividad = payload.recibeEmailsRecordatoriosActividad
-    if payload.recibeEmailsRecordatoriosReserva is not None:
-        current_user.RecibeEmailsRecordatoriosReserva = payload.recibeEmailsRecordatoriosReserva
-    if payload.recibePushNuevaVotacion is not None:
-        current_user.RecibePushNuevaVotacion = payload.recibePushNuevaVotacion
-    if payload.recibePushCambiosViaje is not None:
-        current_user.RecibePushCambiosViaje = payload.recibePushCambiosViaje
-    if payload.recibePushNuevosGastos is not None:
-        current_user.RecibePushNuevosGastos = payload.recibePushNuevosGastos
-    if payload.recibePushRecordatoriosDeuda is not None:
-        current_user.RecibePushRecordatoriosDeuda = payload.recibePushRecordatoriosDeuda
-    if payload.recibePushRecordatoriosActividad is not None:
-        current_user.RecibePushRecordatoriosActividad = payload.recibePushRecordatoriosActividad
-    if payload.recibePushRecordatoriosReserva is not None:
-        current_user.RecibePushRecordatoriosReserva = payload.recibePushRecordatoriosReserva
+        current_user.ConsienteNotificacionesPush = payload.consienteNotificacionesPush
+
+    for campo_payload, atributo_modelo in _PREFERENCIAS_NOTIFICACION.items():
+        valor = getattr(payload, campo_payload)
+        if valor is not None:
+            setattr(current_user, atributo_modelo, valor)
 
     db.commit()
     db.refresh(current_user)

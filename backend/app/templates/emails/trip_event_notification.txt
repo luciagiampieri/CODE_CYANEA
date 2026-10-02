@@ -1,0 +1,18 @@
+Hola{% if recipient_name %} {{ recipient_name }}{% endif %},
+
+Hay novedades en {{ trip_title }}{% if trip_destination %} con destino {{ trip_destination }}{% endif %}.
+
+{{ event_label }}: {{ event_title }}
+{% if event_message %}
+{{ event_message }}
+{% endif %}
+
+{% if trip_url %}
+Revisa el viaje desde:
+{{ trip_url }}
+
+{% endif %}
+Recibes este correo porque activaste las notificaciones por email para este tipo de aviso. Puedes cambiarlo en cualquier momento desde Configuración > Notificaciones.
+
+— Equipo Cyanea
+© 2026 Cyanea

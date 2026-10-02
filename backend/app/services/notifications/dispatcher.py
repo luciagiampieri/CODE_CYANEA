@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -11,12 +12,33 @@ from app.models.notificacion import Notificacion
 from app.models.participante_viaje import ParticipanteViaje
 from app.models.token_push_usuario import TokenPushUsuario
 from app.models.usuario import Usuario
+from app.models.viaje import Viaje
 from app.services.notifications.push import ExpoPushClient
-from app.services.notifications.service import NotificationType, get_notification_service
+from app.services.notifications.service import (
+    NotificationMessage,
+    NotificationType,
+    get_notification_service,
+)
 from app.services.websocket_manager import manager
 
 
 logger = logging.getLogger(__name__)
+
+_EMAIL_TEMPLATE_HTML = "trip_event_notification.html"
+_EMAIL_TEMPLATE_TEXT = "trip_event_notification.txt"
+
+# Etiqueta que encabeza el correo según el tipo de notificación (US 60).
+_EMAIL_EVENT_LABELS = {
+    NotificationType.NUEVA_ACTIVIDAD: "Nueva actividad",
+    NotificationType.CAMBIO_VIAJE: "Cambio en el viaje",
+    NotificationType.NUEVO_GASTO: "Nuevo gasto",
+    NotificationType.NUEVA_VOTACION: "Nueva votación",
+    NotificationType.RECORDATORIO_DEUDA: "Deuda pendiente",
+    NotificationType.RECORDATORIO_ACTIVIDAD: "Actividad próxima",
+    NotificationType.RECORDATORIO_RESERVA: "Vencimiento de reserva",
+    NotificationType.PARTICIPANTE_EXPULSADO: "Cambio en el viaje",
+    NotificationType.INVITACION_CANCELADA: "Invitación cancelada",
+}
 
 
 @dataclass(slots=True)
@@ -100,6 +122,11 @@ async def _dispatch_to_recipients(
         except Exception:
             logger.exception("No se pudo enviar la notificacion push del viaje %s", event.id_viaje)
             db.rollback()
+
+        try:
+            await _send_email_notifications(db, event, recipients)
+        except Exception:
+            logger.exception("No se pudo enviar la notificacion por email del viaje %s", event.id_viaje)
 
         return notificaciones
     except Exception:
@@ -211,3 +238,76 @@ async def _send_push_notifications(
             token.Activo = False
             token.FechaBaja = fecha_baja
     db.commit()
+
+
+async def _send_email_notifications(
+    db: Session,
+    event: TripNotificationEvent,
+    recipients: list[Usuario],
+) -> None:
+    """Envía el aviso por correo a quienes dieron consentimiento y tienen la
+    preferencia activa para este tipo de evento (US 60, RNF-13).
+
+    La validación y el armado de cada correo se hacen acá, con la sesión de
+    base de datos; el envío SMTP, que es bloqueante, se hace en un hilo aparte
+    para no frenar el event loop.
+    """
+
+    notification_service = get_notification_service()
+    viaje = db.get(Viaje, event.id_viaje)
+    trip_title = viaje.Titulo if viaje is not None else ""
+    trip_destination = _describe_destinations(viaje)
+    event_label = _EMAIL_EVENT_LABELS.get(event.notification_type, "Novedad en el viaje")
+
+    prepared_emails = []
+    for recipient in recipients:
+        prepared = notification_service.prepare_email(
+            NotificationMessage(
+                notification_type=event.notification_type,
+                recipient=recipient,
+                subject=event.titulo,
+                trip_id=event.id_viaje if event.abre_viaje else None,
+                template_name=_EMAIL_TEMPLATE_HTML,
+                text_template_name=_EMAIL_TEMPLATE_TEXT,
+                context={
+                    "recipient_name": recipient.Nombre,
+                    "trip_title": trip_title,
+                    "trip_destination": trip_destination,
+                    "event_label": event_label,
+                    "event_title": event.titulo,
+                    "event_message": event.mensaje,
+                },
+            )
+        )
+        if prepared is not None:
+            prepared_emails.append(prepared)
+
+    if not prepared_emails:
+        return
+
+    await asyncio.to_thread(_deliver_emails, notification_service, prepared_emails)
+
+
+def _deliver_emails(notification_service, prepared_emails: list[dict]) -> None:
+    for prepared in prepared_emails:
+        try:
+            notification_service.deliver_email(prepared)
+        except Exception:
+            logger.exception(
+                "No se pudo enviar un correo de notificacion",
+                extra={"subject": prepared.get("subject")},
+            )
+
+
+def _describe_destinations(viaje: Viaje | None) -> str:
+    if viaje is None:
+        return ""
+    try:
+        return ", ".join(
+            f"{relacion.Destino.Nombre}, {relacion.Destino.Pais}"
+            for relacion in viaje.Destinos
+            if relacion.Destino is not None
+        )
+    except Exception:
+        logger.exception("No se pudieron leer los destinos del viaje %s", viaje.IdViaje)
+        return ""

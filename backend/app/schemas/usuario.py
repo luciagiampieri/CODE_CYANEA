@@ -19,12 +19,16 @@ class UsuarioProfileRead(UsuarioRead):
     consienteNotificacionesEmail: bool
     consienteNotificacionesPush: bool
     consienteProcesamientoIA: bool = False
+    fechaConsentimientoNotificacionesEmail: datetime | None = None
+    fechaConsentimientoNotificacionesPush: datetime | None = None
+    recibeEmailsNuevasActividades: bool = True
     recibeEmailsNuevaVotacion: bool
     recibeEmailsCambiosViaje: bool
     recibeEmailsNuevosGastos: bool
     recibeEmailsRecordatoriosDeuda: bool
     recibeEmailsRecordatoriosActividad: bool
     recibeEmailsRecordatoriosReserva: bool
+    recibePushNuevasActividades: bool = True
     recibePushNuevaVotacion: bool
     recibePushCambiosViaje: bool
     recibePushNuevosGastos: bool
@@ -44,12 +48,14 @@ class UsuarioProfileUpdate(BaseModel):
     fotoUrl: str | None = None
     consienteNotificacionesEmail: bool | None = None
     consienteNotificacionesPush: bool | None = None
+    recibeEmailsNuevasActividades: bool | None = None
     recibeEmailsNuevaVotacion: bool | None = None
     recibeEmailsCambiosViaje: bool | None = None
     recibeEmailsNuevosGastos: bool | None = None
     recibeEmailsRecordatoriosDeuda: bool | None = None
     recibeEmailsRecordatoriosActividad: bool | None = None
     recibeEmailsRecordatoriosReserva: bool | None = None
+    recibePushNuevasActividades: bool | None = None
     recibePushNuevaVotacion: bool | None = None
     recibePushCambiosViaje: bool | None = None
     recibePushNuevosGastos: bool | None = None
