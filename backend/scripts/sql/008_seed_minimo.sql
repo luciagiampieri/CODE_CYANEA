@@ -110,8 +110,8 @@ INSERT INTO public."ParticipantesViajes" (
     "FechaInvitacion",
     "FechaRespuesta",
     "FechaIncorporacion",
-    "InvitadoPor"
-    "FechaSalida",
+    "InvitadoPor",
+    "FechaSalida"
 )
 SELECT
     v."IdViaje",
@@ -127,7 +127,8 @@ SELECT
         WHEN ep."Nombre" = 'aceptado' THEN NOW()
         ELSE NULL
     END,
-    admin."IdUsuario"
+    admin."IdUsuario",
+    NULL
 FROM (
     VALUES
         ('luciano@cyanea.local', 'administrador', 'aceptado'),
