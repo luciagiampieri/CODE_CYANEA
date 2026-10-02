@@ -3,7 +3,7 @@ import { Alert } from "react-native";
 import { act, fireEvent, render, waitFor } from "@testing-library/react-native";
 
 import AddGastoScreen from "../screens/AddGastoScreen";
-import { toYMD } from "../utils/dates";
+import { formatDateDisplay, toYMD } from "../utils/dates";
 
 import {
   getExpenseCategories,
@@ -89,6 +89,17 @@ const GASTO_EN_EUR_PASADO = {
   CamposBajaConfianza: [],
 };
 
+// Gasto que el análisis de un documento detectó con todos sus datos (US 84).
+// En ARS para no activar las reglas de conversión del comprobante (US 94), ya cubiertas aparte.
+const GASTO_DETECTADO_EN_DOCUMENTO = {
+  Nombre: "Pasaje de micro Córdoba - Mendoza",
+  MontoOriginal: "45000",
+  MonedaOriginal: "ARS",
+  FechaGasto: HACE_5_DIAS,
+  IdCategoria: 2,
+  CamposBajaConfianza: [],
+};
+
 async function press(getters, texto) {
   await act(async () => {
     fireEvent.press(getters.getByText(texto));
@@ -103,9 +114,9 @@ async function escribir(getters, placeholder, texto) {
 
 // Espera a que termine de cargar el formulario y, salvo que se indique lo contrario,
 // también la lista de monedas (se carga en paralelo, de forma independiente).
-async function renderPantallaCargada({ esperarMonedas = true } = {}) {
+async function renderPantallaCargada({ esperarMonedas = true, props = {} } = {}) {
   const utils = await render(
-    <AddGastoScreen visible={true} IdViaje={10} Moneda="USD" onClose={mockOnClose} />
+    <AddGastoScreen visible={true} IdViaje={10} Moneda="USD" onClose={mockOnClose} {...props} />
   );
   await waitFor(() => expect(utils.getByText("Nuevo gasto")).toBeTruthy());
 
@@ -614,6 +625,145 @@ describe("US - Registrar gasto (AddGastoScreen)", () => {
         expect(mockOnClose).not.toHaveBeenCalled();
         expect(utils.getByDisplayValue("Museo del Louvre")).toBeTruthy();
       });
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // US 84: gasto sugerido al subir un documento (el padre pasa initialData)
+  // ---------------------------------------------------------------------------
+  describe("US 84 - gasto precargado desde un documento (initialData)", () => {
+    // Mismas props con las que DocumentsScreen abre el formulario al aceptar la sugerencia
+    const propsDesdeDocumento = (datos) => ({
+      initialData: datos,
+      mostrarAlertaExito: false,
+      puedeEscanear: false,
+    });
+
+    it("precarga concepto, monto, moneda, fecha y categoría detectados sin registrar nada", async () => {
+      const utils = await renderPantallaCargada({
+        esperarMonedas: false,
+        props: propsDesdeDocumento(GASTO_DETECTADO_EN_DOCUMENTO),
+      });
+
+      await waitFor(() =>
+        expect(utils.getByDisplayValue("Pasaje de micro Córdoba - Mendoza")).toBeTruthy()
+      );
+      expect(utils.getByDisplayValue("45000")).toBeTruthy();
+      expect(utils.getByText("Monto (ARS)")).toBeTruthy();
+      expect(utils.getByText(formatDateDisplay(HACE_5_DIAS))).toBeTruthy();
+      expect(utils.getByText("Transporte")).toBeTruthy();
+
+      // Precargar no registra: el gasto se crea solo cuando el usuario lo confirma.
+      expect(createExpense).not.toHaveBeenCalled();
+      expect(guardarGastoOffline).not.toHaveBeenCalled();
+      expect(mockOnClose).not.toHaveBeenCalled();
+    });
+
+    it("permite modificar los datos precargados y registra los valores modificados", async () => {
+      const utils = await renderPantallaCargada({
+        esperarMonedas: false,
+        props: propsDesdeDocumento(GASTO_DETECTADO_EN_DOCUMENTO),
+      });
+      await waitFor(() =>
+        expect(utils.getByDisplayValue("Pasaje de micro Córdoba - Mendoza")).toBeTruthy()
+      );
+
+      await completarNombreYMonto(utils, "Pasaje corregido", "52000");
+      await press(utils, "Registrar gasto");
+
+      await waitFor(() => expect(createExpense).toHaveBeenCalledTimes(1));
+      expect(createExpense).toHaveBeenCalledWith(
+        expect.objectContaining({
+          IdViaje: 10,
+          Nombre: "Pasaje corregido",
+          Monto: 52000,
+          MontoOriginal: 52000,
+          // Lo que no se editó conserva lo detectado
+          MonedaOriginal: "ARS",
+          FechaGasto: HACE_5_DIAS,
+          IdCategoria: 2,
+        })
+      );
+      expect(alertSpy).not.toHaveBeenCalledWith("Éxito", expect.anything());
+      expect(mockOnClose).toHaveBeenCalledTimes(1);
+    });
+
+    it("sin moneda detectada: carga el resto, usa la del viaje y pide revisarla", async () => {
+      const { MonedaOriginal, ...sinMoneda } = GASTO_DETECTADO_EN_DOCUMENTO;
+
+      const utils = await renderPantallaCargada({ props: propsDesdeDocumento(sinMoneda) });
+
+      await waitFor(() =>
+        expect(utils.getByDisplayValue("Pasaje de micro Córdoba - Mendoza")).toBeTruthy()
+      );
+      expect(utils.getByDisplayValue("45000")).toBeTruthy();
+      expect(utils.getByText("Monto (USD)")).toBeTruthy();
+      expect(utils.getByText("Revisá la moneda del comprobante")).toBeTruthy();
+
+      // US 94 (RN-39): la moneda del viaje (USD) no es ARS, así que se exige el monto convertido.
+      await act(async () => {
+        fireEvent.changeText(utils.getByTestId("monto-ars-input"), "180000");
+      });
+      await press(utils, "Registrar gasto");
+
+      await waitFor(() => expect(createExpense).toHaveBeenCalledTimes(1));
+      expect(createExpense).toHaveBeenCalledWith(
+        expect.objectContaining({ Nombre: "Pasaje de micro Córdoba - Mendoza", MontoOriginal: 45000, MonedaOriginal: "USD" })
+      );
+    });
+
+    it("sin fecha detectada: carga el resto, deja la fecha vacía y exige completarla", async () => {
+      const { FechaGasto, ...sinFecha } = GASTO_DETECTADO_EN_DOCUMENTO;
+
+      const utils = await renderPantallaCargada({
+        esperarMonedas: false,
+        props: propsDesdeDocumento(sinFecha),
+      });
+
+      await waitFor(() =>
+        expect(utils.getByDisplayValue("Pasaje de micro Córdoba - Mendoza")).toBeTruthy()
+      );
+      expect(utils.getByDisplayValue("45000")).toBeTruthy();
+      // No se asume "hoy": el campo queda vacío para que el usuario lo complete.
+      expect(utils.getByText("Seleccionar fecha")).toBeTruthy();
+
+      await press(utils, "Registrar gasto");
+
+      expect(utils.getByText("La fecha es obligatoria")).toBeTruthy();
+      expect(createExpense).not.toHaveBeenCalled();
+    });
+
+    it("sin monto detectado: carga el resto, deja el monto vacío y permite completarlo a mano", async () => {
+      const { MontoOriginal, ...sinMonto } = GASTO_DETECTADO_EN_DOCUMENTO;
+
+      const utils = await renderPantallaCargada({
+        esperarMonedas: false,
+        props: propsDesdeDocumento(sinMonto),
+      });
+
+      await waitFor(() =>
+        expect(utils.getByDisplayValue("Pasaje de micro Córdoba - Mendoza")).toBeTruthy()
+      );
+      expect(utils.getByPlaceholderText("0").props.value).toBe("");
+
+      await press(utils, "Registrar gasto");
+      expect(utils.getByText("El monto es obligatorio")).toBeTruthy();
+      expect(createExpense).not.toHaveBeenCalled();
+
+      await escribir(utils, "0", "30000");
+      await press(utils, "Registrar gasto");
+
+      await waitFor(() => expect(createExpense).toHaveBeenCalledTimes(1));
+      expect(createExpense).toHaveBeenCalledWith(
+        expect.objectContaining({
+          Nombre: "Pasaje de micro Córdoba - Mendoza",
+          Monto: 30000,
+          MontoOriginal: 30000,
+          MonedaOriginal: "ARS",
+          FechaGasto: HACE_5_DIAS,
+          IdCategoria: 2,
+        })
+      );
     });
   });
 });
