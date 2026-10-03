@@ -226,6 +226,19 @@ function avisar(titulo, mensaje) {
   }
 }
 
+function mostrarAlertaConfirmacion(titulo, mensaje, onAceptar) {
+  if (Platform.OS === "web") {
+    window.alert(`${titulo}\n\n${mensaje}`);
+    if (onAceptar) onAceptar();
+  } else {
+    Alert.alert(
+      titulo,
+      mensaje,
+      onAceptar ? [{ text: "Aceptar", onPress: onAceptar }] : undefined
+    );
+  }
+}
+
 function confirmar(titulo, mensaje, onConfirmar) {
   if (Platform.OS === "web") {
     if (window.confirm(mensaje)) {
@@ -1330,16 +1343,21 @@ export default function TripDetailScreen({ navigation, route }) {
     }
   }
 
-  async function handleCreateActivity(payload) {
-    if (!trip?.id || !lock.canEdit("itinerario") || !activityModalDay) return;
+  
+  async function handleCreateActivity(payload, options = {}) {
+    if (!trip?.id || !lock.canEdit("itinerario") || !activityModalDay) return null;
 
+    let resultado;
     if (payload.id) {
-      await updateActivity(trip.id, activityModalDay.id, payload.id, payload);
+      resultado = await updateActivity(trip.id, activityModalDay.id, payload.id, payload, options);
+      if (resultado?.advertencia) return resultado;
       finalizarEdicionActividad(payload.id);
     } else {
-      await createActivity(trip.id, activityModalDay.id, payload);
+      resultado = await createActivity(trip.id, activityModalDay.id, payload, options);
+      if (resultado?.advertencia) return resultado;
     }
     await loadTripDetail();
+    return resultado;
   }
 
   async function handleRebuildSettlement() {
@@ -1376,6 +1394,35 @@ export default function TripDetailScreen({ navigation, route }) {
   const [generandoRutaDayId, setGenerandoRutaDayId] = useState(null);
   const [mapaModalData, setMapaModalData] = useState(null);
   const [modoTransporteDayId, setModoTransporteDayId] = useState({});
+
+  // Cantidad de actividades visibles de un día antes de pasar a scroll interno
+  const ACTIVIDADES_VISIBLES = 5;
+  const dayCardRefs = useRef({});
+  // Altura (por día) que ocupan las primeras ACTIVIDADES_VISIBLES actividades
+  const [agendaAlturas, setAgendaAlturas] = useState({});
+
+  function handleToggleDay(dayId, isExpanded) {
+    if (isExpanded) {
+      setExpandedDayId(null);
+      return;
+    }
+
+    setExpandedDayId(dayId);
+    // Esperamos a que el día anterior se colapse y el nuevo se expanda para medir bien
+    setTimeout(() => {
+      const scroller = scrollRef.current;
+      const card = dayCardRefs.current[dayId];
+      if (scroller && card) {
+        centerInScroll(scroller, card, { align: "top", margin: spacing.sm });
+      }
+    }, 200);
+  }
+
+  function handleActividadLayout(dayId, event) {
+    const { y, height } = event.nativeEvent.layout;
+    const altura = Math.round(y + height);
+    setAgendaAlturas((prev) => (prev[dayId] === altura ? prev : { ...prev, [dayId]: altura }));
+  }
 
   const MODOS_RUTA = [
     { valor: "walking", label: "Caminando", icono: "person-walking" },
@@ -1476,7 +1523,36 @@ export default function TripDetailScreen({ navigation, route }) {
 
   function handleDeleteActivity(dayId, activityId, activityTitle) {
     if (!lock.canEdit("itinerario")) return;
-    setActivityToDelete({ dayId, activityId, title: activityTitle });
+    
+    // Usamos el mismo estilo de alerta de confirmación que en documentos
+    if (Platform.OS === "web") {
+      if (window.confirm(`¿Eliminar actividad?\n\nSe va a eliminar "${activityTitle}" del itinerario. Esta acción no se puede deshacer.`)) {
+        ejecutarBorradoActividad(dayId, activityId, activityTitle);
+      }
+    } else {
+      Alert.alert(
+        "¿Eliminar actividad?",
+        `Se va a eliminar "${activityTitle}" del itinerario. Esta acción no se puede deshacer.`,
+        [
+          { text: "Cancelar", style: "cancel" },
+          { 
+            text: "Eliminar", 
+            style: "destructive", 
+            onPress: () => ejecutarBorradoActividad(dayId, activityId, activityTitle) 
+          }
+        ]
+      );
+    }
+  }
+
+  async function ejecutarBorradoActividad(dayId, activityId, title) {
+    try {
+      await deleteActivity(trip.id, dayId, activityId);
+      await loadTripDetail();
+      mostrarAlertaConfirmacion("Éxito", `"${title}" se eliminó correctamente.`);
+    } catch (error) {
+      mostrarAlertaConfirmacion("Error", error.message || "Ocurrió un problema al intentar eliminar la actividad.");
+    }
   }
 
   async function handleConfirmDeleteActivity() {
@@ -1487,15 +1563,11 @@ export default function TripDetailScreen({ navigation, route }) {
     try {
       await deleteActivity(trip.id, dayId, activityId);
       await loadTripDetail();
-      setActivityFeedback({
-        success: true,
-        message: `"${title}" se eliminó correctamente.`,
-      });
+      
+      // Mensaje de éxito unificado con el estilo exacto de documentos
+      mostrarAlertaConfirmacion("Éxito", `"${title}" se eliminó correctamente.`);
     } catch (error) {
-      setActivityFeedback({
-        success: false,
-        message: error.message || "Ocurrió un problema al intentar eliminar la actividad.",
-      });
+      mostrarAlertaConfirmacion("Error", error.message || "Ocurrió un problema al intentar eliminar la actividad.");
     }
   }
 
@@ -1946,10 +2018,14 @@ export default function TripDetailScreen({ navigation, route }) {
                 return (
                   <View
                     key={dayId}
+                    collapsable={false}
+                    ref={(node) => {
+                      dayCardRefs.current[dayId] = node;
+                    }}
                     style={[styles.dayCard, !isExpanded && styles.dayCardCompact]}
                   >
                     <Pressable
-                      onPress={() => setExpandedDayId(isExpanded ? null : dayId)}
+                      onPress={() => handleToggleDay(dayId, isExpanded)}
                       style={styles.dayHeader}
                     >
                       <View
@@ -1981,8 +2057,27 @@ export default function TripDetailScreen({ navigation, route }) {
                     {isExpanded ? (
                       <View style={styles.dayAgenda}>
                         {actividades.length > 0 ? (
-                          actividades.map((item, actIndex) => (
-                            <View key={item.id ?? actIndex} style={styles.agendaItem}>
+                          <ScrollView
+                            nestedScrollEnabled
+                            showsVerticalScrollIndicator={actividades.length > ACTIVIDADES_VISIBLES}
+                            scrollEnabled={actividades.length > ACTIVIDADES_VISIBLES}
+                            style={
+                              actividades.length > ACTIVIDADES_VISIBLES && agendaAlturas[dayId]
+                                ? { maxHeight: agendaAlturas[dayId] }
+                                : undefined
+                            }
+                            contentContainerStyle={styles.dayAgendaList}
+                          >
+                          {actividades.map((item, actIndex) => (
+                            <View
+                              key={item.id ?? actIndex}
+                              onLayout={
+                                actIndex === ACTIVIDADES_VISIBLES - 1
+                                  ? (event) => handleActividadLayout(dayId, event)
+                                  : undefined
+                              }
+                              style={styles.agendaItem}
+                            >
                               <View style={styles.agendaIcon}>
                                 <FontAwesome6
                                   color={colors.primary}
@@ -2052,7 +2147,8 @@ export default function TripDetailScreen({ navigation, route }) {
                                 </View>
                               ) : null}
                             </View>
-                          ))
+                          ))}
+                          </ScrollView>
                         ) : (
                           <Text style={styles.sectionCopy}>
                             No hay actividades agendadas para este día todavía.
@@ -3251,90 +3347,7 @@ export default function TripDetailScreen({ navigation, route }) {
           </View>
         </View>
       </Modal>
-
-      <Modal
-        animationType="fade"
-        transparent={true}
-        visible={!!activityToDelete}
-        onRequestClose={() => setActivityToDelete(null)}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <View style={styles.modalIconContainer}>
-              <FontAwesome6
-                name="trash-can"
-                size={22}
-                color={colors.danger || "#ef4444"}
-              />
-            </View>
-            <Text style={styles.modalTitle}>¿Eliminar actividad?</Text>
-            <Text style={styles.modalMessage}>
-              Se va a eliminar "{activityToDelete?.title}" del itinerario. Esta acción no se
-              puede deshacer.
-            </Text>
-            <View style={{ height: 10 }} />
-            <View style={styles.modalActions}>
-              <Pressable
-                style={[styles.modalButton, styles.modalButtonCancel]}
-                onPress={() => setActivityToDelete(null)}
-              >
-                <Text style={styles.modalButtonTextCancel}>Cancelar</Text>
-              </Pressable>
-              <Pressable
-                style={[styles.modalButton, styles.modalButtonConfirm]}
-                onPress={handleConfirmDeleteActivity}
-              >
-                <Text style={styles.modalButtonTextConfirm}>Eliminar</Text>
-              </Pressable>
-            </View>
-          </View>
-        </View>
-      </Modal>
-
-      <Modal
-        animationType="fade"
-        transparent={true}
-        visible={!!activityFeedback}
-        onRequestClose={() => setActivityFeedback(null)}
-      >
-        <Pressable
-          style={styles.modalOverlay}
-          onPress={() => setActivityFeedback(null)}
-        >
-          <Pressable
-            style={styles.modalContent}
-            onPress={(event) => event.stopPropagation()}
-          >
-            <View style={styles.modalIconContainer}>
-              <FontAwesome6
-                name={
-                  displayedFeedback?.success
-                    ? "circle-check"
-                    : "circle-exclamation"
-                }
-                size={22}
-                color={
-                  displayedFeedback?.success
-                    ? colors.primary
-                    : colors.danger || "#ef4444"
-                }
-              />
-            </View>
-            <Text style={styles.modalTitle}>
-              {displayedFeedback?.success ? "Listo" : "Error"}
-            </Text>
-            <Text style={styles.modalMessage}>{displayedFeedback?.message}</Text>
-
-            <Pressable
-              style={styles.activityEditOkButton}
-              onPress={() => setActivityFeedback(null)}
-            >
-              <Text style={styles.activityEditOkButtonText}>Cerrar</Text>
-            </Pressable>
-          </Pressable>
-        </Pressable>
-      </Modal>
-
+      
       <Modal
         animationType="fade"
         transparent={true}
@@ -3715,6 +3728,9 @@ const styles = StyleSheet.create({
     paddingTop: spacing.md,
     gap: spacing.md,
   },
+  dayAgendaList: {
+    gap: spacing.md,
+  },
   agendaItem: {
     flexDirection: "row",
     alignItems: "flex-start",
@@ -3744,9 +3760,10 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   agendaHeaderRow: {
-    flexDirection: "column",
-    alignItems: "center",
-    gap: spacing.xs,
+    flexDirection: "row",
+    alignItems: "baseline",
+    gap: spacing.sm,
+    flexWrap: "wrap",
   },
   agendaTime: {
     ...textStyles.meta,

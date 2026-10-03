@@ -17,6 +17,8 @@ class ActividadRead(BaseModel):
     horaInicio: time_type = Field(..., alias="HoraInicio")
     horaFin: time_type = Field(..., alias="HoraFin")
     icono: str = Field("location-dot", alias="Icono")
+    # Aviso informativo (no bloqueante) cuando no se pudo verificar el horario del lugar.
+    avisoHorario: str | None = Field(None, alias="AvisoHorario")
 
     class Config:
         from_attributes = True
@@ -77,6 +79,11 @@ class ActividadUpdate(BaseModel):
             )
         return self
 
+class AdvertenciaHorario(BaseModel):
+    advertencia: bool
+    mensaje: str
+    horariosApertura: str | None = None
+    nombreLugar: str | None = None
 
 class RutaDiariaRead(BaseModel):
     idRutaDiaria: int = Field(..., alias="IdRutaDiaria")
@@ -373,4 +380,4 @@ class TripSentInvitationRead(BaseModel):
 
 class LeaveTripRequest(BaseModel):
     confirmar: bool 
-    nuevoAdministradorId: Optional[int] = None
+    nuevoAdministradorId: Optional[int] = None

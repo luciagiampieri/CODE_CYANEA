@@ -16,6 +16,7 @@ import {
     TouchableOpacity,
     FlatList,
     Animated,
+    Alert,
 } from "react-native";
 import { FontAwesome6 } from "@expo/vector-icons";
 
@@ -27,6 +28,19 @@ import {
 } from "../services/api";
 import { colors, radii, spacing, textStyles } from "../theme/tokens";
 import ScreenContainer from "../components/layout/ScreenContainer";
+
+function mostrarAlertaConfirmacion(titulo, mensaje, onAceptar) {
+    if (Platform.OS === "web") {
+        window.alert(`${titulo}\n\n${mensaje}`);
+        if (onAceptar) onAceptar();
+    } else {
+        Alert.alert(
+            titulo,
+            mensaje,
+            onAceptar ? [{ text: "Aceptar", onPress: onAceptar }] : undefined
+        );
+    }
+}
 
 const ICON_OPTIONS = [
     { name: "plane", label: "Vuelo" },
@@ -85,7 +99,8 @@ export default function AddActivityScreen({
 
     const [error, setError] = useState("");
     const [submitting, setSubmitting] = useState(false);
-    const [successMessage, setSuccessMessage] = useState("");
+    const [analizando, setAnalizando] = useState(false);
+    const submittingRef = useRef(false);
 
     const [ubicacion, setUbicacion] = useState(null);
     const [showLocationPicker, setShowLocationPicker] = useState(false);
@@ -102,7 +117,6 @@ export default function AddActivityScreen({
     const fieldY = useRef({});
 
     function scrollToField(key) {
-        // Pequeño delay para esperar a que el teclado termine de aparecer
         setTimeout(() => {
             const y = fieldY.current[key];
             if (y == null) return;
@@ -147,7 +161,6 @@ export default function AddActivityScreen({
         }
 
         setError("");
-        setSuccessMessage("");
         setShowTimePicker(null);
         setShowLocationPicker(false);
         setModalIconoVisible(false);
@@ -213,7 +226,6 @@ export default function AddActivityScreen({
         setIcono("location-dot");
         setIconoModificadoManual(false);
         setError("");
-        setSuccessMessage("");
         setShowTimePicker(null);
         setShowLocationPicker(false);
         setModalIconoVisible(false);
@@ -242,7 +254,6 @@ export default function AddActivityScreen({
             const [h, m] = horaFin.split(":");
             baseDate.setHours(parseInt(h, 10), parseInt(m, 10), 0, 0);
         } else {
-            // Sin hora de fin todavía: proponer inicio + 1 hora (tope 23:59)
             const [h, m] = horaInicio.split(":");
             const total = Math.min(parseInt(h, 10) * 60 + parseInt(m, 10) + 60, 23 * 60 + 59);
             baseDate.setHours(Math.floor(total / 60), total % 60, 0, 0);
@@ -280,7 +291,6 @@ export default function AddActivityScreen({
             if (event.type === "set" && selectedDate) commitTime(type, selectedDate);
             return;
         }
-        // iOS: solo guardamos el valor temporal; se confirma con "Listo"
         if (selectedDate) setTempDate(selectedDate);
     }
 
@@ -330,39 +340,106 @@ export default function AddActivityScreen({
             return;
         }
 
+        await enviarActividad();
+    }
+    
+    function construirMensajeAdvertencia(datos) {
+        const lugar = datos.nombreLugar || `el lugar de ${datos.nombreActividad}`;
+        let mensaje = `Detectamos que ${lugar} no se encuentra abierto durante el horario seleccionado.`;
+
+        if (datos.horariosApertura) {
+            mensaje += `\n\nHorario del establecimiento: ${datos.horariosApertura.replace(/ - /g, " a ")}`;
+        } else if (datos.mensaje) {
+            mensaje += `\n\n${datos.mensaje}`;
+        }
+
+        mensaje += `\nHorario de tu actividad: ${datos.horarioActividad}`;
+        mensaje += `\n\n${
+            activityToEdit
+                ? "Podés modificar el horario de la actividad o guardarla igualmente."
+                : "Podés modificar el horario de la actividad o registrarla igualmente."
+        }`;
+        return mensaje;
+    }
+
+    function mostrarAdvertenciaHorario(datos) {
+        const titulo = "Revisá el horario de tu actividad";
+        const mensaje = construirMensajeAdvertencia(datos);
+        const textoConfirmar = activityToEdit ? "Guardar igual" : "Registrar igual";
+
+        if (Platform.OS === "web") {
+            const confirmado = window.confirm(
+                `${titulo}\n\n${mensaje}\n\nAceptar: ${textoConfirmar.toLowerCase()}. Cancelar: modificar el horario.`
+            );
+            if (confirmado) enviarActividad({ ignorarAdvertencia: true });
+            return;
+        }
+
+        Alert.alert(titulo, mensaje, [
+            { text: "Modificar horario", style: "cancel" },
+            { text: textoConfirmar, onPress: () => enviarActividad({ ignorarAdvertencia: true }) },
+        ]);
+    }
+
+    async function enviarActividad({ ignorarAdvertencia = false } = {}) {
+        if (submittingRef.current) return;
+        submittingRef.current = true;
+
+        // Sin `ignorarAdvertencia` el backend analiza los horarios del lugar y puede demorar unos segundos.
+        setAnalizando(!ignorarAdvertencia);
         setSubmitting(true);
         setError("");
-        setSuccessMessage("");
+        if (!ignorarAdvertencia) {
+            Keyboard.dismiss();
+            setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 150);
+        }
 
         try {
-            await onSubmit({
-                id: activityToEdit?.id,
-                nombre: nombre.trim(),
-                descripcion: descripcion.trim() || null,
-                horaInicio: `${horaInicio}:00`,
-                horaFin: `${horaFin}:00`,
-                icono,
-                idLugarInteres: ubicacion?.id || null,
-            });
-
-            setSuccessMessage(
-                activityToEdit
-                    ? "¡Actividad editada correctamente!"
-                    : "¡Actividad agregada correctamente!"
+            const resultado = await onSubmit(
+                {
+                    id: activityToEdit?.id,
+                    nombre: nombre.trim(),
+                    descripcion: descripcion.trim() || null,
+                    horaInicio: `${horaInicio}:00`,
+                    horaFin: `${horaFin}:00`,
+                    icono,
+                    idLugarInteres: ubicacion?.id || null,
+                },
+                { ignorarAdvertencia }
             );
 
-            setTimeout(() => {
+            setSubmitting(false);
+            setAnalizando(false);
+            submittingRef.current = false;
+
+            if (resultado?.advertencia === true) {
+                mostrarAdvertenciaHorario({
+                    mensaje: resultado.mensaje ?? "",
+                    horariosApertura: resultado.horariosApertura ?? "",
+                    nombreLugar: resultado.nombreLugar ?? ubicacion?.name ?? "",
+                    nombreActividad: nombre.trim(),
+                    horarioActividad: `${horaInicio} a ${horaFin}`,
+                });
+                return;
+            }
+
+            const mensajeExito = activityToEdit
+                ? "Actividad editada correctamente."
+                : "Actividad registrada correctamente.";
+
+            mostrarAlertaConfirmacion("Éxito", mensajeExito, () => {
                 resetAndClose();
-            }, 1200);
+            });
         } catch (err) {
+            setSubmitting(false);
+            setAnalizando(false);
+            submittingRef.current = false;
             setError(
                 err.message ||
                     (activityToEdit
                         ? "No se pudo editar la actividad."
                         : "No se pudo crear la actividad.")
             );
-        } finally {
-            setSubmitting(false);
         }
     }
 
@@ -412,7 +489,6 @@ export default function AddActivityScreen({
             >
                 <View style={styles.overlay}>
                     <View style={styles.sheet}>
-                        {/* FORMULARIO PRINCIPAL */}
                         <ScrollView
                             ref={scrollRef}
                             keyboardShouldPersistTaps="handled"
@@ -453,11 +529,9 @@ export default function AddActivityScreen({
                                             placeholderTextColor={colors.overlay}
                                             style={styles.inputInner}
                                             value={nombre}
-                                            editable={!successMessage}
                                         />
                                     </View>
 
-                                    {/* HORARIOS */}
                                     <View style={styles.row}>
                                         <View style={styles.timeField}>
                                             <Text style={styles.label}>Hora de inicio</Text>
@@ -470,13 +544,12 @@ export default function AddActivityScreen({
                                                         placeholderTextColor={colors.overlay}
                                                         style={styles.inputInner}
                                                         value={horaInicio}
-                                                        editable={!successMessage}
                                                         type="time"
                                                     />
                                                 </View>
                                             ) : (
                                                 <Pressable
-                                                    onPress={() => !successMessage && openTimePicker("inicio")}
+                                                    onPress={() => openTimePicker("inicio")}
                                                     style={styles.dateBox}
                                                 >
                                                     <FontAwesome6 name="clock" size={14} color={colors.overlay} />
@@ -498,13 +571,12 @@ export default function AddActivityScreen({
                                                         placeholderTextColor={colors.overlay}
                                                         style={styles.inputInner}
                                                         value={horaFin}
-                                                        editable={!successMessage}
                                                         type="time"
                                                     />
                                                 </View>
                                             ) : (
                                                 <Pressable
-                                                    onPress={() => !successMessage && openTimePicker("fin")}
+                                                    onPress={() => openTimePicker("fin")}
                                                     style={styles.dateBox}
                                                 >
                                                     <FontAwesome6 name="clock" size={14} color={colors.overlay} />
@@ -516,7 +588,6 @@ export default function AddActivityScreen({
                                         </View>
                                     </View>
 
-                                    {/* ERROR VISIBLE TRAS CAMPOS DE HORA */}
                                     {error ? (
                                         <View style={styles.errorContainer}>
                                             <FontAwesome6 name="circle-exclamation" size={14} color={colors.danger} />
@@ -524,12 +595,11 @@ export default function AddActivityScreen({
                                         </View>
                                     ) : null}
 
-                                    {/* UBICACIÓN */}
                                     <Text style={styles.label}>Ubicación (opcional)</Text>
                                     <View style={styles.locationInputContainer}>
                                         <TouchableOpacity
                                             style={styles.dropdownButton}
-                                            onPress={() => !successMessage && openLocationPicker()}
+                                            onPress={openLocationPicker}
                                         >
                                             <View style={styles.dropdownLeftContent}>
                                                 <FontAwesome6
@@ -553,8 +623,8 @@ export default function AddActivityScreen({
                                             <Pressable
                                                 style={styles.removeLocationButton}
                                                 onPress={handleRemoveLocation}
-                                                disabled={!!successMessage}
                                                 hitSlop={8}
+                                                accessibilityLabel="Quitar ubicación"
                                             >
                                                 <FontAwesome6 name="trash-can" size={16} color={colors.danger} />
                                             </Pressable>
@@ -567,7 +637,6 @@ export default function AddActivityScreen({
                                         </Text>
                                     ) : null}
 
-                                    {/* DESCRIPCIÓN */}
                                     <Text style={styles.label}>Descripción (opcional)</Text>
                                     <View 
                                         style={[styles.inputBox, styles.inputBoxMultiline]}
@@ -589,11 +658,9 @@ export default function AddActivityScreen({
                                             placeholderTextColor={colors.overlay}
                                             style={[styles.inputInner, styles.inputMultiline]}
                                             value={descripcion}
-                                            editable={!successMessage}
                                         />
                                     </View>
 
-                                    {/* ÍCONO */}
                                     <Text style={styles.label}>Ícono</Text>
                                     <Text style={styles.iconHint}>
                                         Detectado automáticamente. Seleccioná otro para cambiarlo.
@@ -601,7 +668,6 @@ export default function AddActivityScreen({
                                     <TouchableOpacity
                                         style={styles.dropdownButton}
                                         onPress={() => {
-                                            if (successMessage) return;
                                             Keyboard.dismiss();
                                             setModalIconoVisible(true);
                                         }}
@@ -620,21 +686,32 @@ export default function AddActivityScreen({
                                         <FontAwesome6 name="chevron-down" size={14} color={colors.overlay} />
                                     </TouchableOpacity>
 
-                                    {successMessage ? (
-                                        <Text style={styles.success}>{successMessage}</Text>
+                                    {analizando ? (
+                                        <Modal transparent animationType="fade" visible={analizando}>
+                                            <View style={styles.popupOverlay}>
+                                                <View style={styles.popupCard}>
+                                                    <ActivityIndicator size="large" color={colors.primary} />
+                                                    <Text style={styles.popupTitle}>Validando horarios</Text>
+                                                    <Text style={styles.popupText}>
+                                                        Estamos validando los horarios del lugar. Esto puede demorar unos segundos.
+                                                    </Text>
+                                                </View>
+                                            </View>
+                                        </Modal>
                                     ) : null}
 
                                     <PrimaryButton
                                         label={
                                             submitting
-                                                ? "Guardando..."
+                                                ? analizando
+                                                    ? "Analizando horarios..."
+                                                    : "Guardando..."
                                                 : activityToEdit
                                                 ? "Guardar cambios"
                                                 : "Agregar actividad"
                                         }
                                         loading={submitting}
                                         onPress={handleSubmit}
-                                        disabled={!!successMessage}
                                         style={styles.submitButton}
                                     />
                                 </View>
@@ -782,7 +859,6 @@ export default function AddActivityScreen({
                             </ScreenContainer>
                         </Modal>
 
-                        {/* PICKER DE HORARIOS IOS */}
                         {Platform.OS !== "web" && showTimePicker !== null && Platform.OS === "ios" ? (
                             <Modal
                                 transparent
@@ -952,15 +1028,30 @@ const styles = StyleSheet.create({
         color: colors.danger,
         flex: 1,
     },
-    success: {
-        ...textStyles.meta,
-        color: colors.success ?? "#1f9d55",
-        marginTop: spacing.md,
-        fontWeight: "700",
-    },
     submitButton: {
         marginTop: spacing.xl,
         marginBottom: spacing.md,
+    },
+    analizandoBloque: {
+        flexDirection: "row",
+        alignItems: "center",
+        gap: spacing.md,
+        marginTop: spacing.lg,
+        backgroundColor: colors.surfaceAlt || "#f5f5f5",
+        padding: spacing.md,
+        borderRadius: radii.md,
+    },
+    analizandoContenido: {
+        flex: 1,
+    },
+    analizandoValor: {
+        ...textStyles.bodyStrong,
+        color: colors.primary,
+    },
+    analizandoEtiqueta: {
+        ...textStyles.meta,
+        color: colors.textSecondary,
+        marginTop: 2,
     },
     timeText: {
         ...textStyles.body,
@@ -1014,7 +1105,6 @@ const styles = StyleSheet.create({
         marginTop: spacing.xxs,
         marginLeft: spacing.xxs,
     },
-    // Estilos del modal desplegable (Bottom Sheet)
     modalOverlayC: {
         position: "absolute",
         top: 0,
@@ -1092,9 +1182,6 @@ const styles = StyleSheet.create({
         paddingVertical: 8,
         ...textStyles.body,
     },
-    locationListFlat: {
-        maxHeight: 300,
-    },
     locationResultAddress: {
         ...textStyles.meta,
         color: colors.textSecondary,
@@ -1112,14 +1199,14 @@ const styles = StyleSheet.create({
         color: colors.textSecondary,
     },
     locationHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: spacing.lg,
-    paddingTop: spacing.md,
-    paddingBottom: spacing.sm,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
+        flexDirection: "row",
+        alignItems: "center",
+        justifyContent: "space-between",
+        paddingHorizontal: spacing.lg,
+        paddingTop: spacing.md,
+        paddingBottom: spacing.sm,
+        borderBottomWidth: 1,
+        borderBottomColor: colors.border,
     },
     locationHeaderSide: {
         width: 40,
@@ -1128,5 +1215,39 @@ const styles = StyleSheet.create({
         flex: 1,
         paddingHorizontal: spacing.lg,
         paddingTop: spacing.md,
+    },
+    popupOverlay: {
+        flex: 1,
+        backgroundColor: "rgba(0, 0, 0, 0.5)",
+        justifyContent: "center",
+        alignItems: "center",
+        padding: spacing.lg,
+    },
+    popupCard: {
+        backgroundColor: colors.surface,
+        borderRadius: radii.xl || 20,
+        padding: spacing.xl,
+        alignItems: "center",
+        width: "85%",
+        maxWidth: 320,
+        shadowColor: "#000",
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.25,
+        shadowRadius: 8,
+        elevation: 8,
+    },
+    popupTitle: {
+        ...textStyles.bodyStrong,
+        fontSize: 18,
+        color: colors.primary,
+        marginTop: spacing.md,
+        marginBottom: spacing.xxs,
+        textAlign: "center",
+    },
+    popupText: {
+        ...textStyles.meta,
+        color: colors.textSecondary,
+        textAlign: "center",
+        lineHeight: 18,
     },
 });

@@ -35,6 +35,7 @@ from app.schemas.trip import (
     ActividadRead,
     ActividadUbicacionCreate,
     ActividadUpdate,
+    AdvertenciaHorario,
     TripAdminRead,
     TripCreate,
     TripDetailRead,
@@ -85,6 +86,7 @@ from app.services.cover_ai import (
     extension_for_mime,
     generate_cover_image,
 )
+from app.services.activity_analysis_service import analizar_horario_actividad
 
 ROUTE_GENERATION_AVAILABLE = True
 try:
@@ -202,6 +204,31 @@ def _build_trip_place(lugar) -> TripPlaceRead | None:
         notes=None,
         scheduledDays=[],
     )
+
+def _destinos_contexto(viaje) -> list[dict]:
+    """Destinos del viaje (nombre, país, coordenadas) para contextualizar la
+    identificación del lugar de una actividad. Sirve para cualquier viaje."""
+    return [
+        {
+            "name": rel.Destino.Nombre,
+            "country": rel.Destino.Pais,
+            "admin_area": rel.Destino.ProvinciaEstado,
+            "lat": rel.Destino.Lat,
+            "lng": rel.Destino.Lng,
+        }
+        for rel in (viaje.Destinos or [])
+        if rel.Destino is not None
+    ]
+
+
+def _respuesta_advertencia(analisis: dict) -> dict:
+    return {
+        "advertencia": True,
+        "mensaje": analisis.get("mensaje") or "",
+        "horariosApertura": analisis.get("horarios_apertura") or None,
+        "nombreLugar": analisis.get("nombre_lugar"),
+    }
+
 
 def _build_actividad_read(actividad: ActividadItinerario) -> ActividadRead:
     lugar = actividad.LugarInteres
@@ -845,6 +872,7 @@ async def update_trip(
             destino = Destino(
                 Nombre=destino_data.name,
                 Pais=destino_data.country,
+                ProvinciaEstado=destino_data.provinceState,
                 Lat=destino_data.lat,
                 Lng=destino_data.lng,
             )
@@ -943,16 +971,17 @@ def delete_trip(
 
 @router.post(
     "/{trip_id}/days/{day_id}/activities",
-    response_model=ActividadRead,
+    response_model=ActividadRead | AdvertenciaHorario,
     status_code=status.HTTP_201_CREATED,
 )
 async def create_activity(
     trip_id: int,
     day_id: int,
     payload: ActividadCreate,
+    ignorar_advertencia: bool = Query(False),
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
-) -> ActividadRead:
+) -> ActividadRead | AdvertenciaHorario:
     viaje = require_trip_edit_access(get_trip_with_relations(db, trip_id), current_user)
     require_trip_not_finished(viaje, "el itinerario")
 
@@ -965,20 +994,28 @@ async def create_activity(
     if dia is None:
         raise HTTPException(status_code=404, detail="El día del cronograma no existe en este viaje.")
 
+    analisis = await analizar_horario_actividad(
+        db=db,
+        nombre_actividad=payload.nombre,
+        fecha=dia.Fecha,
+        hora_inicio=payload.horaInicio,
+        hora_fin=payload.horaFin,
+        id_lugar_interes=payload.idLugarInteres,
+        ignorar_advertencia=ignorar_advertencia,
+        destinos=_destinos_contexto(viaje),
+    )
+
+    if analisis.get("advertencia"):
+        return _respuesta_advertencia(analisis)
+
     lugar = None
 
-    print("ID LUGAR RECIBIDO:", payload.idLugarInteres)
-
     if payload.idLugarInteres is not None:
-        print("BUSCANDO LUGAR ID:", payload.idLugarInteres)
-
         lugar = db.scalar(
             select(LugarInteres).where(
                 LugarInteres.IdLugarInteres == payload.idLugarInteres
             )
         )
-
-        print("LUGAR ENCONTRADO:", lugar)
 
         if lugar is None:
             raise HTTPException(
@@ -1008,6 +1045,8 @@ async def create_activity(
         "idDiaCronograma": dia.IdDiaCronograma,
         "actividad": resultado.model_dump(by_alias=True),
     })
+    # Aviso solo para quien registra: no se pudo verificar el horario (no bloquea).
+    resultado.avisoHorario = analisis.get("aviso")
 
     await _sincronizar_y_notificar_ruta(db, dia, trip_id)
     await dispatch_trip_notification(
@@ -1031,16 +1070,17 @@ async def create_activity(
 
 @router.put(
     "/{trip_id}/days/{day_id}/activities/{activity_id}",
-    response_model=ActividadRead,
+    response_model=ActividadRead | AdvertenciaHorario,
 )
 async def update_activity(
     trip_id: int,
     day_id: int,
     activity_id: int,
     payload: ActividadUpdate,
+    ignorar_advertencia: bool = Query(False),
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
-) -> ActividadRead:
+) -> ActividadRead | AdvertenciaHorario:
     viaje = require_trip_edit_access(get_trip_with_relations(db, trip_id), current_user)
     require_trip_not_finished(viaje, "el itinerario")
 
@@ -1055,6 +1095,20 @@ async def update_activity(
             status_code=404,
             detail="El día del cronograma no existe en este viaje.",
         )
+
+    analisis = await analizar_horario_actividad(
+        db=db,
+        nombre_actividad=payload.nombre,
+        fecha=dia.Fecha,
+        hora_inicio=payload.horaInicio,
+        hora_fin=payload.horaFin,
+        id_lugar_interes=payload.idLugarInteres,
+        ignorar_advertencia=ignorar_advertencia,
+        destinos=_destinos_contexto(viaje),
+    )
+
+    if analisis.get("advertencia"):
+        return _respuesta_advertencia(analisis)
 
     actividad = db.scalar(
         select(ActividadItinerario).where(
@@ -1117,6 +1171,7 @@ async def update_activity(
             "actividad": resultado.model_dump(by_alias=True),
         },
     )
+    resultado.avisoHorario = analisis.get("aviso")
 
     await _sincronizar_y_notificar_ruta(db, dia, trip_id)
     await dispatch_trip_notification(

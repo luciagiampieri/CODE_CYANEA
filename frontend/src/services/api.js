@@ -857,9 +857,15 @@ export async function cancelarVotacion(idVotacion) {
   return parseResponse(response, "No se pudo cancelar la votación");
 }
 
-export async function createActivity(tripId, dayId, payload) {
+// `options.ignorarAdvertencia` confirma el registro aunque el backend haya
+// detectado una incompatibilidad de horarios (query param `ignorar_advertencia`).
+function activityWarningQuery(options = {}) {
+  return options.ignorarAdvertencia ? "?ignorar_advertencia=true" : "";
+}
+
+export async function createActivity(tripId, dayId, payload, options = {}) {
   const response = await fetch(
-    `${API_BASE_URL}/trips/${tripId}/days/${dayId}/activities`,
+    `${API_BASE_URL}/trips/${tripId}/days/${dayId}/activities${activityWarningQuery(options)}`,
     {
       method: "POST",
       headers: {
@@ -872,9 +878,9 @@ export async function createActivity(tripId, dayId, payload) {
   return parseResponse(response, "No se pudo crear la actividad");
 }
 
-export async function updateActivity(tripId, dayId, activityId, payload) {
+export async function updateActivity(tripId, dayId, activityId, payload, options = {}) {
   const response = await fetch(
-    `${API_BASE_URL}/trips/${tripId}/days/${dayId}/activities/${activityId}`,
+    `${API_BASE_URL}/trips/${tripId}/days/${dayId}/activities/${activityId}${activityWarningQuery(options)}`,
     {
       method: "PUT",
       headers: {

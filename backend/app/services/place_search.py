@@ -9,6 +9,8 @@ from app.core.config import settings
 
 import unicodedata
 
+from typing import Any, Dict, Optional
+
 GOOGLE_PLACES_AUTOCOMPLETE_URL = "https://places.googleapis.com/v1/places:autocomplete"
 GOOGLE_PLACES_TEXT_SEARCH_URL = "https://places.googleapis.com/v1/places:searchText"
 GOOGLE_GEOCODE_URL = "https://maps.googleapis.com/maps/api/geocode/json"
@@ -161,8 +163,8 @@ async def autocomplete_trip_places(
         if session_token:
             payload["sessionToken"] = session_token
 
-        lat = region.get("lat")
-        lng = region.get("lng")
+        centro = await resolve_region_center(region) if region else None
+        lat, lng = centro if centro else (None, None)
 
         if lat is not None and lng is not None:
             payload["locationBias"] = {
@@ -799,10 +801,48 @@ def get_trip_allowed_regions(viaje) -> list[dict[str, str | float | None]]:
             "admin_area": destino.ProvinciaEstado,
             "lat": destino.Lat,
             "lng": destino.Lng,
+            "name": destino.Nombre,
         }
         if region not in allowed_regions:
             allowed_regions.append(region)
     return allowed_regions
+
+
+_region_center_cache: dict[tuple, tuple[float, float] | None] = {}
+
+
+async def resolve_region_center(region: dict) -> tuple[float, float] | None:
+    """Devuelve (lat, lng) del destino. Si el destino no tiene coordenadas
+    guardadas, las obtiene buscando "nombre, provincia, país" en Google Places
+    (con caché en memoria) para poder contextualizar igual la búsqueda."""
+    lat, lng = region.get("lat"), region.get("lng")
+    if lat is not None and lng is not None:
+        return float(lat), float(lng)
+
+    nombre = region.get("name")
+    if not nombre or not settings.google_maps_api_key:
+        return None
+
+    partes = [nombre, region.get("admin_area"), region.get("country")]
+    consulta = ", ".join(str(p) for p in partes if p)
+    clave = (consulta.casefold(),)
+    if clave in _region_center_cache:
+        return _region_center_cache[clave]
+
+    centro = None
+    try:
+        data = await _google_places_text_search(
+            {"textQuery": consulta, "languageCode": "es", "maxResultCount": 1},
+            field_mask="places.id,places.location",
+        )
+        places = data.get("places") or []
+        loc = (places[0].get("location") or {}) if places else {}
+        if loc.get("latitude") is not None and loc.get("longitude") is not None:
+            centro = (float(loc["latitude"]), float(loc["longitude"]))
+    except Exception as error:
+        print("No se pudo obtener el centro del destino:", consulta, error)
+    _region_center_cache[clave] = centro
+    return centro
 
 
 def _extract_address_component(components: list[dict], accepted_types: set[str]) -> str | None:
@@ -921,3 +961,117 @@ def _calculate_popularity_score(rating: float | None, user_ratings_total: int | 
         return 0.0
 
     return round((safe_rating * 25) + (math.log10(safe_total + 1) * 22), 2)
+
+
+async def obtener_detalles_lugar(place_id: str) -> Optional[Dict[str, Any]]:
+    """Consulta la API v1 (New) de Google Places para obtener horarios y nombre."""
+    if not settings.google_maps_api_key:
+        return None
+
+    raw_place_id = place_id.replace("google:", "", 1)
+    url = GOOGLE_PLACE_DETAILS_URL.format(place_id=raw_place_id)
+    
+    headers = {
+        "X-Goog-Api-Key": settings.google_maps_api_key,
+        "X-Goog-FieldMask": "id,displayName,currentOpeningHours,regularOpeningHours"
+    }
+    params = {"languageCode": "es"}
+
+    client = _get_client()
+    try:
+        response = await client.get(url, headers=headers, params=params)
+        response.raise_for_status()
+        data = response.json()
+        
+        # Adaptamos la estructura para que coincida con lo que espera el validador de horarios
+        current_hours = data.get("currentOpeningHours")
+        regular_hours = data.get("regularOpeningHours")
+        
+        return {
+            "name": data.get("displayName", {}).get("text"),
+            "current_opening_hours": current_hours,
+            "opening_hours": regular_hours
+        }
+    except Exception as e:
+        print("🚨 Error al obtener detalles del lugar para horarios:", e)
+        return None
+
+
+async def buscar_lugar_por_nombre(
+    query: str,
+    lat: float | None = None,
+    lng: float | None = None,
+    radius_meters: float = 50000.0,
+    max_distance_km: float | None = None,
+) -> Optional[str]:
+    """Busca un lugar por texto usando Places API (New) y retorna su place_id.
+
+    Si se pasan `lat`/`lng` se prioriza esa zona (locationBias). Si además se
+    pasa `max_distance_km`, se descarta un resultado que quede más lejos que eso
+    (evita asociar "Animal Kingdom" de otro país a un viaje a Córdoba)."""
+    if not settings.google_maps_api_key:
+        return None
+
+    payload: dict = {
+        "textQuery": query.strip(),
+        "languageCode": "es",
+        "maxResultCount": 1,
+    }
+    if lat is not None and lng is not None:
+        payload["locationBias"] = {
+            "circle": {
+                "center": {"latitude": lat, "longitude": lng},
+                "radius": min(float(radius_meters), 50000.0),
+            }
+        }
+
+    try:
+        data = await _google_places_text_search(
+            payload,
+            field_mask="places.id,places.displayName,places.location",
+        )
+        places = data.get("places", [])
+        if not places:
+            return None
+        place = places[0]
+        place_id = place.get("id")
+        if not place_id:
+            return None
+
+        if max_distance_km is not None and lat is not None and lng is not None:
+            loc = place.get("location") or {}
+            if loc.get("latitude") is not None and loc.get("longitude") is not None:
+                distancia = _haversine_meters(lat, lng, loc["latitude"], loc["longitude"])
+                if distancia > max_distance_km * 1000:
+                    return None
+        return f"google:{place_id}"
+    except Exception as e:
+        print("Error al buscar lugar por nombre:", e)
+        return None
+
+
+async def buscar_lugar_en_destinos(
+    query: str,
+    destinos: list[dict],
+    max_distance_km: float = 150.0,
+) -> Optional[str]:
+    """Busca `query` contextualizado a los destinos del viaje (cualquiera).
+
+    Prueba cada destino con coordenadas (o geocodificadas) y devuelve el primer
+    lugar cercano. Si ningún destino tiene ubicación conocida, busca sin sesgo."""
+    centros: list[tuple[float, float]] = []
+    for destino in destinos or []:
+        centro = await resolve_region_center(destino)
+        if centro:
+            centros.append(centro)
+
+    if not centros:
+        return await buscar_lugar_por_nombre(query)
+
+    for lat, lng in centros:
+        place_id = await buscar_lugar_por_nombre(
+            query, lat=lat, lng=lng, max_distance_km=max_distance_km
+        )
+        if place_id:
+            return place_id
+    return None
