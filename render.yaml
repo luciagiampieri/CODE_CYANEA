@@ -1,0 +1,64 @@
+# Blueprint de Render para Cyanea: base de datos + backend + frontend.
+# Va en la RAÍZ del repo (al lado de docker-compose.yml).
+
+databases:
+  - name: cyanea-db
+    databaseName: cyanea
+    user: cyanea
+    plan: free
+
+services:
+  # ---------- BACKEND (FastAPI, usa backend/Dockerfile) ----------
+  - type: web
+    name: cyanea-backend
+    runtime: docker
+    rootDir: backend
+    dockerfilePath: ./Dockerfile
+    plan: starter        # pago (~USD 7/mes) para que NO se duerma. Pueden bajarlo a free después del martes.
+    healthCheckPath: /docs
+    # Render entrega la URL como postgresql://..., la convertimos a postgresql+psycopg://
+    # y corremos las migraciones antes de levantar uvicorn.
+    dockerCommand: >-
+      sh -c 'export DATABASE_URL="$(echo "$DATABASE_URL" | sed "s|^postgres\(ql\)\?://|postgresql+psycopg://|")"
+      && alembic upgrade head
+      && uvicorn app.main:app --host 0.0.0.0 --port 8000'
+    envVars:
+      - key: PORT
+        value: "8000"
+      - key: APP_ENV
+        value: production
+      - key: DATABASE_URL
+        fromDatabase:
+          name: cyanea-db
+          property: connectionString
+      - key: CORS_ORIGINS
+        value: https://cyanea-frontend.onrender.com
+      # El resto de las variables de backend/.env (secret de JWT, SMTP, etc.)
+      # agréguenlas acá con "sync: false" para que Render se las pida al crear el Blueprint, ej:
+      # - key: SECRET_KEY
+      #   sync: false
+
+  # ---------- FRONTEND (Expo web, sitio estático) ----------
+  - type: web
+    name: cyanea-frontend
+    runtime: static
+    rootDir: frontend
+    buildCommand: npm install && npx expo export --platform web
+    staticPublishPath: dist
+    envVars:
+      - key: EXPO_PUBLIC_API_BASE_URL
+        value: https://cyanea-backend.onrender.com/api/v1
+      - key: EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID
+        sync: false
+      - key: EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID
+        sync: false
+      - key: EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID
+        sync: false
+      - key: EXPO_PUBLIC_GOOGLE_MAPS_BROWSER_KEY
+        sync: false
+      - key: EXPO_PUBLIC_FACEBOOK_APP_ID
+        sync: false
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html

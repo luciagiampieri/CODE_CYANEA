@@ -48,3 +48,7 @@ coverage/
 # generated native folders
 /ios
 /android
+
+# Credenciales de Firebase / Google
+google-services.json
+GoogleService-Info.plist
