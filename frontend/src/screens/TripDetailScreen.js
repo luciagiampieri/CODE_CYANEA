@@ -61,6 +61,7 @@ import {
   getTripParticipants,
   getExpenseCategories,
   getTripExpenses,
+  deleteExpense,
   getTripDocuments,
   downloadTripDocument,
   deleteTripDocument,
@@ -541,6 +542,7 @@ export default function TripDetailScreen({ navigation, route }) {
   const [expenseCategories, setExpenseCategories] = useState([]);
   const [expensesLoading, setExpensesLoading] = useState(false);
   const [expensesError, setExpensesError] = useState("");
+  const [deletingExpenseId, setDeletingExpenseId] = useState(null);
 
   const loadExpenses = useCallback(async () => {
     if (!initialTrip?.id) return;
@@ -565,6 +567,30 @@ export default function TripDetailScreen({ navigation, route }) {
       loadExpenses();
     }
   }, [activeTab, loadExpenses]);
+
+  async function eliminarGasto(gasto) {
+    const ejecutar = async () => {
+      try {
+        setDeletingExpenseId(gasto.IdGasto);
+        await deleteExpense(gasto.IdGasto);
+        await Promise.all([loadExpenses(), loadSettlement()]);
+        avisar("Gasto eliminado", "El gasto se eliminó correctamente.");
+      } catch (error) {
+        avisar(
+          "No se pudo eliminar",
+          error.message || "No se pudo eliminar el gasto. Intentá nuevamente."
+        );
+      } finally {
+        setDeletingExpenseId(null);
+      }
+    };
+
+    confirmar(
+      "Eliminar gasto",
+      `¿Seguro que querés eliminar "${gasto.Nombre}"? Esta acción no se puede deshacer y actualizará los balances del viaje.`,
+      ejecutar
+    );
+  }
 
   const mySettlementBalance = useMemo(() => {
     if (!currentUser || !settlement?.ResumenParticipantes) return null;
@@ -2318,6 +2344,9 @@ export default function TripDetailScreen({ navigation, route }) {
                     error={expensesError}
                     expenses={expenses}
                     loading={expensesLoading}
+                    canDelete={lock.canEdit("gastos")}
+                    deletingExpenseId={deletingExpenseId}
+                    onDeleteExpense={eliminarGasto}
                     onRetry={loadExpenses}
                     scrollRef={scrollRef}
                     cardRef={gastosCardRef}

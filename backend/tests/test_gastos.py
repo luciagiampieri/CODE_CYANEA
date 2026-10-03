@@ -6,11 +6,14 @@ import pytest
 
 from app.core.security import hash_password, create_access_token
 from app.models.categorias_gastos import CategoriasGastos
+from app.models.estado_transferencia_liquidacion import EstadoTransferenciaLiquidacion
 from app.models.estado_participacion import EstadoParticipacion
 from app.models.gasto import Gasto
+from app.models.liquidacion_viaje import LiquidacionViaje
 from app.models.participante_viaje import ParticipanteViaje
 from app.models.participantes_gastos import ParticipantesGastos
 from app.models.rol_participante import RolParticipante
+from app.models.transferencia_liquidacion import TransferenciaLiquidacion
 from app.models.usuario import Usuario
 
 
@@ -218,6 +221,96 @@ def test_create_gasto_igualitaria_dividir_entre_ciertos_participantes(client, db
     montos = db_session.query(ParticipantesGastos).filter_by(IdGasto=id_gasto).all()
     assert len(montos) == 2
     assert all(m.MontoAsignado == 500 for m in montos)
+
+
+def test_delete_gasto_elimina_asignaciones_y_recalcula_liquidacion(
+    client,
+    db_session,
+    auth_headers,
+    viaje_con_admin,
+    categoria_gasto,
+):
+    viaje, admin_participante = viaje_con_admin
+    _agregar_participante_aceptado(db_session, viaje, "bruno")
+
+    payload = {
+        "IdViaje": viaje.IdViaje,
+        "Nombre": "Almuerzo",
+        "MontoOriginal": "1000.00",
+        "MonedaOriginal": viaje.Moneda,
+        "IdCategoria": categoria_gasto.IdCategoria,
+        "FechaGasto": str(date.today()),
+        "EsCompartido": True,
+        "DividirEntreTodos": True,
+        "TipoDivision": "igualitaria",
+        "IdPagador": admin_participante.IdParticipanteViaje,
+    }
+    create_response = client.post("/api/v1/gastos/", json=payload, headers=auth_headers)
+    assert create_response.status_code == 200
+    id_gasto = create_response.json()["IdGasto"]
+    liquidacion_original = (
+        db_session.query(LiquidacionViaje)
+        .filter_by(IdViaje=viaje.IdViaje, Activa=True)
+        .one()
+    )
+
+    response = client.delete(f"/api/v1/gastos/{id_gasto}", headers=auth_headers)
+
+    assert response.status_code == 200
+    assert response.json()["IdGasto"] == id_gasto
+    assert db_session.query(Gasto).filter_by(IdGasto=id_gasto).first() is None
+    assert db_session.query(ParticipantesGastos).filter_by(IdGasto=id_gasto).count() == 0
+    liquidacion_nueva = (
+        db_session.query(LiquidacionViaje)
+        .filter_by(IdViaje=viaje.IdViaje, Activa=True)
+        .one()
+    )
+    assert liquidacion_nueva.Version == liquidacion_original.Version + 1
+    assert liquidacion_nueva.Transferencias == []
+
+
+def test_delete_gasto_rechaza_si_hay_transferencias_realizadas(
+    client,
+    db_session,
+    auth_headers,
+    viaje_con_admin,
+    categoria_gasto,
+):
+    viaje, admin_participante = viaje_con_admin
+    _agregar_participante_aceptado(db_session, viaje, "bruno")
+
+    payload = {
+        "IdViaje": viaje.IdViaje,
+        "Nombre": "Cena",
+        "MontoOriginal": "1200.00",
+        "MonedaOriginal": viaje.Moneda,
+        "IdCategoria": categoria_gasto.IdCategoria,
+        "FechaGasto": str(date.today()),
+        "EsCompartido": True,
+        "DividirEntreTodos": True,
+        "TipoDivision": "igualitaria",
+        "IdPagador": admin_participante.IdParticipanteViaje,
+    }
+    create_response = client.post("/api/v1/gastos/", json=payload, headers=auth_headers)
+    assert create_response.status_code == 200
+    id_gasto = create_response.json()["IdGasto"]
+
+    estado_realizada = db_session.query(EstadoTransferenciaLiquidacion).filter_by(Nombre="realizada").one()
+    transferencia = (
+        db_session.query(TransferenciaLiquidacion)
+        .join(LiquidacionViaje)
+        .filter(LiquidacionViaje.IdViaje == viaje.IdViaje)
+        .one()
+    )
+    transferencia.IdEstadoTransferenciaLiquidacion = estado_realizada.IdEstadoTransferenciaLiquidacion
+    db_session.commit()
+
+    response = client.delete(f"/api/v1/gastos/{id_gasto}", headers=auth_headers)
+
+    assert response.status_code == 409
+    assert response.headers["X-Error-Code"] == "EXPENSE_DELETE_LOCKED_BY_PAID_SETTLEMENT"
+    assert db_session.query(Gasto).filter_by(IdGasto=id_gasto).first() is not None
+    assert db_session.query(ParticipantesGastos).filter_by(IdGasto=id_gasto).count() == 2
 
 
 def test_create_gasto_igualitaria_rechaza_menos_de_dos_participantes(client, auth_headers, viaje_con_admin, categoria_gasto):

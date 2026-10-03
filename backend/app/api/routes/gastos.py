@@ -10,7 +10,17 @@ from sqlalchemy.orm import Session, selectinload
 from app.api.deps import get_current_user
 from app.db.session import get_db
 
-from app.models import CategoriasGastos, ParticipantesGastos, ParticipanteViaje, Usuario, EstadoParticipacion, Gasto 
+from app.models import (
+    CategoriasGastos,
+    EstadoParticipacion,
+    EstadoTransferenciaLiquidacion,
+    Gasto,
+    LiquidacionViaje,
+    ParticipanteViaje,
+    ParticipantesGastos,
+    TransferenciaLiquidacion,
+    Usuario,
+)
 
 from app.schemas.gasto import (
     GastoCreate,
@@ -101,6 +111,7 @@ def _validar_participantes_activos(
 
 MONEDA_PESOS_ARGENTINOS = "ARS"
 CONVERSION_REQUIRED_CODE = "CONVERSION_REQUIRED"
+EXPENSE_DELETE_LOCKED_CODE = "EXPENSE_DELETE_LOCKED_BY_PAID_SETTLEMENT"
 TIPO_CAMBIO_PRECISION = Decimal("0.000001")
 
 
@@ -163,6 +174,29 @@ def _resolver_conversion(
         return data.MontoOriginal * tipo_cambio, tipo_cambio
 
     return data.MontoOriginal, Decimal("1.0")
+
+
+def _viaje_tiene_transferencias_realizadas(db: Session, viaje_id: int) -> bool:
+    return (
+        db.scalar(
+            select(TransferenciaLiquidacion.IdTransferenciaLiquidacion)
+            .join(
+                LiquidacionViaje,
+                LiquidacionViaje.IdLiquidacion == TransferenciaLiquidacion.IdLiquidacion,
+            )
+            .join(
+                EstadoTransferenciaLiquidacion,
+                EstadoTransferenciaLiquidacion.IdEstadoTransferenciaLiquidacion
+                == TransferenciaLiquidacion.IdEstadoTransferenciaLiquidacion,
+            )
+            .where(
+                LiquidacionViaje.IdViaje == viaje_id,
+                EstadoTransferenciaLiquidacion.Nombre == "realizada",
+            )
+            .limit(1)
+        )
+        is not None
+    )
 
 
 @router.post("")
@@ -364,6 +398,45 @@ async def create_gasto(data: GastoCreate, db: Session = Depends(get_db), current
     return {
         "message": "Gasto creado correctamente",
         "IdGasto": gasto.IdGasto,
+    }
+
+
+@router.delete("/{gasto_id}")
+def delete_gasto(
+    gasto_id: int,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+):
+    gasto = db.scalar(select(Gasto).where(Gasto.IdGasto == gasto_id))
+    if gasto is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Gasto no encontrado.",
+        )
+
+    require_trip_edit_access(
+        get_trip_with_relations(db, gasto.IdViaje),
+        current_user,
+    )
+
+    if _viaje_tiene_transferencias_realizadas(db, gasto.IdViaje):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "No se puede eliminar el gasto porque el viaje ya tiene pagos "
+                "registrados en una liquidación."
+            ),
+            headers={"X-Error-Code": EXPENSE_DELETE_LOCKED_CODE},
+        )
+
+    viaje_id = gasto.IdViaje
+    db.delete(gasto)
+    db.flush()
+    rebuild_settlement_plan(db, viaje_id)
+
+    return {
+        "message": "Gasto eliminado correctamente",
+        "IdGasto": gasto_id,
     }
 
 @router.get("/categories", response_model=list[CategoriasGastosRead])

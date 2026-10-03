@@ -191,6 +191,7 @@ Notas del frontend Expo:
 
 - `npm run web` levanta el frontend en `http://localhost:8081`
 - Los scripts ya incluyen `EXPO_NO_METRO_WORKSPACE_ROOT=1`
+- `frontend/metro.config.js` conserva el resolver por defecto de Expo 57; no fijar dependencias base con `resolver.extraNodeModules` ni desactivar `resolver.unstable_enablePackageExports`, porque puede romper la resolucion del paquete `expo` en web
 - Mantener `react` y `react-dom` exactamente en la misma version
 - El proyecto EAS activo del frontend es `@lcorrea87s-team/cyanea` con `extra.eas.projectId=0dddd612-ef66-4470-9a77-ce206f823efd`; `frontend/eas.json` define perfiles `development` y `production`
 
@@ -270,6 +271,8 @@ Reglas vigentes para la HU de balance y liquidacion:
 - Una liquidacion representa un plan ejecutable de transferencias para un viaje en un momento dado
 - Cuando cambian los gastos del viaje se invalida la liquidacion activa anterior y se genera una nueva version
 - Marcar una transferencia como realizada solo cambia su estado dentro de la liquidacion activa; no modifica los gastos base
+- Al eliminar un gasto se eliminan tambien sus asignaciones en `ParticipantesGastos` y se debe recalcular la liquidacion activa para que balances y transferencias queden consistentes
+- Un gasto no puede eliminarse si el viaje tiene alguna liquidacion con transferencias en estado `realizada`; en ese caso el backend bloquea con 409 para preservar la trazabilidad de pagos ya ejecutados
 - La UI de esta HU se muestra dentro del tab `Gastos` del detalle del viaje, no en una pantalla paralela
 - El contrato `GET /trips/{trip_id}/settlement` concentra el resumen financiero del viaje para la solapa `Gastos`, incluyendo total gastado del viaje, gasto individual asignado por participante, total pagado por participante y saldo neto/pendiente
 

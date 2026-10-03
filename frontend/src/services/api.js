@@ -651,6 +651,18 @@ export async function createExpense(payload) {
   );
 }
 
+export async function deleteExpense(expenseId) {
+  const response = await fetch(`${API_BASE_URL}/gastos/${expenseId}`, {
+    method: "DELETE",
+    headers: await authHeaders(),
+  });
+
+  return parseResponse(
+    response,
+    "No se pudo eliminar el gasto"
+  );
+}
+
 // --- Escaneo de comprobantes con IA (US 93) ------------------------------------
 
 // Otorga o revoca el consentimiento para procesar imágenes con un servicio externo de IA.
