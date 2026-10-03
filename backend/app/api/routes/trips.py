@@ -1052,7 +1052,7 @@ async def create_activity(
     await dispatch_trip_notification(
         db,
         TripNotificationEvent(
-            notification_type=NotificationType.CAMBIO_VIAJE,
+            notification_type=NotificationType.NUEVA_ACTIVIDAD,
             tipo="actividad_creada",
             titulo=f"Nueva actividad en {viaje.Titulo}",
             mensaje=f"{_actor_display_name(current_user)} agregó {actividad.Nombre} al itinerario.",

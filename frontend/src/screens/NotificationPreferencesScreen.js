@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ActivityIndicator, Alert, Platform, ScrollView, StyleSheet, Switch, Text, View } from "react-native";
 import { FontAwesome6 } from "@expo/vector-icons";
 
@@ -9,20 +9,21 @@ import { getCurrentUser, registerPushToken, updateCurrentUser } from "../service
 import { getExpoPushTokenForDevice, getPushAvailabilityReason } from "../services/pushNotifications";
 import { colors, radii, spacing, textStyles } from "../theme/tokens";
 
-const TIPOS_NOTIFICACION = [
+// Tipos de evento configurables por canal (US 60, criterio 1).
+export const TIPOS_NOTIFICACION = [
   {
-    emailKey: "recibeEmailsNuevaVotacion",
-    pushKey: "recibePushNuevaVotacion",
-    icon: "square-poll-vertical",
-    title: "Nuevas votaciones",
-    subtitle: "Cuando se abre una votacion en alguno de tus viajes",
+    emailKey: "recibeEmailsNuevasActividades",
+    pushKey: "recibePushNuevasActividades",
+    icon: "calendar-plus",
+    title: "Nuevas actividades",
+    subtitle: "Cuando alguien agrega una actividad al itinerario",
   },
   {
     emailKey: "recibeEmailsCambiosViaje",
     pushKey: "recibePushCambiosViaje",
     icon: "route",
-    title: "Cambios en el viaje",
-    subtitle: "Actividades nuevas, cambios de itinerario y novedades generales",
+    title: "Cambios en el itinerario",
+    subtitle: "Actividades modificadas o eliminadas y cambios en la informacion del viaje",
   },
   {
     emailKey: "recibeEmailsNuevosGastos",
@@ -32,11 +33,25 @@ const TIPOS_NOTIFICACION = [
     subtitle: "Cuando alguien registra un gasto en un viaje",
   },
   {
+    emailKey: "recibeEmailsNuevaVotacion",
+    pushKey: "recibePushNuevaVotacion",
+    icon: "square-poll-vertical",
+    title: "Votaciones activas",
+    subtitle: "Cuando se abre una votacion en alguno de tus viajes",
+  },
+  {
     emailKey: "recibeEmailsRecordatoriosDeuda",
     pushKey: "recibePushRecordatoriosDeuda",
     icon: "sack-dollar",
-    title: "Recordatorios de deuda",
+    title: "Deudas pendientes",
     subtitle: "Avisos relacionados con liquidaciones y saldos pendientes",
+  },
+  {
+    emailKey: "recibeEmailsRecordatoriosReserva",
+    pushKey: "recibePushRecordatoriosReserva",
+    icon: "calendar-check",
+    title: "Vencimientos de reservas",
+    subtitle: "Avisos vinculados a reservas y sus vencimientos",
   },
   {
     emailKey: "recibeEmailsRecordatoriosActividad",
@@ -45,24 +60,69 @@ const TIPOS_NOTIFICACION = [
     title: "Actividades proximas",
     subtitle: "Avisos antes del inicio de actividades del itinerario",
   },
-  {
-    emailKey: "recibeEmailsRecordatoriosReserva",
-    pushKey: "recibePushRecordatoriosReserva",
-    icon: "calendar-check",
-    title: "Recordatorios de reservas",
-    subtitle: "Avisos vinculados a reservas y vencimientos",
-  },
 ];
+
+const CAMPOS_PREFERENCIA = TIPOS_NOTIFICACION.flatMap((tipo) => [tipo.emailKey, tipo.pushKey]);
+
+// Textos del consentimiento explicito por canal (US 60, criterio 3; RNF-13).
+export const CONSENTIMIENTO_EMAIL = {
+  titulo: "Activar notificaciones por email",
+  mensaje:
+    "Al aceptar, autorizas a Cyanea a enviarte correos con avisos sobre tus viajes, " +
+    "solo para los tipos de aviso que actives. Podes revocar este consentimiento en " +
+    "cualquier momento desde esta pantalla.",
+};
+
+export const CONSENTIMIENTO_PUSH = {
+  titulo: "Activar notificaciones push",
+  mensaje:
+    "Al aceptar, autorizas a Cyanea a enviarte notificaciones push con avisos sobre tus " +
+    "viajes, solo para los tipos de aviso que actives. A continuacion el sistema te va a " +
+    "pedir permiso para este dispositivo. Podes revocar este consentimiento en cualquier " +
+    "momento desde esta pantalla.",
+};
 
 export function isPushDisponible(platformOS, availabilityReason = getPushAvailabilityReason()) {
   return platformOS !== "web" && !availabilityReason;
 }
 
-function getPushUnavailableMessage(reason) {
+export function confirmarConsentimiento({ titulo, mensaje }) {
+  if (Platform.OS === "web") {
+    const confirmado = typeof window !== "undefined" && typeof window.confirm === "function"
+      ? window.confirm(`${titulo}\n\n${mensaje}`)
+      : false;
+    return Promise.resolve(Boolean(confirmado));
+  }
+
+  return new Promise((resolve) => {
+    Alert.alert(
+      titulo,
+      mensaje,
+      [
+        { text: "Cancelar", style: "cancel", onPress: () => resolve(false) },
+        { text: "Acepto", onPress: () => resolve(true) },
+      ],
+      { cancelable: true, onDismiss: () => resolve(false) }
+    );
+  });
+}
+
+function formatearFechaConsentimiento(valor) {
+  if (!valor) return "";
+  const fecha = new Date(valor);
+  if (Number.isNaN(fecha.getTime())) return "";
+  return fecha.toLocaleDateString("es-AR", { day: "2-digit", month: "2-digit", year: "numeric" });
+}
+
+function getPushChannelSubtitle({ pushDisponible, pushActivo, reason }) {
+  if (pushDisponible) return "Permite recibir avisos en este dispositivo.";
+  if (pushActivo) {
+    return "Activadas desde la app movil. Desde aca podes ajustar los tipos de aviso o revocarlas.";
+  }
   if (reason === "expo_go_android") {
     return "Disponible en una build movil instalada; Expo Go no soporta push remotas en Android.";
   }
-  return "Solo disponible en la app movil.";
+  return "Se activan desde la app movil.";
 }
 
 export default function NotificationPreferencesScreen({ navigation }) {
@@ -71,74 +131,115 @@ export default function NotificationPreferencesScreen({ navigation }) {
   const [saving, setSaving] = useState(false);
   const [usuario, setUsuario] = useState(null);
   const [loadError, setLoadError] = useState("");
+  const savingRef = useRef(false);
+  const primerFocoRef = useRef(true);
 
-  useEffect(() => {
-    (async () => {
-      try {
+  const cargarPreferencias = useCallback(async ({ silencioso = false } = {}) => {
+    try {
+      if (!silencioso) {
         setLoading(true);
         setLoadError("");
-        const me = await getCurrentUser();
-        setUsuario(me);
-      } catch (error) {
-        setLoadError(error.message || "No se pudieron cargar tus preferencias.");
-      } finally {
-        setLoading(false);
       }
-    })();
+      const me = await getCurrentUser();
+      // Si hay un guardado en curso no se pisa el estado optimista.
+      if (!savingRef.current) setUsuario(me);
+    } catch (error) {
+      if (!silencioso) setLoadError(error.message || "No se pudieron cargar tus preferencias.");
+    } finally {
+      if (!silencioso) setLoading(false);
+    }
   }, []);
 
+  useEffect(() => {
+    cargarPreferencias();
+  }, [cargarPreferencias]);
+
+  // Al volver a la pantalla se recargan las preferencias, para reflejar
+  // cambios hechos desde otro dispositivo de la cuenta (US 60, criterio 4).
+  useEffect(() => {
+    if (!navigation?.addListener) return undefined;
+    const unsubscribe = navigation.addListener("focus", () => {
+      if (primerFocoRef.current) {
+        primerFocoRef.current = false;
+        return;
+      }
+      cargarPreferencias({ silencioso: true });
+    });
+    return unsubscribe;
+  }, [navigation, cargarPreferencias]);
+
+  function iniciarGuardado() {
+    savingRef.current = true;
+    setSaving(true);
+  }
+
+  function finalizarGuardado() {
+    savingRef.current = false;
+    setSaving(false);
+  }
+
   function buildUserPayload(actualizado) {
-    return {
+    const payload = {
       nombre: actualizado.nombre,
       apellido: actualizado.apellido,
       nombreUsuario: actualizado.nombreUsuario,
       fotoUrl: actualizado.fotoUrl,
       consienteNotificacionesEmail: actualizado.consienteNotificacionesEmail,
-      recibeEmailsNuevaVotacion: actualizado.recibeEmailsNuevaVotacion,
-      recibeEmailsCambiosViaje: actualizado.recibeEmailsCambiosViaje,
-      recibeEmailsNuevosGastos: actualizado.recibeEmailsNuevosGastos,
-      recibeEmailsRecordatoriosDeuda: actualizado.recibeEmailsRecordatoriosDeuda,
-      recibeEmailsRecordatoriosActividad: actualizado.recibeEmailsRecordatoriosActividad,
-      recibeEmailsRecordatoriosReserva: actualizado.recibeEmailsRecordatoriosReserva,
       consienteNotificacionesPush: actualizado.consienteNotificacionesPush,
-      recibePushNuevaVotacion: actualizado.recibePushNuevaVotacion,
-      recibePushCambiosViaje: actualizado.recibePushCambiosViaje,
-      recibePushNuevosGastos: actualizado.recibePushNuevosGastos,
-      recibePushRecordatoriosDeuda: actualizado.recibePushRecordatoriosDeuda,
-      recibePushRecordatoriosActividad: actualizado.recibePushRecordatoriosActividad,
-      recibePushRecordatoriosReserva: actualizado.recibePushRecordatoriosReserva,
     };
+    CAMPOS_PREFERENCIA.forEach((campo) => {
+      payload[campo] = actualizado[campo];
+    });
+    return payload;
   }
 
   async function persistCambio(cambios) {
-    if (!usuario || saving) return;
+    if (!usuario || savingRef.current) return;
 
     const anterior = usuario;
-    const actualizado = { ...usuario, ...cambios };
-    setUsuario(actualizado);
-    setSaving(true);
+    const optimista = { ...usuario, ...cambios };
+    setUsuario(optimista);
+    iniciarGuardado();
     try {
-      await updateCurrentUser(buildUserPayload(actualizado));
+      const respuesta = await updateCurrentUser(buildUserPayload(optimista));
+      if (respuesta && typeof respuesta === "object") {
+        setUsuario((actual) => ({ ...actual, ...respuesta }));
+      }
     } catch (error) {
       setUsuario(anterior);
       Alert.alert("No se pudo guardar", error.message || "Intenta nuevamente en unos segundos.");
     } finally {
-      setSaving(false);
+      finalizarGuardado();
     }
   }
 
+  async function handleEmailConsentChange(value) {
+    if (!usuario || savingRef.current) return;
+
+    if (value) {
+      const acepta = await confirmarConsentimiento(CONSENTIMIENTO_EMAIL);
+      if (!acepta) return;
+    }
+    await persistCambio({ consienteNotificacionesEmail: value });
+  }
+
   async function handlePushConsentChange(value) {
-    if (!usuario || saving) return;
-    if (!isPushDisponible(Platform.OS)) return;
+    if (!usuario || savingRef.current) return;
 
-    const anterior = usuario;
-
+    // Revocar se permite desde cualquier plataforma, incluida la web.
     if (!value) {
       await persistCambio({ consienteNotificacionesPush: false });
       return;
     }
 
-    setSaving(true);
+    // Otorgar requiere un dispositivo capaz de recibir push.
+    if (!isPushDisponible(Platform.OS)) return;
+
+    const acepta = await confirmarConsentimiento(CONSENTIMIENTO_PUSH);
+    if (!acepta) return;
+
+    const anterior = usuario;
+    iniciarGuardado();
     try {
       const pushToken = await getExpoPushTokenForDevice();
 
@@ -160,7 +261,10 @@ export default function NotificationPreferencesScreen({ navigation }) {
       const actualizado = { ...usuario, consienteNotificacionesPush: true };
       setUsuario(actualizado);
 
-      await updateCurrentUser(buildUserPayload(actualizado));
+      const respuesta = await updateCurrentUser(buildUserPayload(actualizado));
+      if (respuesta && typeof respuesta === "object") {
+        setUsuario((actual) => ({ ...actual, ...respuesta }));
+      }
 
       await registerPushToken({
         token: pushToken.token,
@@ -171,7 +275,7 @@ export default function NotificationPreferencesScreen({ navigation }) {
       setUsuario(anterior);
       Alert.alert("No se pudo activar push", error.message || "Intenta nuevamente en unos segundos.");
     } finally {
-      setSaving(false);
+      finalizarGuardado();
     }
   }
 
@@ -180,6 +284,11 @@ export default function NotificationPreferencesScreen({ navigation }) {
   const pushActivo = Boolean(usuario?.consienteNotificacionesPush);
   const pushUnavailableReason = getPushAvailabilityReason();
   const pushDisponible = isPushDisponible(Platform.OS, pushUnavailableReason);
+  // El switch general de push se puede tocar si el dispositivo soporta push
+  // (para otorgar o revocar) o si ya hay consentimiento (para revocarlo).
+  const pushMasterHabilitado = pushDisponible || pushActivo;
+  const fechaEmail = formatearFechaConsentimiento(usuario?.fechaConsentimientoNotificacionesEmail);
+  const fechaPush = formatearFechaConsentimiento(usuario?.fechaConsentimientoNotificacionesPush);
 
   return (
     <ScreenContainer fullWidth padded={false}>
@@ -217,18 +326,23 @@ export default function NotificationPreferencesScreen({ navigation }) {
                     <View style={styles.itemTexts}>
                       <Text style={styles.itemTitle}>Email</Text>
                       <Text style={styles.itemSubtitle}>Permite recibir avisos por correo.</Text>
+                      {emailActivo && fechaEmail ? (
+                        <Text style={styles.consentDate} testID="notification-prefs-email-consent-date">
+                          Consentimiento otorgado el {fechaEmail}
+                        </Text>
+                      ) : null}
                     </View>
                   </View>
                   <Switch
                     testID="notification-prefs-master-switch"
                     value={emailActivo}
-                    onValueChange={(value) => persistCambio({ consienteNotificacionesEmail: value })}
+                    onValueChange={handleEmailConsentChange}
                     disabled={saving}
                     trackColor={{ false: colors.border, true: colors.primarySoft }}
                     thumbColor={emailActivo ? colors.accent : colors.surface}
                   />
                 </View>
-                <View style={[styles.itemRow, !pushDisponible && styles.itemRowDisabled]}>
+                <View style={[styles.itemRow, !pushMasterHabilitado && styles.itemRowDisabled]}>
                   <View style={styles.itemLeft}>
                     <View style={[styles.iconCircle, { backgroundColor: colors.accent }]}>
                       <FontAwesome6 name="bell" size={16} color={colors.primaryStrong} />
@@ -236,24 +350,32 @@ export default function NotificationPreferencesScreen({ navigation }) {
                     <View style={styles.itemTexts}>
                       <Text style={styles.itemTitle}>Push</Text>
                       <Text style={styles.itemSubtitle}>
-                        {pushDisponible
-                          ? "Permite recibir avisos en este dispositivo."
-                          : getPushUnavailableMessage(pushUnavailableReason)}
+                        {getPushChannelSubtitle({
+                          pushDisponible,
+                          pushActivo,
+                          reason: pushUnavailableReason,
+                        })}
                       </Text>
+                      {pushActivo && fechaPush ? (
+                        <Text style={styles.consentDate} testID="notification-prefs-push-consent-date">
+                          Consentimiento otorgado el {fechaPush}
+                        </Text>
+                      ) : null}
                     </View>
                   </View>
                   <Switch
                     testID="notification-prefs-push-master-switch"
                     value={pushActivo}
                     onValueChange={handlePushConsentChange}
-                    disabled={saving || !pushDisponible}
+                    disabled={saving || !pushMasterHabilitado}
                     trackColor={{ false: colors.border, true: colors.primarySoft }}
                     thumbColor={pushActivo ? colors.accent : colors.surface}
                   />
                 </View>
               </View>
               <Text style={styles.helperText}>
-                Cada tipo de notificacion puede usar email, push o ambos canales.
+                Cada tipo de notificacion puede usar email, push o ambos canales. Los cambios se
+                aplican a todos los dispositivos de tu cuenta.
               </Text>
             </View>
 
@@ -290,18 +412,13 @@ export default function NotificationPreferencesScreen({ navigation }) {
                           thumbColor={emailActivo && usuario?.[tipo.emailKey] ? colors.accent : colors.surface}
                         />
                       </View>
-                      <View
-                        style={[
-                          styles.channelControl,
-                          (!pushActivo || !pushDisponible) && styles.itemRowDisabled,
-                        ]}
-                      >
+                      <View style={[styles.channelControl, !pushActivo && styles.itemRowDisabled]}>
                         <Text style={styles.channelLabel}>Push</Text>
                         <Switch
                           testID={`notification-prefs-switch-${tipo.pushKey}`}
-                          value={pushActivo && pushDisponible ? Boolean(usuario?.[tipo.pushKey]) : false}
+                          value={pushActivo ? Boolean(usuario?.[tipo.pushKey]) : false}
                           onValueChange={(value) => persistCambio({ [tipo.pushKey]: value })}
-                          disabled={saving || !pushActivo || !pushDisponible}
+                          disabled={saving || !pushActivo}
                           trackColor={{ false: colors.border, true: colors.primarySoft }}
                           thumbColor={pushActivo && usuario?.[tipo.pushKey] ? colors.accent : colors.surface}
                         />
@@ -451,6 +568,12 @@ const styles = StyleSheet.create({
     fontSize: 12,
     marginTop: spacing.xs,
     marginLeft: 4,
+  },
+  consentDate: {
+    ...textStyles.meta,
+    color: colors.textMuted,
+    fontSize: 12,
+    marginTop: 2,
   },
   errorText: {
     ...textStyles.body,

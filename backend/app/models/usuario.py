@@ -36,6 +36,14 @@ class Usuario(Base):
     ConsienteNotificacionesPush: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default="false"
     )
+    # Fecha en que se otorgó el consentimiento explícito de cada canal
+    # (US 60, RNF-13). Se limpia cuando el usuario lo revoca.
+    FechaConsentimientoNotificacionesEmail: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    FechaConsentimientoNotificacionesPush: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     # Consentimiento para procesar imágenes con un servicio externo de IA
     # (US 93, RNF-13 y RNF-33). Se pide la primera vez que se usa el escaneo.
     ConsienteProcesamientoIA: Mapped[bool] = mapped_column(
@@ -43,6 +51,9 @@ class Usuario(Base):
     )
     FechaConsentimientoIA: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
+    )
+    RecibeEmailsNuevasActividades: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default="true"
     )
     RecibeEmailsNuevaVotacion: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=True, server_default="true"
@@ -60,6 +71,9 @@ class Usuario(Base):
         Boolean, nullable=False, default=True, server_default="true"
     )
     RecibeEmailsRecordatoriosReserva: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default="true"
+    )
+    RecibePushNuevasActividades: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=True, server_default="true"
     )
     RecibePushNuevaVotacion: Mapped[bool] = mapped_column(
@@ -108,6 +122,15 @@ class Usuario(Base):
     )
     EmailConfirmado: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default="false"
+    )
+    AceptaTerminos: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
+    FechaAceptacionTerminos: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    VersionTerminosAceptada: Mapped[str | None] = mapped_column(
+        String(30), nullable=True
     )
     DocumentosSubidos = relationship(
         "DocumentoViaje",

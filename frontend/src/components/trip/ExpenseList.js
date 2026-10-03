@@ -166,6 +166,9 @@ export default function ExpenseList({
   currentUserId,
   loading = false,
   error = "",
+  canDelete = false,
+  deletingExpenseId = null,
+  onDeleteExpense,
   onRetry,
   scrollRef,
   cardRef,
@@ -794,6 +797,7 @@ export default function ExpenseList({
                     originalCurrency !== baseCurrency &&
                     expense.MontoOriginal !== null &&
                     expense.MontoOriginal !== undefined;
+                  const deleting = String(deletingExpenseId ?? "") === String(expense.IdGasto);
 
                   return (
                     <View
@@ -825,7 +829,30 @@ export default function ExpenseList({
                           </Text>
                         ) : null}
                       </View>
-                      <Text style={styles.amount}>{formatMoney(expense.Monto, currency)}</Text>
+                      <View style={styles.rowActions}>
+                        <Text style={styles.amount}>{formatMoney(expense.Monto, currency)}</Text>
+                        {canDelete && onDeleteExpense ? (
+                          <Pressable
+                            accessibilityLabel={`Eliminar gasto ${expense.Nombre}`}
+                            accessibilityRole="button"
+                            disabled={deleting}
+                            hitSlop={8}
+                            onPress={() => onDeleteExpense(expense)}
+                            style={[styles.deleteButton, deleting && styles.deleteButtonDisabled]}
+                            testID={`expense-delete-${expense.IdGasto}`}
+                          >
+                            {deleting ? (
+                              <ActivityIndicator color={colors.danger ?? colors.error ?? colors.primary} size="small" />
+                            ) : (
+                              <FontAwesome6
+                                color={colors.danger ?? colors.error ?? colors.textMuted}
+                                name="trash-can"
+                                size={13}
+                              />
+                            )}
+                          </Pressable>
+                        ) : null}
+                      </View>
                     </View>
                   );
                 })}
@@ -1474,6 +1501,22 @@ const styles = StyleSheet.create({
     color: colors.textPrimary,
     flexShrink: 0,
     textAlign: "right",
+  },
+  rowActions: {
+    alignItems: "flex-end",
+    gap: spacing.xs,
+    flexShrink: 0,
+  },
+  deleteButton: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.surfaceMuted,
+  },
+  deleteButtonDisabled: {
+    opacity: 0.6,
   },
   originalLine: {
     ...textStyles.meta,

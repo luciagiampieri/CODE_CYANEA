@@ -117,6 +117,24 @@ describe("ExpenseList", () => {
     await fireEvent.press(getByTestId("expenses-retry"));
     expect(onRetry).toHaveBeenCalled();
   });
+
+  it("permite solicitar la eliminación de un gasto cuando está habilitada", async () => {
+    const onDeleteExpense = jest.fn();
+    const { getByTestId } = await render(
+      <ExpenseList
+        canDelete
+        categories={categorias}
+        currency="ARS"
+        expenses={gastos}
+        onDeleteExpense={onDeleteExpense}
+      />
+    );
+
+    await fireEvent.press(getByTestId("expense-category-header-1"));
+    await fireEvent.press(getByTestId("expense-delete-1"));
+
+    expect(onDeleteExpense).toHaveBeenCalledWith(expect.objectContaining({ IdGasto: 1 }));
+  });
 });
 
 describe("formatExpenseDate", () => {

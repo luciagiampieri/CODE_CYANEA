@@ -13,6 +13,7 @@ logger = logging.getLogger(__name__)
 
 
 class NotificationType(StrEnum):
+    NUEVA_ACTIVIDAD = "nueva_actividad"
     NUEVA_VOTACION = "nueva_votacion"
     CAMBIO_VIAJE = "cambio_viaje"
     NUEVO_GASTO = "nuevo_gasto"
@@ -45,6 +46,7 @@ class NotificationMessage:
 
 class NotificationService:
     _notification_preferences = {
+        NotificationType.NUEVA_ACTIVIDAD: "RecibeEmailsNuevasActividades",
         NotificationType.NUEVA_VOTACION: "RecibeEmailsNuevaVotacion",
         NotificationType.CAMBIO_VIAJE: "RecibeEmailsCambiosViaje",
         NotificationType.NUEVO_GASTO: "RecibeEmailsNuevosGastos",
@@ -55,6 +57,7 @@ class NotificationService:
         NotificationType.INVITACION_CANCELADA: "RecibeEmailsCambiosViaje",
     }
     _push_preferences = {
+        NotificationType.NUEVA_ACTIVIDAD: "RecibePushNuevasActividades",
         NotificationType.NUEVA_VOTACION: "RecibePushNuevaVotacion",
         NotificationType.CAMBIO_VIAJE: "RecibePushCambiosViaje",
         NotificationType.NUEVO_GASTO: "RecibePushNuevosGastos",
@@ -109,7 +112,13 @@ class NotificationService:
     def build_trip_url(self, trip_id: int) -> str:
         return f"{settings.mail_frontend_base_url.rstrip('/')}/viajes/{trip_id}"
 
-    def send_email(self, message: NotificationMessage) -> NotificationDispatchResult:
+    def prepare_email(self, message: NotificationMessage) -> dict[str, object] | None:
+        """Valida consentimiento y preferencia y arma los datos del correo.
+
+        Devuelve None si el correo no debe enviarse. Lee los atributos del
+        destinatario en el hilo que llama, de modo que el envío posterior
+        (`deliver_email`) no necesita tocar la sesión de base de datos.
+        """
         can_send, reason = self.can_send_email(message.recipient, message.notification_type)
         if not can_send:
             logger.info(
@@ -120,7 +129,10 @@ class NotificationService:
                     "reason": reason,
                 },
             )
-            return NotificationDispatchResult(sent=False, reason=reason)
+            return None
+
+        if not message.template_name and not message.html:
+            raise ValueError("Debes enviar template_name o html para despachar la notificacion")
 
         context = dict(message.context)
         context.setdefault("app_name", settings.app_name)
@@ -129,30 +141,47 @@ class NotificationService:
             context.setdefault("tripId", message.trip_id)
             context.setdefault("trip_url", self.build_trip_url(message.trip_id))
 
-        if message.template_name:
+        return {
+            "to": [message.recipient.Email],
+            "subject": message.subject,
+            "template_name": message.template_name,
+            "text_template_name": message.text_template_name,
+            "html": message.html,
+            "text": message.text,
+            "reply_to": message.reply_to,
+            "context": context,
+        }
+
+    def deliver_email(self, prepared: dict[str, object]) -> None:
+        if prepared["template_name"]:
             self.mail_service.send_template(
-                to=[message.recipient.Email],
-                subject=message.subject,
-                template_name=message.template_name,
-                text_template_name=message.text_template_name,
-                context=context,
-                reply_to=message.reply_to,
+                to=prepared["to"],
+                subject=prepared["subject"],
+                template_name=prepared["template_name"],
+                text_template_name=prepared["text_template_name"],
+                context=prepared["context"],
+                reply_to=prepared["reply_to"],
             )
-            return NotificationDispatchResult(sent=True)
+            return
 
-        if message.html:
-            self.mail_service.send_html(
-                to=[message.recipient.Email],
-                subject=message.subject,
-                html=message.html,
-                text=message.text,
-                reply_to=message.reply_to,
-            )
-            return NotificationDispatchResult(sent=True)
+        self.mail_service.send_html(
+            to=prepared["to"],
+            subject=prepared["subject"],
+            html=prepared["html"],
+            text=prepared["text"],
+            reply_to=prepared["reply_to"],
+        )
 
-        raise ValueError("Debes enviar template_name o html para despachar la notificacion")
+    def send_email(self, message: NotificationMessage) -> NotificationDispatchResult:
+        prepared = self.prepare_email(message)
+        if prepared is None:
+            _, reason = self.can_send_email(message.recipient, message.notification_type)
+            return NotificationDispatchResult(sent=False, reason=reason)
+
+        self.deliver_email(prepared)
+        return NotificationDispatchResult(sent=True)
 
 
 @lru_cache
 def get_notification_service() -> NotificationService:
-    return NotificationService(mail_service=get_mail_service())
+    return NotificationService(mail_service=get_mail_service())

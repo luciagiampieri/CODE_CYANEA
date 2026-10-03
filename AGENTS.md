@@ -191,6 +191,7 @@ Notas del frontend Expo:
 
 - `npm run web` levanta el frontend en `http://localhost:8081`
 - Los scripts ya incluyen `EXPO_NO_METRO_WORKSPACE_ROOT=1`
+- `frontend/metro.config.js` conserva el resolver por defecto de Expo 57; no fijar dependencias base con `resolver.extraNodeModules` ni desactivar `resolver.unstable_enablePackageExports`, porque puede romper la resolucion del paquete `expo` en web
 - Mantener `react` y `react-dom` exactamente en la misma version
 - El proyecto EAS activo del frontend es `@lcorrea87s-team/cyanea` con `extra.eas.projectId=0dddd612-ef66-4470-9a77-ce206f823efd`; `frontend/eas.json` define perfiles `development` y `production`
 
@@ -270,6 +271,8 @@ Reglas vigentes para la HU de balance y liquidacion:
 - Una liquidacion representa un plan ejecutable de transferencias para un viaje en un momento dado
 - Cuando cambian los gastos del viaje se invalida la liquidacion activa anterior y se genera una nueva version
 - Marcar una transferencia como realizada solo cambia su estado dentro de la liquidacion activa; no modifica los gastos base
+- Al eliminar un gasto se eliminan tambien sus asignaciones en `ParticipantesGastos` y se debe recalcular la liquidacion activa para que balances y transferencias queden consistentes
+- Un gasto no puede eliminarse si el viaje tiene alguna liquidacion con transferencias en estado `realizada`; en ese caso el backend bloquea con 409 para preservar la trazabilidad de pagos ya ejecutados
 - La UI de esta HU se muestra dentro del tab `Gastos` del detalle del viaje, no en una pantalla paralela
 - El contrato `GET /trips/{trip_id}/settlement` concentra el resumen financiero del viaje para la solapa `Gastos`, incluyendo total gastado del viaje, gasto individual asignado por participante, total pagado por participante y saldo neto/pendiente
 
@@ -361,7 +364,10 @@ Orden actual:
 - Servicios reutilizables en `backend/app/services/`
 - El modulo de mail es compartido y debe servir para invitaciones, notificaciones futuras, recuperacion de password y casos similares
 - Las notificaciones funcionales por correo deben pasar por un servicio central `NotificationService` en `backend/app/services/notifications/`
+- Los correos transaccionales de registro y bienvenida no deben bloquear la creacion de cuenta si el proveedor SMTP falla; se registra warning y el flujo principal responde correctamente
 - Aunque la pantalla de perfil todavia no exista, las preferencias y el consentimiento de email se modelan desde `Usuarios` y deben viajar en `/users/me`
+- La aceptacion de terminos y condiciones se persiste en `Usuarios.AceptaTerminos`, `Usuarios.FechaAceptacionTerminos` y `Usuarios.VersionTerminosAceptada`; todos los flujos de registro deben exigirla y guardar la version vigente configurada por `TERMS_VERSION`
+- El texto vigente de terminos y condiciones se expone publicamente desde `GET /legal/terms` para que el frontend lo muestre antes de crear la cuenta
 - La foto de perfil del usuario se almacena en Supabase Storage dentro del bucket configurado, bajo el prefijo `profile-photos/`, y la URL resultante se persiste en `Usuarios.FotoUrl`
 - La busqueda de destinos para alta y edicion de viaje se resuelve desde backend contra Google Places y se configura con `GOOGLE_MAPS_API_KEY`
 - `GOOGLE_MAPS_API_KEY` es una credencial server-side del backend para Google Places/Directions; no debe reutilizar una key restringida a Android o a referrers web, porque Google bloquea esas llamadas desde FastAPI

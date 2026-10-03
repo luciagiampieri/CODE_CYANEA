@@ -12,6 +12,7 @@ import {
 import { FontAwesome6 } from "@expo/vector-icons";
 
 import { useAuth } from "../context/AuthContext";
+import TermsModal from "../components/legal/TermsModal";
 import { registerWithFacebook } from "../services/api";
 import {
   colors,
@@ -34,6 +35,7 @@ export default function FacebookRegisterScreen({ route }) {
   const [aceptaTerminos, setAceptaTerminos] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [termsVisible, setTermsVisible] = useState(false);
 
   async function handleRegister() {
     setError(null);
@@ -118,12 +120,12 @@ export default function FacebookRegisterScreen({ route }) {
           thumbColor={colors.surface}
         />
 
-        <Text style={styles.termsText}>
-          Acepto los{" "}
-          <Text style={styles.termsStrong}>
-            Términos y Condiciones
-          </Text>
-        </Text>
+        <View style={styles.termsCopy}>
+          <Text style={styles.termsText}>Acepto los</Text>
+          <Pressable onPress={() => setTermsVisible(true)} testID="facebook-register-terms-link">
+            <Text style={styles.termsStrong}>Términos y Condiciones</Text>
+          </Pressable>
+        </View>
       </View>
 
       {error && (
@@ -159,6 +161,7 @@ export default function FacebookRegisterScreen({ route }) {
           </Text>
         )}
       </Pressable>
+      <TermsModal visible={termsVisible} onClose={() => setTermsVisible(false)} />
     </ScrollView>
   );
 }
@@ -230,9 +233,15 @@ const styles = StyleSheet.create({
   },
 
   termsText: {
-    marginLeft: spacing.sm,
-    flex: 1,
     color: colors.textSecondary,
+  },
+
+  termsCopy: {
+    flex: 1,
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 4,
+    marginLeft: spacing.sm,
   },
 
   termsStrong: {

@@ -64,6 +64,9 @@ def test_get_me_success(client, auth_headers, usuario_activo):
     assert body["email"] == "ana@test.com"
     assert body["nombreCompleto"] == "Ana Test"
     assert body["fotoUrl"] is None
+    assert body["aceptaTerminos"] is False
+    assert body["fechaAceptacionTerminos"] is None
+    assert body["versionTerminosAceptada"] is None
 
 
 def test_get_me_requires_auth(client):

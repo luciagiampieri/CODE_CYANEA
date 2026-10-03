@@ -4,6 +4,7 @@ import GoogleRegisterScreen from "../screens/GoogleRegisterScreen";
 import * as api from "../services/api";
 
 jest.mock("../services/api", () => ({
+  getTerms: jest.fn(),
   registerWithGoogle: jest.fn(),
 }));
 

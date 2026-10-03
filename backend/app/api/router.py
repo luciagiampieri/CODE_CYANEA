@@ -3,6 +3,7 @@ from app.api.routes import (
     auth, 
     documentos, 
     gastos,
+    legal,
     liquidaciones,
     monedas, 
     places,
@@ -19,6 +20,7 @@ from app.api.routes import (
 api_router = APIRouter()
 api_router.include_router(root.router, tags=["root"])
 api_router.include_router(auth.router, prefix="/auth", tags=["auth"])
+api_router.include_router(legal.router, prefix="/legal", tags=["legal"])
 api_router.include_router(trips.router, prefix="/trips", tags=["trips"])
 api_router.include_router(
     planificacion.router_usuario, prefix="/users", tags=["planificacion"]
