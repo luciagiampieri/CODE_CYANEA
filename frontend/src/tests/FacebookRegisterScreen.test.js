@@ -4,6 +4,7 @@ import FacebookRegisterScreen from "../screens/FacebookRegisterScreen";
 import * as api from "../services/api";
 
 jest.mock("../services/api", () => ({
+  getTerms: jest.fn(),
   registerWithFacebook: jest.fn(),
 }));
 

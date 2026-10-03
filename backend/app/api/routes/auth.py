@@ -1,4 +1,5 @@
 import logging
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.security import OAuth2PasswordRequestForm
@@ -38,6 +39,28 @@ google_auth_service = GoogleAuthService()
 facebook_auth_service = FacebookAuthService()
 
 
+def _registrar_aceptacion_terminos(usuario: Usuario) -> None:
+    usuario.AceptaTerminos = True
+    usuario.FechaAceptacionTerminos = datetime.now(timezone.utc)
+    usuario.VersionTerminosAceptada = settings.terms_version
+
+
+def _send_template_no_bloqueante(
+    mail_service: MailService,
+    *,
+    user_id: int,
+    **kwargs,
+) -> None:
+    try:
+        mail_service.send_template(**kwargs)
+    except Exception:
+        logger.warning(
+            "No se pudo enviar el correo transaccional",
+            exc_info=True,
+            extra={"user_id": user_id},
+        )
+
+
 @router.post(
     "/register",
     response_model=UsuarioRegisterResponse,
@@ -70,6 +93,7 @@ def register(
         Activo=True,
         EmailConfirmado=False,
     )
+    _registrar_aceptacion_terminos(nuevo)
     db.add(nuevo)
     db.commit()
     db.refresh(nuevo)
@@ -80,7 +104,9 @@ def register(
         F"/auth/confirm-email?token={token}"
     )
 
-    mail_service.send_template(
+    _send_template_no_bloqueante(
+        mail_service,
+        user_id=nuevo.IdUsuario,
         to=[nuevo.Email],
         subject="Confirmá tu cuenta en Cyanea",
         template_name="confirm_email.html",
@@ -220,8 +246,13 @@ def register_with_google(
 
     identity = google_auth_service.verify_id_token(payload.idToken)
     usuario = google_auth_service.create_user_from_google(db, identity)
+    _registrar_aceptacion_terminos(usuario)
+    db.commit()
+    db.refresh(usuario)
 
-    mail_service.send_template(
+    _send_template_no_bloqueante(
+        mail_service,
+        user_id=usuario.IdUsuario,
         to=[usuario.Email],
         subject="Bienvenido a Cyanea",
         template_name="welcome.html",
@@ -306,8 +337,13 @@ def register_with_facebook(
         db,
         identity
     )
+    _registrar_aceptacion_terminos(usuario)
+    db.commit()
+    db.refresh(usuario)
 
-    mail_service.send_template(
+    _send_template_no_bloqueante(
+        mail_service,
+        user_id=usuario.IdUsuario,
         to=[usuario.Email],
         subject="Bienvenido a Cyanea",
         template_name="welcome.html",

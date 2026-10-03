@@ -364,7 +364,10 @@ Orden actual:
 - Servicios reutilizables en `backend/app/services/`
 - El modulo de mail es compartido y debe servir para invitaciones, notificaciones futuras, recuperacion de password y casos similares
 - Las notificaciones funcionales por correo deben pasar por un servicio central `NotificationService` en `backend/app/services/notifications/`
+- Los correos transaccionales de registro y bienvenida no deben bloquear la creacion de cuenta si el proveedor SMTP falla; se registra warning y el flujo principal responde correctamente
 - Aunque la pantalla de perfil todavia no exista, las preferencias y el consentimiento de email se modelan desde `Usuarios` y deben viajar en `/users/me`
+- La aceptacion de terminos y condiciones se persiste en `Usuarios.AceptaTerminos`, `Usuarios.FechaAceptacionTerminos` y `Usuarios.VersionTerminosAceptada`; todos los flujos de registro deben exigirla y guardar la version vigente configurada por `TERMS_VERSION`
+- El texto vigente de terminos y condiciones se expone publicamente desde `GET /legal/terms` para que el frontend lo muestre antes de crear la cuenta
 - La foto de perfil del usuario se almacena en Supabase Storage dentro del bucket configurado, bajo el prefijo `profile-photos/`, y la URL resultante se persiste en `Usuarios.FotoUrl`
 - La busqueda de destinos para alta y edicion de viaje se resuelve desde backend contra Google Places y se configura con `GOOGLE_MAPS_API_KEY`
 - `GOOGLE_MAPS_API_KEY` es una credencial server-side del backend para Google Places/Directions; no debe reutilizar una key restringida a Android o a referrers web, porque Google bloquea esas llamadas desde FastAPI

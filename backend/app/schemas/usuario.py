@@ -35,6 +35,9 @@ class UsuarioProfileRead(UsuarioRead):
     recibePushRecordatoriosDeuda: bool
     recibePushRecordatoriosActividad: bool
     recibePushRecordatoriosReserva: bool
+    aceptaTerminos: bool = False
+    fechaAceptacionTerminos: datetime | None = None
+    versionTerminosAceptada: str | None = None
 
 
 class UsuarioCurrentRead(UsuarioProfileRead):

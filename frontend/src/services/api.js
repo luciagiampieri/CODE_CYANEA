@@ -183,6 +183,11 @@ export async function registerWithGoogle(idToken, aceptaTerminos) {
   );
 }
 
+export async function getTerms() {
+  const response = await fetch(`${API_BASE_URL}/legal/terms`);
+  return parseResponse(response, "No se pudieron cargar los terminos y condiciones");
+}
+
 export async function getTrips() {
   const response = await fetch(`${API_BASE_URL}/trips`, {
     headers: await authHeaders(),

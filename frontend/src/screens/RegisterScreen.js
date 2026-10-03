@@ -15,6 +15,7 @@ import {
 } from "react-native";
 
 import AuthSwitch from "../components/ui/AuthSwitch";
+import TermsModal from "../components/legal/TermsModal";
 import {
   colors,
   fontFamilies,
@@ -43,6 +44,7 @@ export default function RegisterScreen({ navigation }) {
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
+  const [termsVisible, setTermsVisible] = useState(false);
 
   function setField(key, value) {
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -87,7 +89,7 @@ export default function RegisterScreen({ navigation }) {
         }),
       });
       
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       
       if (!res.ok) {
         if (res.status === 422 && data.detail && Array.isArray(data.detail)) {
@@ -186,9 +188,12 @@ export default function RegisterScreen({ navigation }) {
                   value={form.aceptaTerminos}
                   onValueChange={(value) => setField("aceptaTerminos", value)}
                 />
-                <Text style={styles.termsText}>
-                  Acepto los <Text style={styles.termsStrong}>Términos y Condiciones.</Text>
-                </Text>
+                <View style={styles.termsCopy}>
+                  <Text style={styles.termsText}>Acepto los</Text>
+                  <Pressable onPress={() => setTermsVisible(true)} testID="register-terms-link">
+                    <Text style={styles.termsStrong}>Términos y Condiciones.</Text>
+                  </Pressable>
+                </View>
               </View>
               {errors.aceptaTerminos ? <Text style={styles.fieldError}>{errors.aceptaTerminos}</Text> : null}
 
@@ -218,6 +223,7 @@ export default function RegisterScreen({ navigation }) {
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
+      <TermsModal visible={termsVisible} onClose={() => setTermsVisible(false)} />
     </View>
   );
 }
@@ -357,7 +363,12 @@ const styles = StyleSheet.create({
   termsText: {
     ...textStyles.meta,
     color: colors.textSecondary,
+  },
+  termsCopy: {
     flex: 1,
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 4,
   },
   termsStrong: {
     color: colors.primary,

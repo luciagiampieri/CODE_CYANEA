@@ -123,6 +123,15 @@ class Usuario(Base):
     EmailConfirmado: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default="false"
     )
+    AceptaTerminos: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
+    FechaAceptacionTerminos: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    VersionTerminosAceptada: Mapped[str | None] = mapped_column(
+        String(30), nullable=True
+    )
     DocumentosSubidos = relationship(
         "DocumentoViaje",
         back_populates="UsuarioSubida"

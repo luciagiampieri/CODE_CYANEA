@@ -148,6 +148,35 @@ describe("US - Registrarse (RegisterScreen)", () => {
     });
   });
 
+  it("permite leer los términos y condiciones antes de registrarse", async () => {
+    global.fetch.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        version: "2026-10-03",
+        titulo: "Terminos y Condiciones de Cyanea",
+        contenido: [
+          "10. Limitacion de responsabilidad\nCyanea no sera responsable por danos indirectos.",
+        ],
+      }),
+    });
+
+    const utils = await render(<RegisterScreen navigation={navigation} />);
+
+    await act(async () => {
+      fireEvent.press(utils.getByTestId("register-terms-link"));
+    });
+
+    await waitFor(() => {
+      expect(utils.getByTestId("terms-modal")).toBeTruthy();
+      expect(utils.getByText("10. Limitacion de responsabilidad")).toBeTruthy();
+      expect(utils.getByText("Cyanea no sera responsable por danos indirectos.")).toBeTruthy();
+    });
+
+    const [url] = global.fetch.mock.calls[0];
+    expect(url).toContain("/legal/terms");
+  });
+
   it("muestra un error específico si el backend rechaza el email (422)", async () => {
     global.fetch.mockResolvedValue({
       ok: false,

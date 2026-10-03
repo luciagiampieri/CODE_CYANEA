@@ -89,6 +89,9 @@ def _serializar_usuario_actual(usuario: Usuario) -> UsuarioProfileRead:
         recibePushRecordatoriosDeuda=usuario.RecibePushRecordatoriosDeuda,
         recibePushRecordatoriosActividad=usuario.RecibePushRecordatoriosActividad,
         recibePushRecordatoriosReserva=usuario.RecibePushRecordatoriosReserva,
+        aceptaTerminos=usuario.AceptaTerminos,
+        fechaAceptacionTerminos=usuario.FechaAceptacionTerminos,
+        versionTerminosAceptada=usuario.VersionTerminosAceptada,
     )
 
 

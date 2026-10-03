@@ -1,6 +1,9 @@
+from app.core.config import settings
 from app.core.security import hash_password
 from app.models.usuario import Usuario
 from app.api.routes import auth as auth_module
+from app.main import app
+from app.services.mail import get_mail_service
 from app.services.auth.facebook_auth_service import FacebookIdentity
 from app.services.auth.google_auth_service import GoogleIdentity
 
@@ -42,6 +45,19 @@ def test_register_creates_unconfirmed_user(client, db_session):
     creado = db_session.query(Usuario).filter_by(Email="juan@test.com").first()
     assert creado is not None
     assert creado.EmailConfirmado is False
+    assert creado.AceptaTerminos is True
+    assert creado.FechaAceptacionTerminos is not None
+    assert creado.VersionTerminosAceptada == settings.terms_version
+
+
+def test_get_terms_returns_current_version(client):
+    response = client.get("/api/v1/legal/terms")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["version"] == settings.terms_version
+    assert body["titulo"]
+    assert body["contenido"]
 
 
 def test_register_rejects_duplicate_email(client, usuario_activo):
@@ -53,6 +69,26 @@ def test_register_rejects_duplicate_email(client, usuario_activo):
         "aceptaTerminos": True,
     })
     assert response.status_code == 409
+
+
+def test_register_no_falla_si_no_se_puede_enviar_mail(client, db_session):
+    class FailingMailService:
+        def send_template(self, **kwargs):
+            raise RuntimeError("smtp fuera de servicio")
+
+    app.dependency_overrides[get_mail_service] = lambda: FailingMailService()
+
+    response = client.post("/api/v1/auth/register", json={
+        "nombre": "Mail",
+        "apellido": "Fallido",
+        "nombreUsuario": "mail_fallido",
+        "email": "mail.fallido@test.com",
+        "password": "Password123!",
+        "aceptaTerminos": True,
+    })
+
+    assert response.status_code == 201
+    assert db_session.query(Usuario).filter_by(Email="mail.fallido@test.com").first()
 
 
 def test_login_success(client, usuario_activo):
@@ -203,6 +239,9 @@ def test_google_register_crea_usuario_y_devuelve_token(client, db_session, monke
     creado = db_session.query(Usuario).filter_by(Email=identity.email).one()
     assert creado.GoogleSub == identity.sub
     assert creado.EmailConfirmado is True
+    assert creado.AceptaTerminos is True
+    assert creado.FechaAceptacionTerminos is not None
+    assert creado.VersionTerminosAceptada == settings.terms_version
 
 
 def test_google_register_rechaza_no_aceptar_terminos(client, monkeypatch):
@@ -306,6 +345,9 @@ def test_facebook_register_crea_usuario_y_devuelve_token(client, db_session, mon
     creado = db_session.query(Usuario).filter_by(Email=identity.email).one()
     assert creado.FacebookId == identity.id
     assert creado.EmailConfirmado is True
+    assert creado.AceptaTerminos is True
+    assert creado.FechaAceptacionTerminos is not None
+    assert creado.VersionTerminosAceptada == settings.terms_version
 
 
 def test_facebook_register_rechaza_no_aceptar_terminos(client, monkeypatch):
