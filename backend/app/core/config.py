@@ -45,6 +45,7 @@ class Settings(BaseSettings):
     mail_from_name: str = "Cyanea"
     mail_reply_to: str | None = None
     mail_frontend_base_url: str = "http://127.0.0.1:8081"
+    brevo_api_key: str | None = None
 
     # Push notifications
     push_enabled: bool = True

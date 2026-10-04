@@ -7,6 +7,7 @@ from app.services.mail.branding import get_cyanea_icon_data_uri
 from app.services.mail.schemas import MailMessage
 from app.services.mail.smtp import SmtpMailProvider
 from app.services.mail.templates import render_template
+from backend.app.services.mail.brevo import BrevoMailProvider
 
 
 logger = logging.getLogger(__name__)
@@ -65,6 +66,8 @@ class MailService:
 @lru_cache
 def get_mail_service() -> MailService:
     provider_name = settings.mail_provider.lower().strip()
-    if provider_name != "smtp":
-        raise ValueError(f"Proveedor de mail no soportado: {settings.mail_provider}")
-    return MailService(provider=SmtpMailProvider())
+    if provider_name == "brevo":
+        return MailService(provider=BrevoMailProvider())
+    if provider_name == "smtp":
+        return MailService(provider=SmtpMailProvider())
+    raise ValueError(f"Proveedor de mail no soportado: {settings.mail_provider}")
