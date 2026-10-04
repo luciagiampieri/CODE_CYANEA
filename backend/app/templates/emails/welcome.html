@@ -1,45 +1,14 @@
-<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Bienvenido a Cyanea</title>
-</head>
-<body style="margin:0;padding:0;background-color:#F7F9FC;font-family:'Segoe UI',Arial,sans-serif;">
-    <table width="100%" cellpadding="0" cellspacing="0" style="background:#F7F9FC;padding:40px 0;">
-        <tr>
-            <td align="center">
-                <table width="560" cellpadding="0" cellspacing="0" 
-                    style="background:#FFFFFF;border-radius:16px;overflow:hidden;border:1px solid #E8EDF4;">
-
-                <tr>
-                    <td style="background:#1E3E7B;padding:32px;text-align:center;">
-                        <img src="{{ cyanea_icon_data_uri }}" alt="Cyanea"
-                                width="40" height="57"
-                                style="display:block;margin:0 auto 10px;border:0;" />
-                        <h1 style="margin:0;color:#FFEC80;font-size:32px;letter-spacing:1px;font-weight:800;">Cyanea</h1>
-                    </td>
-                </tr>
-
-                <tr>
-                    <td style="padding:40px 40px 40px;">
-                        <h2 style="margin:0 0 16px;color:#1E3E7B;font-size:24px;">¡Bienvenido, {{ nombre }}!</h2>
-                        <p style="margin:0 0 20px;color:#333;line-height:1.6;font-size:16px;">
-                            Tu cuenta en <b>Cyanea</b> ha sido creada correctamente.
-                        </p>
-                        <p style="margin:0 0 20px;color:#333;line-height:1.6;font-size:16px;">
-                            Ya podés comenzar a organizar tus viajes, compartir experiencias y planificar todas tus aventuras con tus compañeros en un solo lugar.
-                        </p>
-                
-                        
-                        <p style="margin:0;color:#666;font-size:15px;">
-                            ¡Gracias por unirte a nuestra comunidad!
-                        </p>
-                    </td>
-                </tr>
-                </table>
-            </td>
-        </tr>
-    </table>
-</body>
-</html>
+{% extends "base_layout.html" %}
+{% block title %}Bienvenido a Cyanea{% endblock %}
+{% block content %}
+                            <h2 style="margin:0 0 12px;color:#1e3e7b;font-size:22px;">¡Bienvenido, {{ nombre }}!</h2>
+                            <p style="margin:0 0 18px;color:#444;line-height:1.6;">
+                                Tu cuenta en <strong>Cyanea</strong> ha sido creada correctamente.
+                            </p>
+                            <p style="margin:0 0 20px;color:#444;line-height:1.6;">
+                                Ya podés comenzar a organizar tus viajes, compartir experiencias y planificar todas tus aventuras con tus compañeros en un solo lugar.
+                            </p>
+                            <p style="margin:0;color:#666;font-size:15px;line-height:1.6;">
+                                ¡Gracias por unirte a nuestra comunidad!
+                            </p>
+{% endblock %}
