@@ -31,7 +31,6 @@ jest.mock("../services/api", () => ({
 const trip = {
   id: 1,
   title: "Mallorca",
-  status: "activo",
   startDate: "2026-10-01",
   endDate: "2026-10-03",
   destinations: [{ id: 9, name: "Palma", country: "España", lat: 39.57, lng: 2.65 }],
