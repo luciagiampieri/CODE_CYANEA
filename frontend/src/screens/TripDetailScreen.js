@@ -1844,23 +1844,41 @@ export default function TripDetailScreen({ navigation, route }) {
           {activeTab === "resumen" ? (
             <View style={styles.summaryContainer}>
               <View style={styles.summaryGrid}>
-                <View style={styles.summaryCard}>
+                <Pressable
+                  style={({ pressed }) => [
+                    styles.summaryCard,
+                    pressed && { opacity: 0.7, backgroundColor: colors.surfaceAlt }
+                  ]}
+                  onPress={() => setActiveTab("itinerario")}
+                >
                   <View style={styles.summaryIconWrap}>
                     <FontAwesome6 name="moon" size={22} color={colors.primary} />
                   </View>
                   <Text style={styles.summaryValue}>{tripSummaryMetrics.noches}</Text>
                   <Text style={styles.summaryLabel}>Noches</Text>
-                </View>
+                </Pressable>
 
-                <View style={styles.summaryCard}>
+                <Pressable
+                  style={({ pressed }) => [
+                    styles.summaryCard,
+                    pressed && { opacity: 0.7, backgroundColor: colors.surfaceAlt }
+                  ]}
+                  onPress={() => setActiveTab("grupo")}
+                >
                   <View style={styles.summaryIconWrap}>
                     <FontAwesome6 name="users" size={22} color={colors.primary} />
                   </View>
                   <Text style={styles.summaryValue}>{participantesActivos.length}</Text>
                   <Text style={styles.summaryLabel}>Viajeros</Text>
-                </View>
+                </Pressable>
 
-                <View style={styles.summaryCard}>
+                <Pressable
+                  style={({ pressed }) => [
+                    styles.summaryCard,
+                    pressed && { opacity: 0.7, backgroundColor: colors.surfaceAlt }
+                  ]}
+                  onPress={() => setActiveTab("gastos")}
+                >
                   <View style={styles.summaryIconWrap}>
                     <FontAwesome6 name="sack-dollar" size={22} color={colors.primary} />
                   </View>
@@ -1873,9 +1891,15 @@ export default function TripDetailScreen({ navigation, route }) {
                   <Text style={styles.summaryLabel}>
                     Total gastado ({settlement?.Moneda || trip?.currency || "ARS"})
                   </Text>
-                </View>
+                </Pressable>
 
-                <View style={styles.summaryCard}>
+                <Pressable
+                  style={({ pressed }) => [
+                    styles.summaryCard,
+                    pressed && { opacity: 0.7, backgroundColor: colors.surfaceAlt }
+                  ]}
+                  onPress={() => setActiveTab("itinerario")}
+                >
                   <View style={styles.summaryIconWrap}>
                     <FontAwesome6 name="clock" size={22} color={colors.primary} />
                   </View>
@@ -1889,7 +1913,7 @@ export default function TripDetailScreen({ navigation, route }) {
                   <Text style={styles.summaryLabel}>
                     {tripSummaryMetrics.estaFinalizado ? "Estado" : tripSummaryMetrics.yaComenzo ? "Estado" : "Faltan"}
                   </Text>
-                </View>
+                </Pressable>
               </View>
 
               <View style={styles.progressCard}>
