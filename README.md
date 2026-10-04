@@ -10,7 +10,7 @@ Este desarrollo se realiza en el marco del **Proyecto Final de Carrera** para la
 
 ## Stack
  
-- `frontend/`: Expo + React Native + Expo Web
+- `frontend/`: Expo (React Native + react-native-web)
 - `backend/`: FastAPI + SQLAlchemy + Alembic
 - `docker-compose.yml`: PostgreSQL + backend + frontend
 ## Estructura
