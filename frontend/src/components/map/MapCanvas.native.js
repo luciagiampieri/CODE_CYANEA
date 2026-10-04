@@ -1,12 +1,17 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { StyleSheet, Text, View } from "react-native";
-import MapView, { Marker, Polyline, PROVIDER_GOOGLE } from "react-native-maps";
+import { Platform, StyleSheet, Text, View } from "react-native";
+import MapView, { Polyline, PROVIDER_DEFAULT, PROVIDER_GOOGLE } from "react-native-maps";
 import { FontAwesome6 } from "@expo/vector-icons";
 
 import { colors, radii, spacing, surfaces, textStyles } from "../../theme/tokens";
 import { decodePolyline } from "../../utils/polyline";
 
 import MapPin from "./MapPin.native";
+
+// Google Maps en Android; en iOS, Apple Maps. Google Maps en iOS requiere una
+// build propia con su clave de API configurada y en Expo Go deja el mapa en
+// blanco, mientras que Apple Maps funciona sin configuración.
+export const MAP_PROVIDER = Platform.OS === "android" ? PROVIDER_GOOGLE : PROVIDER_DEFAULT;
 
 const DEFAULT_CENTER = {
   latitude: -34.6037,
@@ -122,12 +127,12 @@ export default function MapCanvas({
   }
 
   return (
-    <View style={styles.wrap}>
-      <View style={styles.mapCard}>
+    <View style={fullscreen ? styles.fullscreenWrap : styles.wrap}>
+      <View style={fullscreen ? styles.fullscreenCard : styles.mapCard}>
         <MapView
           ref={mapRef}
           initialRegion={region}
-          provider={PROVIDER_GOOGLE}
+          provider={MAP_PROVIDER}
           onRegionChangeComplete={handleRegionChangeComplete}
           mapPadding={{
             top: topInset,
@@ -146,12 +151,6 @@ export default function MapCanvas({
           showIndoors={false}
           showTraffic={false}
           style={fullscreen ? styles.fullscreenMap : styles.map}
-           onMapReady={() => {
-              console.log("GOOGLE MAPS: mapa inicializado");
-            }}
-            onMapLoaded={() => {
-              console.log("GOOGLE MAPS: mapa cargado");
-            }}
         >
           {validMarkers.map((marker) => (
             <MapPin
@@ -180,22 +179,24 @@ export default function MapCanvas({
         ) : null}
       </View>
 
-      <View style={styles.footer}>
-        <View style={styles.legendItem}>
-          <View style={[styles.legendDot, { backgroundColor: colors.accentStrong }]} />
-          <Text style={styles.legendText}>Destino</Text>
+      {fullscreen ? null : (
+        <View style={styles.footer}>
+          <View style={styles.legendItem}>
+            <View style={[styles.legendDot, { backgroundColor: colors.accentStrong }]} />
+            <Text style={styles.legendText}>Destino</Text>
+          </View>
+          <View style={styles.legendItem}>
+            <View style={[styles.legendDot, { backgroundColor: colors.primarySoft }]} />
+            <Text style={styles.legendText}>Guardado</Text>
+          </View>
+          <View style={styles.legendItem}>
+            <View style={[styles.legendDot, { backgroundColor: colors.danger }]} />
+            <Text style={styles.legendText}>Resultado</Text>
+          </View>
         </View>
-        <View style={styles.legendItem}>
-          <View style={[styles.legendDot, { backgroundColor: colors.primarySoft }]} />
-          <Text style={styles.legendText}>Guardado</Text>
-        </View>
-        <View style={styles.legendItem}>
-          <View style={[styles.legendDot, { backgroundColor: colors.danger }]} />
-          <Text style={styles.legendText}>Resultado</Text>
-        </View>
-      </View>
+      )}
 
-      {validMarkers.length === 0 ? (
+      {!fullscreen && validMarkers.length === 0 ? (
         <View style={styles.emptyCard}>
           <Text style={styles.emptyTitle}>Todavía no hay puntos para mostrar.</Text>
           <Text style={styles.emptyCopy}>
@@ -216,9 +217,11 @@ const styles = StyleSheet.create({
     overflow: "hidden",
     minHeight: 400,
   },
+  // Con alto fijo: un alto en porcentaje dentro de una tarjeta que solo tiene
+  // alto mínimo se resuelve como 0 en nativo y el mapa no se ve.
   map: {
     width: "100%",
-    height: "100%",
+    height: 400,
   },
   offlineOverlay: {
     position: "absolute",
@@ -272,14 +275,21 @@ const styles = StyleSheet.create({
     ...textStyles.meta,
     color: colors.textSecondary,
   },
-  fullscreenMap: {
-    width: "100%",
-    height: "100%",
-  },
+  // Posiciones escritas explícitamente en lugar de StyleSheet.absoluteFillObject:
+  // si esa constante no está disponible en la versión de React Native, el
+  // spread no aplica ningún estilo y el mapa queda con alto 0.
   fullscreenWrap: {
-    ...StyleSheet.absoluteFillObject,
+    position: "absolute",
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
   },
   fullscreenCard: {
     flex: 1,
+    overflow: "hidden",
   },
-});
+  fullscreenMap: {
+    flex: 1,
+  },
+});
