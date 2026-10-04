@@ -7,8 +7,7 @@ from app.services.mail.branding import get_cyanea_icon_data_uri
 from app.services.mail.schemas import MailMessage
 from app.services.mail.smtp import SmtpMailProvider
 from app.services.mail.templates import render_template
-from backend.app.services.mail.brevo import BrevoMailProvider
-
+from app.services.mail.brevo import BrevoMailProvider
 
 logger = logging.getLogger(__name__)
 

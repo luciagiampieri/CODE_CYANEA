@@ -267,3 +267,13 @@ def planificacion_master_data(db_session):
         "intereses": {i.Nombre: i.IdInteresPlanificacion for i in intereses},
         "ritmos": {r.Nombre: r.IdRitmoViaje for r in ritmos},
     }
+
+
+@pytest.fixture(autouse=True)
+def _sesiones_directas_usan_db_de_test(monkeypatch):
+    """Algunas partes del código abren `SessionLocal()` por su cuenta (p. ej. la
+    verificación de sesión en `decode_access_token`), salteándose el override de
+    `get_db`. Sin esto, los tests se conectan a la DATABASE_URL real del `.env`."""
+    import app.db.session as session_module
+
+    monkeypatch.setattr(session_module, "SessionLocal", TestingSessionLocal)
