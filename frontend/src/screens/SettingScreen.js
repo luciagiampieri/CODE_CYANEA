@@ -149,6 +149,26 @@ export default function SettingsScreen({ navigation }) {
                 <FontAwesome6 name="chevron-right" size={14} color={colors.textMuted} />
               </Pressable>
               <Pressable
+                onPress={() => navigation.navigate("PreferenciasPrivacidad")}
+                testID="settings-privacidad-row"
+                style={({ pressed }) => [
+                  styles.itemRow,
+                  styles.itemRowDivider,
+                  pressed && styles.itemRowPressed,
+                ]}
+              >
+                <View style={styles.itemLeft}>
+                  <View style={[styles.iconCircle, { backgroundColor: colors.surfaceAlt }]}>
+                    <FontAwesome6 name="user-shield" size={16} color={colors.primary} />
+                  </View>
+                  <View>
+                    <Text style={styles.itemTitle}>Privacidad</Text>
+                    <Text style={styles.itemSubtitle}>Qué datos ven los demás viajeros</Text>
+                  </View>
+                </View>
+                <FontAwesome6 name="chevron-right" size={14} color={colors.textMuted} />
+              </Pressable>
+              <Pressable
                 onPress={() => navigation.navigate("PreferenciasPlanificacion")}
                 testID="settings-planificacion-row"
                 style={({ pressed }) => [
@@ -424,4 +444,4 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
     marginTop: spacing.xs,
   }
-});
+});

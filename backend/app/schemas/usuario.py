@@ -1,5 +1,6 @@
 import re
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, EmailStr, field_validator
 
@@ -8,7 +9,9 @@ class UsuarioRead(BaseModel):
     id: int
     nombreUsuario: str
     nombreCompleto: str
-    email: str
+    # None cuando el usuario lo configuró como privado (US 61) o en contextos
+    # donde nunca se expone, como la búsqueda de usuarios.
+    email: str | None = None
     fotoUrl: str | None = None
 
 
@@ -150,3 +153,23 @@ class ConsentimientoIAUpdate(BaseModel):
 class ConsentimientoIARead(BaseModel):
     consienteProcesamientoIA: bool
     fechaConsentimientoIA: datetime | None = None
+
+
+Visibilidad = Literal["participantes", "privado"]
+
+
+class PrivacidadRead(BaseModel):
+    """Preferencias de privacidad del perfil (US 61)."""
+
+    visibilidadNombre: Visibilidad
+    visibilidadEmail: Visibilidad
+    visibilidadFotoPerfil: Visibilidad
+    permiteBusquedaPorUsuario: bool
+
+
+class PrivacidadUpdate(PrivacidadRead):
+    pass
+
+
+class PrivacidadUpdateResponse(PrivacidadRead):
+    message: str

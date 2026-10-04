@@ -132,6 +132,22 @@ class Usuario(Base):
     VersionTerminosAceptada: Mapped[str | None] = mapped_column(
         String(30), nullable=True
     )
+    # Privacidad del perfil (US 61). Cada campo es "participantes" (visible
+    # para los demás integrantes de los viajes compartidos) o "privado".
+    VisibilidadNombre: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="participantes", server_default="participantes"
+    )
+    VisibilidadEmail: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="participantes", server_default="participantes"
+    )
+    VisibilidadFotoPerfil: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="participantes", server_default="participantes"
+    )
+    # Si otros viajeros pueden encontrar la cuenta buscando por nombre de
+    # usuario para invitarla a un viaje.
+    PermiteBusquedaPorUsuario: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default="true"
+    )
     DocumentosSubidos = relationship(
         "DocumentoViaje",
         back_populates="UsuarioSubida"

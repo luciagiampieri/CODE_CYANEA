@@ -43,7 +43,7 @@ export default function ParticipantSearch({
                 <View style={styles.suggestionBody}>
                   <Text style={styles.suggestionTitle}>{user.nombreCompleto}</Text>
                   <Text numberOfLines={1} style={styles.suggestionSubtitle}>
-                    @{user.nombreUsuario} · {user.email}
+                    @{user.nombreUsuario}
                   </Text>
                 </View>
                 <View style={styles.addBadge}>

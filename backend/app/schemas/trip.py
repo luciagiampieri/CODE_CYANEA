@@ -184,7 +184,8 @@ class TripParticipantRead(BaseModel):
     id: int
     nombreCompleto: str
     nombreUsuario: str
-    email: str
+    # None si el participante configuró su email como privado (US 61).
+    email: str | None = None
     fotoUrl: str | None = None
     role: str
     status: str
@@ -201,7 +202,8 @@ class TripAdminRead(BaseModel):
     id: int
     nombreCompleto: str
     nombreUsuario: str
-    email: str
+    # None si el administrador configuró su email como privado (US 61).
+    email: str | None = None
     fotoUrl: str | None = None
 
 
@@ -380,4 +382,4 @@ class TripSentInvitationRead(BaseModel):
 
 class LeaveTripRequest(BaseModel):
     confirmar: bool 
-    nuevoAdministradorId: Optional[int] = None
+    nuevoAdministradorId: Optional[int] = None

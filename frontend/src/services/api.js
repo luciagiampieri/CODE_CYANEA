@@ -464,6 +464,26 @@ export async function getCurrentUser() {
   return parseResponse(response, "No se pudo obtener el usuario actual");
 }
 
+// US 61: preferencias de privacidad del perfil.
+export async function getPrivacySettings() {
+  const response = await fetch(`${API_BASE_URL}/users/me/privacidad`, {
+    headers: await authHeaders(),
+  });
+  return parseResponse(response, "No se pudieron obtener tus preferencias de privacidad");
+}
+
+export async function updatePrivacySettings(settings) {
+  const response = await fetch(`${API_BASE_URL}/users/me/privacidad`, {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+      ...(await authHeaders()),
+    },
+    body: JSON.stringify(settings),
+  });
+  return parseResponse(response, "No se pudieron guardar tus preferencias de privacidad");
+}
+
 export async function verifyPassword(password) {
   const response = await fetch(
     `${API_BASE_URL}/users/me/verify-password`,
