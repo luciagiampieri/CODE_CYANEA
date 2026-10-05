@@ -483,6 +483,7 @@ Para retomar o replicar la configuracion de push Android:
 - En Expo no se usa un `styles.css` global; la identidad visual debe centralizarse en tokens compartidos y helpers de estilo
 - Evitar hardcodear colores, radios o espaciados por componente si ya existe token equivalente
 - Los módulos de infraestructura nativa con dependencias exclusivas de dispositivo, como SQLite offline, deben resolverse con archivos por plataforma (`*.native.js` / `*.web.js`) para no romper el bundle web
+- Los contenedores con area segura deben importar `SafeAreaView` desde `react-native-safe-area-context`, no desde `react-native`, para evitar la API deprecada en Expo/React Native
 - La interfaz activa toma como referencia una app de viajes mobile-first con header azul profundo, superficies marfil y tarjetas con imagen protagonista
 - Usar serif editorial para wordmark de marca, titulos grandes de pantalla, nombres de viajes y valores KPI
 - Usar sans para labels, formularios, navegacion, metadata, tabs y acciones
