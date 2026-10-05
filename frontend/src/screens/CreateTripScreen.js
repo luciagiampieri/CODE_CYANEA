@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useState, useRef, forwardRef } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useState, useRef, forwardRef } from "react";
 import { FontAwesome6 } from "@expo/vector-icons";
 import {
+  Image,
   ImageBackground,
   KeyboardAvoidingView,
   Platform,
@@ -15,13 +16,12 @@ import {
   TouchableWithoutFeedback,
   Keyboard,
   ActivityIndicator,
-  useWindowDimensions,
 } from "react-native";
 import Modal from "../components/ui/AppModal";
 
 import { LocaleConfig } from "react-native-calendars";
 import DatePickerModal from "../components/ui/DatePickerModal";
-import {toYMD, parseYMD, getTodayIso, formatDateDisplay} from "../utils/dates";
+import { toYMD, parseYMD, getTodayIso, formatDateDisplay } from "../utils/dates";
 
 import ScreenContainer from "../components/layout/ScreenContainer";
 import ParticipantList from "../components/trip/ParticipantList";
@@ -31,21 +31,31 @@ import IconCircleButton from "../components/ui/IconCircleButton";
 import PrimaryButton from "../components/ui/PrimaryButton";
 import AICoverGenerator from "../components/trip/AICoverGenerator";
 import useResponsive from "../hooks/useResponsive";
-import { createTrip, getCurrentUser, getUsers, getCurrencies, searchDestinations, resolveDestination, uploadTripCover, generateCoverPreviewAI, acceptTripCoverAI} from "../services/api.js";
+import {
+  createTrip,
+  getCurrentUser,
+  getUsers,
+  getCurrencies,
+  searchDestinations,
+  resolveDestination,
+  uploadTripCover,
+  generateCoverPreviewAI,
+  acceptTripCoverAI,
+} from "../services/api.js";
 import { colors, radii, spacing, surfaces, textStyles } from "../theme/tokens";
 import * as ImagePicker from "expo-image-picker";
 
-const MONTH_NAMES_ES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
+const MONTH_NAMES_ES = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
 
 // Configuración del calendario en Español (react-native-calendars)
-LocaleConfig.locales['es'] = {
+LocaleConfig.locales["es"] = {
   monthNames: MONTH_NAMES_ES,
-  monthNamesShort: ['Ene.', 'Feb.', 'Mar.', 'Abr.', 'May.', 'Jun.', 'Jul.', 'Ago.', 'Sep.', 'Oct.', 'Nov.', 'Dic.'],
-  dayNames: ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'],
-  dayNamesShort: ['Dom.', 'Lun.', 'Mar.', 'Mié.', 'Jue.', 'Vie.', 'Sáb.'],
-  today: 'Hoy'
+  monthNamesShort: ["Ene.", "Feb.", "Mar.", "Abr.", "May.", "Jun.", "Jul.", "Ago.", "Sep.", "Oct.", "Nov.", "Dic."],
+  dayNames: ["Domingo", "Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"],
+  dayNamesShort: ["Dom.", "Lun.", "Mar.", "Mié.", "Jue.", "Vie.", "Sáb."],
+  today: "Hoy",
 };
-LocaleConfig.defaultLocale = 'es';
+LocaleConfig.defaultLocale = "es";
 
 const initialForm = {
   title: "",
@@ -58,6 +68,20 @@ const initialForm = {
   invitedEmails: [],
 };
 
+const STEPS = [
+  { id: 1, label: "Datos" },
+  { id: 2, label: "Destinos" },
+  { id: 3, label: "Invitados" },
+];
+
+const ALLOWED_COVER_EXTENSIONS = ["jpg", "jpeg", "png"];
+
+const COLOR_SOFT = colors.primarySoft ? `${colors.primarySoft}33` : "#eef2ff";
+const COLOR_DANGER = colors.danger || "#FF3B30";
+const COLOR_DANGER_SOFT = colors.danger ? `${colors.danger}14` : "rgba(255,59,48,0.08)";
+
+/* ───────────────────────── Utilidades ───────────────────────── */
+
 function isValidEmail(email) {
   const normalized = email.trim().toLowerCase();
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalized);
@@ -65,6 +89,407 @@ function isValidEmail(email) {
 
 function getEmailLabel(email) {
   return email.split("@")[0].replace(/[._-]+/g, " ");
+}
+
+function makeSessionToken() {
+  return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
+function getExtensionFromAsset(asset) {
+  const fromFileName = asset.fileName?.split(".").pop();
+  if (fromFileName) return fromFileName.toLowerCase();
+  const fromUri = asset.uri?.split(".").pop();
+  return fromUri ? fromUri.toLowerCase().split("?")[0] : "";
+}
+
+function getInitials(name) {
+  const parts = String(name || "").trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return "?";
+  const first = parts[0].charAt(0);
+  const last = parts.length > 1 ? parts[parts.length - 1].charAt(0) : "";
+  return (first + last).toUpperCase();
+}
+
+function describeDuration(startDate, endDate) {
+  if (!startDate || !endDate) return null;
+  const start = new Date(`${startDate}T12:00:00`);
+  const end = new Date(`${endDate}T12:00:00`);
+  const nights = Math.round((end - start) / 86400000);
+  if (Number.isNaN(nights) || nights < 0) return null;
+  const days = nights + 1;
+  if (nights === 0) return "Viaje de un día";
+  return `${nights} ${nights === 1 ? "noche" : "noches"} · ${days} días`;
+}
+
+function useKeyboardVisible() {
+  const [visible, setVisible] = useState(false);
+  useEffect(() => {
+    const showEvent = Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
+    const hideEvent = Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide";
+    const showSub = Keyboard.addListener(showEvent, () => setVisible(true));
+    const hideSub = Keyboard.addListener(hideEvent, () => setVisible(false));
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, []);
+  return visible;
+}
+
+/**
+ * Mantiene visible el campo que se está editando moviendo el scroll SOLO lo necesario,
+ * para que quede justo por encima del teclado (sin empujarlo hasta arriba de todo).
+ * `registrarBase` guarda la posición de la tarjeta que contiene los campos.
+ */
+function useScrollAlCampo(margen = 20) {
+  const ref = useRef(null);
+  const scrollY = useRef(0);
+  const alturaVisible = useRef(0);
+  const campos = useRef({});
+  const base = useRef(0);
+  const activo = useRef(null);
+
+  const asegurarVisible = useCallback(() => {
+    const campo = activo.current != null ? campos.current[activo.current] : null;
+    if (!campo || !alturaVisible.current) return;
+
+    const arriba = base.current + campo.y;
+    const abajo = arriba + campo.h;
+    const visibleArriba = scrollY.current;
+    const visibleAbajo = scrollY.current + alturaVisible.current;
+
+    let destino = null;
+    if (abajo + margen > visibleAbajo) {
+      destino = abajo + margen - alturaVisible.current;
+    } else if (arriba - margen < visibleArriba) {
+      destino = arriba - margen;
+    }
+    if (destino !== null) {
+      ref.current?.scrollTo?.({ y: Math.max(0, destino), animated: true });
+    }
+  }, [margen]);
+
+  const registrarBase = useCallback((e) => {
+    base.current = e.nativeEvent.layout.y;
+  }, []);
+
+  const registrar = useCallback(
+    (key) => (e) => {
+      const { y, height } = e.nativeEvent.layout;
+      campos.current[key] = { y, h: height };
+    },
+    []
+  );
+
+  const enfocar = useCallback(
+    (key) => {
+      activo.current = key;
+      setTimeout(asegurarVisible, 120);
+      setTimeout(asegurarVisible, 380);
+    },
+    [asegurarVisible]
+  );
+
+  const limpiar = useCallback(() => {
+    activo.current = null;
+  }, []);
+
+  const scrollProps = {
+    scrollEventThrottle: 16,
+    onScroll: (e) => {
+      scrollY.current = e.nativeEvent.contentOffset.y;
+    },
+    onLayout: (e) => {
+      alturaVisible.current = e.nativeEvent.layout.height;
+      if (activo.current != null) setTimeout(asegurarVisible, 50);
+    },
+  };
+
+  return { ref, scrollProps, registrar, registrarBase, enfocar, limpiar };
+}
+
+/* ───────────────────────── Componentes ───────────────────────── */
+
+function Stepper({ step }) {
+  return (
+    <View style={styles.stepper}>
+      {STEPS.map((s, i) => {
+        const done = step > s.id;
+        const active = step === s.id;
+        return (
+          <Fragment key={s.id}>
+            {i > 0 ? <View style={[styles.stepLine, step >= s.id && styles.stepLineOn]} /> : null}
+            <View style={styles.stepItem}>
+              <View style={[styles.stepCircle, (done || active) && styles.stepCircleOn]}>
+                {done ? (
+                  <FontAwesome6 name="check" size={12} color={colors.primary} />
+                ) : (
+                  <Text style={[styles.stepCircleText, active && styles.stepCircleTextOn]}>{s.id}</Text>
+                )}
+              </View>
+              <Text style={[styles.stepLabel, (done || active) && styles.stepLabelOn]}>{s.label}</Text>
+            </View>
+          </Fragment>
+        );
+      })}
+    </View>
+  );
+}
+
+function CardHeader({ icon, title, subtitle }) {
+  return (
+    <View style={styles.cardHeader}>
+      <View style={styles.cardIconCircle}>
+        <FontAwesome6 name={icon} size={15} color={colors.primary} />
+      </View>
+      <View style={styles.flex}>
+        <Text style={styles.cardTitle}>{title}</Text>
+        {subtitle ? <Text style={styles.cardSubtitle}>{subtitle}</Text> : null}
+      </View>
+    </View>
+  );
+}
+
+const Field = forwardRef(function Field(
+  {
+    label,
+    name,
+    onChange,
+    value,
+    placeholder,
+    icon,
+    multiline = false,
+    required = false,
+    optional = false,
+    error = null,
+    onFocus,
+    onLayout,
+    returnKeyType,
+    onSubmitEditing,
+  },
+  ref
+) {
+  const [focused, setFocused] = useState(false);
+
+  return (
+    <View style={styles.field} onLayout={onLayout}>
+      <View style={styles.labelRow}>
+        <Text style={styles.fieldLabel}>{label}</Text>
+        {required ? <Text style={styles.requiredMark}>*</Text> : null}
+        {optional ? <Text style={styles.optionalTag}>Opcional</Text> : null}
+      </View>
+      <View
+        style={[
+          styles.inputWrap,
+          multiline && styles.inputWrapMultiline,
+          focused && styles.inputWrapFocused,
+          error && styles.inputError,
+        ]}
+      >
+        {icon ? (
+          <FontAwesome6
+            name={icon}
+            size={14}
+            color={focused ? colors.primary : colors.textMuted}
+            style={multiline ? styles.inputIconTop : null}
+          />
+        ) : null}
+        <TextInput
+          ref={ref}
+          multiline={multiline}
+          onChangeText={(text) => onChange(name, text)}
+          onFocus={() => {
+            setFocused(true);
+            onFocus?.();
+          }}
+          onBlur={() => setFocused(false)}
+          placeholder={placeholder}
+          placeholderTextColor={colors.textMuted}
+          returnKeyType={returnKeyType}
+          onSubmitEditing={onSubmitEditing}
+          blurOnSubmit={!multiline && returnKeyType !== "next"}
+          style={[styles.input, multiline && styles.inputMultiline]}
+          value={value}
+        />
+      </View>
+      {error ? (
+        <View style={styles.errorRow}>
+          <FontAwesome6 name="circle-exclamation" size={12} color={COLOR_DANGER} />
+          <Text style={styles.fieldError}>{error}</Text>
+        </View>
+      ) : null}
+    </View>
+  );
+});
+
+function DateField({
+  label,
+  icon,
+  fieldName,
+  onChange,
+  pickerVisible,
+  setPickerVisible,
+  pickerValue,
+  onOpenPicker,
+  error,
+  minDate,
+  disabled = false,
+  disabledText = "",
+}) {
+  const minYMD = minDate ? toYMD(minDate) : null;
+
+  const valueText = pickerValue
+    ? formatDateDisplay(pickerValue)
+    : disabled && disabledText
+      ? disabledText
+      : "Seleccionar fecha";
+
+  const iconCircle = (
+    <View style={[styles.dateIconCircle, pickerValue && styles.dateIconCircleOn]}>
+      <FontAwesome6 name={icon} size={14} color={pickerValue ? colors.textInverse : colors.primary} />
+    </View>
+  );
+
+  return (
+    <View style={styles.dateField}>
+      {Platform.OS === "web" ? (
+        <View
+          style={[
+            styles.dateTile,
+            pickerValue && styles.dateTileFilled,
+            error && styles.inputError,
+            disabled && styles.dateTileDisabled,
+          ]}
+        >
+          {iconCircle}
+          <View style={styles.flex}>
+            <Text style={styles.dateCaption}>{label}</Text>
+            <input
+              type="date"
+              disabled={disabled}
+              min={minYMD ?? undefined}
+              value={pickerValue || ""}
+              onChange={(e) => onChange(fieldName, e.target.value)}
+              style={{
+                border: "none",
+                width: "100%",
+                outline: "none",
+                backgroundColor: "transparent",
+                fontFamily: "inherit",
+                fontSize: "16px",
+                color: "inherit",
+                cursor: disabled ? "not-allowed" : "pointer",
+                padding: 0,
+              }}
+            />
+          </View>
+        </View>
+      ) : (
+        <>
+          <Pressable
+            onPress={onOpenPicker}
+            style={[
+              styles.dateTile,
+              pickerValue && styles.dateTileFilled,
+              error && styles.inputError,
+              disabled && styles.dateTileDisabled,
+            ]}
+          >
+            {iconCircle}
+            <View style={styles.flex}>
+              <Text style={styles.dateCaption}>{label}</Text>
+              <Text numberOfLines={1} style={[styles.dateValue, !pickerValue && styles.datePlaceholder]}>
+                {valueText}
+              </Text>
+            </View>
+            <FontAwesome6 name="chevron-down" size={12} color={disabled ? colors.textMuted : colors.textSecondary} />
+          </Pressable>
+
+          <DatePickerModal
+            visible={pickerVisible}
+            onClose={() => setPickerVisible(false)}
+            title={label}
+            value={pickerValue}
+            onChange={(ymd) => onChange(fieldName, ymd)}
+            minDate={minDate}
+          />
+        </>
+      )}
+      {error ? (
+        <View style={styles.errorRow}>
+          <FontAwesome6 name="circle-exclamation" size={12} color={COLOR_DANGER} />
+          <Text style={styles.fieldError}>{error}</Text>
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
+function RouteRail({ children, topHeight = 18, showTop = true, showBottom = true }) {
+  return (
+    <View style={styles.routeRail}>
+      <View style={[styles.routeLine, { height: topHeight }, !showTop && styles.routeLineHidden]} />
+      {children}
+      <View style={[styles.routeLineBottom, showBottom && styles.routeLine]} />
+    </View>
+  );
+}
+
+function CoverOption({ icon, label, sub, active, onPress }) {
+  return (
+    <Pressable
+      onPress={onPress}
+      style={[styles.coverOption, active && styles.coverOptionActive]}
+      accessibilityRole="button"
+      accessibilityState={{ selected: !!active }}
+    >
+      <View style={[styles.coverOptionIcon, active && styles.coverOptionIconActive]}>
+        <FontAwesome6 name={icon} size={14} color={active ? colors.textInverse : colors.primary} />
+      </View>
+      <Text style={[styles.coverOptionLabel, active && styles.coverOptionLabelActive]} numberOfLines={1}>
+        {label}
+      </Text>
+      <Text style={styles.coverOptionSub} numberOfLines={1}>
+        {sub}
+      </Text>
+    </Pressable>
+  );
+}
+
+function SummaryItem({ icon, label, value }) {
+  return (
+    <View style={styles.summaryItem}>
+      <View style={styles.summaryIcon}>
+        <FontAwesome6 name={icon} size={13} color={colors.primary} />
+      </View>
+      <View style={styles.flex}>
+        <Text style={styles.summaryLabel}>{label}</Text>
+        <Text style={styles.summaryValue}>{value}</Text>
+      </View>
+    </View>
+  );
+}
+
+function HighlightMatch({ text, query, style, matchStyle }) {
+  const value = String(text || "");
+  const q = String(query || "").trim();
+  const normalize = (v) => v.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+  const index = q ? normalize(value).indexOf(normalize(q)) : -1;
+
+  if (index < 0) {
+    return (
+      <Text style={style} numberOfLines={1}>
+        {value}
+      </Text>
+    );
+  }
+  return (
+    <Text style={style} numberOfLines={1}>
+      {value.slice(0, index)}
+      <Text style={matchStyle}>{value.slice(index, index + q.length)}</Text>
+      {value.slice(index + q.length)}
+    </Text>
+  );
 }
 
 function DestinationPickerModal({
@@ -79,8 +504,11 @@ function DestinationPickerModal({
   selectedDestinations,
   onRemoveSelected,
   resolving,
+  error,
 }) {
-  const showEmptyState = search.trim().length < 2 && selectedDestinations.length === 0;
+  const query = search.trim();
+  const tooShort = query.length < 2;
+  const count = selectedDestinations.length;
 
   return (
     <Modal visible={visible} animationType="slide" onRequestClose={onClose} transparent={false}>
@@ -89,149 +517,182 @@ function DestinationPickerModal({
           style={styles.flex}
           behavior={Platform.OS === "ios" ? "padding" : undefined}
         >
-          <View style={styles.pickerHeader}>
-            <TouchableOpacity onPress={onClose} hitSlop={12} style={styles.pickerBackButton}>
-              <FontAwesome6 name="chevron-left" size={16} color={colors.primary} />
-            </TouchableOpacity>
-            <Text style={styles.pickerTitle}>Agregar destino</Text>
-            <View style={styles.pickerHeaderRight}>
-              {selectedDestinations.length > 0 ? (
+          {/* Encabezado igual al de la pantalla, con el buscador integrado */}
+          <View style={styles.hero}>
+            <View style={styles.heroTopRow}>
+              <IconCircleButton icon="arrow-left" onPress={onClose} tone="light" />
+              <View style={styles.heroTitleWrap} pointerEvents="none">
+                <Text style={styles.heroTitle}>Agregar destino</Text>
+              </View>
+              {count > 0 ? (
                 <View style={styles.pickerCountBadge}>
-                  <Text style={styles.pickerCountBadgeText}>{selectedDestinations.length}</Text>
+                  <Text style={styles.pickerCountBadgeText}>{count}</Text>
+                </View>
+              ) : null}
+            </View>
+
+            <View style={styles.pickerSearchBox}>
+              <FontAwesome6 name="magnifying-glass" size={15} color={colors.primary} />
+              <TextInput
+                value={search}
+                onChangeText={onSearchChange}
+                placeholder="Buscar ciudad o país..."
+                placeholderTextColor={colors.textMuted}
+                style={styles.pickerSearchInput}
+                autoFocus
+                autoCorrect={false}
+                returnKeyType="search"
+              />
+              {resolving ? (
+                <ActivityIndicator size="small" color={colors.primary} />
+              ) : search.length > 0 ? (
+                <Pressable onPress={() => onSearchChange("")} hitSlop={10}>
+                  <FontAwesome6 name="circle-xmark" size={17} color={colors.textMuted} />
+                </Pressable>
+              ) : null}
+            </View>
+          </View>
+
+          <View style={styles.pickerBody}>
+            {error ? (
+              <View style={styles.pickerError}>
+                <FontAwesome6 name="circle-exclamation" size={13} color={COLOR_DANGER} />
+                <Text style={styles.pickerErrorText}>{error}</Text>
+              </View>
+            ) : null}
+
+            {count > 0 && (
+              <View style={styles.pickerSelectedSection}>
+                <Text style={styles.pickerSelectedLabel}>Tus destinos ({count})</Text>
+                <ScrollView
+                  style={styles.pickerSelectedScroll}
+                  contentContainerStyle={styles.pickerSelectedList}
+                  nestedScrollEnabled
+                  showsVerticalScrollIndicator={false}
+                  keyboardShouldPersistTaps="handled"
+                >
+                  {selectedDestinations.map((d, index) => (
+                    <View key={`${d.name}-${d.country}-${index}`} style={styles.pickerSelectedRow}>
+                      <View style={styles.pickerChipIndex}>
+                        <Text style={styles.pickerChipIndexText}>{index + 1}</Text>
+                      </View>
+                      <View style={styles.flex}>
+                        <Text style={styles.pickerSelectedName} numberOfLines={1}>{d.name}</Text>
+                        <Text style={styles.pickerSelectedCountry} numberOfLines={1}>
+                          {[d.provinceState, d.country].filter(Boolean).join(", ")}
+                        </Text>
+                      </View>
+                      <Pressable
+                        onPress={() => onRemoveSelected(d)}
+                        hitSlop={10}
+                        style={styles.pickerSelectedRemove}
+                        accessibilityLabel={`Quitar ${d.name}`}
+                      >
+                        <FontAwesome6 name="xmark" size={11} color={COLOR_DANGER} />
+                      </Pressable>
+                    </View>
+                  ))}
+                </ScrollView>
+              </View>
+            )}
+
+            <View style={styles.pickerListContainer}>
+              {tooShort ? (
+                <View style={styles.pickerIntro}>
+                  <View style={styles.pickerEmptyIconCircle}>
+                    <FontAwesome6 name="earth-americas" size={22} color={colors.primary} />
+                  </View>
+                  <Text style={styles.pickerEmptyTitle}>
+                    {count > 0 ? "Sumá otro destino" : "Buscá tu próximo destino"}
+                  </Text>
+                  <Text style={styles.pickerEmptyText}>
+                    Escribí al menos 2 letras del nombre de una ciudad o país.
+                  </Text>
+                </View>
+              ) : searching ? (
+                <View style={styles.pickerListContent}>
+                  {[0, 1, 2, 3].map((n) => (
+                    <View key={n} style={styles.pickerSkeletonRow}>
+                      <View style={styles.pickerSkeletonCircle} />
+                      <View style={styles.flex}>
+                        <View style={styles.pickerSkeletonLineLong} />
+                        <View style={styles.pickerSkeletonLineShort} />
+                      </View>
+                    </View>
+                  ))}
+                </View>
+              ) : options.length > 0 ? (
+                <FlatList
+                  data={options}
+                  keyExtractor={(item, index) => `${item.name}-${item.country}-${index}`}
+                  keyboardShouldPersistTaps="handled"
+                  keyboardDismissMode="on-drag"
+                  showsVerticalScrollIndicator={false}
+                  contentContainerStyle={styles.pickerListContent}
+                  ItemSeparatorComponent={() => <View style={styles.pickerListSeparator} />}
+                  renderItem={({ item }) => {
+                    const selectedMatch = selectedDestinations.find(
+                      (d) =>
+                        (item.placeId && d.placeId === item.placeId) ||
+                        (d.name === item.name && d.country === item.country)
+                    );
+                    const isSelected = Boolean(selectedMatch);
+                    return (
+                      <TouchableOpacity
+                        onPress={() => (isSelected ? onRemoveSelected(selectedMatch) : onSelect(item))}
+                        activeOpacity={0.7}
+                        style={[styles.destinationItem, isSelected && styles.destinationItemActive]}
+                      >
+                        <View style={[styles.destinationIconCircle, isSelected && styles.destinationIconCircleActive]}>
+                          <FontAwesome6
+                            name="location-dot"
+                            size={14}
+                            color={isSelected ? colors.textInverse : colors.primary}
+                          />
+                        </View>
+                        <View style={styles.destinationItemTexts}>
+                          <HighlightMatch
+                            text={item.name}
+                            query={query}
+                            style={[styles.destinationName, isSelected && styles.destinationNameActive]}
+                            matchStyle={styles.destinationMatch}
+                          />
+                          <Text style={styles.destinationCountry} numberOfLines={1}>
+                            {[item.provinceState, item.country].filter(Boolean).join(", ")}
+                          </Text>
+                        </View>
+                        <View style={[styles.destinationAction, isSelected && styles.destinationActionActive]}>
+                          <FontAwesome6
+                            name={isSelected ? "check" : "plus"}
+                            size={12}
+                            color={isSelected ? colors.textInverse : colors.primary}
+                          />
+                        </View>
+                      </TouchableOpacity>
+                    );
+                  }}
+                />
+              ) : hasSearched ? (
+                <View style={styles.pickerIntro}>
+                  <View style={styles.pickerEmptyIconCircle}>
+                    <FontAwesome6 name="magnifying-glass" size={20} color={colors.textMuted} />
+                  </View>
+                  <Text style={styles.pickerEmptyTitle}>Sin resultados</Text>
+                  <Text style={styles.pickerEmptyText}>
+                    No encontramos destinos para "{query}". Probá con otro nombre o revisá la ortografía.
+                  </Text>
                 </View>
               ) : null}
             </View>
           </View>
 
-          {/* Tocar cualquier zona vacía cierra el teclado, igual que en el resto de la pantalla */}
-          <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
-            <View style={styles.flex}>
-              <View style={styles.pickerSearchBox}>
-                <FontAwesome6 name="magnifying-glass" size={14} color={colors.textMuted} />
-                <TextInput
-                  value={search}
-                  onChangeText={onSearchChange}
-                  placeholder="Buscar ciudad o país..."
-                  placeholderTextColor={colors.textMuted}
-                  style={styles.pickerSearchInput}
-                  autoFocus
-                  returnKeyType="search"
-                />
-                {resolving ? (
-                  <ActivityIndicator size="small" color={colors.primary} />
-                ) : search.length > 0 ? (
-                  <Pressable onPress={() => onSearchChange("")} hitSlop={10}>
-                    <FontAwesome6 name="circle-xmark" size={16} color={colors.textMuted} />
-                  </Pressable>
-                ) : null}
-              </View>
-
-              {selectedDestinations.length > 0 && (
-                <View style={styles.pickerSelectedSection}>
-                  <Text style={styles.pickerSelectedLabel}>
-                    Destinos seleccionados ({selectedDestinations.length})
-                  </Text>
-                  <ScrollView
-                    horizontal
-                    showsHorizontalScrollIndicator={false}
-                    contentContainerStyle={styles.pickerChipsRow}
-                    keyboardShouldPersistTaps="handled"
-                  >
-                    {selectedDestinations.map((d, index) => (
-                      <View key={`${d.name}-${d.country}-${index}`} style={styles.pickerChip}>
-                        <FontAwesome6 name="location-dot" size={11} color={colors.primary} />
-                        <Text style={styles.pickerChipText} numberOfLines={1}>{d.name}</Text>
-                        <Pressable onPress={() => onRemoveSelected(d)} hitSlop={10}>
-                          <FontAwesome6 name="xmark" size={11} color={colors.primary} />
-                        </Pressable>
-                      </View>
-                    ))}
-                  </ScrollView>
-                </View>
-              )}
-
-              <View style={styles.pickerListContainer}>
-                {showEmptyState ? (
-                  <View style={styles.pickerEmptyState}>
-                    <View style={styles.pickerEmptyIconCircle}>
-                      <FontAwesome6 name="earth-americas" size={22} color={colors.primary} />
-                    </View>
-                    <Text style={styles.pickerEmptyTitle}>Buscá tu próximo destino</Text>
-                    <Text style={styles.pickerEmptyText}>
-                      Escribí al menos 2 letras del nombre de una ciudad o país.
-                    </Text>
-                  </View>
-                ) : search.trim().length < 2 ? (
-                  <View style={styles.pickerStatusRow}>
-                    <Text style={styles.destinationStatusText}>Escribí al menos 2 letras para buscar.</Text>
-                  </View>
-                ) : searching ? (
-                  <View style={styles.pickerStatusRow}>
-                    <ActivityIndicator size="small" color={colors.primary} />
-                    <Text style={styles.destinationStatusText}>Buscando destinos...</Text>
-                  </View>
-                ) : options.length > 0 ? (
-                  <FlatList
-                    data={options}
-                    keyExtractor={(item, index) => `${item.name}-${item.country}-${index}`}
-                    keyboardShouldPersistTaps="handled"
-                    contentContainerStyle={styles.pickerListContent}
-                    renderItem={({ item }) => {
-                      const isSelected = selectedDestinations.some(
-                        (d) =>
-                          (item.placeId && d.placeId === item.placeId) ||
-                          (d.name === item.name && d.country === item.country)
-                      );
-                      return (
-                        <TouchableOpacity
-                          onPress={() => onSelect(item)}
-                          style={[styles.destinationItem, isSelected && styles.destinationItemActive]}
-                        >
-                          <View style={{ flexDirection: "row", alignItems: "center", flex: 1 }}>
-                            <View style={[styles.destinationIconCircle, isSelected && styles.destinationIconCircleActive]}>
-                              <FontAwesome6
-                                name="location-dot"
-                                size={14}
-                                color={isSelected ? colors.textInverse : colors.primary}
-                              />
-                            </View>
-                            <View style={{ flex: 1, marginLeft: 12 }}>
-                              <Text
-                                style={[styles.destinationName, isSelected && styles.destinationNameActive]}
-                                numberOfLines={1}
-                              >
-                                {item.name}
-                              </Text>
-                              <Text style={styles.destinationCountry} numberOfLines={1}>{item.country}</Text>
-                            </View>
-                          </View>
-                          <FontAwesome6
-                            name={isSelected ? "check" : "plus"}
-                            size={14}
-                            color={isSelected ? colors.primary : colors.textMuted}
-                          />
-                        </TouchableOpacity>
-                      );
-                    }}
-                  />
-                ) : hasSearched ? (
-                  <View style={styles.pickerEmptyState}>
-                    <View style={styles.pickerEmptyIconCircle}>
-                      <FontAwesome6 name="magnifying-glass" size={20} color={colors.textMuted} />
-                    </View>
-                    <Text style={styles.pickerEmptyTitle}>Sin resultados</Text>
-                    <Text style={styles.pickerEmptyText}>
-                      No encontramos destinos para "{search.trim()}"
-                    </Text>
-                  </View>
-                ) : null}
-              </View>
-            </View>
-          </TouchableWithoutFeedback>
-
           <View style={styles.pickerFooter}>
             <PrimaryButton
-              label={selectedDestinations.length > 0 ? "Listo" : "Cerrar"}
+              label={
+                count > 0
+                  ? `Listo · ${count} ${count === 1 ? "destino" : "destinos"}`
+                  : "Cerrar"
+              }
               onPress={onClose}
             />
           </View>
@@ -240,6 +701,8 @@ function DestinationPickerModal({
     </Modal>
   );
 }
+
+/* ───────────────────────── Pantalla ───────────────────────── */
 
 export default function CreateTripScreen({ navigation }) {
   const [step, setStep] = useState(1); // Control del paso actual (1, 2, 3)
@@ -255,7 +718,7 @@ export default function CreateTripScreen({ navigation }) {
   const [submitMessage, setSubmitMessage] = useState("");
   const [showStartPicker, setShowStartPicker] = useState(false);
   const [showEndPicker, setShowEndPicker] = useState(false);
-  const { isTablet, isDesktop } = useResponsive();
+  const { isTablet } = useResponsive();
   const normalizedSearch = participantSearch.trim().toLowerCase();
   const [currencies, setCurrencies] = useState([]);
   const [destinationSearch, setDestinationSearch] = useState("");
@@ -269,10 +732,17 @@ export default function CreateTripScreen({ navigation }) {
   const [coverImage, setCoverImage] = useState(null);
   const [coverError, setCoverError] = useState("");
   const [aiCover, setAiCover] = useState(null); // { imageBase64, mimeType } generada con IA, se aplica al crear
+  const [showAiGenerator, setShowAiGenerator] = useState(false);
+  const lastContentHeightRef = useRef(0);
+  // Origen de la portada: foto del destino (automática), galería o IA
+  const coverMode = coverImage ? "gallery" : aiCover ? "ai" : "destination";
+
+  const tecladoVisible = useKeyboardVisible();
+  const formScroll = useScrollAlCampo();
 
   // Refs de los TextInput de texto libre. Se usan para sacarles el foco
   // explícitamente antes de abrir cualquier modal/picker, así el teclado
-  // no se queda abierto "fantasma" cuando el modal se cierra (fix #2).
+  // no se queda abierto "fantasma" cuando el modal se cierra.
   const titleInputRef = useRef(null);
   const descriptionInputRef = useRef(null);
 
@@ -282,14 +752,15 @@ export default function CreateTripScreen({ navigation }) {
     descriptionInputRef.current?.blur();
   }
 
-  const ALLOWED_COVER_EXTENSIONS = ["jpg", "jpeg", "png"];
+  // Al cerrarse el teclado se deja de seguir el campo activo
+  useEffect(() => {
+    if (!tecladoVisible) formScroll.limpiar();
+  }, [tecladoVisible]);
 
-  function getExtensionFromAsset(asset) {
-    const fromFileName = asset.fileName?.split(".").pop();
-    if (fromFileName) return fromFileName.toLowerCase();
-    const fromUri = asset.uri?.split(".").pop();
-    return fromUri ? fromUri.toLowerCase().split("?")[0] : "";
-  }
+  // Al cambiar de paso, la pantalla vuelve arriba
+  useEffect(() => {
+    formScroll.ref.current?.scrollTo?.({ y: 0, animated: false });
+  }, [step]);
 
   async function handlePickCoverImage() {
     setCoverError("");
@@ -335,7 +806,7 @@ export default function CreateTripScreen({ navigation }) {
     setCoverError("");
   }
 
-  // US 57: en la creación el viaje todavía no existe, así que la imagen aceptada se
+  // En la creación el viaje todavía no existe, así que la imagen aceptada se
   // guarda en memoria y se asigna como portada apenas se crea el viaje.
   function handleGenerateAiCover(prompt) {
     return generateCoverPreviewAI({
@@ -356,8 +827,28 @@ export default function CreateTripScreen({ navigation }) {
     setAiCover(null);
   }
 
-  function makeSessionToken() {
-    return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  // Vuelve a la portada automática (foto del primer destino)
+  function handleUseDestinationCover() {
+    setCoverImage(null);
+    setAiCover(null);
+    setCoverError("");
+    setShowAiGenerator(false);
+  }
+
+  // Al abrir el generador de IA, la pantalla baja hasta el campo a completar
+  // (el generador es lo último del paso 2, por eso alcanza con ir al final).
+  function handleToggleAiGenerator() {
+    const willShow = !showAiGenerator;
+    setShowAiGenerator(willShow);
+    if (willShow) {
+      setTimeout(() => formScroll.ref.current?.scrollToEnd?.({ animated: true }), 150);
+      setTimeout(() => formScroll.ref.current?.scrollToEnd?.({ animated: true }), 400);
+    }
+  }
+
+  function handleChooseGallery() {
+    setShowAiGenerator(false);
+    handlePickCoverImage();
   }
 
   useEffect(() => {
@@ -493,6 +984,11 @@ export default function CreateTripScreen({ navigation }) {
     return [...registered, ...invited];
   }, [form.invitedEmails, selectedParticipants]);
 
+  const tripDuration = useMemo(
+    () => describeDuration(form.startDate, form.endDate),
+    [form.startDate, form.endDate]
+  );
+
   function handleInputChange(name, value) {
     setForm((current) => ({ ...current, [name]: value }));
     if (errors[name]) {
@@ -587,15 +1083,13 @@ export default function CreateTripScreen({ navigation }) {
     setDestinationSearch("");
     setDestinationOptions([]);
     setResolvingDestination(true);
+    setErrors((current) => ({ ...current, destinations: null }));
     try {
       const full = await resolveDestination(suggestion.placeId, sessionTokenRef.current);
       setForm((current) => ({
         ...current,
         destinations: [...current.destinations, full],
       }));
-      if (errors.destinations) {
-        setErrors((current) => ({ ...current, destinations: null }));
-      }
       sessionTokenRef.current = makeSessionToken();
     } catch {
       setErrors((current) => ({ ...current, destinations: "No se pudo agregar ese destino, probá de nuevo." }));
@@ -611,6 +1105,11 @@ export default function CreateTripScreen({ navigation }) {
         (item) => !(item.name === destinationToRemove.name && item.country === destinationToRemove.country)
       ),
     }));
+  }
+
+  function openDestinationPicker() {
+    dismissAllInputs();
+    setShowDestinationPicker(true);
   }
 
   function closeDestinationPicker() {
@@ -666,6 +1165,8 @@ export default function CreateTripScreen({ navigation }) {
   function handleBack() {
     dismissAllInputs();
     if (step > 1) {
+      setErrors({});
+      setSubmitMessage("");
       setStep(step - 1);
     } else {
       navigation.goBack();
@@ -673,6 +1174,7 @@ export default function CreateTripScreen({ navigation }) {
   }
 
   async function handleSubmit() {
+    if (submitStatus === "submitting") return;
     setSubmitStatus("submitting");
     setSubmitMessage("");
     try {
@@ -722,6 +1224,84 @@ export default function CreateTripScreen({ navigation }) {
     }
   }
 
+  const coverTitle = form.title.trim() || primaryDestination?.name || "";
+  const submitting = submitStatus === "submitting";
+
+  function renderCoverPreview() {
+    let source = null;
+    let badgeText = "";
+    let badgeIcon = "image";
+
+    if (coverImage) {
+      source = { uri: coverImage.uri };
+      badgeText = "Tu foto";
+      badgeIcon = "image";
+    } else if (aiCover) {
+      source = { uri: `data:${aiCover.mimeType};base64,${aiCover.imageBase64}` };
+      badgeText = "Creada con IA";
+      badgeIcon = "wand-magic-sparkles";
+    } else if (primaryDestination?.imageUrl) {
+      source = { uri: primaryDestination.imageUrl };
+      badgeText = "Foto del destino";
+      badgeIcon = "location-dot";
+    }
+
+    if (!source) {
+      return (
+        <View style={[styles.coverPreview, styles.coverPreviewEmpty]}>
+          <View style={styles.coverEmptyIcon}>
+            <FontAwesome6 name="image" size={20} color={colors.primary} />
+          </View>
+          <Text style={styles.coverPreviewEmptyTitle}>Se usará una portada predeterminada</Text>
+          <Text style={styles.coverPreviewEmptyText}>También podés elegir una foto o generar una con IA.</Text>
+        </View>
+      );
+    }
+
+    const destinationNames = form.destinations.map((d) => d.name);
+    const destinationSummary =
+      destinationNames.length === 1 && coverTitle === primaryDestination?.name
+        ? primaryDestination?.country || ""
+        : destinationNames.slice(0, 2).join(" · ") +
+          (destinationNames.length > 2 ? ` +${destinationNames.length - 2}` : "");
+    const coverSubtitle = [destinationSummary, tripDuration].filter(Boolean).join(" · ");
+
+    return (
+      <ImageBackground source={source} imageStyle={styles.coverPreviewImage} style={styles.coverPreview}>
+        <View style={styles.coverPreviewTop}>
+          <View style={styles.coverBadge}>
+            <FontAwesome6 name={badgeIcon} size={11} color={colors.primary} />
+            <Text style={styles.coverBadgeText}>{badgeText}</Text>
+          </View>
+          {coverMode !== "destination" ? (
+            <Pressable
+              onPress={handleUseDestinationCover}
+              hitSlop={10}
+              style={styles.coverRemoveButton}
+              accessibilityLabel="Quitar portada y usar la del destino"
+            >
+              <FontAwesome6 name="xmark" size={13} color={colors.textInverse} />
+            </Pressable>
+          ) : null}
+        </View>
+        {coverTitle || coverSubtitle ? (
+          <View style={styles.coverPreviewOverlay}>
+            {coverTitle ? (
+              <Text style={styles.coverPreviewTitle} numberOfLines={1}>
+                {coverTitle}
+              </Text>
+            ) : null}
+            {coverSubtitle ? (
+              <Text style={styles.coverPreviewSubtitle} numberOfLines={1}>
+                {coverSubtitle}
+              </Text>
+            ) : null}
+          </View>
+        ) : null}
+      </ImageBackground>
+    );
+  }
+
   return (
     <ScreenContainer fullWidth padded={false}>
       <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
@@ -730,59 +1310,89 @@ export default function CreateTripScreen({ navigation }) {
           style={styles.flex}
           keyboardVerticalOffset={Platform.OS === "ios" ? 64 : 0}
         >
-          <ScrollView
-            contentContainerStyle={styles.scrollContent}
-            showsVerticalScrollIndicator={false}
-            keyboardShouldPersistTaps="handled"
-          >
-            {/* Header / Banner Azul Superior */}
-            <View style={styles.hero}>
-              <View style={styles.heroTopRow}>
-                <IconCircleButton icon="arrow-left" onPress={handleBack} tone="light" />
-              </View>
-              <Text style={styles.heroTitle}>Nuevo Viaje</Text>
-              <Text style={styles.heroCopy}>Paso {step} de 3</Text>
-
-              {/* Indicador de pasos (Stepper Visual) */}
-              <View style={styles.stepperDots}>
-                <View style={[styles.dot, step >= 1 && styles.dotActive]} />
-                <View style={[styles.dot, step >= 2 && styles.dotActive]} />
-                <View style={[styles.dot, step >= 3 && styles.dotActive]} />
+          {/* Encabezado fijo con indicador de pasos: siempre se sabe dónde está el usuario */}
+          <View style={styles.hero}>
+            <View style={styles.heroTopRow}>
+              <IconCircleButton icon="arrow-left" onPress={handleBack} tone="light" />
+              <View style={styles.heroTitleWrap} pointerEvents="none">
+                <Text style={styles.heroTitle}>Nuevo viaje</Text>
               </View>
             </View>
+            {!tecladoVisible ? <Stepper step={step} /> : null}
+          </View>
 
-            <View style={styles.body}>
-              {/* PASO 1: DATOS BÁSICOS Y FECHAS */}
-              {step === 1 && (
-                <View style={styles.card}>
-                  <Text style={styles.cardTitle}>Información Básica</Text>
+          <ScrollView
+            ref={formScroll.ref}
+            {...formScroll.scrollProps}
+            style={styles.scroll}
+            contentContainerStyle={styles.scrollContent}
+            showsVerticalScrollIndicator={false}
+            bounces={false}
+            overScrollMode="never"
+            onContentSizeChange={(_w, h) => {
+              // Con el generador de IA abierto, si el contenido crece (por ejemplo al
+              // desplegarse sus campos) la pantalla baja sola hasta ellos.
+              const grew = h > lastContentHeightRef.current;
+              lastContentHeightRef.current = h;
+              if (grew && showAiGenerator && step === 2) {
+                formScroll.ref.current?.scrollToEnd?.({ animated: true });
+              }
+            }}
+            keyboardShouldPersistTaps="handled"
+            keyboardDismissMode="on-drag"
+          >
+            {/* PASO 1: DATOS BÁSICOS Y FECHAS */}
+            {step === 1 && (
+              <View style={styles.card} onLayout={formScroll.registrarBase}>
+                <CardHeader
+                  icon="suitcase-rolling"
+                  title="Información Básica"
+                  subtitle="Contanos lo esencial para empezar a planificar."
+                />
 
-                  <Field
-                    ref={titleInputRef}
-                    error={errors.title}
-                    label="Título del viaje *"
-                    name="title"
-                    onChange={handleInputChange}
-                    placeholder="Escapada a Bariloche"
-                    value={form.title}
-                  />
+                <Field
+                  ref={titleInputRef}
+                  error={errors.title}
+                  icon="pen"
+                  label="Título del viaje"
+                  required
+                  name="title"
+                  onChange={handleInputChange}
+                  onFocus={() => formScroll.enfocar("title")}
+                  onLayout={formScroll.registrar("title")}
+                  placeholder="Escapada a Bariloche"
+                  returnKeyType="next"
+                  onSubmitEditing={() => descriptionInputRef.current?.focus()}
+                  value={form.title}
+                />
 
-                  <Field
-                    ref={descriptionInputRef}
-                    error={errors.description}
-                    label="Descripción"
-                    multiline
-                    name="description"
-                    onChange={handleInputChange}
-                    placeholder="Notas, idea general o resumen para los participantes..."
-                    value={form.description}
-                  />
+                <Field
+                  ref={descriptionInputRef}
+                  error={errors.description}
+                  icon="align-left"
+                  label="Descripción"
+                  optional
+                  multiline
+                  name="description"
+                  onChange={handleInputChange}
+                  onFocus={() => formScroll.enfocar("description")}
+                  onLayout={formScroll.registrar("description")}
+                  placeholder="Notas, idea general o resumen para los participantes..."
+                  value={form.description}
+                />
+
+                <View style={styles.sectionBlock}>
+                  <View style={styles.labelRow}>
+                    <Text style={styles.fieldLabel}>Fechas del viaje</Text>
+                    <Text style={styles.requiredMark}>*</Text>
+                  </View>
 
                   <View style={[styles.row, isTablet && styles.rowTablet]}>
                     {/* Fecha de ida: desde hoy (inclusive) en adelante */}
                     <DateField
                       error={errors.startDate}
-                      label="Fecha de ida *"
+                      icon="plane-departure"
+                      label="Fecha de ida"
                       minDate={parseYMD(getTodayIso(), 0)}
                       onChange={handleDateChange}
                       onOpenPicker={() => {
@@ -798,7 +1408,8 @@ export default function CreateTripScreen({ navigation }) {
                     {/* Fecha de vuelta: requiere fecha de ida, y desde ese mismo día (inclusive) en adelante */}
                     <DateField
                       error={errors.endDate}
-                      label="Fecha de vuelta *"
+                      icon="plane-arrival"
+                      label="Fecha de vuelta"
                       disabled={!form.startDate}
                       disabledText="Elegí primero la fecha de ida"
                       minDate={form.startDate ? parseYMD(form.startDate, 0) : undefined}
@@ -821,6 +1432,15 @@ export default function CreateTripScreen({ navigation }) {
                     />
                   </View>
 
+                  {tripDuration ? (
+                    <View style={styles.durationChip}>
+                      <FontAwesome6 name="moon" size={12} color={colors.primary} />
+                      <Text style={styles.durationChipText}>{tripDuration}</Text>
+                    </View>
+                  ) : null}
+                </View>
+
+                <View style={styles.sectionBlock}>
                   <CurrencySelector
                     currencies={currencies}
                     selectedCurrency={form.currency}
@@ -828,141 +1448,176 @@ export default function CreateTripScreen({ navigation }) {
                     error={errors.currency}
                     onOpen={dismissAllInputs}
                   />
+                  <Text style={styles.fieldHint}>
+                    Es la moneda base para registrar y dividir los gastos del viaje.
+                  </Text>
                 </View>
-              )}
+              </View>
+            )}
 
-              {/* PASO 2: DESTINOS Y PORTADA */}
-              {step === 2 && (
-                <View style={styles.card}>
-                  <Text style={styles.cardTitle}>Destinos y Portada</Text>
+            {/* PASO 2: DESTINOS Y PORTADA */}
+            {step === 2 && (
+              <View style={styles.card}>
+                <CardHeader
+                  icon="location-dot"
+                  title="Destinos y Portada"
+                  subtitle="Elegí a dónde van y cómo se va a ver tu viaje."
+                />
 
-                  <View style={[styles.field, styles.destinationSection]}>
-                    <Text style={styles.fieldLabel}>Destino *</Text>
-
-                    <TouchableOpacity
-                      style={[styles.dropdownButton, errors.destinations && styles.inputError]}
-                      onPress={() => {
-                        dismissAllInputs();
-                        setShowDestinationPicker(true);
-                      }}
-                    >
-                      <View style={styles.dropdownLeftContent}>
-                        <FontAwesome6
-                          name="location-dot"
-                          size={14}
-                          color={form.destinations.length ? colors.primary : colors.textMuted}
-                          style={{ marginRight: 10 }}
-                        />
-                        <Text
-                          style={form.destinations.length ? styles.dropdownText : styles.dropdownPlaceholder}
-                          numberOfLines={1}
-                        >
-                          {form.destinations.length
-                            ? `${form.destinations.length} destino${form.destinations.length > 1 ? "s" : ""} seleccionado${form.destinations.length > 1 ? "s" : ""}`
-                            : "Buscar ciudad o país..."}
-                        </Text>
-                      </View>
-                      <FontAwesome6 name="chevron-right" size={14} color={colors.textMuted} />
-                    </TouchableOpacity>
-                    {errors.destinations ? <Text style={styles.fieldError}>{errors.destinations}</Text> : null}
+                <View style={styles.sectionBlock}>
+                  <View style={styles.labelRow}>
+                    <Text style={styles.fieldLabel}>Destino</Text>
+                    <Text style={styles.requiredMark}>*</Text>
                   </View>
 
-                  {form.destinations.length > 0 && (
-                    <View style={styles.selectedDestinationsContainer}>
-                      <Text style={styles.fieldLabel}>Destinos seleccionados ({form.destinations.length})</Text>
-
-                      <ScrollView style={styles.selectedDestinationsScroll} nestedScrollEnabled showsVerticalScrollIndicator={true}>
-                        {form.destinations.map((d, index) => (
-                          <View key={`${d.name}-${d.country}-${index}`} style={styles.destinationCurrencyRow}>
-                            <View style={styles.destinationRowIconCircle}>
-                              <FontAwesome6 name="location-dot" size={14} color={colors.primary} />
+                  {form.destinations.length === 0 ? (
+                    <>
+                      <TouchableOpacity
+                        style={[styles.searchBar, errors.destinations && styles.inputError]}
+                        onPress={openDestinationPicker}
+                        activeOpacity={0.8}
+                        accessibilityRole="button"
+                        accessibilityLabel="Buscar destino"
+                      >
+                        <FontAwesome6 name="magnifying-glass" size={15} color={colors.primary} />
+                        <Text style={styles.searchBarText} numberOfLines={1}>Buscar ciudad o país...</Text>
+                        <View style={styles.searchBarAction}>
+                          <FontAwesome6 name="plus" size={13} color={colors.textInverse} />
+                        </View>
+                      </TouchableOpacity>
+                      <Text style={styles.fieldHint}>Podés agregar más de un destino.</Text>
+                    </>
+                  ) : (
+                    <View>
+                      {form.destinations.map((d, index) => (
+                        <View key={`${d.name}-${d.country}-${index}`} style={styles.routeRow}>
+                          <RouteRail showTop={index > 0}>
+                            <View style={styles.routeDot}>
+                              <Text style={styles.routeDotText}>{index + 1}</Text>
                             </View>
-                            <View style={{ flex: 1, marginLeft: 12 }}>
-                              <Text style={styles.destinationChipText} numberOfLines={1}>{d.name}</Text>
-                              <Text style={styles.destinationCountry} numberOfLines={1}>{d.country}</Text>
+                          </RouteRail>
+                          <View style={styles.routeContent}>
+                            <View style={styles.destinationCard}>
+                              {d.imageUrl ? (
+                                <Image source={{ uri: d.imageUrl }} style={styles.destinationThumb} />
+                              ) : (
+                                <View style={[styles.destinationThumb, styles.destinationThumbEmpty]}>
+                                  <FontAwesome6 name="location-dot" size={16} color={colors.primary} />
+                                </View>
+                              )}
+                              <View style={styles.flex}>
+                                <Text style={styles.destinationChipText} numberOfLines={1}>{d.name}</Text>
+                                <Text style={styles.destinationCountry} numberOfLines={1}>
+                                  {[d.provinceState, d.country].filter(Boolean).join(", ")}
+                                </Text>
+                              </View>
+                              <Pressable
+                                onPress={() => removeDestination(d)}
+                                hitSlop={12}
+                                style={styles.destinationRemoveButton}
+                                accessibilityLabel={`Quitar ${d.name}`}
+                              >
+                                <FontAwesome6 name="xmark" size={12} color={COLOR_DANGER} />
+                              </Pressable>
                             </View>
-
-                            <Pressable
-                              onPress={() => removeDestination(d)}
-                              hitSlop={15}
-                              style={styles.destinationRemoveButton}
-                            >
-                              <FontAwesome6 name="xmark" size={12} color={colors.danger || "#FF3B30"} />
-                            </Pressable>
                           </View>
-                        ))}
-                      </ScrollView>
+                        </View>
+                      ))}
+
+                      <View style={styles.routeRow}>
+                        <RouteRail topHeight={9} showBottom={false}>
+                          <View style={[styles.routeDot, styles.routeDotAdd]}>
+                            <FontAwesome6 name="plus" size={11} color={colors.primary} />
+                          </View>
+                        </RouteRail>
+                        <View style={styles.routeContent}>
+                          <TouchableOpacity style={styles.addAnotherButton} onPress={openDestinationPicker} activeOpacity={0.8}>
+                            <Text style={styles.addAnotherText}>Agregar otro destino</Text>
+                          </TouchableOpacity>
+                        </View>
+                      </View>
                     </View>
                   )}
 
-                  {/* PORTADA DEL VIAJE */}
-                  <View style={styles.coverPreviewSection}>
-                    <Text style={styles.fieldLabel}>Portada del viaje</Text>
-
-                    {coverImage ? (
-                      <ImageBackground source={{ uri: coverImage.uri }} imageStyle={styles.coverPreviewImage} style={styles.coverPreview}>
-                        <View style={styles.coverPreviewOverlay}>
-                          <Text style={styles.coverPreviewBadge}>Imagen personalizada</Text>
-                        </View>
-                      </ImageBackground>
-                    ) : aiCover ? (
-                      <ImageBackground
-                        source={{ uri: `data:${aiCover.mimeType};base64,${aiCover.imageBase64}` }}
-                        imageStyle={styles.coverPreviewImage}
-                        style={styles.coverPreview}
-                      >
-                        <View style={styles.coverPreviewOverlay}>
-                          <Text style={styles.coverPreviewBadge}>Portada generada con IA</Text>
-                        </View>
-                      </ImageBackground>
-                    ) : primaryDestination?.imageUrl ? (
-                      <ImageBackground source={{ uri: primaryDestination.imageUrl }} imageStyle={styles.coverPreviewImage} style={styles.coverPreview}>
-                        <View style={styles.coverPreviewOverlay}>
-                          <Text style={styles.coverPreviewBadge}>Primer destino</Text>
-                          <Text style={styles.coverPreviewTitle}>{primaryDestination.name}</Text>
-                          <Text style={styles.coverPreviewSubtitle}>{primaryDestination.country}</Text>
-                        </View>
-                      </ImageBackground>
-                    ) : (
-                      <View style={[styles.coverPreview, styles.coverPreviewEmpty]}>
-                        <FontAwesome6 name="image" size={20} color={colors.textMuted} />
-                        <Text style={styles.coverPreviewEmptyText}>Se usará una portada predeterminada</Text>
-                      </View>
-                    )}
-
-                    <View style={styles.coverActionsRow}>
-                      <Pressable onPress={handlePickCoverImage} style={styles.coverActionButton}>
-                        <FontAwesome6 name="image" size={13} color={colors.primary} />
-                        <Text style={styles.coverActionText}>{coverImage ? "Cambiar imagen" : "Elegir de la galería"}</Text>
-                      </Pressable>
-
-                      {coverImage ? (
-                        <Pressable onPress={handleRemoveCoverImage} style={styles.coverActionButtonSecondary}>
-                          <Text style={styles.coverActionTextSecondary}>Cancelar selección</Text>
-                        </Pressable>
-                      ) : null}
-
-                      {aiCover ? (
-                        <Pressable onPress={handleRemoveAiCover} style={styles.coverActionButtonSecondary}>
-                          <Text style={styles.coverActionTextSecondary}>Quitar imagen de IA</Text>
-                        </Pressable>
-                      ) : null}
+                  {/* Con el buscador abierto, el error se muestra dentro del buscador para que el usuario lo vea */}
+                  {errors.destinations && !showDestinationPicker ? (
+                    <View style={styles.errorRow}>
+                      <FontAwesome6 name="circle-exclamation" size={12} color={COLOR_DANGER} />
+                      <Text style={styles.fieldError}>{errors.destinations}</Text>
                     </View>
+                  ) : null}
+                </View>
 
-                    {coverError ? <Text style={styles.fieldError}>{coverError}</Text> : null}
+                {/* PORTADA DEL VIAJE */}
+                <View style={styles.sectionBlock}>
+                  <View style={styles.labelRow}>
+                    <Text style={styles.fieldLabel}>Portada del viaje</Text>
+                    <Text style={styles.optionalTag}>Opcional</Text>
+                  </View>
 
+                  {renderCoverPreview()}
+
+                  <View style={styles.coverOptionsRow}>
+                    <CoverOption
+                      icon="location-dot"
+                      label="Destino"
+                      sub="Automática"
+                      active={coverMode === "destination"}
+                      onPress={handleUseDestinationCover}
+                    />
+                    <CoverOption
+                      icon="image"
+                      label="Galería"
+                      sub={coverImage ? "Cambiar" : "Elegir foto"}
+                      active={coverMode === "gallery"}
+                      onPress={handleChooseGallery}
+                    />
+                    <CoverOption
+                      icon="wand-magic-sparkles"
+                      label="Con IA"
+                      sub={aiCover ? "Lista" : "Generar"}
+                      active={coverMode === "ai" || showAiGenerator}
+                      onPress={handleToggleAiGenerator}
+                    />
+                  </View>
+
+                  <Text style={styles.fieldHint}>
+                    {coverMode === "gallery"
+                      ? "Formatos permitidos: JPG y PNG."
+                      : coverMode === "ai"
+                        ? "La portada generada se aplica al crear el viaje."
+                        : primaryDestination?.imageUrl
+                          ? `Usamos la foto de ${primaryDestination.name}.`
+                          : "Si no elegís una imagen, usamos una portada predeterminada."}
+                  </Text>
+
+                  {coverError ? (
+                    <View style={styles.errorRow}>
+                      <FontAwesome6 name="circle-exclamation" size={12} color={COLOR_DANGER} />
+                      <Text style={styles.fieldError}>{coverError}</Text>
+                    </View>
+                  ) : null}
+
+                  {/* Siempre montado (solo oculto) para no perder lo que el usuario ya escribió o generó */}
+                  <View style={!showAiGenerator && styles.hidden}>
                     <AICoverGenerator
                       generate={handleGenerateAiCover}
                       onAccept={handleAcceptAiCover}
                     />
                   </View>
                 </View>
-              )}
+              </View>
+            )}
 
-              {/* PASO 3: PARTICIPANTES Y CONFIRMACIÓN */}
-              {step === 3 && (
+            {/* PASO 3: PARTICIPANTES Y CONFIRMACIÓN */}
+            {step === 3 && (
+              <>
                 <View style={styles.card}>
-                  <Text style={styles.cardTitle}>Invitar participantes (Opcional)</Text>
+                  <CardHeader
+                    icon="user-plus"
+                    title="Invitar participantes (Opcional)"
+                    subtitle="Buscá por nombre, usuario o correo. Si no tiene cuenta, escribí su correo para invitarlo."
+                  />
 
                   <ParticipantSearch
                     canInviteExternal={canInviteExternal}
@@ -977,48 +1632,82 @@ export default function CreateTripScreen({ navigation }) {
                   <ParticipantList onRemove={removeParticipant} participants={participantItems} />
 
                   <View style={styles.ownerCard}>
-                    <Text style={styles.ownerLabel}>Administrador del viaje</Text>
-                    {currentUser ? (
-                      <>
-                        <Text style={styles.ownerName}>{currentUser.nombreCompleto}</Text>
-                        <Text style={styles.ownerMeta}>@{currentUser.nombreUsuario} · {currentUser.email}</Text>
-                      </>
-                    ) : (
-                      <Text style={styles.ownerMeta}>Cargando usuario...</Text>
-                    )}
+                    <View style={styles.ownerAvatar}>
+                      <Text style={styles.ownerAvatarText}>{getInitials(currentUser?.nombreCompleto)}</Text>
+                    </View>
+                    <View style={styles.flex}>
+                      <Text style={styles.ownerLabel}>Administrador del viaje</Text>
+                      {currentUser ? (
+                        <>
+                          <Text style={styles.ownerName}>{currentUser.nombreCompleto}</Text>
+                          <Text style={styles.ownerMeta}>@{currentUser.nombreUsuario} · {currentUser.email}</Text>
+                        </>
+                      ) : (
+                        <Text style={styles.ownerMeta}>Cargando usuario...</Text>
+                      )}
+                    </View>
                   </View>
                 </View>
-              )}
 
-              {submitMessage ? (
-                <Text style={[styles.submitMessage, submitStatus === "error" ? styles.submitError : styles.submitSuccess]}>
-                  {submitMessage}
-                </Text>
-              ) : null}
-
-              {/* BOTONES DE NAVEGACIÓN ENTRE PASOS */}
-              <View style={styles.actions}>
-                {step < 3 ? (
-                  <PrimaryButton label="Siguiente" onPress={handleNext} style={styles.actionPrimary} />
-                ) : (
-                  <PrimaryButton
-                    disabled={!currentUser}
-                    label={submitStatus === "submitting" ? "Creando..." : "Crear viaje"}
-                    loading={submitStatus === "submitting"}
-                    onPress={handleSubmit}
-                    style={styles.actionPrimary}
+                {/* Resumen final: el usuario revisa todo antes de crear el viaje */}
+                <View style={[styles.card, styles.summaryCard]}>
+                  <Text style={styles.summaryTitle}>Resumen del viaje</Text>
+                  <SummaryItem icon="suitcase-rolling" label="Viaje" value={form.title} />
+                  <SummaryItem
+                    icon="calendar-days"
+                    label="Fechas"
+                    value={`${formatDateDisplay(form.startDate)} al ${formatDateDisplay(form.endDate)}${
+                      tripDuration ? ` (${tripDuration})` : ""
+                    }`}
                   />
-                )}
-
-                <PrimaryButton
-                  label={step === 1 ? "Cancelar" : "Anterior"}
-                  onPress={handleBack}
-                  variant="secondary"
-                  style={styles.actionSecondary}
-                />
-              </View>
-            </View>
+                  <SummaryItem
+                    icon="location-dot"
+                    label={form.destinations.length > 1 ? "Destinos" : "Destino"}
+                    value={form.destinations.map((d) => d.name).join(", ")}
+                  />
+                  <SummaryItem icon="coins" label="Moneda" value={form.currency} />
+                </View>
+              </>
+            )}
           </ScrollView>
+
+          {/* Mensaje de resultado visible junto a los botones */}
+          {submitMessage ? (
+            <View style={[styles.banner, submitStatus === "error" ? styles.bannerError : styles.bannerSuccess]}>
+              <FontAwesome6
+                name={submitStatus === "error" ? "circle-exclamation" : "circle-check"}
+                size={14}
+                color={submitStatus === "error" ? COLOR_DANGER : colors.success}
+              />
+              <Text style={[styles.bannerText, submitStatus === "error" ? styles.submitError : styles.submitSuccess]}>
+                {submitMessage}
+              </Text>
+            </View>
+          ) : null}
+
+          {/* Barra de acciones: no se muestra mientras el teclado está abierto */}
+          {!tecladoVisible && (
+            <View style={styles.actionBar}>
+              <PrimaryButton
+                label={step === 1 ? "Cancelar" : "Anterior"}
+                onPress={handleBack}
+                variant="secondary"
+                disabled={submitting}
+                style={styles.actionSecondary}
+              />
+              {step < 3 ? (
+                <PrimaryButton label="Siguiente" onPress={handleNext} style={styles.actionPrimary} />
+              ) : (
+                <PrimaryButton
+                  disabled={!currentUser}
+                  label={submitting ? "Creando..." : "Crear viaje"}
+                  loading={submitting}
+                  onPress={handleSubmit}
+                  style={styles.actionPrimary}
+                />
+              )}
+            </View>
+          )}
         </KeyboardAvoidingView>
       </TouchableWithoutFeedback>
 
@@ -1034,397 +1723,408 @@ export default function CreateTripScreen({ navigation }) {
         selectedDestinations={form.destinations}
         onRemoveSelected={removeDestination}
         resolving={resolvingDestination}
+        error={errors.destinations}
       />
     </ScreenContainer>
   );
 }
 
-const Field = forwardRef(function Field(
-  { label, name, onChange, value, placeholder, multiline = false, error = null },
-  ref
-) {
-  return (
-    <View style={styles.field}>
-      <Text style={styles.fieldLabel}>{label}</Text>
-      <TextInput
-        ref={ref}
-        multiline={multiline}
-        onChangeText={(text) => onChange(name, text)}
-        placeholder={placeholder}
-        placeholderTextColor={colors.textMuted}
-        style={[styles.input, multiline && styles.inputMultiline, error && styles.inputError]}
-        value={value}
-      />
-      {error ? <Text style={styles.fieldError}>{error}</Text> : null}
-    </View>
-  );
-});
-
-function DateField({
-  label,
-  fieldName,
-  onChange,
-  pickerVisible,
-  setPickerVisible,
-  pickerValue,
-  onOpenPicker,
-  error,
-  minDate,
-  disabled = false,
-  disabledText = "",
-}) {
-  const minYMD = minDate ? toYMD(minDate) : null;
-  const cleanLabel = label.replace(/\s*\*$/, "");
-
-  return (
-    <View style={styles.field}>
-      <Text style={styles.fieldLabel}>{label}</Text>
-      {Platform.OS === "web" ? (
-        <View
-          style={[
-            styles.input,
-            error && styles.inputError,
-            disabled && styles.dateButtonDisabled,
-            { justifyContent: "center", paddingVertical: 0 },
-          ]}
-        >
-          <input
-            type="date"
-            disabled={disabled}
-            min={minYMD ?? undefined}
-            value={pickerValue || ""}
-            onChange={(e) => onChange(fieldName, e.target.value)}
-            style={{
-              border: "none",
-              width: "100%",
-              outline: "none",
-              backgroundColor: "transparent",
-              fontFamily: "inherit",
-              fontSize: "16px",
-              color: "inherit",
-              cursor: disabled ? "not-allowed" : "pointer",
-            }}
-          />
-        </View>
-      ) : (
-        <>
-          <Pressable
-            onPress={onOpenPicker}
-            style={[styles.dateButton, error && styles.inputError, disabled && styles.dateButtonDisabled]}
-          >
-            <Text style={[styles.dateButtonText, !pickerValue && styles.datePlaceholder]}>
-              {pickerValue
-                ? formatDateDisplay(pickerValue)
-                : disabled && disabledText
-                  ? disabledText
-                  : "Seleccionar fecha"}
-            </Text>
-            <FontAwesome6 color={disabled ? colors.textMuted : colors.textPrimary} name="calendar" size={14} />
-          </Pressable>
-
-          <DatePickerModal
-            visible={pickerVisible}
-            onClose={() => setPickerVisible(false)}
-            title={cleanLabel}
-            value={pickerValue}
-            onChange={(ymd) => onChange(fieldName, ymd)}
-            minDate={minDate}
-          />
-        </>
-      )}
-      {error ? <Text style={styles.fieldError}>{error}</Text> : null}
-    </View>
-  );
-}
+/* ───────────────────────── Estilos ───────────────────────── */
 
 const styles = StyleSheet.create({
   flex: {
     flex: 1,
   },
-  scrollContent: {
-    flexGrow: 1,
-  },
+
+  /* Encabezado + stepper */
   hero: {
     backgroundColor: colors.primary,
     paddingHorizontal: spacing.lg,
     paddingTop: spacing.xxs,
-    paddingBottom: spacing.sm,
-    borderBottomLeftRadius: 20,
-    borderBottomRightRadius: 20,
-    alignItems: "center",
+    paddingBottom: spacing.md,
+    borderBottomLeftRadius: 24,
+    borderBottomRightRadius: 24,
   },
   heroTopRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    alignSelf: "flex-start",
-    gap: 8,
+    minHeight: 44,
+    justifyContent: "center",
+    alignItems: "flex-start",
   },
-  heroBackLabel: {
-    ...textStyles.bodyStrong,
-    color: colors.textInverse,
-    fontSize: 13,
+  heroTitleWrap: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    alignItems: "center",
+    justifyContent: "center",
   },
   heroTitle: {
     ...textStyles.tripTitle,
     color: colors.textInverse,
-    fontSize: 24,
-    marginTop: 2,
-    textAlign: "center",
+    fontSize: 20,
   },
-  heroCopy: {
-    ...textStyles.body,
-    color: "rgba(255,255,255,0.8)",
-    marginTop: 2,
-    textAlign: "center",
+  stepper: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    justifyContent: "center",
+    marginTop: spacing.xs,
+  },
+  stepItem: {
+    width: 72,
+    alignItems: "center",
+    gap: 4,
+  },
+  stepCircle: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    borderWidth: 2,
+    borderColor: "rgba(255,255,255,0.45)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  stepCircleOn: {
+    backgroundColor: "#FFFFFF",
+    borderColor: "#FFFFFF",
+  },
+  stepCircleText: {
+    ...textStyles.meta,
+    color: "rgba(255,255,255,0.75)",
+    fontWeight: "700",
+  },
+  stepCircleTextOn: {
+    color: colors.primary,
+  },
+  stepLabel: {
+    ...textStyles.meta,
+    color: "rgba(255,255,255,0.65)",
     fontSize: 12,
   },
-  stepperDots: {
-    flexDirection: "row",
-    gap: 6,
-    marginTop: spacing.xxs,
+  stepLabelOn: {
+    color: "#FFFFFF",
+    fontWeight: "700",
   },
-  dot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
+  stepLine: {
+    flex: 1,
+    height: 2,
+    marginTop: 13,
+    marginHorizontal: -18,
+    borderRadius: 1,
     backgroundColor: "rgba(255,255,255,0.3)",
   },
-  dotActive: {
+  stepLineOn: {
     backgroundColor: "#FFFFFF",
-    width: 16,
   },
-  body: {
+
+  /* Contenido */
+  scroll: {
+    flex: 1,
     backgroundColor: colors.background,
+  },
+  scrollContent: {
+    flexGrow: 1,
     paddingHorizontal: spacing.lg,
     paddingTop: spacing.md,
     paddingBottom: spacing.xl,
+    gap: spacing.md,
   },
   card: {
     ...surfaces.card,
     padding: spacing.lg,
     gap: spacing.md,
   },
+  cardHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+  },
+  cardIconCircle: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: COLOR_SOFT,
+  },
   cardTitle: {
     ...textStyles.tripTitle,
     color: colors.primary,
     fontSize: 20,
   },
-  row: {
-    gap: spacing.md,
-  },
-  rowTablet: {
-    flexDirection: "row",
-  },
-  field: {
-    flex: 1,
-    gap: spacing.xs,
-  },
-  fieldLabel: {
-    ...textStyles.label,
-    color: colors.primary,
-    marginBottom: 0,
-  },
-  input: {
-    minHeight: 52,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: radii.md,
-    backgroundColor: colors.surface,
-    paddingHorizontal: spacing.md,
-    paddingVertical: 13,
-    color: colors.textPrimary,
-    ...textStyles.body,
-  },
-  inputMultiline: {
-    minHeight: 100,
-    textAlignVertical: "top",
-  },
-  inputError: {
-    borderColor: colors.danger,
-  },
-  fieldError: {
-    ...textStyles.meta,
-    color: colors.danger,
-    marginTop: spacing.xs,
-  },
-  dateButton: {
-    minHeight: 52,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: radii.md,
-    backgroundColor: colors.surface,
-    paddingHorizontal: spacing.md,
-    alignItems: "center",
-    justifyContent: "space-between",
-    flexDirection: "row",
-  },
-  dateButtonDisabled: {
-    opacity: 0.55,
-    backgroundColor: colors.surfaceMuted,
-  },
-  dateButtonText: {
-    ...textStyles.body,
-    color: colors.textPrimary,
-  },
-  datePlaceholder: {
-    color: colors.textMuted,
-  },
-  dropdownButton: {
-    minHeight: 52,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: radii.md,
-    backgroundColor: colors.surface,
-    paddingHorizontal: spacing.md,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-  },
-  dropdownLeftContent: {
-    flexDirection: "row",
-    alignItems: "center",
-    flex: 1,
-  },
-  dropdownPlaceholder: {
-    ...textStyles.body,
-    color: colors.textMuted,
-  },
-  dropdownText: {
-    ...textStyles.body,
-    color: colors.textPrimary,
-  },
-  ownerCard: {
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: radii.md,
-    backgroundColor: colors.surfaceMuted,
-    padding: spacing.md,
-  },
-  ownerLabel: {
-    ...textStyles.label,
-    color: colors.textSecondary,
-  },
-  ownerName: {
-    ...textStyles.bodyStrong,
-    color: colors.primary,
-    marginTop: spacing.xs,
-  },
-  ownerMeta: {
-    ...textStyles.meta,
-    color: colors.textSecondary,
-    marginTop: spacing.xxs,
-  },
-  submitMessage: {
-    ...textStyles.bodyStrong,
-    marginTop: spacing.md,
-  },
-  submitError: {
-    color: colors.danger,
-  },
-  submitSuccess: {
-    color: colors.success,
-  },
-  actions: {
-    flexDirection: Platform.OS === "web" ? "row" : "column",
-    gap: spacing.md,
-    marginTop: spacing.lg,
-    marginBottom: spacing.sm,
-  },
-  actionPrimary: {
-    flex: 1,
-  },
-  actionSecondary: {
-    flex: 1,
-  },
-  destinationItem: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: spacing.sm,
-    paddingVertical: spacing.sm + 4,
-    borderBottomWidth: 1,
-    borderBottomColor: "#f5f5f5",
-  },
-  destinationItemActive: {
-    backgroundColor: colors.primarySoft ? `${colors.primarySoft}22` : "#f0f4f8",
-    borderRadius: radii.sm || 8,
-  },
-  destinationIconCircle: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: colors.primarySoft ? `${colors.primarySoft}33` : "#eef2ff",
-  },
-  destinationIconCircleActive: {
-    backgroundColor: colors.primary,
-  },
-  destinationName: {
-    ...textStyles.bodyStrong,
-    color: colors.textPrimary,
-  },
-  destinationNameActive: {
-    color: colors.primary,
-    fontWeight: "700",
-  },
-  destinationCountry: {
+  cardSubtitle: {
     ...textStyles.meta,
     color: colors.textSecondary,
     marginTop: 2,
   },
-  selectedDestinationsContainer: {
+  sectionBlock: {
     gap: spacing.xs,
   },
-  selectedDestinationsScroll: {
-    maxHeight: 190,
+  row: {
+    gap: spacing.sm,
   },
-  destinationCurrencyRow: {
+  rowTablet: {
+    flexDirection: "row",
+  },
+
+  /* Campos de texto */
+  field: {
+    gap: spacing.xs,
+  },
+  labelRow: {
     flexDirection: "row",
     alignItems: "center",
+    gap: 4,
+  },
+  fieldLabel: {
+    ...textStyles.label,
+    textTransform: "none",
+    color: colors.primary,
+    marginBottom: 0,
+  },
+  requiredMark: {
+    ...textStyles.label,
+    color: COLOR_DANGER,
+  },
+  optionalTag: {
+    ...textStyles.meta,
+    color: colors.textMuted,
+    marginLeft: 4,
+  },
+  inputWrap: {
+    minHeight: 52,
     borderWidth: 1,
     borderColor: colors.border,
     borderRadius: radii.md,
     backgroundColor: colors.surface,
-    paddingHorizontal: spacing.sm,
-    paddingVertical: spacing.sm,
-    marginBottom: spacing.xs,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.04,
-    shadowRadius: 2,
-    elevation: 1,
+    paddingHorizontal: spacing.md,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
   },
-  destinationRowIconCircle: {
+  inputWrapMultiline: {
+    alignItems: "flex-start",
+    minHeight: 96,
+  },
+  inputWrapFocused: {
+    borderColor: colors.primary,
+  },
+  inputIconTop: {
+    marginTop: 17,
+  },
+  input: {
+    flex: 1,
+    color: colors.textPrimary,
+    paddingVertical: 13,
+    ...textStyles.body,
+  },
+  inputMultiline: {
+    minHeight: 96,
+    textAlignVertical: "top",
+  },
+  inputError: {
+    borderColor: COLOR_DANGER,
+  },
+  errorRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 6,
+    marginTop: 2,
+  },
+  fieldError: {
+    ...textStyles.meta,
+    color: COLOR_DANGER,
+    flex: 1,
+  },
+  fieldHint: {
+    ...textStyles.meta,
+    color: colors.textSecondary,
+  },
+
+  /* Fechas */
+  dateField: {
+    flex: 1,
+    gap: spacing.xs,
+  },
+  dateTile: {
+    minHeight: 62,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radii.md,
+    backgroundColor: colors.surface,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 10,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
+  dateTileFilled: {
+    borderColor: colors.primary,
+  },
+  dateTileDisabled: {
+    opacity: 0.55,
+    backgroundColor: colors.surfaceMuted,
+  },
+  dateIconCircle: {
     width: 36,
     height: 36,
     borderRadius: 18,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: colors.primarySoft ? `${colors.primarySoft}33` : "#eef2ff",
+    backgroundColor: COLOR_SOFT,
   },
-  destinationRemoveButton: {
+  dateIconCircleOn: {
+    backgroundColor: colors.primary,
+  },
+  dateCaption: {
+    ...textStyles.meta,
+    color: colors.textSecondary,
+  },
+  dateValue: {
+    ...textStyles.bodyStrong,
+    color: colors.textPrimary,
+    marginTop: 1,
+  },
+  datePlaceholder: {
+    color: colors.textMuted,
+    fontWeight: "400",
+  },
+  durationChip: {
+    alignSelf: "flex-start",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: COLOR_SOFT,
+    borderRadius: 20,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    marginTop: 2,
+  },
+  durationChipText: {
+    ...textStyles.meta,
+    color: colors.primary,
+    fontWeight: "700",
+  },
+
+  /* Destinos (paso 2) */
+  searchBar: {
+    minHeight: 56,
+    borderWidth: 1.5,
+    borderColor: colors.primary,
+    borderRadius: radii.lg,
+    backgroundColor: colors.surface,
+    paddingLeft: spacing.md,
+    paddingRight: spacing.sm,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
+  searchBarText: {
+    flex: 1,
+    ...textStyles.body,
+    color: colors.textMuted,
+  },
+  searchBarAction: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.primary,
+  },
+  routeRow: {
+    flexDirection: "row",
+    gap: 12,
+  },
+  routeRail: {
+    width: 28,
+    alignItems: "center",
+  },
+  routeLine: {
+    width: 2,
+    backgroundColor: colors.border,
+  },
+  routeLineHidden: {
+    backgroundColor: "transparent",
+  },
+  routeLineBottom: {
+    flex: 1,
+    width: 2,
+  },
+  routeDot: {
     width: 28,
     height: 28,
     borderRadius: 14,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: colors.danger ? `${colors.danger}14` : "rgba(255,59,48,0.08)",
-    marginLeft: spacing.xs,
+    backgroundColor: colors.primary,
+  },
+  routeDotText: {
+    ...textStyles.meta,
+    color: colors.textInverse,
+    fontWeight: "700",
+  },
+  routeDotAdd: {
+    backgroundColor: COLOR_SOFT,
+    borderWidth: 1.5,
+    borderStyle: "dashed",
+    borderColor: colors.primary,
+  },
+  routeContent: {
+    flex: 1,
+    paddingBottom: spacing.xs,
+  },
+  destinationCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    minHeight: 64,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radii.md,
+    backgroundColor: colors.surface,
+    padding: 6,
+    paddingRight: spacing.sm,
+  },
+  destinationThumb: {
+    width: 52,
+    height: 52,
+    borderRadius: radii.sm || 8,
+    backgroundColor: colors.surfaceMuted,
+  },
+  destinationThumbEmpty: {
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: COLOR_SOFT,
   },
   destinationChipText: {
     ...textStyles.bodyStrong,
-    fontSize: 14,
     color: colors.primary,
   },
-  destinationSection: {
-    gap: spacing.xs,
+  destinationRemoveButton: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: COLOR_DANGER_SOFT,
   },
-  coverPreviewSection: {
-    gap: spacing.xs,
+  addAnotherButton: {
+    alignItems: "center",
+    justifyContent: "center",
+    minHeight: 46,
+    borderWidth: 1.5,
+    borderStyle: "dashed",
+    borderColor: colors.primary,
+    borderRadius: radii.md,
+    backgroundColor: COLOR_SOFT,
   },
+  addAnotherText: {
+    ...textStyles.bodyStrong,
+    color: colors.primary,
+  },
+
+  /* Portada */
   coverPreview: {
-    minHeight: 160,
+    height: 200,
     borderRadius: radii.lg,
     overflow: "hidden",
     justifyContent: "flex-end",
@@ -1432,14 +2132,40 @@ const styles = StyleSheet.create({
   coverPreviewImage: {
     borderRadius: radii.lg,
   },
+  coverPreviewTop: {
+    position: "absolute",
+    top: spacing.sm,
+    left: spacing.sm,
+    right: spacing.sm,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  coverBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: "rgba(255,255,255,0.92)",
+    borderRadius: 16,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+  },
+  coverBadgeText: {
+    ...textStyles.meta,
+    color: colors.primary,
+    fontWeight: "700",
+  },
+  coverRemoveButton: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(19, 39, 80, 0.6)",
+  },
   coverPreviewOverlay: {
     padding: spacing.md,
-    backgroundColor: "rgba(19, 39, 80, 0.42)",
-  },
-  coverPreviewBadge: {
-    ...textStyles.label,
-    color: colors.accent,
-    marginBottom: spacing.xxs,
+    backgroundColor: "rgba(19, 39, 80, 0.5)",
   },
   coverPreviewTitle: {
     ...textStyles.tripTitle,
@@ -1447,117 +2173,220 @@ const styles = StyleSheet.create({
     fontSize: 22,
   },
   coverPreviewSubtitle: {
-    ...textStyles.body,
+    ...textStyles.meta,
     color: "#edf2ff",
     marginTop: 2,
-  },
-  destinationStatusText: {
-    ...textStyles.meta,
-    color: colors.textSecondary,
   },
   coverPreviewEmpty: {
     alignItems: "center",
     justifyContent: "center",
     gap: spacing.xs,
+    paddingHorizontal: spacing.lg,
     backgroundColor: colors.surfaceMuted,
+    borderWidth: 1.5,
+    borderStyle: "dashed",
+    borderColor: colors.border,
+  },
+  coverEmptyIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: COLOR_SOFT,
+  },
+  coverPreviewEmptyTitle: {
+    ...textStyles.bodyStrong,
+    color: colors.textPrimary,
+    textAlign: "center",
   },
   coverPreviewEmptyText: {
     ...textStyles.meta,
-    color: colors.textMuted,
+    color: colors.textSecondary,
+    textAlign: "center",
   },
-  coverActionsRow: {
+  coverOptionsRow: {
     flexDirection: "row",
     gap: spacing.sm,
-    marginTop: 4,
+    marginTop: spacing.xs,
   },
-  coverActionButton: {
+  coverOption: {
+    flex: 1,
+    alignItems: "center",
+    gap: 4,
+    paddingVertical: spacing.sm + 2,
+    paddingHorizontal: 6,
+    borderWidth: 1.5,
+    borderColor: colors.border,
+    borderRadius: radii.md,
+    backgroundColor: colors.surface,
+  },
+  coverOptionActive: {
+    borderColor: colors.primary,
+    backgroundColor: COLOR_SOFT,
+  },
+  coverOptionIcon: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: COLOR_SOFT,
+  },
+  coverOptionIconActive: {
+    backgroundColor: colors.primary,
+  },
+  coverOptionLabel: {
+    ...textStyles.bodyStrong,
+    color: colors.textPrimary,
+  },
+  coverOptionLabelActive: {
+    color: colors.primary,
+  },
+  coverOptionSub: {
+    ...textStyles.meta,
+    color: colors.textSecondary,
+  },
+  hidden: {
+    display: "none",
+  },
+
+  /* Administrador y resumen (paso 3) */
+  ownerCard: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 6,
+    gap: 12,
     borderWidth: 1,
     borderColor: colors.border,
     borderRadius: radii.md,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-    backgroundColor: colors.surface,
+    backgroundColor: colors.surfaceMuted,
+    padding: spacing.md,
   },
-  coverActionText: {
-    ...textStyles.bodyStrong,
-    color: colors.primary,
-    fontSize: 13,
-  },
-  coverActionButtonSecondary: {
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
+  ownerAvatar: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: "center",
     justifyContent: "center",
-  },
-  coverActionTextSecondary: {
-    ...textStyles.bodyStrong,
-    color: colors.danger || "#FF3B30",
-    fontSize: 13,
-  },
-  modalOverlay: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-    backgroundColor: "rgba(0, 0, 0, 0.5)",
-  },
-  pickerHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: spacing.lg,
-    paddingTop: spacing.md,
-    paddingBottom: spacing.sm,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
-  },
-  pickerBackButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    width: 70,
-  },
-  pickerBackText: {
-    ...textStyles.body,
-    color: colors.primary,
-    fontWeight: "600",
-  },
-  pickerTitle: {
-    ...textStyles.bodyStrong,
-    fontSize: 17,
-    color: colors.primary,
-  },
-  pickerHeaderRight: {
-    width: 70,
-    alignItems: "flex-end",
-  },
-  pickerCountBadge: {
-    minWidth: 24,
-    height: 24,
-    borderRadius: 12,
-    paddingHorizontal: 6,
     backgroundColor: colors.primary,
+  },
+  ownerAvatarText: {
+    ...textStyles.bodyStrong,
+    color: colors.textInverse,
+  },
+  ownerLabel: {
+    ...textStyles.meta,
+    color: colors.textSecondary,
+  },
+  ownerName: {
+    ...textStyles.bodyStrong,
+    color: colors.primary,
+    marginTop: 2,
+  },
+  ownerMeta: {
+    ...textStyles.meta,
+    color: colors.textSecondary,
+    marginTop: 2,
+  },
+  summaryCard: {
+    gap: spacing.sm,
+  },
+  summaryTitle: {
+    ...textStyles.label,
+    textTransform: "none",
+    color: colors.primary,
+  },
+  summaryItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
+  summaryIcon: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
     alignItems: "center",
     justifyContent: "center",
+    backgroundColor: COLOR_SOFT,
+  },
+  summaryLabel: {
+    ...textStyles.meta,
+    color: colors.textSecondary,
+  },
+  summaryValue: {
+    ...textStyles.body,
+    color: colors.textPrimary,
+  },
+
+  /* Mensaje de resultado y barra de acciones */
+  banner: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 8,
+    marginHorizontal: spacing.lg,
+    marginTop: spacing.xs,
+    padding: spacing.sm,
+    borderRadius: radii.md,
+  },
+  bannerError: {
+    backgroundColor: COLOR_DANGER_SOFT,
+  },
+  bannerSuccess: {
+    backgroundColor: colors.successSurface || "rgba(34,197,94,0.1)",
+  },
+  bannerText: {
+    ...textStyles.bodyStrong,
+    fontSize: 13,
+    flex: 1,
+  },
+  submitError: {
+    color: COLOR_DANGER,
+  },
+  submitSuccess: {
+    color: colors.success,
+  },
+  actionBar: {
+    flexDirection: "row",
+    gap: spacing.sm,
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.sm,
+    paddingBottom: spacing.md,
+    backgroundColor: colors.surface,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+  },
+  actionPrimary: {
+    flex: 2,
+  },
+  actionSecondary: {
+    flex: 1,
+  },
+
+  /* Buscador de destinos (modal) */
+  pickerCountBadge: {
+    position: "absolute",
+    right: 0,
+    top: 8,
+    minWidth: 28,
+    height: 28,
+    borderRadius: 14,
+    paddingHorizontal: 8,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.surface,
   },
   pickerCountBadgeText: {
     ...textStyles.meta,
-    color: colors.textInverse,
+    color: colors.primary,
     fontWeight: "700",
-    fontSize: 12,
   },
   pickerSearchBox: {
     flexDirection: "row",
     alignItems: "center",
     gap: 10,
-    marginHorizontal: spacing.lg,
-    marginTop: spacing.md,
-    marginBottom: spacing.sm,
-    minHeight: 48,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: radii.md,
+    marginTop: spacing.sm,
+    minHeight: 52,
+    borderRadius: radii.lg,
     backgroundColor: colors.surface,
     paddingHorizontal: spacing.md,
   },
@@ -1565,61 +2394,159 @@ const styles = StyleSheet.create({
     flex: 1,
     ...textStyles.body,
     color: colors.textPrimary,
+    paddingVertical: 10,
+  },
+  pickerBody: {
+    flex: 1,
+    backgroundColor: colors.background,
+  },
+  pickerError: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginHorizontal: spacing.lg,
+    marginTop: spacing.md,
+    padding: spacing.sm,
+    borderRadius: radii.md,
+    backgroundColor: COLOR_DANGER_SOFT,
+  },
+  pickerErrorText: {
+    ...textStyles.meta,
+    color: COLOR_DANGER,
+    fontWeight: "600",
+    flex: 1,
   },
   pickerSelectedSection: {
-    marginBottom: spacing.sm,
+    paddingTop: spacing.md,
   },
   pickerSelectedLabel: {
-    ...textStyles.meta,
-    color: colors.textSecondary,
+    ...textStyles.label,
+    textTransform: "none",
+    color: colors.primary,
     paddingHorizontal: spacing.lg,
     marginBottom: spacing.xs,
   },
-  pickerChipsRow: {
-    flexDirection: "row",
-    gap: 8,
+  pickerSelectedScroll: {
+    maxHeight: 190,
+    flexGrow: 0,
+  },
+  pickerSelectedList: {
+    gap: 6,
     paddingHorizontal: spacing.lg,
   },
-  pickerChip: {
+  pickerSelectedRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 6,
-    backgroundColor: colors.primarySoft ? `${colors.primarySoft}33` : "#eef2ff",
-    borderRadius: 20,
-    paddingHorizontal: 12,
+    gap: 10,
+    backgroundColor: COLOR_SOFT,
+    borderRadius: radii.md,
+    paddingHorizontal: 10,
     paddingVertical: 8,
-    maxWidth: 180,
   },
-  pickerChipText: {
-    ...textStyles.meta,
+  pickerSelectedName: {
+    ...textStyles.bodyStrong,
     color: colors.primary,
-    fontWeight: "600",
+  },
+  pickerSelectedCountry: {
+    ...textStyles.meta,
+    color: colors.textSecondary,
+  },
+  pickerSelectedRemove: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: COLOR_DANGER_SOFT,
+  },
+  pickerChipIndex: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.primary,
+  },
+  pickerChipIndexText: {
+    ...textStyles.meta,
+    color: colors.textInverse,
+    fontWeight: "700",
+    fontSize: 11,
   },
   pickerListContainer: {
     flex: 1,
-    marginHorizontal: spacing.lg,
-    borderWidth: 1,
+  },
+  pickerListContent: {
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.md,
+    paddingBottom: spacing.lg,
+  },
+  pickerListSeparator: {
+    height: 8,
+  },
+  destinationItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    minHeight: 64,
+    paddingHorizontal: spacing.sm + 4,
+    paddingVertical: spacing.sm,
+    borderWidth: 1.5,
     borderColor: colors.border,
     borderRadius: radii.md,
     backgroundColor: colors.surface,
-    overflow: "hidden",
   },
-  pickerListContent: {
-    paddingHorizontal: spacing.xs,
+  destinationItemActive: {
+    borderColor: colors.primary,
+    backgroundColor: COLOR_SOFT,
   },
-  pickerStatusRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    padding: spacing.md,
-  },
-  pickerEmptyState: {
+  destinationItemTexts: {
     flex: 1,
+  },
+  destinationIconCircle: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
     alignItems: "center",
     justifyContent: "center",
-    paddingHorizontal: spacing.xl,
-    paddingVertical: spacing.xl,
+    backgroundColor: COLOR_SOFT,
+  },
+  destinationIconCircleActive: {
+    backgroundColor: colors.primary,
+  },
+  destinationName: {
+    ...textStyles.bodyStrong,
+    color: colors.textPrimary,
+    fontWeight: "500",
+  },
+  destinationNameActive: {
+    color: colors.primary,
+  },
+  destinationMatch: {
+    color: colors.primary,
+    fontWeight: "800",
+  },
+  destinationCountry: {
+    ...textStyles.meta,
+    color: colors.textSecondary,
+    marginTop: 2,
+  },
+  destinationAction: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: COLOR_SOFT,
+  },
+  destinationActionActive: {
+    backgroundColor: colors.primary,
+  },
+  pickerIntro: {
+    alignItems: "center",
     gap: spacing.xs,
+    paddingTop: spacing.lg,
+    paddingHorizontal: spacing.xl,
   },
   pickerEmptyIconCircle: {
     width: 56,
@@ -1627,7 +2554,7 @@ const styles = StyleSheet.create({
     borderRadius: 28,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: colors.primarySoft ? `${colors.primarySoft}33` : "#eef2ff",
+    backgroundColor: COLOR_SOFT,
     marginBottom: spacing.xs,
   },
   pickerEmptyTitle: {
@@ -1639,9 +2566,41 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
     textAlign: "center",
   },
+  pickerSkeletonRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    minHeight: 64,
+    paddingHorizontal: spacing.sm + 4,
+    marginBottom: 8,
+    borderRadius: radii.md,
+    backgroundColor: colors.surface,
+  },
+  pickerSkeletonCircle: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: colors.surfaceMuted,
+  },
+  pickerSkeletonLineLong: {
+    width: "60%",
+    height: 12,
+    borderRadius: 6,
+    backgroundColor: colors.surfaceMuted,
+  },
+  pickerSkeletonLineShort: {
+    width: "35%",
+    height: 10,
+    borderRadius: 5,
+    marginTop: 8,
+    backgroundColor: colors.surfaceMuted,
+  },
   pickerFooter: {
-    padding: spacing.lg,
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.sm,
+    paddingBottom: spacing.md,
     borderTopWidth: 1,
     borderTopColor: colors.border,
+    backgroundColor: colors.surface,
   },
 });

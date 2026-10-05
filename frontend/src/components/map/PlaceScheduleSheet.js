@@ -1,5 +1,20 @@
-import { useEffect, useMemo, useState } from "react";
-import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  ActivityIndicator,
+  FlatList,
+  Keyboard,
+  KeyboardAvoidingView,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
+  Animated,
+} from "react-native";
+import DateTimePicker from "@react-native-community/datetimepicker";
 import Modal from "../ui/AppModal";
 import { FontAwesome6 } from "@expo/vector-icons";
 
@@ -26,6 +41,22 @@ function suggestIcon(place) {
   return "location-dot";
 }
 
+// Función auxiliar para formatear la fecha a dd/mm/aaaa
+function formatDateToDisplay(dateString) {
+  if (!dateString) return "";
+  // Si viene en formato yyyy-mm-dd o similar
+  const parts = dateString.split("-");
+  if (parts.length === 3) {
+    const [year, month, day] = parts;
+    return `${day}/${month}/${year}`;
+  }
+  return dateString;
+}
+
+function isValidTime(value) {
+  return /^([01]\d|2[0-3]):([0-5]\d)$/.test(value);
+}
+
 export default function PlaceScheduleSheet({ days = [], onClose, onSubmit, place, visible }) {
   const [dayId, setDayId] = useState(null);
   const [nombre, setNombre] = useState("");
@@ -35,6 +66,29 @@ export default function PlaceScheduleSheet({ days = [], onClose, onSubmit, place
   const [icono, setIcono] = useState("location-dot");
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
+
+  // Estados para el selector de hora idéntico a AddActivityScreen
+  const [showTimePicker, setShowTimePicker] = useState(null);
+  const [tempDate, setTempDate] = useState(new Date());
+
+  // Estados para el selector desplegable de días
+  const [modalDiaVisible, setModalDiaVisible] = useState(false);
+  const slideAnimDia = useRef(new Animated.Value(300)).current;
+
+  // Estados para el selector desplegable de íconos
+  const [modalIconoVisible, setModalIconoVisible] = useState(false);
+  const slideAnimIcono = useRef(new Animated.Value(300)).current;
+
+  const scrollRef = useRef(null);
+  const fieldY = useRef({});
+
+  function scrollToField(key) {
+    setTimeout(() => {
+      const y = fieldY.current[key];
+      if (y == null) return;
+      scrollRef.current?.scrollTo({ y: Math.max(y - 80, 0), animated: true });
+    }, 300);
+  }
 
   const dayOptions = useMemo(
     () =>
@@ -47,6 +101,16 @@ export default function PlaceScheduleSheet({ days = [], onClose, onSubmit, place
   );
 
   useEffect(() => {
+    if (modalDiaVisible || modalIconoVisible) {
+      Animated.timing(slideAnimDia, { toValue: 0, duration: 250, useNativeDriver: true }).start();
+      Animated.timing(slideAnimIcono, { toValue: 0, duration: 250, useNativeDriver: true }).start();
+    } else {
+      slideAnimDia.setValue(300);
+      slideAnimIcono.setValue(300);
+    }
+  }, [modalDiaVisible, modalIconoVisible]);
+
+  useEffect(() => {
     if (!visible || !place) return;
     setDayId(dayOptions[0]?.id ?? null);
     setNombre(place.name ?? "");
@@ -56,7 +120,76 @@ export default function PlaceScheduleSheet({ days = [], onClose, onSubmit, place
     setIcono(suggestIcon(place));
     setError("");
     setSubmitting(false);
+    setShowTimePicker(null);
+    setModalDiaVisible(false);
+    setModalIconoVisible(false);
   }, [dayOptions, place, visible]);
+
+  function openTimePicker(type) {
+    Keyboard.dismiss();
+    if (type === "fin" && !horaInicio) {
+      setError("Primero seleccioná una hora de inicio.");
+      return;
+    }
+
+    const baseDate = new Date();
+    if (type === "inicio") {
+      if (horaInicio && isValidTime(horaInicio)) {
+        const [h, m] = horaInicio.split(":");
+        baseDate.setHours(parseInt(h, 10), parseInt(m, 10), 0, 0);
+      }
+    } else if (horaFin && isValidTime(horaFin)) {
+      const [h, m] = horaFin.split(":");
+      baseDate.setHours(parseInt(h, 10), parseInt(m, 10), 0, 0);
+    } else {
+      const [h, m] = (horaInicio || "10:00").split(":");
+      const total = Math.min(parseInt(h, 10) * 60 + parseInt(m, 10) + 60, 23 * 60 + 59);
+      baseDate.setHours(Math.floor(total / 60), total % 60, 0, 0);
+    }
+
+    setTempDate(baseDate);
+    setShowTimePicker(type);
+    setError("");
+  }
+
+  function commitTime(type, date) {
+    const hours = String(date.getHours()).padStart(2, "0");
+    const minutes = String(date.getMinutes()).padStart(2, "0");
+    const selectedTime = `${hours}:${minutes}`;
+
+    if (type === "inicio") {
+      setHoraInicio(selectedTime);
+      if (horaFin && selectedTime >= horaFin) setHoraFin("");
+      setError("");
+    } else if (type === "fin") {
+      if (horaInicio && selectedTime <= horaInicio) {
+        setError("La hora de fin debe ser posterior a la hora de inicio.");
+        setHoraFin("");
+      } else {
+        setHoraFin(selectedTime);
+        setError("");
+      }
+    }
+  }
+
+  function handleTimeChange(event, selectedDate) {
+    if (Platform.OS === "android") {
+      const type = showTimePicker;
+      setShowTimePicker(null);
+      if (event.type === "set" && selectedDate) commitTime(type, selectedDate);
+      return;
+    }
+    if (selectedDate) setTempDate(selectedDate);
+  }
+
+  function confirmTimePicker() {
+    commitTime(showTimePicker, tempDate);
+    setShowTimePicker(null);
+  }
+
+  function closeTimePicker() {
+    setShowTimePicker(null);
+  }
 
   async function handleSubmit() {
     if (!dayId) {
@@ -67,8 +200,12 @@ export default function PlaceScheduleSheet({ days = [], onClose, onSubmit, place
       setError("El nombre de la actividad es obligatorio.");
       return;
     }
-    if (!horaInicio.trim() || !horaFin.trim()) {
-      setError("Completa hora de inicio y hora de fin.");
+    if (!horaInicio.trim() || !horaFin.trim() || !isValidTime(horaInicio) || !isValidTime(horaFin)) {
+      setError("Completa hora de inicio y hora de fin válidas en formato HH:MM.");
+      return;
+    }
+    if (horaFin <= horaInicio) {
+      setError("La hora de fin debe ser posterior a la hora de inicio.");
       return;
     }
 
@@ -80,8 +217,8 @@ export default function PlaceScheduleSheet({ days = [], onClose, onSubmit, place
         dayIndex: dayOptions.find((day) => day.id === dayId)?.index ?? null,
         nombre: nombre.trim(),
         descripcion: descripcion.trim() || null,
-        horaInicio,
-        horaFin,
+        horaInicio: `${horaInicio}:00`,
+        horaFin: `${horaFin}:00`,
         icono,
       });
       onClose();
@@ -92,115 +229,303 @@ export default function PlaceScheduleSheet({ days = [], onClose, onSubmit, place
     }
   }
 
+  const diaSeleccionadoObj = dayOptions.find((d) => d.id === dayId);
+  const iconoSeleccionadoObj = ICON_OPTIONS.find((opt) => opt.name === icono);
+
   return (
     <Modal animationType="slide" transparent visible={visible} onRequestClose={onClose}>
-      <View style={styles.overlay}>
-        <View style={styles.sheet}>
-          <ScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
-            <View style={styles.header}>
-              <View style={styles.headerCopy}>
-                <Text style={styles.title}>Agregar al itinerario</Text>
-                <Text style={styles.subtitle}>{place?.name}</Text>
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
+      >
+        <View style={styles.overlay}>
+          <View style={styles.sheet}>
+            <ScrollView
+              ref={scrollRef}
+              keyboardShouldPersistTaps="handled"
+              keyboardDismissMode="on-drag"
+              showsVerticalScrollIndicator={false}
+              contentContainerStyle={{ paddingBottom: spacing.xl }}
+            >
+              <View style={styles.header}>
+                <View style={styles.headerCopy}>
+                  <Text style={styles.title}>Agregar al itinerario</Text>
+                  <Text style={styles.subtitle}>{place?.name}</Text>
+                </View>
+                <Pressable onPress={onClose} style={styles.closeButton}>
+                  <FontAwesome6 color={colors.textSecondary} name="xmark" size={16} />
+                </Pressable>
               </View>
-              <Pressable onPress={onClose} style={styles.closeButton}>
-                <FontAwesome6 color={colors.textSecondary} name="xmark" size={16} />
-              </Pressable>
-            </View>
 
-            <Text style={styles.label}>Día del viaje</Text>
-            <View style={styles.dayWrap}>
-              {dayOptions.map((day) => {
-                const active = day.id === dayId;
-                return (
-                  <Pressable
-                    key={day.id}
-                    onPress={() => setDayId(day.id)}
-                    style={[styles.dayChip, active && styles.dayChipActive]}
-                  >
-                    <Text style={[styles.dayChipTitle, active && styles.dayChipTitleActive]}>{`Día ${day.index}`}</Text>
-                    <Text style={[styles.dayChipDate, active && styles.dayChipDateActive]}>{day.date}</Text>
-                  </Pressable>
-                );
-              })}
-            </View>
+              {/* Selector de día en formato desplegable (evita lista larga) */}
+              <Text style={styles.label}>Día del viaje</Text>
+              <TouchableOpacity
+                style={styles.dropdownButton}
+                onPress={() => {
+                  Keyboard.dismiss();
+                  setModalDiaVisible(true);
+                }}
+              >
+                <View style={styles.dropdownLeftContent}>
+                  <FontAwesome6 name="calendar-days" size={14} color={colors.primary} style={{ marginRight: 10, width: 18, textAlign: "center" }} />
+                  <Text style={styles.dropdownText} numberOfLines={1}>
+                    {diaSeleccionadoObj
+                      ? `Día ${diaSeleccionadoObj.index} (${formatDateToDisplay(diaSeleccionadoObj.date)})`
+                      : "Seleccionar día del viaje"}
+                  </Text>
+                </View>
+                <FontAwesome6 name="chevron-down" size={14} color={colors.overlay} />
+              </TouchableOpacity>
 
-            <Text style={styles.label}>Nombre</Text>
-            <TextInput
-              onChangeText={setNombre}
-              placeholder="Nombre de la actividad"
-              placeholderTextColor={colors.textMuted}
-              style={styles.input}
-              value={nombre}
-            />
-
-            <Text style={styles.label}>Ubicación</Text>
-            <TextInput
-              editable={false}
-              style={styles.input}
-              value={place?.address ?? ""}
-            />
-
-            <Text style={styles.label}>Descripción</Text>
-            <TextInput
-              multiline
-              onChangeText={setDescripcion}
-              placeholder="Detalle breve del lugar o plan"
-              placeholderTextColor={colors.textMuted}
-              style={[styles.input, styles.inputMultiline]}
-              value={descripcion}
-            />
-
-            <View style={styles.row}>
-              <View style={styles.timeField}>
-                <Text style={styles.label}>Hora inicio</Text>
+              {/* Nombre de la actividad */}
+              <Text style={styles.label}>Nombre</Text>
+              <View
+                style={styles.inputBox}
+                onLayout={(e) => { fieldY.current.nombre = e.nativeEvent.layout.y; }}
+              >
+                <FontAwesome6 name="pen" size={14} color={colors.overlay} />
                 <TextInput
-                  onChangeText={setHoraInicio}
-                  placeholder="10:00"
-                  placeholderTextColor={colors.textMuted}
-                  style={styles.input}
-                  value={horaInicio}
+                  onChangeText={(text) => {
+                    setNombre(text);
+                    if (error) setError("");
+                  }}
+                  onFocus={() => scrollToField("nombre")}
+                  placeholder="Nombre de la actividad"
+                  placeholderTextColor={colors.overlay}
+                  style={styles.inputInner}
+                  value={nombre}
                 />
               </View>
-              <View style={styles.timeField}>
-                <Text style={styles.label}>Hora fin</Text>
+
+              {/* Ubicación fija / No modificable */}
+              <Text style={styles.label}>Ubicación</Text>
+              <View style={[styles.inputBox, styles.inputDisabled]}>
+                <FontAwesome6 name="location-dot" size={14} color={colors.primary} />
                 <TextInput
-                  onChangeText={setHoraFin}
-                  placeholder="12:00"
-                  placeholderTextColor={colors.textMuted}
-                  style={styles.input}
-                  value={horaFin}
+                  editable={false}
+                  style={[styles.inputInner, { color: colors.textSecondary }]}
+                  value={place?.address ?? place?.name ?? ""}
                 />
               </View>
-            </View>
 
-            <Text style={styles.label}>Ícono</Text>
-            <View style={styles.iconGrid}>
-              {ICON_OPTIONS.map((option) => {
-                const active = option.name === icono;
-                return (
-                  <Pressable
-                    key={option.name}
-                    onPress={() => setIcono(option.name)}
-                    style={[styles.iconOption, active && styles.iconOptionActive]}
-                  >
-                    <FontAwesome6 color={active ? colors.textInverse : colors.primary} name={option.name} size={16} />
-                    <Text style={[styles.iconOptionText, active && styles.iconOptionTextActive]}>{option.label}</Text>
-                  </Pressable>
-                );
-              })}
-            </View>
+              {/* Descripción */}
+              <Text style={styles.label}>Descripción</Text>
+              <View
+                style={[styles.inputBox, styles.inputBoxMultiline]}
+                onLayout={(e) => { fieldY.current.descripcion = e.nativeEvent.layout.y; }}
+              >
+                <FontAwesome6 name="note-sticky" size={14} color={colors.overlay} style={styles.inputBoxMultilineIcon} />
+                <TextInput
+                  multiline
+                  onChangeText={setDescripcion}
+                  onFocus={() => scrollToField("descripcion")}
+                  placeholder="Detalle breve del lugar o plan"
+                  placeholderTextColor={colors.overlay}
+                  style={[styles.inputInner, styles.inputMultiline]}
+                  value={descripcion}
+                />
+              </View>
 
-            {error ? <Text style={styles.error}>{error}</Text> : null}
+              {/* Selector de Horarios idéntico a AddActivityScreen */}
+              <View style={styles.row}>
+                <View style={styles.timeField}>
+                  <Text style={styles.label}>Hora inicio</Text>
+                  {Platform.OS === "web" ? (
+                    <View style={styles.dateBox}>
+                      <FontAwesome6 name="clock" size={14} color={colors.overlay} />
+                      <TextInput
+                        onChangeText={setHoraInicio}
+                        placeholder="HH:MM"
+                        placeholderTextColor={colors.overlay}
+                        style={styles.inputInner}
+                        value={horaInicio}
+                        type="time"
+                      />
+                    </View>
+                  ) : (
+                    <Pressable onPress={() => openTimePicker("inicio")} style={styles.dateBox}>
+                      <FontAwesome6 name="clock" size={14} color={colors.overlay} />
+                      <Text style={horaInicio ? styles.timeText : styles.placeholderText}>
+                        {horaInicio || "10:00"}
+                      </Text>
+                    </Pressable>
+                  )}
+                </View>
 
-            <PrimaryButton
-              label={submitting ? "Guardando..." : "Agregar al itinerario"}
-              loading={submitting}
-              onPress={handleSubmit}
-              style={styles.submitButton}
-            />
-          </ScrollView>
+                <View style={styles.timeField}>
+                  <Text style={styles.label}>Hora fin</Text>
+                  {Platform.OS === "web" ? (
+                    <View style={styles.dateBox}>
+                      <FontAwesome6 name="clock" size={14} color={colors.overlay} />
+                      <TextInput
+                        onChangeText={setHoraFin}
+                        placeholder="HH:MM"
+                        placeholderTextColor={colors.overlay}
+                        style={styles.inputInner}
+                        value={horaFin}
+                        type="time"
+                      />
+                    </View>
+                  ) : (
+                    <Pressable onPress={() => openTimePicker("fin")} style={styles.dateBox}>
+                      <FontAwesome6 name="clock" size={14} color={colors.overlay} />
+                      <Text style={horaFin ? styles.timeText : styles.placeholderText}>
+                        {horaFin || "12:00"}
+                      </Text>
+                    </Pressable>
+                  )}
+                </View>
+              </View>
+
+              {/* Selector de Ícono */}
+              <Text style={styles.label}>Ícono</Text>
+              <TouchableOpacity
+                style={styles.dropdownButton}
+                onPress={() => {
+                  Keyboard.dismiss();
+                  setModalIconoVisible(true);
+                }}
+              >
+                <View style={styles.dropdownLeftContent}>
+                  <FontAwesome6
+                    name={iconoSeleccionadoObj ? iconoSeleccionadoObj.name : "location-dot"}
+                    size={14}
+                    color={colors.primary}
+                    style={{ marginRight: 10, width: 18, textAlign: "center" }}
+                  />
+                  <Text style={styles.dropdownText} numberOfLines={1}>
+                    {iconoSeleccionadoObj ? iconoSeleccionadoObj.label : "Selecciona un ícono"}
+                  </Text>
+                </View>
+                <FontAwesome6 name="chevron-down" size={14} color={colors.overlay} />
+              </TouchableOpacity>
+
+              {error ? <Text style={styles.error}>{error}</Text> : null}
+
+              <PrimaryButton
+                label={submitting ? "Guardando..." : "Agregar al itinerario"}
+                loading={submitting}
+                onPress={handleSubmit}
+                style={styles.submitButton}
+              />
+            </ScrollView>
+          </View>
         </View>
-      </View>
+
+        {/* MODAL DESPLEGABLE PARA SELECCIONAR DÍA */}
+        {modalDiaVisible && (
+          <View style={styles.modalOverlayC}>
+            <Pressable style={StyleSheet.absoluteFill} onPress={() => setModalDiaVisible(false)} />
+            <Animated.View style={[styles.bottomSheetC, { transform: [{ translateY: slideAnimDia }] }]}>
+              <View style={styles.modalHeaderC}>
+                <Text style={styles.modalTitleC}>Seleccionar día del viaje</Text>
+                <TouchableOpacity onPress={() => setModalDiaVisible(false)} hitSlop={10}>
+                  <FontAwesome6 name="xmark" size={20} color={colors.textMuted} />
+                </TouchableOpacity>
+              </View>
+              <FlatList
+                data={dayOptions}
+                keyExtractor={(item) => String(item.id)}
+                renderItem={({ item, index }) => {
+                  const esActivo = item.id === dayId;
+                  const esElUltimo = index === dayOptions.length - 1;
+                  return (
+                    <TouchableOpacity
+                      style={[styles.modalItemC, esActivo && styles.modalItemActiveC, esElUltimo && { borderBottomWidth: 0 }]}
+                      onPress={() => {
+                        setDayId(item.id);
+                        setModalDiaVisible(false);
+                      }}
+                    >
+                      <View style={{ flexDirection: "row", alignItems: "center", flex: 1 }}>
+                        <FontAwesome6 name="calendar-day" size={15} color={esActivo ? colors.primary : "#4b5563"} style={{ marginRight: 12, width: 24, textAlign: "center" }} />
+                        <View>
+                          <Text style={[styles.modalItemTextC, esActivo && styles.modalItemTextActiveC]}>
+                            {`Día ${item.index}`}
+                          </Text>
+                          <Text style={styles.modalItemSubText}>
+                            {formatDateToDisplay(item.date)}
+                          </Text>
+                        </View>
+                      </View>
+                      {esActivo && <FontAwesome6 name="check" size={14} color={colors.primary} />}
+                    </TouchableOpacity>
+                  );
+                }}
+              />
+            </Animated.View>
+          </View>
+        )}
+
+        {/* MODAL DESPLEGABLE PARA SELECCIONAR ÍCONO */}
+        {modalIconoVisible && (
+          <View style={styles.modalOverlayC}>
+            <Pressable style={StyleSheet.absoluteFill} onPress={() => setModalIconoVisible(false)} />
+            <Animated.View style={[styles.bottomSheetC, { transform: [{ translateY: slideAnimIcono }] }]}>
+              <View style={styles.modalHeaderC}>
+                <Text style={styles.modalTitleC}>Seleccionar ícono</Text>
+                <TouchableOpacity onPress={() => setModalIconoVisible(false)} hitSlop={10}>
+                  <FontAwesome6 name="xmark" size={20} color={colors.textMuted} />
+                </TouchableOpacity>
+              </View>
+              <FlatList
+                data={ICON_OPTIONS}
+                keyExtractor={(item) => item.name}
+                renderItem={({ item, index }) => {
+                  const esActivo = icono === item.name;
+                  const esElUltimo = index === ICON_OPTIONS.length - 1;
+                  return (
+                    <TouchableOpacity
+                      style={[styles.modalItemC, esActivo && styles.modalItemActiveC, esElUltimo && { borderBottomWidth: 0 }]}
+                      onPress={() => {
+                        setIcono(item.name);
+                        setModalIconoVisible(false);
+                      }}
+                    >
+                      <View style={{ flexDirection: "row", alignItems: "center", flex: 1 }}>
+                        <FontAwesome6 name={item.name} size={16} color={esActivo ? colors.primary : "#4b5563"} style={{ marginRight: 12, width: 24, textAlign: "center" }} />
+                        <Text style={[styles.modalItemTextC, esActivo && styles.modalItemTextActiveC]}>
+                          {item.label}
+                        </Text>
+                      </View>
+                      {esActivo && <FontAwesome6 name="check" size={14} color={colors.primary} />}
+                    </TouchableOpacity>
+                  );
+                }}
+              />
+            </Animated.View>
+          </View>
+        )}
+
+        {/* Date / Time Pickers nativos idénticos a AddActivityScreen */}
+        {Platform.OS !== "web" && showTimePicker !== null && Platform.OS === "ios" ? (
+          <Modal transparent animationType="fade" visible={showTimePicker !== null} onRequestClose={closeTimePicker}>
+            <Pressable style={styles.timePickerOverlay} onPress={closeTimePicker}>
+              <Pressable style={styles.timePickerContainer} onPress={(e) => e.stopPropagation()}>
+                <DateTimePicker
+                  mode="time"
+                  value={tempDate}
+                  onChange={handleTimeChange}
+                  is24Hour={true}
+                  display="spinner"
+                  style={{ width: 220, height: 160 }}
+                />
+                <Pressable style={styles.timePickerDone} onPress={confirmTimePicker}>
+                  <Text style={styles.timePickerDoneText}>Listo</Text>
+                </Pressable>
+              </Pressable>
+            </Pressable>
+          </Modal>
+        ) : Platform.OS !== "web" && showTimePicker !== null ? (
+          <DateTimePicker
+            mode="time"
+            value={tempDate}
+            onChange={handleTimeChange}
+            is24Hour={true}
+            display="default"
+          />
+        ) : null}
+      </KeyboardAvoidingView>
     </Modal>
   );
 }
@@ -208,21 +533,22 @@ export default function PlaceScheduleSheet({ days = [], onClose, onSubmit, place
 const styles = StyleSheet.create({
   overlay: {
     flex: 1,
-    backgroundColor: colors.overlayStrong,
+    backgroundColor: colors.overlayStrong || "rgba(9, 19, 45, 0.7)",
     justifyContent: "flex-end",
   },
   sheet: {
     backgroundColor: colors.surface,
-    borderTopLeftRadius: radii.xl,
-    borderTopRightRadius: radii.xl,
+    borderTopLeftRadius: radii.xl || 24,
+    borderTopRightRadius: radii.xl || 24,
     padding: spacing.lg,
-    maxHeight: "88%",
+    maxHeight: "90%",
   },
   header: {
     flexDirection: "row",
     alignItems: "flex-start",
     justifyContent: "space-between",
     gap: spacing.sm,
+    marginBottom: spacing.xs,
   },
   headerCopy: {
     flex: 1,
@@ -230,7 +556,7 @@ const styles = StyleSheet.create({
   title: {
     ...textStyles.tripTitle,
     color: colors.primary,
-    fontSize: 22,
+    fontSize: 20,
   },
   subtitle: {
     ...textStyles.body,
@@ -241,63 +567,93 @@ const styles = StyleSheet.create({
     width: 34,
     height: 34,
     borderRadius: 17,
-    backgroundColor: colors.surfaceAlt,
+    backgroundColor: colors.surfaceAlt || "#f5f5f5",
     alignItems: "center",
     justifyContent: "center",
   },
   label: {
     ...textStyles.label,
+    textTransform: "none",
     color: colors.primary,
     marginTop: spacing.md,
     marginBottom: spacing.xs,
   },
-  dayWrap: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: spacing.sm,
-  },
-  dayChip: {
-    minWidth: 92,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: radii.md,
-    backgroundColor: colors.surfaceMuted,
-    paddingHorizontal: spacing.sm,
-    paddingVertical: spacing.sm,
-  },
-  dayChipActive: {
-    borderColor: colors.primary,
-    backgroundColor: colors.primary,
-  },
-  dayChipTitle: {
-    ...textStyles.bodyStrong,
-    color: colors.primary,
-  },
-  dayChipTitleActive: {
-    color: colors.textInverse,
-  },
-  dayChipDate: {
-    ...textStyles.meta,
-    color: colors.textSecondary,
-    marginTop: spacing.xxs,
-  },
-  dayChipDateActive: {
-    color: "#dbe6fb",
-  },
-  input: {
+  dropdownButton: {
     minHeight: 48,
     borderWidth: 1,
     borderColor: colors.border,
     borderRadius: radii.md,
     backgroundColor: colors.surface,
     paddingHorizontal: spacing.md,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  dropdownLeftContent: {
+    flexDirection: "row",
+    alignItems: "center",
+    flex: 1,
+    marginRight: 10,
+  },
+  dropdownText: {
+    ...textStyles.body,
     color: colors.textPrimary,
+    flex: 1,
+  },
+  inputBox: {
+    minHeight: 48,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radii.md,
+    backgroundColor: colors.surface,
+    paddingHorizontal: spacing.md,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+  inputDisabled: {
+    backgroundColor: colors.surfaceMuted || "#F2F2F2",
+  },
+  inputBoxMultiline: {
+    alignItems: "flex-start",
+    paddingVertical: spacing.sm,
+  },
+  inputBoxMultilineIcon: {
+    marginTop: 4,
+  },
+  inputInner: {
+    flex: 1,
+    color: colors.textPrimary,
+    paddingVertical: 8,
     ...textStyles.body,
   },
   inputMultiline: {
-    minHeight: 88,
-    paddingTop: spacing.sm,
+    minHeight: 90,
+    maxHeight: 140,
     textAlignVertical: "top",
+    paddingTop: 0,
+  },
+  dateBox: {
+    minHeight: 48,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radii.md,
+    backgroundColor: colors.surface,
+    paddingHorizontal: spacing.md,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 10,
+  },
+  timeText: {
+    ...textStyles.body,
+    color: colors.textPrimary,
+    flex: 1,
+  },
+  placeholderText: {
+    ...textStyles.body,
+    color: colors.overlay,
+    flex: 1,
   },
   row: {
     flexDirection: "row",
@@ -306,41 +662,94 @@ const styles = StyleSheet.create({
   timeField: {
     flex: 1,
   },
-  iconGrid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: spacing.sm,
-  },
-  iconOption: {
-    minWidth: 84,
-    alignItems: "center",
-    gap: spacing.xxs,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: radii.md,
-    backgroundColor: colors.surface,
-    paddingHorizontal: spacing.sm,
-    paddingVertical: spacing.sm,
-  },
-  iconOptionActive: {
-    backgroundColor: colors.primary,
-    borderColor: colors.primary,
-  },
-  iconOptionText: {
-    ...textStyles.meta,
-    color: colors.primary,
-    fontSize: 11,
-  },
-  iconOptionTextActive: {
-    color: colors.textInverse,
-  },
   error: {
     ...textStyles.meta,
     color: colors.danger,
     marginTop: spacing.md,
   },
   submitButton: {
-    marginTop: spacing.lg,
+    marginTop: spacing.xl,
     marginBottom: spacing.md,
+  },
+  modalOverlayC: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: "rgba(0,0,0,0.4)",
+    justifyContent: "flex-end",
+    elevation: 999,
+    zIndex: 1000,
+  },
+  bottomSheetC: {
+    backgroundColor: colors.surface,
+    borderTopLeftRadius: radii.xl || 24,
+    borderTopRightRadius: radii.xl || 24,
+    padding: 20,
+    maxHeight: "80%",
+  },
+  modalHeaderC: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: spacing.md,
+    paddingBottom: spacing.sm,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
+  modalTitleC: {
+    ...textStyles.bodyStrong,
+    fontSize: 18,
+    color: colors.primary,
+  },
+  modalItemC: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingVertical: spacing.sm + 4,
+    paddingHorizontal: spacing.sm,
+    borderBottomWidth: 1,
+    borderBottomColor: "#f5f5f5",
+  },
+  modalItemActiveC: {
+    backgroundColor: colors.primarySoft ? `${colors.primarySoft}22` : "#f0f4f8",
+    borderRadius: radii.sm || 8,
+  },
+  modalItemTextC: {
+    ...textStyles.body,
+    color: colors.textPrimary,
+  },
+  modalItemTextActiveC: {
+    color: colors.primary,
+    fontWeight: "700",
+  },
+  modalItemSubText: {
+    ...textStyles.meta,
+    color: colors.textSecondary,
+    marginTop: 2,
+  },
+  timePickerOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0, 0, 0, 0.4)",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  timePickerContainer: {
+    backgroundColor: colors.surface,
+    borderRadius: radii.md,
+    padding: spacing.lg,
+    alignItems: "center",
+    minWidth: 260,
+  },
+  timePickerDone: {
+    marginTop: spacing.sm,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.lg,
+  },
+  timePickerDoneText: {
+    ...textStyles.body,
+    color: colors.primary,
+    fontWeight: "700",
   },
 });

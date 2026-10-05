@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef } from "react";
+import React, { useEffect, useState, useRef, useCallback } from "react";
 import {
   View,
   Text,
@@ -12,7 +12,6 @@ import {
   Pressable,
   Animated,
   Keyboard,
-  TouchableWithoutFeedback,
   KeyboardAvoidingView,
   Image,
   Switch,
@@ -22,8 +21,8 @@ import { File } from "expo-file-system";
 
 import { FontAwesome6 } from "@expo/vector-icons";
 
-import DatePickerModal from "../components/ui/DatePickerModal";             
-import { toYMD, parseYMD, formatDateDisplay, getTodayIso } from "../utils/dates";  
+import DatePickerModal from "../components/ui/DatePickerModal";
+import { toYMD, parseYMD, formatDateDisplay, getTodayIso } from "../utils/dates";
 
 import PrimaryButton from "../components/ui/PrimaryButton";
 import CurrencySelector from "../components/trip/CurrencySelector";
@@ -33,7 +32,7 @@ import {
   getExpenseCategories,
   getTripParticipants,
   createExpense,
-  getCurrencies, 
+  getCurrencies,
   getExchangeRate,
   attachReceiptToExpense,
 } from "../services/api";
@@ -69,12 +68,17 @@ const ICONOS_CATEGORIAS = {
   Otros: "ellipsis",
 };
 
+const COLOR_SUPERFICIE_SUAVE = colors.surfaceMuted || "#F2F4F7";
+
 function getIniciales(persona) {
   const n = (persona?.Nombre || "").trim().charAt(0);
   const a = (persona?.Apellido || "").trim().charAt(0);
   return (n + a).toUpperCase() || "?";
 }
 
+function fmt(numero) {
+  return Number(numero || 0).toFixed(2);
+}
 
 function esErrorDeRed(error) {
   if (error?.status || error?.response?.status) return false;
@@ -91,15 +95,12 @@ function esErrorDeRed(error) {
   );
 }
 
-// Campos del formulario que puede precargar el escaneo de comprobantes (US 93).
 const CAMPO_NOMBRE = "Nombre";
 const CAMPO_MONTO = "MontoOriginal";
 const CAMPO_MONEDA = "MonedaOriginal";
 const CAMPO_FECHA = "FechaGasto";
 const CAMPO_CATEGORIA = "IdCategoria";
 
-// Borra la imagen comprimida que quedó en caché tras el escaneo (US 94, AC9).
-// En web es un blob/data URI que libera el navegador.
 function eliminarImagenTemporal(uri) {
   if (!uri || Platform.OS === "web" || !String(uri).startsWith("file:")) return;
   try {
@@ -116,6 +117,167 @@ function montoParaInput(valor) {
   return Number.isFinite(numero) && numero > 0 ? String(numero) : "";
 }
 
+function useKeyboardVisible() {
+  const [visible, setVisible] = useState(false);
+  useEffect(() => {
+    const showEvent = Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
+    const hideEvent = Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide";
+    const showSub = Keyboard.addListener(showEvent, () => setVisible(true));
+    const hideSub = Keyboard.addListener(hideEvent, () => setVisible(false));
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, []);
+  return visible;
+}
+
+/**
+ * Mantiene visible el campo que se está editando moviendo el scroll SOLO lo necesario:
+ * - Si el campo ya se ve completo sobre el teclado, no se mueve nada.
+ * - Si queda tapado, se desplaza justo lo suficiente para que quede apenas por encima del teclado.
+ * Usa la altura real visible del ScrollView (que ya descuenta el teclado), por eso se adapta
+ * a cualquier dispositivo y tamaño de teclado.
+ */
+function useScrollAlCampo(margen = 20) {
+  const ref = useRef(null);
+  const scrollY = useRef(0);
+  const alturaVisible = useRef(0);
+  const campos = useRef({});
+  const activo = useRef(null);
+
+  const asegurarVisible = useCallback(() => {
+    const campo = activo.current != null ? campos.current[activo.current] : null;
+    if (!campo || !alturaVisible.current) return;
+
+    const arriba = campo.y;
+    const abajo = campo.y + campo.h;
+    const visibleArriba = scrollY.current;
+    const visibleAbajo = scrollY.current + alturaVisible.current;
+
+    let destino = null;
+    if (abajo + margen > visibleAbajo) {
+      destino = abajo + margen - alturaVisible.current;
+    } else if (arriba - margen < visibleArriba) {
+      destino = arriba - margen;
+    }
+
+    if (destino !== null) {
+      ref.current?.scrollTo({ y: Math.max(0, destino), animated: true });
+    }
+  }, [margen]);
+
+  const registrar = useCallback(
+    (key) => (e) => {
+      const { y, height } = e.nativeEvent.layout;
+      campos.current[key] = { y, h: height };
+    },
+    []
+  );
+
+  const enfocar = useCallback(
+    (key) => {
+      activo.current = key;
+      // Se reintenta cuando el teclado terminó de abrirse
+      setTimeout(asegurarVisible, 120);
+      setTimeout(asegurarVisible, 380);
+    },
+    [asegurarVisible]
+  );
+
+  const limpiar = useCallback(() => {
+    activo.current = null;
+  }, []);
+
+  const scrollProps = {
+    scrollEventThrottle: 16,
+    onScroll: (e) => {
+      scrollY.current = e.nativeEvent.contentOffset.y;
+    },
+    onLayout: (e) => {
+      alturaVisible.current = e.nativeEvent.layout.height;
+      // Si el área visible cambió (se abrió el teclado), se reacomoda el campo activo
+      if (activo.current != null) setTimeout(asegurarVisible, 50);
+    },
+  };
+
+  return { ref, scrollProps, registrar, enfocar, limpiar };
+}
+
+function Avatar({ persona, small = false }) {
+  return (
+    <View style={[styles.avatar, small && styles.avatarSmall]}>
+      <Text style={[styles.avatarText, small && styles.avatarTextSmall]}>{getIniciales(persona)}</Text>
+    </View>
+  );
+}
+
+function SheetOverlay({ visible, onClose, children, tall = false }) {
+  const slide = useRef(new Animated.Value(320)).current;
+
+  useEffect(() => {
+    if (visible) {
+      Animated.timing(slide, { toValue: 0, duration: 250, useNativeDriver: true }).start();
+    } else {
+      slide.setValue(320);
+    }
+  }, [visible]);
+
+  if (!visible) return null;
+
+  return (
+    <View style={styles.modalOverlayAbsolute}>
+      <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
+      <KeyboardAvoidingView
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
+        style={styles.sheetKav}
+        pointerEvents="box-none"
+      >
+        <Animated.View
+          style={[styles.bottomSheet, tall && styles.bottomSheetTall, { transform: [{ translateY: slide }] }]}
+        >
+          <View style={styles.grabber} />
+          {children}
+        </Animated.View>
+      </KeyboardAvoidingView>
+    </View>
+  );
+}
+
+function SummaryRow({ caption, leading, value, placeholder = false, sub, subTone, onPress, error, testID }) {
+  return (
+    <View style={styles.summaryBlock}>
+      <Text style={styles.rowCaption}>{caption}</Text>
+      <TouchableOpacity
+        style={[styles.summaryRow, error && styles.inputError]}
+        onPress={onPress}
+        activeOpacity={0.7}
+        testID={testID}
+      >
+        {leading}
+        <View style={styles.summaryTextWrap}>
+          <Text numberOfLines={1} style={placeholder ? styles.dropdownPlaceholder : styles.dropdownText}>
+            {value}
+          </Text>
+          {sub ? (
+            <Text
+              style={[
+                styles.summarySub,
+                subTone === "ok" && styles.summarySubOk,
+                subTone === "warn" && styles.summarySubWarn,
+              ]}
+            >
+              {sub}
+            </Text>
+          ) : null}
+        </View>
+        <FontAwesome6 name="chevron-right" size={13} color={colors.textMuted} />
+      </TouchableOpacity>
+      {error ? <Text style={styles.error}>{error}</Text> : null}
+    </View>
+  );
+}
+
 export default function AddGastoScreen({
   visible,
   onClose,
@@ -129,6 +291,7 @@ export default function AddGastoScreen({
   FechaFinViaje = null,
 }) {
   const monedaBase = Moneda || "USD";
+  const tecladoVisible = useKeyboardVisible();
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -141,12 +304,15 @@ export default function AddGastoScreen({
   const [monto, setMonto] = useState("");
   const [monedaSeleccionada, setMonedaSeleccionada] = useState(monedaBase);
 
+  // Declaración previa de montoValido para evitar ReferenceError
+  const montoValido = parsearMonto(monto).valor;
+
   const [idCategoria, setIdCategoria] = useState(null);
   const [idPagador, setIdPagador] = useState(null);
 
   const [modalCategoriaVisible, setModalCategoriaVisible] = useState(false);
   const [modalPagadorVisible, setModalPagadorVisible] = useState(false);
-  const [modalParticipantesVisible, setModalParticipantesVisible] = useState(false);
+  const [modalDivisionVisible, setModalDivisionVisible] = useState(false);
 
   const [esCompartido, setEsCompartido] = useState(false);
   const [esDivisionIgualitaria, setEsDivisionIgualitaria] = useState(true);
@@ -158,25 +324,29 @@ export default function AddGastoScreen({
 
   const [errores, setErrores] = useState({});
 
-  // Escaneo de comprobantes (US 93): campos con baja confianza a revisar (AC10).
   const [camposRevisar, setCamposRevisar] = useState([]);
   const [escaneoAplicado, setEscaneoAplicado] = useState(false);
 
-  // Confirmación del gasto precargado (US 94).
   const [comprobanteUri, setComprobanteUri] = useState(null);
   const [comprobanteAmpliado, setComprobanteAmpliado] = useState(false);
   const [montoARS, setMontoARS] = useState("");
 
-  // Imagen completa del comprobante (con uri, mimeType, fileName) para subirla al repositorio.
   const [comprobanteImagen, setComprobanteImagen] = useState(null);
   const [guardarComprobante, setGuardarComprobante] = useState(true);
 
-  // Conversión a ARS: "auto" la calcula con la cotización del día del gasto
-  // (como la US-85); "manual" respeta lo que corrigió el usuario; "error" pide
-  // ingresarla a mano porque el servicio de cotización no respondió.
   const [conversion, setConversion] = useState({ estado: "idle", fecha: null });
 
-  // Las reglas de la US 94 aplican cuando el formulario se precargó desde un comprobante.
+  // Scroll inteligente: deja el campo editado justo sobre el teclado
+  const scrollPrincipal = useScrollAlCampo();
+  const scrollDivision = useScrollAlCampo();
+
+  useEffect(() => {
+    if (!tecladoVisible) {
+      scrollPrincipal.limpiar();
+      scrollDivision.limpiar();
+    }
+  }, [tecladoVisible]);
+
   const desdeComprobante = escaneoAplicado;
   const requiereConversion = desdeComprobante && requiereConversionARS(monedaSeleccionada);
   const avisoFechaViaje = desdeComprobante
@@ -187,43 +357,69 @@ export default function AddGastoScreen({
   const categoriaSeleccionada = categorias.find((c) => c.IdCategoria === idCategoria);
   const pagadorSeleccionado = participantes.find((p) => p.IdParticipanteViaje === idPagador);
 
-  // Monto contra el que se reparte el gasto: si se pidió la conversión a ARS y
-  // el viaje está en pesos, la división se hace sobre el monto convertido.
+  const unicoParticipante = participantes.length <= 1;
+
   const montoDivision =
     requiereConversion && monedaBase.toUpperCase() === MONEDA_PESOS_ARGENTINOS
       ? montoARS
       : monto;
   const montoDivisionNum = parsearMonto(montoDivision).valor || 0;
+  const monedaDivision =
+    montoDivision === montoARS && requiereConversion
+      ? MONEDA_PESOS_ARGENTINOS
+      : monedaSeleccionada.toUpperCase();
 
   const sumaMontosPersonalizados = idsParticipantesSeleccionados.reduce((acc, id) => {
     const v = parseFloat(montosPersonalizados[id]);
     return acc + (isNaN(v) ? 0 : v);
   }, 0);
 
+  const cantidadSeleccionados = idsParticipantesSeleccionados.length;
+  // Participantes elegidos SIN contar al pagador (que siempre está incluido)
+  const cantidadOtros = idsParticipantesSeleccionados.filter((id) => id !== idPagador).length;
+
   const montoPorPersona =
-    idsParticipantesSeleccionados.length > 0 && montoDivisionNum
-      ? montoDivisionNum / idsParticipantesSeleccionados.length
-      : 0;
+    cantidadSeleccionados > 0 && montoDivisionNum ? montoDivisionNum / cantidadSeleccionados : 0;
 
-  // Un valor animado por cada bottom sheet, para que se muevan de forma independiente
-  const slideAnimCategoria = useRef(new Animated.Value(300)).current;
-  const slideAnimPagador = useRef(new Animated.Value(300)).current;
-  const slideAnimParticipantes = useRef(new Animated.Value(300)).current;
+  const diferenciaPersonalizada = montoDivisionNum - sumaMontosPersonalizados;
+  const personalizadaCuadra = Math.abs(diferenciaPersonalizada) <= 0.01;
 
-  // Añadimos este efecto para que cuando carguen los datos y haya initialData, se autocomplemente el formulario
+  // Mientras no haya nadie más que el pagador, el campo sigue pidiendo seleccionar
+  const textoParticipantes =
+    cantidadOtros === 0
+      ? "Seleccioná participantes"
+      : cantidadSeleccionados === participantes.length
+      ? "Todos los integrantes"
+      : `${cantidadSeleccionados} participantes`;
+
+  let subDivision = null;
+  let subDivisionTono = null;
+  if (cantidadOtros > 0 && montoDivisionNum > 0) {
+    if (esDivisionIgualitaria) {
+      subDivision = `Igualitaria · ${monedaDivision} ${fmt(montoPorPersona)} c/u`;
+    } else if (personalizadaCuadra) {
+      subDivision = "Personalizada · todo asignado";
+      subDivisionTono = "ok";
+    } else if (diferenciaPersonalizada > 0) {
+      subDivision = `Personalizada · faltan ${monedaDivision} ${fmt(diferenciaPersonalizada)}`;
+      subDivisionTono = "warn";
+    } else {
+      subDivision = `Personalizada · te pasaste ${monedaDivision} ${fmt(-diferenciaPersonalizada)}`;
+      subDivisionTono = "warn";
+    }
+  } else if (cantidadOtros > 0) {
+    subDivision = esDivisionIgualitaria ? "Igualitaria" : "Personalizada";
+  }
+
   useEffect(() => {
     if (initialData && !loading && categorias.length > 0) {
       aplicarEscaneo(initialData);
     }
   }, [initialData, loading, categorias]);
 
-  // AC6/AC7: si el comprobante no está en ARS, se completa el monto en pesos
-  // con la cotización automática; el usuario puede corregirlo.
-  const montoValido = parsearMonto(monto).valor;
   useEffect(() => {
     if (!requiereConversion || conversion.estado === "manual") return undefined;
     if (!montoValido) {
-      // Sin monto de origen no hay nada que convertir: no se deja un valor viejo.
       setMontoARS("");
       setConversion({ estado: "idle", fecha: null });
       return undefined;
@@ -244,7 +440,6 @@ export default function AddGastoScreen({
         setConversion({ estado: "auto", fecha: resultado.Fecha });
       } catch (error) {
         if (!vigente) return;
-        console.log("No se pudo obtener la cotización:", error?.message);
         setConversion({ estado: "error", fecha: null });
       }
     }, DEMORA_COTIZACION_MS);
@@ -253,21 +448,9 @@ export default function AddGastoScreen({
       vigente = false;
       clearTimeout(timer);
     };
-    // conversion.estado solo importa para no pisar una corrección manual
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [requiereConversion, monedaSeleccionada, montoValido, fechaIso, conversion.estado === "manual"]);
 
-  function animarSheet(anim, visible) {
-    if (visible) {
-      Animated.timing(anim, { toValue: 0, duration: 250, useNativeDriver: true }).start();
-    } else {
-      anim.setValue(300);
-    }
-  }
-
-  useEffect(() => animarSheet(slideAnimCategoria, modalCategoriaVisible), [modalCategoriaVisible]);
-  useEffect(() => animarSheet(slideAnimPagador, modalPagadorVisible), [modalPagadorVisible]);
-  useEffect(() => animarSheet(slideAnimParticipantes, modalParticipantesVisible), [modalParticipantesVisible]);
+  // ───────────── Selección de participantes ─────────────
 
   function toggleSeleccionParticipante(id) {
     if (id === "TODOS") {
@@ -284,13 +467,8 @@ export default function AddGastoScreen({
       return;
     }
 
-    if (id === idPagador) {
-      appAlert(
-        "Acción no permitida",
-        "El responsable del gasto debe estar incluido sí o sí."
-      );
-      return;
-    }
+    // El pagador siempre está incluido: se ignora el toque sin molestar con alertas
+    if (id === idPagador) return;
 
     if (idsParticipantesSeleccionados.includes(id)) {
       setIdsParticipantesSeleccionados(
@@ -310,6 +488,60 @@ export default function AddGastoScreen({
       [id]: valor,
     }));
   };
+
+  function cambiarModoDivision(igualitaria) {
+    setEsDivisionIgualitaria(igualitaria);
+  }
+
+  // ───────────── Flujo guiado de "Compartido" ─────────────
+
+  function activarCompartido() {
+    if (unicoParticipante) {
+      appAlert("Aviso", "Solo hay un participante en este viaje, por lo que el gasto debe ser personal.");
+      return;
+    }
+    if (esCompartido) return;
+
+    Keyboard.dismiss();
+    setEsCompartido(true);
+
+    // Lleva al usuario al dato que falta
+    setTimeout(() => {
+      if (!idPagador) {
+        setModalPagadorVisible(true);
+      } else if (cantidadOtros === 0) {
+        setModalDivisionVisible(true);
+      }
+    }, 250);
+  }
+
+  function seleccionarPagador(nuevoPagadorId) {
+    const pagadorAnterior = idPagador;
+    setIdPagador(nuevoPagadorId);
+    setModalPagadorVisible(false);
+
+    if (!esCompartido) return;
+
+    let nuevaSeleccion;
+    if (
+      idsParticipantesSeleccionados.length === 1 &&
+      idsParticipantesSeleccionados[0] === pagadorAnterior
+    ) {
+      // Solo estaba el pagador anterior: se reemplaza por el nuevo
+      nuevaSeleccion = [nuevoPagadorId];
+    } else if (idsParticipantesSeleccionados.includes(nuevoPagadorId)) {
+      nuevaSeleccion = idsParticipantesSeleccionados;
+    } else {
+      nuevaSeleccion = [...idsParticipantesSeleccionados, nuevoPagadorId];
+    }
+    setIdsParticipantesSeleccionados(nuevaSeleccion);
+
+    // Siguiente paso: elegir entre quiénes se divide
+    const otros = nuevaSeleccion.filter((id) => id !== nuevoPagadorId).length;
+    if (otros === 0) {
+      setTimeout(() => setModalDivisionVisible(true), 300);
+    }
+  }
 
   useEffect(() => {
     if (!visible) return;
@@ -333,8 +565,10 @@ export default function AddGastoScreen({
     setConversion({ estado: "idle", fecha: null });
     setComprobanteImagen(null);
     setGuardarComprobante(true);
+    setModalCategoriaVisible(false);
+    setModalPagadorVisible(false);
+    setModalDivisionVisible(false);
 
-    // Las monedas se cargan aparte: no dependen de que categorías/participantes carguen bien
     async function cargarMonedas() {
       try {
         const monedas = await getCurrencies();
@@ -342,18 +576,13 @@ export default function AddGastoScreen({
           setMonedasBD(monedas);
           return;
         }
-        console.log("getCurrencies devolvió vacío o formato inesperado:", monedas);
-      } catch (e) {
-        console.log("Error cargando monedas:", e?.message, e);
-      }
+      } catch (e) {}
       setMonedasBD([{ Codigo: monedaBase, Nombre: "Moneda base" }]);
     }
 
     async function cargarDatos() {
       try {
         setLoading(true);
-
-        // Categorías y participantes
         const [cats, parts] = await Promise.all([
           getExpenseCategories(),
           getTripParticipants(IdViaje),
@@ -367,17 +596,20 @@ export default function AddGastoScreen({
 
         setCategorias(categoriasOrdenadas);
         setParticipantes(parts);
-      } catch (error) {
-        console.log("ERROR REAL:", error.message, error);
-        console.log("📡 API caída o modo avión detectado. Buscando respaldo local en SQLite...");
 
+        if (parts.length <= 1) {
+          setEsCompartido(false);
+        }
+      } catch (error) {
         const catsLocal = obtenerCategoriasCache();
         const partsLocal = obtenerParticipantesCache(IdViaje);
 
         if (catsLocal.length > 0 && partsLocal.length > 0) {
           setCategorias(catsLocal);
           setParticipantes(partsLocal);
-          console.log("Formulario cargado con datos de respaldo local exitosamente.");
+          if (partsLocal.length <= 1) {
+            setEsCompartido(false);
+          }
         } else {
           appAlert("Sin conexión", "No hay datos locales guardados para este viaje todavía.");
           onClose();
@@ -411,17 +643,13 @@ export default function AddGastoScreen({
 
   const debeRevisar = (campo) => camposRevisar.includes(campo);
 
-  // Al editar un campo resaltado, se entiende que el usuario ya lo revisó.
   function marcarRevisado(campo) {
     setCamposRevisar((prev) => (prev.includes(campo) ? prev.filter((c) => c !== campo) : prev));
   }
 
-  // Precarga el formulario con los datos del comprobante (AC11). No registra
-  // nada: el gasto se guarda recién cuando el usuario confirma (AC12).
   function aplicarEscaneo(datos, imagen = null) {
     const revisar = new Set(datos?.CamposBajaConfianza || []);
 
-    // AC1: vista previa del comprobante. Si se re-escanea, se descarta la anterior.
     if (comprobanteUri && comprobanteUri !== imagen?.uri) eliminarImagenTemporal(comprobanteUri);
     setComprobanteUri(imagen?.uri || null);
     setComprobanteAmpliado(false);
@@ -429,15 +657,12 @@ export default function AddGastoScreen({
     setConversion({ estado: "idle", fecha: null });
     setComprobanteImagen(imagen || null);
 
-    // AC4: el pagador se completa con el usuario que escaneó (se puede cambiar).
     const actual = participantes.find((p) => p.EsUsuarioActual);
     if (actual) setIdPagador(actual.IdParticipanteViaje);
 
     setNombre(datos?.Nombre || "");
     setMonto(montoParaInput(datos?.MontoOriginal));
 
-    // El selector de moneda no puede quedar vacío: si no se detectó (o no es
-    // una moneda disponible) se deja la del viaje y se pide revisarla.
     const codigo = String(datos?.MonedaOriginal || "").toUpperCase();
     const monedaDisponible =
       codigo && (monedasBD.length === 0 || monedasBD.some((m) => m.Codigo === codigo));
@@ -448,7 +673,6 @@ export default function AddGastoScreen({
       revisar.add(CAMPO_MONEDA);
     }
 
-    // AC9: sin fecha legible, el campo queda vacío (no se asume "hoy").
     setFechaIso(datos?.FechaGasto || "");
 
     const categoriaValida = categorias.some((c) => c.IdCategoria === datos?.IdCategoria);
@@ -466,7 +690,6 @@ export default function AddGastoScreen({
     setComprobanteImagen(null);
   }
 
-  // AC9: cancelar descarta los datos y la imagen procesada sin registrar el gasto.
   async function handleCancelar() {
     if (saving) return;
     if (desdeComprobante) {
@@ -492,13 +715,11 @@ export default function AddGastoScreen({
       nuevosErrores.nombre = "El concepto es obligatorio";
     }
 
-    // RN-21: monto numérico y mayor a cero.
     const montoParseado = parsearMonto(monto);
     if (montoParseado.error) {
       nuevosErrores.monto = montoParseado.error;
     }
 
-    // RN-39: un comprobante en otra moneda requiere el monto convertido a ARS.
     const montoARSParseado = requiereConversion
       ? parsearMonto(montoARS, {
           obligatorio: `Ingresá el monto convertido a pesos argentinos (${MONEDA_PESOS_ARGENTINOS}) para continuar`,
@@ -528,7 +749,7 @@ export default function AddGastoScreen({
     if (esCompartido) {
       if (idsParticipantesSeleccionados.length < 2) {
         nuevosErrores.participantes =
-          "Debes seleccionar al menos un participante adicional además del pagador";
+          "Seleccioná al menos un participante además de quien pagó";
       } else if (!idsParticipantesSeleccionados.includes(idPagador)) {
         nuevosErrores.participantes = "El pagador debe formar parte de la división del gasto";
       }
@@ -550,9 +771,7 @@ export default function AddGastoScreen({
         if (hayMontosVacios) {
           nuevosErrores.divisionPersonalizada = "Se debe asignar un monto a todos los participantes";
         } else if (Math.abs(sumaMontos - montoDivisionNum) > 0.01) {
-          const monedaDivision =
-            montoDivision === montoARS && requiereConversion ? MONEDA_PESOS_ARGENTINOS : monedaSeleccionada;
-          nuevosErrores.divisionPersonalizada = `La suma de los montos individuales debe ser igual al monto total (${montoDivision} ${monedaDivision})`;
+          nuevosErrores.divisionPersonalizada = `La suma de los montos individuales debe ser igual al monto total`;
         }
       }
     }
@@ -562,9 +781,6 @@ export default function AddGastoScreen({
     if (Object.keys(nuevosErrores).length > 0) {
       return;
     }
-
-    // AC8: la fecha fuera del viaje se informa en el formulario pero no frena
-    // el registro (pagar antes del viaje, por ejemplo una reserva, es válido).
 
     try {
       setSaving(true);
@@ -600,13 +816,12 @@ export default function AddGastoScreen({
       try {
         const respuestaGasto = await createExpense(nuevoGasto);
 
-        let estadoComprobante = null; 
+        let estadoComprobante = null;
         if (desdeComprobante && guardarComprobante && comprobanteImagen && respuestaGasto?.IdGasto) {
           try {
             await attachReceiptToExpense(respuestaGasto.IdGasto, comprobanteImagen);
             estadoComprobante = "guardado";
           } catch (errorComprobante) {
-            console.log("No se pudo guardar el comprobante:", errorComprobante?.message);
             estadoComprobante = "error";
           }
         }
@@ -628,11 +843,8 @@ export default function AddGastoScreen({
         onGastoCreado?.();
         onClose();
       } catch (apiError) {
-        console.log("ERROR createExpense:", apiError?.status, apiError?.message, apiError);
-
         const esCotizacionCaida = apiError?.status === 503 || apiError?.message?.includes("cotización");
 
-        // Error del servidor común (validación, 4xx/5xx distintos a 503): NO se guarda offline
         if (!esCotizacionCaida && !esErrorDeRed(apiError)) {
           appAlert(
             "No se pudo registrar el gasto",
@@ -641,18 +853,13 @@ export default function AddGastoScreen({
           return;
         }
 
-        // Si es un error de red o el servicio de cotización no está disponible (503), guardamos offline
-        console.log("⚠️ Guardando gasto localmente debido a fallo de red o servicio de cotización...");
         const guardadoConExito = guardarGastoOffline(nuevoGasto);
-
-        // Offline no se puede subir el comprobante: se avisa al usuario.
         const avisoComprobanteOffline =
           desdeComprobante && guardarComprobante && comprobanteImagen
             ? " El comprobante no se guardó en el repositorio porque no hubo conexión."
             : "";
 
         if (guardadoConExito) {
-          // Si fue por 503, mostramos la alerta específica que el test espera o el mensaje offline general
           if (esCotizacionCaida) {
             appAlert(
               "Servicio no disponible",
@@ -670,8 +877,7 @@ export default function AddGastoScreen({
           } else {
             appAlert(
               "Modo Offline",
-              "El gasto quedó guardado localmente con su moneda original. Se convertirá y sincronizará cuando vuelva la conexión." +
-                avisoComprobanteOffline,
+              "El gasto quedó guardado localmente con su moneda original." + avisoComprobanteOffline,
               [
                 {
                   text: "Entendido",
@@ -694,22 +900,27 @@ export default function AddGastoScreen({
     }
   }
 
+  const datosIntegrantes = [
+    {
+      IdParticipanteViaje: "TODOS",
+      Nombre: "Todos",
+      Apellido: "",
+      NombreUsuario: "marcar_desmarcar",
+    },
+    ...participantes,
+  ];
+
   return (
     <Modal animationType="slide" transparent visible={visible} onRequestClose={handleCancelar}>
-      <KeyboardAvoidingView
-      style={{ flex: 1 }}
-      behavior={Platform.OS === "ios" ? "padding" : undefined}
-      keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 0}
-    >
       <View style={styles.overlay}>
-        <View style={styles.sheet}>
-          <ScrollView 
-            keyboardShouldPersistTaps="handled"
-            keyboardDismissMode="on-drag"
-            showsVerticalScrollIndicator={false}
-          >
-          <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-            <View>
+        <KeyboardAvoidingView
+          style={styles.mainKav}
+          behavior={Platform.OS === "ios" ? "padding" : undefined}
+          pointerEvents="box-none"
+        >
+          <View style={styles.sheet}>
+            <View style={styles.grabber} />
+
             <View style={styles.headerRow}>
               <Text style={styles.title}>Nuevo gasto</Text>
               <TouchableOpacity onPress={handleCancelar} hitSlop={10} testID="add-gasto-close">
@@ -722,581 +933,681 @@ export default function AddGastoScreen({
                 <ActivityIndicator size="large" color={colors.primary} />
               </View>
             ) : (
-              <View style={styles.content}>
-
-                {puedeEscanear ? (
-                  <ReceiptScanButton tripId={IdViaje} onScanned={aplicarEscaneo} disabled={saving} />
-                ) : null}
-
-                {escaneoAplicado ? (
-                  <View style={styles.scanInfo} testID="receipt-scan-applied">
-                    <FontAwesome6 name="circle-check" size={13} color={colors.success} />
-                    <Text style={styles.scanInfoText}>
-                      Completamos los datos del comprobante. Revisalos antes de registrar el gasto.
-                    </Text>
-                  </View>
-                ) : null}
-
-                {comprobanteUri ? (
-                  <Pressable
-                    style={styles.comprobantePreview}
-                    onPress={() => setComprobanteAmpliado((v) => !v)}
-                    testID="receipt-preview"
-                    accessibilityRole="imagebutton"
-                    accessibilityLabel={comprobanteAmpliado ? "Achicar comprobante" : "Ampliar comprobante"}
-                  >
-                    <Image
-                      source={{ uri: comprobanteUri }}
-                      style={comprobanteAmpliado ? styles.comprobanteImagenAmpliada : styles.comprobanteMiniatura}
-                      resizeMode="contain"
-                    />
-                    {!comprobanteAmpliado ? (
-                      <View style={styles.comprobanteInfo}>
-                        <Text style={styles.comprobanteTitulo}>Comprobante escaneado</Text>
-                        <Text style={styles.comprobanteHint}>Tocá para ampliar y comparar los datos</Text>
-                      </View>
-                    ) : null}
-                  </Pressable>
-                ) : null}
-
-                {/* Guardar comprobante en el repositorio*/}
-                {desdeComprobante && comprobanteImagen ? (
-                  <View style={styles.guardarComprobanteRow} testID="guardar-comprobante-row">
-                    <View style={styles.guardarComprobanteTextos}>
-                      <Text style={styles.guardarComprobanteTitulo}>
-                        Guardar comprobante en el repositorio
-                      </Text>
-                      <Text style={styles.guardarComprobanteHint}>
-                        {guardarComprobante
-                          ? 'Se guardará en la categoría "Comprobantes" y quedará asociado al gasto.'
-                          : "El comprobante no se guardará: solo se registrará el gasto."}
-                      </Text>
-                    </View>
-                    <Switch
-                      value={guardarComprobante}
-                      onValueChange={setGuardarComprobante}
-                      disabled={saving}
-                      trackColor={{ false: colors.border, true: colors.primary }}
-                      thumbColor="#fff"
-                      testID="guardar-comprobante-switch"
-                    />
-                  </View>
-                ) : null}
-
-                <Text style={styles.label}>Concepto</Text>
-                <View style={[styles.inputBox, debeRevisar(CAMPO_NOMBRE) && styles.campoRevisar]}>
-                  <FontAwesome6 name="pen" size={14} color={colors.overlay} />
-                  <TextInput
-                    style={styles.input}
-                    placeholder="Cena"
-                    placeholderTextColor={colors.overlay}
-                    value={nombre}
-                    onChangeText={(texto) => {
-                      setNombre(texto);
-                      marcarRevisado(CAMPO_NOMBRE);
-                    }}
-                  />
-                </View>
-                {debeRevisar(CAMPO_NOMBRE) && <Text style={styles.revisarHint}>Revisá este dato</Text>}
-                {errores.nombre && <Text style={styles.error}>{errores.nombre}</Text>}
-
-                {/* Selector de Moneda conectado a la BD */}
-                <View
-                  style={[{ marginTop: spacing.sm }, debeRevisar(CAMPO_MONEDA) && styles.campoRevisarGrupo]}
+              <>
+                <ScrollView
+                  ref={scrollPrincipal.ref}
+                  {...scrollPrincipal.scrollProps}
+                  style={styles.mainScroll}
+                  contentContainerStyle={[
+                    styles.mainScrollContent,
+                    { paddingBottom: tecladoVisible ? spacing.lg : 120 },
+                  ]}
+                  keyboardShouldPersistTaps="handled"
+                  keyboardDismissMode="on-drag"
+                  showsVerticalScrollIndicator={false}
                 >
-                  <CurrencySelector
-                    currencies={monedasBD.length > 0 ? monedasBD : [{ Codigo: monedaBase, Nombre: "Moneda Base" }]}
-                    selectedCurrency={monedaSeleccionada}
-                    onSelectCurrency={(codigo) => {
-                      setMonedaSeleccionada(codigo);
-                      marcarRevisado(CAMPO_MONEDA);
-                    }}
-                  />
-                </View>
-                {debeRevisar(CAMPO_MONEDA) && (
-                  <Text style={styles.revisarHint}>Revisá la moneda del comprobante</Text>
-                )}
+                  {puedeEscanear ? (
+                    <ReceiptScanButton tripId={IdViaje} onScanned={aplicarEscaneo} disabled={saving} />
+                  ) : null}
 
-                <Text style={styles.label}>Monto ({monedaSeleccionada.toUpperCase()})</Text>
-                <View style={[styles.inputBox, debeRevisar(CAMPO_MONTO) && styles.campoRevisar]}>
-                  <Text style={styles.currencyCodePrefix}>{monedaSeleccionada.toUpperCase()}</Text>
-                  <TextInput
-                    style={styles.input}
-                    placeholder="0"
-                    placeholderTextColor={colors.overlay}
-                    keyboardType="numeric"
-                    value={monto}
-                    onChangeText={(texto) => {
-                      setMonto(texto);
-                      marcarRevisado(CAMPO_MONTO);
-                    }}
-                  />
-                </View>
-                {debeRevisar(CAMPO_MONTO) && <Text style={styles.revisarHint}>Revisá este dato</Text>}
-                {!requiereConversion && monedaSeleccionada.toUpperCase() !== monedaBase.toUpperCase() && (
-                  <Text style={styles.infoConversionText}>
-                    ℹ El importe se convertirá automáticamente a la moneda base del viaje ({monedaBase.toUpperCase()}).
-                  </Text>
-                )}
-                {errores.monto && <Text style={styles.error}>{errores.monto}</Text>}
-
-                {requiereConversion ? (
-                  <View style={styles.conversionCard} testID="conversion-ars-warning">
-                    <View style={styles.advertenciaRow}>
-                      <FontAwesome6 name="triangle-exclamation" size={13} color={colors.warning} />
-                      <Text style={styles.advertenciaText}>
-                        El comprobante está en {monedaSeleccionada.toUpperCase()}. El gasto se registra en pesos
-                        argentinos ({MONEDA_PESOS_ARGENTINOS}).
+                  {escaneoAplicado ? (
+                    <View style={styles.scanInfo} testID="receipt-scan-applied">
+                      <FontAwesome6 name="circle-check" size={13} color={colors.success} />
+                      <Text style={styles.scanInfoText}>
+                        Completamos los datos del comprobante. Revisalos antes de registrar el gasto.
                       </Text>
                     </View>
-                    <Text style={styles.label}>Monto en pesos argentinos ({MONEDA_PESOS_ARGENTINOS})</Text>
-                    <View style={[styles.inputBox, errores.montoARS && styles.inputError]}>
-                      <Text style={styles.currencyCodePrefix}>{MONEDA_PESOS_ARGENTINOS}</Text>
-                      <TextInput
-                        style={styles.input}
-                        placeholder="0"
-                        placeholderTextColor={colors.overlay}
-                        keyboardType="numeric"
-                        value={montoARS}
-                        onChangeText={(texto) => {
-                          setMontoARS(texto);
-                          setConversion({ estado: "manual", fecha: null });
-                        }}
-                        testID="monto-ars-input"
-                      />
-                      {conversion.estado === "cargando" ? (
-                        <ActivityIndicator size="small" color={colors.primary} />
-                      ) : null}
-                    </View>
-                    {/* Con la conversión automática el monto ya está cargado: no hace falta texto. */}
-                    {conversion.estado !== "auto" ? (
-                      <Text style={styles.conversionEstado} testID="conversion-ars-estado">
-                        {conversion.estado === "cargando"
-                          ? "Calculando la conversión con la cotización del día..."
-                          : conversion.estado === "error"
-                          ? "No pudimos obtener la cotización. Ingresá el monto convertido manualmente."
-                          : conversion.estado === "manual"
-                          ? "Monto ingresado manualmente."
-                          : "Ingresá el monto para calcular la conversión."}
-                      </Text>
-                    ) : null}
-                    {conversion.estado === "manual" && montoValido ? (
-                      <TouchableOpacity
-                        onPress={() => setConversion({ estado: "idle", fecha: null })}
-                        testID="usar-cotizacion-automatica"
-                      >
-                        <Text style={styles.conversionLink}>Usar la cotización automática</Text>
-                      </TouchableOpacity>
-                    ) : null}
-                    {errores.montoARS && <Text style={styles.error}>{errores.montoARS}</Text>}
-                  </View>
-                ) : null}
+                  ) : null}
 
-                <Text style={styles.label}>Fecha</Text>
-                {Platform.OS === "web" ? (
-                  <View style={[styles.dateBox, debeRevisar(CAMPO_FECHA) && styles.campoRevisar]}>
-                    <input
-                      type="date"
-                      value={fechaIso}
-                      max={toYMD(new Date())}
-                      onChange={(e) => {
-                        const val = e.target.value;
-                        const limiteHoy = toYMD(new Date());
-                        marcarRevisado(CAMPO_FECHA);
-
-                        if (val > limiteHoy) {
-                          appAlert("Fecha inválida", "No podés registrar un gasto en una fecha futura.");
-                          setFechaIso(limiteHoy);
-                        } else {
-                          setFechaIso(val);
-                        }
-                      }}
-                      style={{ border: "none", width: "100%", outline: "none", background: "transparent", fontFamily: "inherit", fontSize: "16px", color: 'inherit', cursor: 'pointer' }}
-                    />
-                  </View>
-                ) : (
-                  <>
+                  {comprobanteUri ? (
                     <Pressable
-                      onPress={() => setMostrarCalendario(true)}
-                      style={[
-                        styles.dateBox,
-                        debeRevisar(CAMPO_FECHA) && styles.campoRevisar,
-                        errores.fecha && styles.inputError,
-                      ]}
+                      style={styles.comprobantePreview}
+                      onPress={() => setComprobanteAmpliado((v) => !v)}
+                      testID="receipt-preview"
                     >
-                      <FontAwesome6 name="calendar" size={15} color={colors.overlay} />
-                      <Text style={[styles.inputDateText, !fechaIso && styles.datePlaceholder]}>
-                        {fechaIso ? formatDateDisplay(fechaIso) : "Seleccionar fecha"}
-                      </Text>
+                      <Image
+                        source={{ uri: comprobanteUri }}
+                        style={comprobanteAmpliado ? styles.comprobanteImagenAmpliada : styles.comprobanteMiniatura}
+                        resizeMode="contain"
+                      />
+                      {!comprobanteAmpliado ? (
+                        <View style={styles.comprobanteInfo}>
+                          <Text style={styles.comprobanteTitulo}>Comprobante escaneado</Text>
+                          <Text style={styles.comprobanteHint}>Tocá para ampliar y comparar los datos</Text>
+                        </View>
+                      ) : null}
                     </Pressable>
-                  </>
-                )}
-                {debeRevisar(CAMPO_FECHA) && <Text style={styles.revisarHint}>Revisá este dato</Text>}
-                {errores.fecha && <Text style={styles.error}>{errores.fecha}</Text>}
-                {avisoFechaViaje ? (
-                  <View style={styles.advertenciaRow} testID="fecha-fuera-viaje-warning">
-                    <FontAwesome6 name="circle-info" size={13} color={colors.textSecondary} />
-                    <Text style={styles.avisoFechaText}>{avisoFechaViaje}</Text>
-                  </View>
-                ) : null}
+                  ) : null}
 
-                <Text style={styles.label}>Categoría</Text>
-                <TouchableOpacity
-                  style={[styles.dropdownButton, debeRevisar(CAMPO_CATEGORIA) && styles.campoRevisar]}
-                  onPress={() => setModalCategoriaVisible(true)}
-                >
-                  <View style={styles.dropdownLeftContent}>
-                    <FontAwesome6
-                      name={categoriaSeleccionada ? ICONOS_CATEGORIAS[categoriaSeleccionada.Nombre] || "tags" : "tags"}
-                      size={14}
-                      color={categoriaSeleccionada ? colors.primary : colors.overlay}
-                      style={{ marginRight: 10, width: 20, textAlign: "center" }}
+                  {desdeComprobante && comprobanteImagen ? (
+                    <View style={styles.guardarComprobanteRow} testID="guardar-comprobante-row">
+                      <View style={styles.guardarComprobanteTextos}>
+                        <Text style={styles.guardarComprobanteTitulo}>
+                          Guardar comprobante en el repositorio
+                        </Text>
+                        <Text style={styles.guardarComprobanteHint}>
+                          {guardarComprobante
+                            ? 'Se guardará en la categoría "Comprobantes" y quedará asociado al gasto.'
+                            : "El comprobante no se guardará: solo se registrará el gasto."}
+                        </Text>
+                      </View>
+                      <Switch
+                        value={guardarComprobante}
+                        onValueChange={setGuardarComprobante}
+                        disabled={saving}
+                        trackColor={{ false: colors.border, true: colors.primary }}
+                        thumbColor="#fff"
+                        testID="guardar-comprobante-switch"
+                      />
+                    </View>
+                  ) : null}
+
+                  <View
+                    onLayout={scrollPrincipal.registrar("monto")}
+                    style={[styles.amountHero, debeRevisar(CAMPO_MONTO) && styles.campoRevisar]}
+                  >
+                    <Text style={styles.amountCaption}>Monto ({monedaSeleccionada.toUpperCase()})</Text>
+                    <View style={styles.amountRow}>
+                      <Text style={styles.amountCurrency}>{monedaSeleccionada.toUpperCase()}</Text>
+                      <TextInput
+                        style={styles.amountInput}
+                        placeholder="0"
+                        placeholderTextColor={colors.textMuted}
+                        keyboardType="numeric"
+                        value={monto}
+                        onFocus={() => scrollPrincipal.enfocar("monto")}
+                        onChangeText={(texto) => {
+                          setMonto(texto);
+                          marcarRevisado(CAMPO_MONTO);
+                        }}
+                      />
+                    </View>
+                  </View>
+                  {debeRevisar(CAMPO_MONTO) && <Text style={styles.revisarHint}>Revisá este dato</Text>}
+                  {errores.monto && <Text style={styles.error}>{errores.monto}</Text>}
+
+                  <View
+                    style={[styles.currencyWrap, debeRevisar(CAMPO_MONEDA) && styles.campoRevisarGrupo]}
+                  >
+                    <CurrencySelector
+                      currencies={monedasBD.length > 0 ? monedasBD : [{ Codigo: monedaBase, Nombre: "Moneda Base" }]}
+                      selectedCurrency={monedaSeleccionada}
+                      onSelectCurrency={(codigo) => {
+                        Keyboard.dismiss();
+                        setMonedaSeleccionada(codigo);
+                        marcarRevisado(CAMPO_MONEDA);
+                      }}
                     />
-                    <Text style={idCategoria ? styles.dropdownText : styles.dropdownPlaceholder}>
-                      {categoriaSeleccionada ? categoriaSeleccionada.Nombre : "Seleccioná una categoría"}
-                    </Text>
                   </View>
-                  <FontAwesome6 name="chevron-down" size={14} color={colors.textMuted} />
-                </TouchableOpacity>
-                {debeRevisar(CAMPO_CATEGORIA) && (
-                  <Text style={styles.revisarHint}>Revisá la categoría sugerida</Text>
-                )}
-                {errores.categoria && <Text style={styles.error}>{errores.categoria}</Text>}
-
-                <Text style={styles.label}>Tipo de Gasto</Text>
-                <View style={styles.selectorContainer}>
-                  <TouchableOpacity
-                    style={[styles.selectorOption, !esCompartido && styles.selectorOptionActive]}
-                    onPress={() => setEsCompartido(false)}
-                  >
-                    <FontAwesome6 name="user" size={14} color={!esCompartido ? colors.textInverse : colors.primary} />
-                    <Text style={[styles.selectorOptionText, !esCompartido && styles.selectorOptionTextActive]}>
-                      Personal
+                  {debeRevisar(CAMPO_MONEDA) && (
+                    <Text style={styles.revisarHint}>Revisá la moneda del comprobante</Text>
+                  )}
+                  {!requiereConversion && monedaSeleccionada.toUpperCase() !== monedaBase.toUpperCase() && (
+                    <Text style={styles.infoConversionText}>
+                      ℹ El importe se convertirá automáticamente a la moneda base del viaje ({monedaBase.toUpperCase()}).
                     </Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={[styles.selectorOption, esCompartido && styles.selectorOptionActive]}
-                    onPress={() => setEsCompartido(true)}
-                  >
-                    <FontAwesome6 name="users" size={14} color={esCompartido ? colors.textInverse : colors.primary} />
-                    <Text style={[styles.selectorOptionText, esCompartido && styles.selectorOptionTextActive]}>
-                      Compartido
-                    </Text>
-                  </TouchableOpacity>
-                </View>
+                  )}
 
-                {desdeComprobante && !esCompartido && participanteActual ? (
-                  <Text style={styles.pagadorPersonalText} testID="pagador-personal">
-                    Pagado por {participanteActual.Nombre} {participanteActual.Apellido} (vos)
-                  </Text>
-                ) : null}
-
-                {esCompartido && (
-                  <View style={styles.sharedCard}>
-                    <View style={styles.sharedCardHeader}>
-                      <View style={styles.sharedCardIconWrap}>
-                        <FontAwesome6 name="users" size={13} color={colors.primary} />
-                      </View>
-                      <Text style={styles.sharedCardTitle}>División del gasto</Text>
-                    </View>
-
-                    <Text style={styles.label}>¿Quién pagó?</Text>
-                    <TouchableOpacity style={styles.dropdownButton} onPress={() => setModalPagadorVisible(true)}>
-                      <View style={styles.dropdownLeftContent}>
-                        <View style={styles.avatarCircle}>
-                          <Text style={styles.avatarCircleText}>
-                            {pagadorSeleccionado ? getIniciales(pagadorSeleccionado) : "?"}
-                          </Text>
-                        </View>
-                        <Text
-                          style={[
-                            idPagador ? styles.dropdownText : styles.dropdownPlaceholder,
-                            { marginLeft: 10 },
-                          ]}
-                        >
-                          {pagadorSeleccionado
-                            ? `${pagadorSeleccionado.Nombre} ${pagadorSeleccionado.Apellido}`
-                            : "Seleccioná quién pagó"}
-                        </Text>
-                      </View>
-                      <FontAwesome6 name="chevron-down" size={14} color={colors.textMuted} />
-                    </TouchableOpacity>
-                    {errores.pagador && <Text style={styles.error}>{errores.pagador}</Text>}
-
-                    <Text style={styles.label}>¿Entre quiénes se divide?</Text>
-                    <TouchableOpacity
-                      style={[styles.dropdownButton, errores.participantes && styles.inputError]}
-                      onPress={() => setModalParticipantesVisible(true)}
+                  {requiereConversion ? (
+                    <View
+                      style={styles.conversionCard}
+                      onLayout={scrollPrincipal.registrar("montoARS")}
+                      testID="conversion-ars-warning"
                     >
-                      <View style={styles.dropdownLeftContent}>
-                        {idsParticipantesSeleccionados.length > 0 ? (
-                          <View style={styles.avatarStack}>
-                            {participantes
-                              .filter((p) => idsParticipantesSeleccionados.includes(p.IdParticipanteViaje))
-                              .slice(0, 4)
-                              .map((p, i) => (
-                                <View
-                                  key={p.IdParticipanteViaje}
-                                  style={[
-                                    styles.avatarStackItem,
-                                    { marginLeft: i === 0 ? 0 : -10, zIndex: 10 - i },
-                                  ]}
-                                >
-                                  <Text style={styles.avatarStackText}>{getIniciales(p)}</Text>
-                                </View>
-                              ))}
-                            {idsParticipantesSeleccionados.length > 4 && (
-                              <View
-                                style={[styles.avatarStackItem, styles.avatarStackMore, { marginLeft: -10 }]}
-                              >
-                                <Text style={styles.avatarStackText}>
-                                  +{idsParticipantesSeleccionados.length - 4}
-                                </Text>
-                              </View>
-                            )}
-                          </View>
-                        ) : (
-                          <FontAwesome6 name="users" size={14} color={colors.overlay} />
-                        )}
-                        <Text
-                          style={[
-                            idsParticipantesSeleccionados.length > 0
-                              ? styles.dropdownText
-                              : styles.dropdownPlaceholder,
-                            { marginLeft: 10 },
-                          ]}
-                        >
-                          {idsParticipantesSeleccionados.length === 0
-                            ? "Seleccioná participantes"
-                            : idsParticipantesSeleccionados.length === participantes.length
-                            ? "Todos los integrantes"
-                            : `${idsParticipantesSeleccionados.length} participantes`}
+                      <View style={styles.advertenciaRow}>
+                        <FontAwesome6 name="triangle-exclamation" size={13} color={colors.warning} />
+                        <Text style={styles.advertenciaText}>
+                          El comprobante está en {monedaSeleccionada.toUpperCase()}. El gasto se registra en pesos
+                          argentinos ({MONEDA_PESOS_ARGENTINOS}).
                         </Text>
                       </View>
-                      <FontAwesome6 name="chevron-down" size={14} color={colors.overlay} />
-                    </TouchableOpacity>
-                    {errores.participantes && <Text style={styles.error}>{errores.participantes}</Text>}
-
-                    <Text style={styles.label}>Distribución</Text>
-                    <View style={styles.selectorContainer}>
-                      <TouchableOpacity
-                        style={[styles.selectorOption, esDivisionIgualitaria && styles.selectorOptionActive]}
-                        onPress={() => setEsDivisionIgualitaria(true)}
-                      >
-                        <FontAwesome6
-                          name="scale-balanced"
-                          size={13}
-                          color={esDivisionIgualitaria ? "#fff" : colors.primary}
+                      <Text style={styles.label}>Monto en pesos argentinos ({MONEDA_PESOS_ARGENTINOS})</Text>
+                      <View style={[styles.inputBox, errores.montoARS && styles.inputError]}>
+                        <Text style={styles.currencyCodePrefix}>{MONEDA_PESOS_ARGENTINOS}</Text>
+                        <TextInput
+                          style={styles.input}
+                          placeholder="0"
+                          placeholderTextColor={colors.overlay}
+                          keyboardType="numeric"
+                          value={montoARS}
+                          onFocus={() => scrollPrincipal.enfocar("montoARS")}
+                          onChangeText={(texto) => {
+                            setMontoARS(texto);
+                            setConversion({ estado: "manual", fecha: null });
+                          }}
+                          testID="monto-ars-input"
                         />
-                        <Text style={[styles.selectorOptionText, esDivisionIgualitaria && styles.selectorOptionTextActive]}>
-                          Igualitaria
+                        {conversion.estado === "cargando" ? (
+                          <ActivityIndicator size="small" color={colors.primary} />
+                        ) : null}
+                      </View>
+                      {conversion.estado !== "auto" ? (
+                        <Text style={styles.conversionEstado} testID="conversion-ars-estado">
+                          {conversion.estado === "cargando"
+                            ? "Calculando la conversión..."
+                            : conversion.estado === "error"
+                            ? "No pudimos obtener la cotización."
+                            : conversion.estado === "manual"
+                            ? "Monto ingresado manualmente."
+                            : "Ingresá el monto para calcular la conversión."}
                         </Text>
-                      </TouchableOpacity>
+                      ) : null}
+                      {errores.montoARS && <Text style={styles.error}>{errores.montoARS}</Text>}
+                    </View>
+                  ) : null}
+
+                  <Text style={styles.label}>Concepto</Text>
+                  <View
+                    onLayout={scrollPrincipal.registrar("nombre")}
+                    style={[
+                      styles.inputBox,
+                      debeRevisar(CAMPO_NOMBRE) && styles.campoRevisar,
+                      errores.nombre && styles.inputError,
+                    ]}
+                  >
+                    <FontAwesome6 name="pen" size={14} color={colors.overlay} />
+                    <TextInput
+                      style={styles.input}
+                      placeholder="Cena"
+                      placeholderTextColor={colors.overlay}
+                      value={nombre}
+                      onFocus={() => scrollPrincipal.enfocar("nombre")}
+                      onChangeText={(texto) => {
+                        setNombre(texto);
+                        marcarRevisado(CAMPO_NOMBRE);
+                      }}
+                    />
+                  </View>
+                  {debeRevisar(CAMPO_NOMBRE) && <Text style={styles.revisarHint}>Revisá este dato</Text>}
+                  {errores.nombre && <Text style={styles.error}>{errores.nombre}</Text>}
+
+                  <View style={styles.tilesRow}>
+                    <View style={styles.tileWrap}>
+                      <Text style={styles.label}>Fecha</Text>
+                      {Platform.OS === "web" ? (
+                        <View style={[styles.tile, debeRevisar(CAMPO_FECHA) && styles.campoRevisar]}>
+                          <input
+                            type="date"
+                            value={fechaIso}
+                            max={toYMD(new Date())}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              const limiteHoy = toYMD(new Date());
+                              marcarRevisado(CAMPO_FECHA);
+                              if (val > limiteHoy) {
+                                appAlert("Fecha inválida", "No podés registrar un gasto en una fecha futura.");
+                                setFechaIso(limiteHoy);
+                              } else {
+                                setFechaIso(val);
+                              }
+                            }}
+                            style={{ border: "none", width: "100%", outline: "none", background: "transparent", fontFamily: "inherit", fontSize: "16px", color: "inherit", cursor: "pointer" }}
+                          />
+                        </View>
+                      ) : (
+                        <Pressable
+                          onPress={() => {
+                            Keyboard.dismiss();
+                            setMostrarCalendario(true);
+                          }}
+                          style={[
+                            styles.tile,
+                            debeRevisar(CAMPO_FECHA) && styles.campoRevisar,
+                            errores.fecha && styles.inputError,
+                          ]}
+                        >
+                          <FontAwesome6 name="calendar" size={15} color={colors.primary} />
+                          <Text
+                            numberOfLines={1}
+                            style={[styles.tileText, !fechaIso && styles.datePlaceholder]}
+                          >
+                            {fechaIso ? formatDateDisplay(fechaIso) : "Seleccionar"}
+                          </Text>
+                        </Pressable>
+                      )}
+                    </View>
+
+                    <View style={styles.tileWrap}>
+                      <Text style={styles.label}>Categoría</Text>
                       <TouchableOpacity
-                        style={[styles.selectorOption, !esDivisionIgualitaria && styles.selectorOptionActive]}
-                        onPress={() => setEsDivisionIgualitaria(false)}
+                        style={[
+                          styles.tile,
+                          debeRevisar(CAMPO_CATEGORIA) && styles.campoRevisar,
+                          errores.categoria && styles.inputError,
+                        ]}
+                        onPress={() => {
+                          Keyboard.dismiss();
+                          setModalCategoriaVisible(true);
+                        }}
                       >
                         <FontAwesome6
-                          name="sliders"
-                          size={13}
-                          color={!esDivisionIgualitaria ? "#fff" : colors.primary}
+                          name={categoriaSeleccionada ? ICONOS_CATEGORIAS[categoriaSeleccionada.Nombre] || "tags" : "tags"}
+                          size={15}
+                          color={categoriaSeleccionada ? colors.primary : colors.overlay}
                         />
-                        <Text style={[styles.selectorOptionText, !esDivisionIgualitaria && styles.selectorOptionTextActive]}>
-                          Personalizada
+                        <Text
+                          numberOfLines={1}
+                          style={[styles.tileText, !idCategoria && styles.datePlaceholder]}
+                        >
+                          {categoriaSeleccionada ? categoriaSeleccionada.Nombre : "Elegir"}
                         </Text>
                       </TouchableOpacity>
                     </View>
+                  </View>
+                  {debeRevisar(CAMPO_FECHA) && <Text style={styles.revisarHint}>Revisá la fecha</Text>}
+                  {debeRevisar(CAMPO_CATEGORIA) && <Text style={styles.revisarHint}>Revisá la categoría</Text>}
+                  {errores.fecha && <Text style={styles.error}>{errores.fecha}</Text>}
+                  {errores.categoria && <Text style={styles.error}>{errores.categoria}</Text>}
+                  {avisoFechaViaje ? (
+                    <View style={styles.advertenciaRow} testID="fecha-fuera-viaje-warning">
+                      <FontAwesome6 name="circle-info" size={13} color={colors.textSecondary} />
+                      <Text style={styles.avisoFechaText}>{avisoFechaViaje}</Text>
+                    </View>
+                  ) : null}
 
-                    {esDivisionIgualitaria && idsParticipantesSeleccionados.length > 0 && montoDivisionNum ? (
-                      <View style={styles.equalSummary}>
-                        <FontAwesome6 name="circle-info" size={13} color={colors.primary} />
-                        <Text style={styles.equalSummaryText}>
-                          {idsParticipantesSeleccionados.length} personas · {monedaBase.toUpperCase()}{" "}
-                          {montoPorPersona.toFixed(2)} c/u
-                        </Text>
-                      </View>
-                    ) : null}
+                  <Text style={styles.label}>Tipo de Gasto</Text>
+                  <View style={styles.selectorContainer}>
+                    <TouchableOpacity
+                      style={[styles.selectorOption, !esCompartido && styles.selectorOptionActive]}
+                      onPress={() => setEsCompartido(false)}
+                    >
+                      <FontAwesome6 name="user" size={14} color={!esCompartido ? colors.textInverse : colors.primary} />
+                      <Text style={[styles.selectorOptionText, !esCompartido && styles.selectorOptionTextActive]}>
+                        Personal
+                      </Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[
+                        styles.selectorOption,
+                        esCompartido && styles.selectorOptionActive,
+                        unicoParticipante && styles.selectorOptionDisabled,
+                      ]}
+                      onPress={activarCompartido}
+                      disabled={unicoParticipante}
+                    >
+                      <FontAwesome6 name="users" size={14} color={esCompartido ? colors.textInverse : (unicoParticipante ? colors.textMuted : colors.primary)} />
+                      <Text style={[styles.selectorOptionText, esCompartido && styles.selectorOptionTextActive, unicoParticipante && { color: colors.textMuted }]}>
+                        Compartido
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                  {unicoParticipante && (
+                    <Text style={styles.fieldHint}>Este viaje tiene un único participante, por lo que la opción compartida está deshabilitada.</Text>
+                  )}
 
-                    {!esDivisionIgualitaria && idsParticipantesSeleccionados.length > 0 && (
-                      <View style={styles.personalizadoCard}>
-                        <Text style={styles.personalizadoTitle}>
-                          Montos individuales ({monedaBase.toUpperCase()})
-                        </Text>
-                        {participantes
-                          .filter((p) => idsParticipantesSeleccionados.includes(p.IdParticipanteViaje))
-                          .map((p) => (
-                            <View key={p.IdParticipanteViaje} style={styles.personalizadoRow}>
-                              <View style={styles.personalizadoPersonaWrap}>
-                                <View style={styles.avatarCircleSmall}>
-                                  <Text style={styles.avatarCircleSmallText}>{getIniciales(p)}</Text>
-                                </View>
-                                <Text style={styles.personalizadoNombre} numberOfLines={1}>
-                                  {p.Nombre} {p.Apellido}
-                                </Text>
-                              </View>
-                              <TextInput
-                                style={styles.personalizadoInput}
-                                placeholder="0"
-                                placeholderTextColor={colors.textMuted}
-                                keyboardType="numeric"
-                                value={montosPersonalizados[p.IdParticipanteViaje] || ""}
-                                onChangeText={(val) => handleMontoPersonalizadoChange(p.IdParticipanteViaje, val)}
-                                testID={`monto-personalizado-${p.IdParticipanteViaje}`}
-                              />
-                            </View>
-                          ))}
+                  {desdeComprobante && !esCompartido && participanteActual ? (
+                    <Text style={styles.pagadorPersonalText} testID="pagador-personal">
+                      Pagado por {participanteActual.Nombre} {participanteActual.Apellido} (vos)
+                    </Text>
+                  ) : null}
 
-                        <View style={styles.personalizadoResumen}>
-                          <Text style={styles.personalizadoResumenLabel}>Asignado</Text>
-                          <Text
-                            style={[
-                              styles.personalizadoResumenValor,
-                              Math.abs(sumaMontosPersonalizados - montoDivisionNum) > 0.01
-                                ? styles.personalizadoResumenValorAlerta
-                                : styles.personalizadoResumenValorOk,
-                            ]}
-                          >
-                            {monedaBase.toUpperCase()} {sumaMontosPersonalizados.toFixed(2)} /{" "}
-                            {montoDivisionNum.toFixed(2)}
-                          </Text>
+                  {esCompartido && (
+                    <View style={styles.sharedCard}>
+                      <View style={styles.sharedCardHeader}>
+                        <View style={styles.sharedCardIconWrap}>
+                          <FontAwesome6 name="users" size={13} color={colors.primary} />
                         </View>
-
-                        {errores.divisionPersonalizada && (
-                          <Text style={styles.error}>{errores.divisionPersonalizada}</Text>
-                        )}
+                        <Text style={styles.sharedCardTitle}>División del gasto</Text>
                       </View>
-                    )}
+
+                      <SummaryRow
+                        caption="¿Quién pagó?"
+                        leading={
+                          pagadorSeleccionado ? (
+                            <Avatar persona={pagadorSeleccionado} />
+                          ) : (
+                            <View style={styles.avatarVacio}>
+                              <FontAwesome6 name="user" size={12} color={colors.overlay} />
+                            </View>
+                          )
+                        }
+                        value={
+                          pagadorSeleccionado
+                            ? `${pagadorSeleccionado.Nombre} ${pagadorSeleccionado.Apellido}`
+                            : "Seleccioná quién pagó"
+                        }
+                        placeholder={!pagadorSeleccionado}
+                        onPress={() => {
+                          Keyboard.dismiss();
+                          setModalPagadorVisible(true);
+                        }}
+                        error={errores.pagador}
+                      />
+
+                      <SummaryRow
+                        caption="¿Entre quiénes se divide?"
+                        leading={
+                          cantidadOtros > 0 ? (
+                            <View style={styles.avatarStack}>
+                              {participantes
+                                .filter((p) => idsParticipantesSeleccionados.includes(p.IdParticipanteViaje))
+                                .slice(0, 3)
+                                .map((p, i) => (
+                                  <View
+                                    key={p.IdParticipanteViaje}
+                                    style={[
+                                      styles.avatarStackItem,
+                                      { marginLeft: i === 0 ? 0 : -10, zIndex: 10 - i },
+                                    ]}
+                                  >
+                                    <Text style={styles.avatarStackText}>{getIniciales(p)}</Text>
+                                  </View>
+                                ))}
+                              {cantidadSeleccionados > 3 && (
+                                <View style={[styles.avatarStackItem, styles.avatarStackMore, { marginLeft: -10 }]}>
+                                  <Text style={styles.avatarStackText}>+{cantidadSeleccionados - 3}</Text>
+                                </View>
+                              )}
+                            </View>
+                          ) : (
+                            <View style={styles.avatarVacio}>
+                              <FontAwesome6 name="users" size={12} color={colors.overlay} />
+                            </View>
+                          )
+                        }
+                        value={textoParticipantes}
+                        placeholder={cantidadOtros === 0}
+                        sub={subDivision}
+                        subTone={subDivisionTono}
+                        onPress={() => {
+                          Keyboard.dismiss();
+                          setModalDivisionVisible(true);
+                        }}
+                        error={errores.participantes || errores.divisionPersonalizada}
+                        testID="abrir-division"
+                      />
+                    </View>
+                  )}
+                </ScrollView>
+
+                {/* El botón "Registrar gasto" NO se muestra mientras el teclado está abierto:
+                    el usuario está escribiendo y el botón quedaría pegado encima del teclado. */}
+                {!tecladoVisible && (
+                  <View style={styles.footer}>
+                    <PrimaryButton
+                      label={saving ? "Guardando..." : "Registrar gasto"}
+                      loading={saving}
+                      onPress={handleGuardar}
+                      disabled={saving}
+                    />
+                    {desdeComprobante ? (
+                      <PrimaryButton
+                        label="Cancelar"
+                        variant="secondary"
+                        onPress={handleCancelar}
+                        disabled={saving}
+                        testID="add-gasto-cancel"
+                      />
+                    ) : null}
                   </View>
                 )}
+              </>
+            )}
+          </View>
+        </KeyboardAvoidingView>
 
-                <PrimaryButton
-                  label={saving ? "Guardando..." : "Registrar gasto"}
-                  loading={saving}
-                  onPress={handleGuardar}
-                  disabled={saving}
-                  style={styles.submitButton}
-                />
-                {desdeComprobante ? (
-                  <PrimaryButton
-                    label="Cancelar"
-                    variant="secondary"
-                    onPress={handleCancelar}
-                    disabled={saving}
-                    style={styles.cancelButton}
-                    testID="add-gasto-cancel"
+        <SheetOverlay visible={modalCategoriaVisible} onClose={() => setModalCategoriaVisible(false)}>
+          <View style={styles.modalHeader}>
+            <Text style={styles.modalTitle}>Seleccionar Categoría</Text>
+            <TouchableOpacity onPress={() => setModalCategoriaVisible(false)}>
+              <FontAwesome6 name="xmark" size={20} color={colors.textMuted} />
+            </TouchableOpacity>
+          </View>
+          <FlatList
+            data={categorias}
+            keyExtractor={(item) => item.IdCategoria.toString()}
+            renderItem={({ item, index }) => {
+              const iconoName = ICONOS_CATEGORIAS[item.Nombre] || "tags";
+              const esActivo = idCategoria === item.IdCategoria;
+              const esElUltimo = index === categorias.length - 1;
+
+              return (
+                <TouchableOpacity
+                  style={[styles.modalItem, esActivo && styles.modalItemActive, esElUltimo && { borderBottomWidth: 0 }]}
+                  onPress={() => {
+                    setIdCategoria(item.IdCategoria);
+                    marcarRevisado(CAMPO_CATEGORIA);
+                    setModalCategoriaVisible(false);
+                  }}
+                >
+                  <View style={{ flexDirection: "row", alignItems: "center", flex: 1 }}>
+                    <FontAwesome6
+                      name={iconoName}
+                      size={16}
+                      color={esActivo ? colors.primary : "#4b5563"}
+                      style={{ marginRight: 12, width: 24, textAlign: "center" }}
+                    />
+                    <Text style={[styles.modalItemText, esActivo && styles.modalItemTextActive]}>
+                      {item.Nombre}
+                    </Text>
+                  </View>
+                  {esActivo && <FontAwesome6 name="check" size={14} color={colors.primary} />}
+                </TouchableOpacity>
+              );
+            }}
+          />
+        </SheetOverlay>
+
+        <SheetOverlay visible={modalPagadorVisible} onClose={() => setModalPagadorVisible(false)}>
+          <View style={styles.modalHeader}>
+            <Text style={styles.modalTitle}>¿Quién pagó?</Text>
+            <TouchableOpacity onPress={() => setModalPagadorVisible(false)}>
+              <FontAwesome6 name="xmark" size={20} color={colors.textMuted} />
+            </TouchableOpacity>
+          </View>
+          <FlatList
+            data={participantes}
+            keyExtractor={(item) => item.IdParticipanteViaje.toString()}
+            renderItem={({ item, index }) => {
+              const esElUltimo = index === participantes.length - 1;
+              const esActivo = idPagador === item.IdParticipanteViaje;
+
+              return (
+                <TouchableOpacity
+                  style={[styles.modalItem, esActivo && styles.modalItemActive, esElUltimo && { borderBottomWidth: 0 }]}
+                  onPress={() => seleccionarPagador(item.IdParticipanteViaje)}
+                >
+                  <View style={styles.participanteRowLeft}>
+                    <Avatar persona={item} />
+                    <View style={{ flex: 1, marginLeft: 12 }}>
+                      <Text style={[styles.modalItemText, esActivo && styles.modalItemTextActive]}>
+                        {item.Nombre} {item.Apellido}
+                      </Text>
+                      <Text style={{ fontSize: 12, color: colors.textMuted }}>@{item.NombreUsuario}</Text>
+                    </View>
+                  </View>
+                  {esActivo && <FontAwesome6 name="check" size={14} color={colors.primary} />}
+                </TouchableOpacity>
+              );
+            }}
+          />
+        </SheetOverlay>
+
+        <SheetOverlay visible={modalDivisionVisible} onClose={() => setModalDivisionVisible(false)} tall>
+          <View style={styles.modalHeader}>
+            <View>
+              <Text style={styles.modalTitle}>Dividir gasto</Text>
+              <Text style={styles.modalSubtitle}>
+                Total {monedaDivision} {fmt(montoDivisionNum)}
+              </Text>
+            </View>
+            <TouchableOpacity onPress={() => setModalDivisionVisible(false)} hitSlop={10}>
+              <FontAwesome6 name="xmark" size={20} color={colors.textMuted} />
+            </TouchableOpacity>
+          </View>
+
+          <View style={[styles.selectorContainer, { marginBottom: spacing.sm }]}>
+            <TouchableOpacity
+              style={[styles.selectorOption, esDivisionIgualitaria && styles.selectorOptionActive]}
+              onPress={() => cambiarModoDivision(true)}
+            >
+              <FontAwesome6 name="scale-balanced" size={13} color={esDivisionIgualitaria ? "#fff" : colors.primary} />
+              <Text style={[styles.selectorOptionText, esDivisionIgualitaria && styles.selectorOptionTextActive]}>
+                Igualitaria
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.selectorOption, !esDivisionIgualitaria && styles.selectorOptionActive]}
+              onPress={() => cambiarModoDivision(false)}
+            >
+              <FontAwesome6 name="sliders" size={13} color={!esDivisionIgualitaria ? "#fff" : colors.primary} />
+              <Text style={[styles.selectorOptionText, !esDivisionIgualitaria && styles.selectorOptionTextActive]}>
+                Personalizada
+              </Text>
+            </TouchableOpacity>
+          </View>
+
+          <ScrollView
+            ref={scrollDivision.ref}
+            {...scrollDivision.scrollProps}
+            style={styles.divisionScroll}
+            contentContainerStyle={{ paddingBottom: tecladoVisible ? spacing.lg : spacing.sm }}
+            keyboardShouldPersistTaps="handled"
+            keyboardDismissMode="on-drag"
+            showsVerticalScrollIndicator={false}
+          >
+            {datosIntegrantes.map((item) => {
+              if (item.IdParticipanteViaje === "TODOS") {
+                const todosIds = participantes.map((p) => p.IdParticipanteViaje);
+                const estanTodosSeleccionados =
+                  todosIds.length > 0 && todosIds.every((idp) => idsParticipantesSeleccionados.includes(idp));
+
+                return (
+                  <TouchableOpacity
+                    key="TODOS"
+                    style={[styles.divisionRow, styles.divisionRowTodos]}
+                    onPress={() => toggleSeleccionParticipante("TODOS")}
+                  >
+                    <View style={[styles.customCheckbox, estanTodosSeleccionados && styles.customCheckboxChecked]}>
+                      {estanTodosSeleccionados && <FontAwesome6 name="check" size={10} color="#fff" />}
+                    </View>
+                    <Text style={[styles.modalItemText, { fontWeight: "700", color: colors.primary, marginLeft: 12 }]}>
+                      Seleccionar Todos
+                    </Text>
+                  </TouchableOpacity>
+                );
+              }
+
+              const id = item.IdParticipanteViaje;
+              const estaSeleccionado = idsParticipantesSeleccionados.includes(id);
+              const esElPagador = id === idPagador;
+
+              return (
+                <Pressable
+                  key={id}
+                  onLayout={scrollDivision.registrar(id)}
+                  style={[
+                    styles.divisionRow,
+                    estaSeleccionado && styles.divisionRowActiva,
+                    esElPagador && { opacity: 0.8 },
+                  ]}
+                  onPress={() => toggleSeleccionParticipante(id)}
+                >
+                  <View
+                    style={[
+                      styles.customCheckbox,
+                      estaSeleccionado && styles.customCheckboxChecked,
+                      esElPagador && { backgroundColor: "#9ca3af", borderColor: "#9ca3af" },
+                    ]}
+                  >
+                    {estaSeleccionado && <FontAwesome6 name="check" size={10} color="#fff" />}
+                  </View>
+                  <View style={{ marginLeft: 12 }}>
+                    <Avatar persona={item} small />
+                  </View>
+                  <View style={{ flex: 1, marginLeft: 10 }}>
+                    <Text numberOfLines={1} style={[styles.modalItemText, estaSeleccionado && styles.modalItemTextActive]}>
+                      {item.Nombre} {item.Apellido}
+                    </Text>
+                    <Text style={styles.divisionSub}>
+                      {esElPagador ? "Pagó el gasto · siempre incluido" : `@${item.NombreUsuario}`}
+                    </Text>
+                  </View>
+
+                  {estaSeleccionado ? (
+                    esDivisionIgualitaria ? (
+                      <Text style={styles.divisionMonto}>
+                        {montoPorPersona ? `${monedaDivision} ${fmt(montoPorPersona)}` : "—"}
+                      </Text>
+                    ) : (
+                      <View style={styles.divisionInputWrap}>
+                        <Text style={styles.divisionInputPrefix}>{monedaDivision}</Text>
+                        <TextInput
+                          style={styles.divisionInput}
+                          placeholder="0"
+                          placeholderTextColor={colors.textMuted}
+                          keyboardType="numeric"
+                          value={montosPersonalizados[id] || ""}
+                          onChangeText={(val) => handleMontoPersonalizadoChange(id, val)}
+                          onFocus={() => scrollDivision.enfocar(id)}
+                          selectTextOnFocus
+                          testID={`monto-personalizado-${id}`}
+                        />
+                      </View>
+                    )
+                  ) : null}
+                </Pressable>
+              );
+            })}
+          </ScrollView>
+
+          <View style={styles.divisionFooter}>
+            {esDivisionIgualitaria ? (
+              cantidadSeleccionados > 0 && montoDivisionNum ? (
+                <View style={styles.equalSummary}>
+                  <FontAwesome6 name="circle-info" size={13} color={colors.primary} />
+                  <Text style={styles.equalSummaryText}>
+                    {cantidadSeleccionados} personas · {monedaDivision} {fmt(montoPorPersona)} c/u
+                  </Text>
+                </View>
+              ) : null
+            ) : (
+              <View>
+                <View style={styles.progressTrack}>
+                  <View
+                    style={[
+                      styles.progressFill,
+                      personalizadaCuadra ? styles.progressFillOk : styles.progressFillWarn,
+                      {
+                        width: `${Math.min(
+                          100,
+                          montoDivisionNum ? (sumaMontosPersonalizados / montoDivisionNum) * 100 : 0
+                        )}%`,
+                      },
+                    ]}
                   />
-                ) : null}
+                </View>
+                <View style={styles.personalizadoResumen}>
+                  <Text style={styles.personalizadoResumenLabel}>
+                    Asignado {monedaDivision} {fmt(sumaMontosPersonalizados)} / {fmt(montoDivisionNum)}
+                  </Text>
+                  <Text
+                    style={[
+                      styles.personalizadoResumenValor,
+                      personalizadaCuadra
+                        ? styles.personalizadoResumenValorOk
+                        : styles.personalizadoResumenValorAlerta,
+                    ]}
+                  >
+                    {personalizadaCuadra
+                      ? "Todo asignado"
+                      : diferenciaPersonalizada > 0
+                      ? `Faltan ${fmt(diferenciaPersonalizada)}`
+                      : `Te pasaste ${fmt(-diferenciaPersonalizada)}`}
+                  </Text>
+                </View>
               </View>
             )}
-            </View>
-            </TouchableWithoutFeedback>
-          </ScrollView>
-        </View>
 
-        {/* Bottom sheet: Categoría */}
-        {modalCategoriaVisible && (
-          <View style={styles.modalOverlayAbsolute}>
-            <Pressable style={StyleSheet.absoluteFill} onPress={() => setModalCategoriaVisible(false)} />
-            <Animated.View style={[styles.bottomSheet, { transform: [{ translateY: slideAnimCategoria }] }]}>
-              <View style={styles.modalHeader}>
-                <Text style={styles.modalTitle}>Seleccionar Categoría</Text>
-                <TouchableOpacity onPress={() => setModalCategoriaVisible(false)}>
-                  <FontAwesome6 name="xmark" size={20} color={colors.textMuted} />
-                </TouchableOpacity>
-              </View>
-              <FlatList
-                data={categorias}
-                keyExtractor={(item) => item.IdCategoria.toString()}
-                renderItem={({ item, index }) => {
-                  const iconoName = ICONOS_CATEGORIAS[item.Nombre] || "tags";
-                  const esActivo = idCategoria === item.IdCategoria;
-                  const esElUltimo = index === categorias.length - 1;
+            {errores.participantes && <Text style={styles.error}>{errores.participantes}</Text>}
+            {errores.divisionPersonalizada && <Text style={styles.error}>{errores.divisionPersonalizada}</Text>}
 
-                  return (
-                    <TouchableOpacity
-                      style={[styles.modalItem, esActivo && styles.modalItemActive, esElUltimo && { borderBottomWidth: 0 }]}
-                      onPress={() => {
-                        setIdCategoria(item.IdCategoria);
-                        marcarRevisado(CAMPO_CATEGORIA);
-                        setModalCategoriaVisible(false);
-                      }}
-                    >
-                      <View style={{ flexDirection: "row", alignItems: "center", flex: 1 }}>
-                        <FontAwesome6
-                          name={iconoName}
-                          size={16}
-                          color={esActivo ? colors.primary : "#4b5563"}
-                          style={{ marginRight: 12, width: 24, textAlign: "center" }}
-                        />
-                        <Text style={[styles.modalItemText, esActivo && styles.modalItemTextActive]}>
-                          {item.Nombre}
-                        </Text>
-                      </View>
-                      {esActivo && <FontAwesome6 name="check" size={14} color={colors.primary} />}
-                    </TouchableOpacity>
-                  );
-                }}
-              />
-            </Animated.View>
+            {/* Igual que en la pantalla principal: el botón no aparece con el teclado abierto */}
+            {!tecladoVisible && (
+              <PrimaryButton label="Listo" onPress={() => setModalDivisionVisible(false)} />
+            )}
           </View>
-        )}
-
-        {/* Bottom sheet: Pagador */}
-        {modalPagadorVisible && (
-          <View style={styles.modalOverlayAbsolute}>
-            <Pressable style={StyleSheet.absoluteFill} onPress={() => setModalPagadorVisible(false)} />
-            <Animated.View style={[styles.bottomSheet, { transform: [{ translateY: slideAnimPagador }] }]}>
-              <View style={styles.modalHeader}>
-                <Text style={styles.modalTitle}>¿Quién pagó?</Text>
-                <TouchableOpacity onPress={() => setModalPagadorVisible(false)}>
-                  <FontAwesome6 name="xmark" size={20} color={colors.textMuted} />
-                </TouchableOpacity>
-              </View>
-              <FlatList
-                data={participantes}
-                keyExtractor={(item) => item.IdParticipanteViaje.toString()}
-                renderItem={({ item, index }) => {
-                  const esElUltimo = index === participantes.length - 1;
-
-                  return (
-                    <TouchableOpacity
-                      style={[styles.modalItem, idPagador === item.IdParticipanteViaje && styles.modalItemActive, esElUltimo && { borderBottomWidth: 0 }]}
-                      onPress={() => {
-                        const nuevoPagadorId = item.IdParticipanteViaje;
-                        setIdPagador(nuevoPagadorId);
-                        setModalPagadorVisible(false);
-
-                        if (esCompartido) {
-                          setIdsParticipantesSeleccionados((prev) => {
-                            if (!prev.includes(nuevoPagadorId)) {
-                              return [...prev, nuevoPagadorId];
-                            }
-                            return prev;
-                          });
-                        }
-                      }}
-                    >
-                      <View style={{ flex: 1 }}>
-                        <Text
-                          style={[
-                            styles.modalItemText,
-                            idPagador === item.IdParticipanteViaje && styles.modalItemTextActive,
-                          ]}
-                        >
-                          {item.Nombre} {item.Apellido}
-                        </Text>
-                        <Text style={{ fontSize: 12, color: colors.textMuted }}>@{item.NombreUsuario}</Text>
-                      </View>
-                      {idPagador === item.IdParticipanteViaje && (
-                        <FontAwesome6 name="check" size={14} color={colors.primary} />
-                      )}
-                    </TouchableOpacity>
-                  );
-                }}
-              />
-            </Animated.View>
-          </View>
-        )}
+        </SheetOverlay>
 
         <DatePickerModal
           visible={mostrarCalendario}
@@ -1309,114 +1620,7 @@ export default function AddGastoScreen({
           }}
           maxDate={new Date()}
         />
-
-        {/* Bottom sheet: Participantes */}
-        {modalParticipantesVisible && (
-          <View style={styles.modalOverlayAbsolute}>
-            <Pressable style={StyleSheet.absoluteFill} onPress={() => setModalParticipantesVisible(false)} />
-            <Animated.View style={[styles.bottomSheet, { transform: [{ translateY: slideAnimParticipantes }] }]}>
-              <View style={styles.modalHeader}>
-                <Text style={styles.modalTitle}>Integrantes del Gasto</Text>
-                <TouchableOpacity
-                  style={styles.modalDoneButton}
-                  onPress={() => setModalParticipantesVisible(false)}
-                >
-                  <Text style={styles.modalDoneButtonText}>Listo</Text>
-                </TouchableOpacity>
-              </View>
-
-              {(() => {
-                const datosIntegrantes = [
-                  {
-                    IdParticipanteViaje: "TODOS",
-                    Nombre: "Todos",
-                    Apellido: "",
-                    NombreUsuario: "marcar_desmarcar",
-                  },
-                  ...participantes,
-                ];
-
-                return (
-                  <FlatList
-                    data={datosIntegrantes}
-                    keyExtractor={(item) => item.IdParticipanteViaje.toString()}
-                    renderItem={({ item, index }) => {
-                      const esElUltimo = index === datosIntegrantes.length - 1;
-
-                      if (item.IdParticipanteViaje === "TODOS") {
-                        const todosIds = participantes.map((p) => p.IdParticipanteViaje);
-                        const estanTodosSeleccionados =
-                          todosIds.length > 0 &&
-                          todosIds.every((idp) => idsParticipantesSeleccionados.includes(idp));
-
-                        return (
-                          <TouchableOpacity
-                            style={[
-                              styles.modalItem,
-                              estanTodosSeleccionados && styles.modalItemActive,
-                              { borderBottomWidth: 2, borderBottomColor: colors.primary },
-                            ]}
-                            onPress={() => toggleSeleccionParticipante("TODOS")}
-                          >
-                            <View style={{ flex: 1 }}>
-                              <Text style={[styles.modalItemText, { fontWeight: "bold", color: colors.primary }]}>
-                                Seleccionar Todos
-                              </Text>
-                            </View>
-                            <View
-                              style={[styles.customCheckbox, estanTodosSeleccionados && styles.customCheckboxChecked]}
-                            >
-                              {estanTodosSeleccionados && <FontAwesome6 name="check" size={10} color="#fff" />}
-                            </View>
-                          </TouchableOpacity>
-                        );
-                      }
-
-                      const estaSeleccionado = idsParticipantesSeleccionados.includes(item.IdParticipanteViaje);
-                      const esElPagador = item.IdParticipanteViaje === idPagador;
-
-                      return (
-                        <TouchableOpacity
-                          style={[
-                            styles.modalItem,
-                            estaSeleccionado && styles.modalItemActive,
-                            esElPagador && { backgroundColor: "#f9fafb" },
-                            esElUltimo && { borderBottomWidth: 0 },
-                          ]}
-                          onPress={() => toggleSeleccionParticipante(item.IdParticipanteViaje)}
-                        >
-                          <View style={{ flex: 1 }}>
-                            <Text
-                              style={[
-                                styles.modalItemText,
-                                estaSeleccionado && styles.modalItemTextActive,
-                                esElPagador && { color: "#6b7280", fontWeight: "600" },
-                              ]}
-                            >
-                              {item.Nombre} {item.Apellido} {esElPagador && "(Responsable)"}
-                            </Text>
-                            <Text style={{ fontSize: 12, color: colors.textMuted }}>@{item.NombreUsuario}</Text>
-                          </View>
-                          <View
-                            style={[
-                              styles.customCheckbox,
-                              estaSeleccionado && styles.customCheckboxChecked,
-                              esElPagador && { backgroundColor: "#9ca3af", borderColor: "#9ca3af" },
-                            ]}
-                          >
-                            {estaSeleccionado && <FontAwesome6 name="check" size={10} color="#fff" />}
-                          </View>
-                        </TouchableOpacity>
-                      );
-                    }}
-                  />
-                );
-              })()}
-            </Animated.View>
-          </View>
-        )}
       </View>
-      </KeyboardAvoidingView>
     </Modal>
   );
 }
@@ -1427,17 +1631,31 @@ const styles = StyleSheet.create({
     backgroundColor: colors.overlayStrong,
     justifyContent: "flex-end",
   },
+  mainKav: {
+    flex: 1,
+    justifyContent: "flex-end",
+  },
   sheet: {
     backgroundColor: colors.surface,
     borderTopLeftRadius: radii.xl,
     borderTopRightRadius: radii.xl,
-    padding: spacing.lg,
-    maxHeight: "85%",
+    paddingTop: spacing.sm,
+    paddingHorizontal: spacing.lg,
+    maxHeight: "92%",
+  },
+  grabber: {
+    alignSelf: "center",
+    width: 40,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: colors.border,
+    marginBottom: spacing.sm,
   },
   headerRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
+    paddingBottom: spacing.xs,
   },
   title: {
     ...textStyles.tripTitle,
@@ -1449,8 +1667,20 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  content: {
-    padding: 0,
+  mainScroll: {
+    flexShrink: 1,
+    minHeight: 0,
+  },
+  mainScrollContent: {
+    paddingBottom: spacing.md,
+  },
+  footer: {
+    gap: spacing.sm,
+    paddingTop: spacing.sm,
+    paddingBottom: spacing.xl,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+    backgroundColor: colors.surface,
   },
   label: {
     ...textStyles.label,
@@ -1458,6 +1688,48 @@ const styles = StyleSheet.create({
     color: colors.primary,
     marginTop: spacing.md,
     marginBottom: spacing.xs,
+  },
+  fieldHint: {
+    ...textStyles.meta,
+    color: colors.textSecondary,
+    marginTop: 4,
+  },
+  amountHero: {
+    marginTop: spacing.sm,
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.md,
+    borderRadius: radii.lg,
+    backgroundColor: COLOR_SUPERFICIE_SUAVE,
+    alignItems: "center",
+  },
+  amountCaption: {
+    ...textStyles.meta,
+    color: colors.textSecondary,
+    marginBottom: 2,
+  },
+  amountRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    alignSelf: "stretch",
+  },
+  amountCurrency: {
+    fontSize: 20,
+    fontWeight: "700",
+    color: colors.textMuted,
+  },
+  amountInput: {
+    flexShrink: 1,
+    minWidth: 80,
+    fontSize: 38,
+    fontWeight: "800",
+    color: colors.primary,
+    paddingVertical: 4,
+    textAlign: "center",
+  },
+  currencyWrap: {
+    marginTop: spacing.sm,
   },
   inputBox: {
     minHeight: 48,
@@ -1477,11 +1749,6 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     ...textStyles.body,
   },
-  inputDateText: {
-    flex: 1,
-    color: colors.textPrimary,
-    ...textStyles.body,
-  },
   datePlaceholder: {
     color: colors.overlay,
   },
@@ -1494,11 +1761,18 @@ const styles = StyleSheet.create({
   infoConversionText: {
     fontSize: 12,
     color: colors.textSecondary,
-    marginTop: 2,
-    marginBottom: 6,
+    marginTop: 4,
+    marginBottom: 2,
     fontStyle: "italic",
   },
-  dateBox: {
+  tilesRow: {
+    flexDirection: "row",
+    gap: spacing.sm,
+  },
+  tileWrap: {
+    flex: 1,
+  },
+  tile: {
     minHeight: 48,
     borderWidth: 1,
     borderColor: colors.border,
@@ -1507,24 +1781,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.md,
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
     gap: 10,
-    marginBottom: 5,
+    justifyContent: "flex-start",
   },
-  dropdownButton: {
-    minHeight: 48,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: radii.md,
-    backgroundColor: colors.surface,
-    paddingHorizontal: spacing.md,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-  },
-  dropdownLeftContent: {
-    flexDirection: "row",
-    alignItems: "center",
+  tileText: {
+    ...textStyles.body,
+    color: colors.textPrimary,
     flex: 1,
   },
   dropdownPlaceholder: {
@@ -1534,14 +1796,6 @@ const styles = StyleSheet.create({
   dropdownText: {
     ...textStyles.body,
     color: colors.textPrimary,
-  },
-  submitButton: {
-    marginTop: spacing.lg,
-    marginBottom: spacing.md,
-  },
-  cancelButton: {
-    marginTop: -spacing.xs,
-    marginBottom: spacing.md,
   },
   inputError: {
     borderColor: colors.danger,
@@ -1700,6 +1954,9 @@ const styles = StyleSheet.create({
   selectorOptionActive: {
     backgroundColor: colors.primary,
   },
+  selectorOptionDisabled: {
+    opacity: 0.5,
+  },
   selectorOptionText: {
     ...textStyles.body,
     color: colors.primary,
@@ -1708,7 +1965,7 @@ const styles = StyleSheet.create({
     color: "#fff",
   },
   sharedCard: {
-    marginTop: spacing.sm,
+    marginTop: spacing.md,
     backgroundColor: "#f7f9fc",
     borderRadius: radii.lg,
     padding: 14,
@@ -1719,7 +1976,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
-    marginBottom: 6,
+    marginBottom: 2,
   },
   sharedCardIconWrap: {
     width: 26,
@@ -1735,32 +1992,71 @@ const styles = StyleSheet.create({
     color: colors.primary,
     fontSize: 14,
   },
-  avatarCircle: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
+  summaryBlock: {
+    marginTop: spacing.sm,
+  },
+  rowCaption: {
+    ...textStyles.meta,
+    color: colors.textSecondary,
+    marginBottom: 4,
+  },
+  summaryRow: {
+    minHeight: 54,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radii.md,
+    backgroundColor: colors.surface,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 8,
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  summaryTextWrap: {
+    flex: 1,
+    marginLeft: 10,
+    marginRight: 6,
+  },
+  summarySub: {
+    ...textStyles.meta,
+    color: colors.textSecondary,
+    marginTop: 1,
+  },
+  summarySubOk: {
+    color: "#16a34a",
+    fontWeight: "600",
+  },
+  summarySubWarn: {
+    color: colors.danger,
+    fontWeight: "600",
+  },
+  avatar: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
     backgroundColor: colors.primary,
     alignItems: "center",
     justifyContent: "center",
   },
-  avatarCircleText: {
+  avatarSmall: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+  },
+  avatarText: {
     color: "#fff",
     fontSize: 12,
     fontWeight: "700",
   },
-  avatarCircleSmall: {
-    width: 26,
-    height: 26,
-    borderRadius: 13,
-    backgroundColor: colors.primary,
+  avatarTextSmall: {
+    fontSize: 10,
+  },
+  avatarVacio: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: COLOR_SUPERFICIE_SUAVE,
     alignItems: "center",
     justifyContent: "center",
-    marginRight: 8,
-  },
-  avatarCircleSmallText: {
-    color: "#fff",
-    fontSize: 10,
-    fontWeight: "700",
   },
   avatarStack: {
     flexDirection: "row",
@@ -1784,6 +2080,66 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: "700",
   },
+  divisionScroll: {
+    flexShrink: 1,
+    minHeight: 0,
+  },
+  divisionRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 10,
+    paddingHorizontal: 8,
+    borderRadius: radii.md,
+    marginBottom: 4,
+    minHeight: 56,
+  },
+  divisionRowActiva: {
+    backgroundColor: "#f0f4f8",
+  },
+  divisionRowTodos: {
+    borderBottomWidth: 2,
+    borderBottomColor: colors.primary,
+    borderRadius: 0,
+    marginBottom: spacing.xs,
+  },
+  divisionSub: {
+    ...textStyles.meta,
+    color: colors.textMuted,
+  },
+  divisionMonto: {
+    ...textStyles.bodyStrong,
+    color: colors.primary,
+    fontSize: 13,
+  },
+  divisionInputWrap: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: COLOR_SUPERFICIE_SUAVE,
+    borderRadius: radii.md,
+    paddingLeft: 10,
+    height: 42,
+    width: 140,
+  },
+  divisionInputPrefix: {
+    ...textStyles.meta,
+    color: colors.textMuted,
+    fontWeight: "700",
+  },
+  divisionInput: {
+    flex: 1,
+    height: 42,
+    paddingHorizontal: 8,
+    textAlign: "right",
+    ...textStyles.bodyStrong,
+    color: colors.textPrimary,
+  },
+  divisionFooter: {
+    paddingTop: spacing.sm,
+    gap: spacing.sm,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+    paddingBottom: spacing.lg,
+  },
   equalSummary: {
     flexDirection: "row",
     alignItems: "center",
@@ -1792,7 +2148,6 @@ const styles = StyleSheet.create({
     borderRadius: radii.md,
     paddingVertical: 10,
     paddingHorizontal: 12,
-    marginTop: 8,
   },
   equalSummaryText: {
     ...textStyles.body,
@@ -1800,58 +2155,27 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     fontSize: 13,
   },
-  personalizadoCard: {
-    marginTop: 15,
-    backgroundColor: colors.surface,
-    padding: 15,
-    borderRadius: radii.md,
-    borderWidth: 1,
-    borderColor: colors.border,
+  progressTrack: {
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: COLOR_SUPERFICIE_SUAVE,
+    overflow: "hidden",
   },
-  personalizadoTitle: {
-    ...textStyles.label,
-    color: colors.primary,
-    marginBottom: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
-    paddingBottom: 5,
+  progressFill: {
+    height: 6,
+    borderRadius: 3,
   },
-  personalizadoRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingVertical: 8,
-    borderBottomWidth: 1,
-    borderBottomColor: "#f9fafb",
+  progressFillOk: {
+    backgroundColor: "#16a34a",
   },
-  personalizadoPersonaWrap: {
-    flexDirection: "row",
-    alignItems: "center",
-    flex: 1,
-  },
-  personalizadoNombre: {
-    ...textStyles.body,
-    color: colors.textPrimary,
-    flex: 1,
-  },
-  personalizadoInput: {
-    backgroundColor: "#f3f4f6",
-    width: 100,
-    height: 38,
-    borderRadius: radii.md,
-    paddingHorizontal: 10,
-    textAlign: "right",
-    ...textStyles.body,
-    color: colors.textPrimary,
+  progressFillWarn: {
+    backgroundColor: colors.warning,
   },
   personalizadoResumen: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    marginTop: 12,
-    paddingTop: 10,
-    borderTopWidth: 1,
-    borderTopColor: colors.border,
+    marginTop: 8,
   },
   personalizadoResumenLabel: {
     ...textStyles.meta,
@@ -1884,7 +2208,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    marginBottom: 15,
+    marginBottom: 12,
     paddingBottom: 10,
     borderBottomWidth: 1,
     borderBottomColor: "#eee",
@@ -1894,16 +2218,10 @@ const styles = StyleSheet.create({
     fontWeight: "800",
     color: colors.primary,
   },
-  modalDoneButton: {
-    backgroundColor: colors.primary,
-    paddingVertical: 6,
-    paddingHorizontal: 14,
-    borderRadius: 8,
-  },
-  modalDoneButtonText: {
-    color: "#fff",
-    fontWeight: "700",
-    fontSize: 14,
+  modalSubtitle: {
+    ...textStyles.meta,
+    color: colors.textSecondary,
+    marginTop: 2,
   },
   modalItem: {
     flexDirection: "row",
@@ -1926,6 +2244,11 @@ const styles = StyleSheet.create({
     color: colors.primary,
     fontWeight: "700",
   },
+  participanteRowLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+    flex: 1,
+  },
   modalOverlayAbsolute: {
     position: "absolute",
     top: 0,
@@ -1936,11 +2259,19 @@ const styles = StyleSheet.create({
     justifyContent: "flex-end",
     elevation: 999,
   },
+  sheetKav: {
+    flex: 1,
+    justifyContent: "flex-end",
+  },
   bottomSheet: {
     backgroundColor: colors.surface,
     borderTopLeftRadius: radii.xl,
     borderTopRightRadius: radii.xl,
-    padding: 20,
+    paddingTop: spacing.sm,
+    paddingHorizontal: 20,
     maxHeight: "70%",
+  },
+  bottomSheetTall: {
+    maxHeight: "90%",
   },
 });
