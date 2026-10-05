@@ -17,6 +17,7 @@ import {
   TouchableWithoutFeedback,
   KeyboardAvoidingView,
   Image,
+  Switch,
 } from "react-native";
 import { File } from "expo-file-system";
 
@@ -33,8 +34,9 @@ import {
   getExpenseCategories,
   getTripParticipants,
   createExpense,
-  getCurrencies, // <-- Asegúrate de tener esta función en tu services/api.js
+  getCurrencies, 
   getExchangeRate,
+  attachReceiptToExpense,
 } from "../services/api";
 
 import { colors, radii, spacing, textStyles } from "../theme/tokens";
@@ -46,7 +48,6 @@ import {
 } from "../utils/comprobanteGasto";
 import { avisar, confirmar } from "../utils/dialogs";
 
-// Espera antes de pedir la cotización mientras el usuario edita el monto.
 const DEMORA_COTIZACION_MS = 400;
 
 import {
@@ -73,9 +74,8 @@ function getIniciales(persona) {
   return (n + a).toUpperCase() || "?";
 }
 
-// true solo si el fallo es de red (no llegó respuesta del servidor)
+
 function esErrorDeRed(error) {
-  // Si el servidor respondió con un status HTTP, hay conexión
   if (error?.status || error?.response?.status) return false;
 
   const msg = String(error?.message || "").toLowerCase();
@@ -165,6 +165,11 @@ export default function AddGastoScreen({
   const [comprobanteUri, setComprobanteUri] = useState(null);
   const [comprobanteAmpliado, setComprobanteAmpliado] = useState(false);
   const [montoARS, setMontoARS] = useState("");
+
+  // Imagen completa del comprobante (con uri, mimeType, fileName) para subirla al repositorio.
+  const [comprobanteImagen, setComprobanteImagen] = useState(null);
+  const [guardarComprobante, setGuardarComprobante] = useState(true);
+
   // Conversión a ARS: "auto" la calcula con la cotización del día del gasto
   // (como la US-85); "manual" respeta lo que corrigió el usuario; "error" pide
   // ingresarla a mano porque el servicio de cotización no respondió.
@@ -325,6 +330,8 @@ export default function AddGastoScreen({
     setComprobanteAmpliado(false);
     setMontoARS("");
     setConversion({ estado: "idle", fecha: null });
+    setComprobanteImagen(null);
+    setGuardarComprobante(true);
 
     // Las monedas se cargan aparte: no dependen de que categorías/participantes carguen bien
     async function cargarMonedas() {
@@ -419,6 +426,7 @@ export default function AddGastoScreen({
     setComprobanteAmpliado(false);
     setMontoARS("");
     setConversion({ estado: "idle", fecha: null });
+    setComprobanteImagen(imagen || null);
 
     // AC4: el pagador se completa con el usuario que escaneó (se puede cambiar).
     const actual = participantes.find((p) => p.EsUsuarioActual);
@@ -454,6 +462,7 @@ export default function AddGastoScreen({
     eliminarImagenTemporal(comprobanteUri);
     setComprobanteUri(null);
     setComprobanteAmpliado(false);
+    setComprobanteImagen(null);
   }
 
   // AC9: cancelar descarta los datos y la imagen procesada sin registrar el gasto.
@@ -588,12 +597,32 @@ export default function AddGastoScreen({
       };
 
       try {
-        await createExpense(nuevoGasto);
-        // Cuando el padre muestra su propio cartel (ej: subida de documento con gasto), no duplicamos
-        // AC10: confirmación del registro. La imagen no se guarda (fuera de alcance de la US 93).
+        const respuestaGasto = await createExpense(nuevoGasto);
+
+        let estadoComprobante = null; 
+        if (desdeComprobante && guardarComprobante && comprobanteImagen && respuestaGasto?.IdGasto) {
+          try {
+            await attachReceiptToExpense(respuestaGasto.IdGasto, comprobanteImagen);
+            estadoComprobante = "guardado";
+          } catch (errorComprobante) {
+            console.log("No se pudo guardar el comprobante:", errorComprobante?.message);
+            estadoComprobante = "error";
+          }
+        }
         descartarComprobante();
-        if (mostrarAlertaExito) {
-          avisar("Éxito", "Gasto registrado correctamente en el servidor.");
+
+        if (estadoComprobante === "error") {
+          avisar(
+            "Gasto registrado",
+            "El gasto se registró correctamente, pero no se pudo guardar el comprobante en el repositorio."
+          );
+        } else if (mostrarAlertaExito) {
+          avisar(
+            "Éxito",
+            estadoComprobante === "guardado"
+              ? "Gasto registrado correctamente y comprobante guardado en el repositorio."
+              : "Gasto registrado correctamente en el servidor."
+          );
         }
         onGastoCreado?.();
         onClose();
@@ -615,12 +644,18 @@ export default function AddGastoScreen({
         console.log("⚠️ Guardando gasto localmente debido a fallo de red o servicio de cotización...");
         const guardadoConExito = guardarGastoOffline(nuevoGasto);
 
+        // Offline no se puede subir el comprobante: se avisa al usuario.
+        const avisoComprobanteOffline =
+          desdeComprobante && guardarComprobante && comprobanteImagen
+            ? " El comprobante no se guardó en el repositorio porque no hubo conexión."
+            : "";
+
         if (guardadoConExito) {
           // Si fue por 503, mostramos la alerta específica que el test espera o el mensaje offline general
           if (esCotizacionCaida) {
             Alert.alert(
               "Servicio no disponible",
-              "El servicio de cotización no se encuentra disponible en este momento.",
+              "El servicio de cotización no se encuentra disponible en este momento." + avisoComprobanteOffline,
               [
                 {
                   text: "Entendido",
@@ -634,7 +669,8 @@ export default function AddGastoScreen({
           } else {
             Alert.alert(
               "Modo Offline",
-              "El gasto quedó guardado localmente con su moneda original. Se convertirá y sincronizará cuando vuelva la conexión.",
+              "El gasto quedó guardado localmente con su moneda original. Se convertirá y sincronizará cuando vuelva la conexión." +
+                avisoComprobanteOffline,
               [
                 {
                   text: "Entendido",
@@ -720,6 +756,30 @@ export default function AddGastoScreen({
                       </View>
                     ) : null}
                   </Pressable>
+                ) : null}
+
+                {/* Guardar comprobante en el repositorio*/}
+                {desdeComprobante && comprobanteImagen ? (
+                  <View style={styles.guardarComprobanteRow} testID="guardar-comprobante-row">
+                    <View style={styles.guardarComprobanteTextos}>
+                      <Text style={styles.guardarComprobanteTitulo}>
+                        Guardar comprobante en el repositorio
+                      </Text>
+                      <Text style={styles.guardarComprobanteHint}>
+                        {guardarComprobante
+                          ? 'Se guardará en la categoría "Comprobantes" y quedará asociado al gasto.'
+                          : "El comprobante no se guardará: solo se registrará el gasto."}
+                      </Text>
+                    </View>
+                    <Switch
+                      value={guardarComprobante}
+                      onValueChange={setGuardarComprobante}
+                      disabled={saving}
+                      trackColor={{ false: colors.border, true: colors.primary }}
+                      thumbColor="#fff"
+                      testID="guardar-comprobante-switch"
+                    />
+                  </View>
                 ) : null}
 
                 <Text style={styles.label}>Concepto</Text>
@@ -1515,6 +1575,29 @@ const styles = StyleSheet.create({
     color: colors.primary,
   },
   comprobanteHint: {
+    ...textStyles.meta,
+    color: colors.textMuted,
+  },
+  guardarComprobanteRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+    marginTop: spacing.sm,
+    padding: spacing.sm,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radii.md,
+    backgroundColor: colors.surface,
+  },
+  guardarComprobanteTextos: {
+    flex: 1,
+    gap: 2,
+  },
+  guardarComprobanteTitulo: {
+    ...textStyles.bodyStrong,
+    color: colors.primary,
+  },
+  guardarComprobanteHint: {
     ...textStyles.meta,
     color: colors.textMuted,
   },

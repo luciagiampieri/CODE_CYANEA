@@ -2,7 +2,7 @@ from datetime import date, datetime
 from decimal import Decimal
 import enum 
 
-from sqlalchemy import String, Numeric, Boolean, Date, BigInteger, ForeignKey, DateTime, CheckConstraint, func, Enum
+from sqlalchemy import String, Numeric, Boolean, Date, BigInteger, Integer, ForeignKey, DateTime, CheckConstraint, func, Enum
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.session import Base
@@ -60,6 +60,16 @@ class Gasto(Base):
     
     FechaActualizacion: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 
+    IdDocumentoComprobante: Mapped[int | None] = mapped_column(
+        Integer,
+        ForeignKey(
+            "DocumentosViajes.IdDocumento",
+            name="FK_Gastos_DocumentosViajes_IdDocumentoComprobante",
+            ondelete="SET NULL",
+        ),
+        nullable=True,
+    )
+
     # Restricciones (Check Constraints espejo de la migración)
     __table_args__ = (
         CheckConstraint('"Monto" > 0', name="CK_Gastos_Monto"),
@@ -70,6 +80,7 @@ class Gasto(Base):
     Viaje = relationship("Viaje", back_populates="Gastos", foreign_keys=[IdViaje])
     Pagador = relationship("ParticipanteViaje", back_populates="GastosPagados", foreign_keys=[IdPagador])
     Categoria = relationship("CategoriasGastos", back_populates="Gastos", foreign_keys=[IdCategoria])
+    Comprobante = relationship("DocumentoViaje", foreign_keys=[IdDocumentoComprobante])
 
     # Relación intermedia hacia ParticipantesGastos con eliminación en cascada
     ParticipantesAsociados = relationship(

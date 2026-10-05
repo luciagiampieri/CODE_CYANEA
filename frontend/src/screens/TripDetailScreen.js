@@ -330,6 +330,7 @@ export default function TripDetailScreen({ navigation, route }) {
   const [descargandoDocId, setDescargandoDocId] = useState(null);
   const [eliminandoDocId, setEliminandoDocId] = useState(null);
   const [updatingTransferId, setUpdatingTransferId] = useState(null);
+  const [gastoParaEliminar, setGastoParaEliminar] = useState(null);
   const socketRef = useRef(null);
   const pendingEditRef = useRef(null);
   const [itinerarioView, setItinerarioView] = useItinerarioViewPreference();
@@ -581,28 +582,43 @@ export default function TripDetailScreen({ navigation, route }) {
     }
   }, [activeTab, loadExpenses]);
 
-  async function eliminarGasto(gasto) {
-    const ejecutar = async () => {
-      try {
-        setDeletingExpenseId(gasto.IdGasto);
-        await deleteExpense(gasto.IdGasto);
-        await Promise.all([loadExpenses(), loadSettlement()]);
-        avisar("Gasto eliminado", "El gasto se eliminó correctamente.");
-      } catch (error) {
-        avisar(
-          "No se pudo eliminar",
-          error.message || "No se pudo eliminar el gasto. Intentá nuevamente."
-        );
-      } finally {
-        setDeletingExpenseId(null);
-      }
-    };
+async function ejecutarBorradoGasto(gastoId, eliminarComprobante = false) {
+    try {
+      setGastoParaEliminar(null);
+      setDeletingExpenseId(gastoId);
+      const resultado = await deleteExpense(gastoId, { eliminarComprobante });
+      await Promise.all([loadExpenses(), loadSettlement()]);
 
-    confirmar(
-      "Eliminar gasto",
-      `¿Seguro que querés eliminar "${gasto.Nombre}"? Esta acción no se puede deshacer y actualizará los balances del viaje.`,
-      ejecutar
-    );
+      if (resultado?.ComprobanteEliminado) {
+        avisar("Gasto y comprobante eliminados", "Se eliminaron el gasto y su comprobante del repositorio.");
+        if (activeTab === "docs") loadDocumentos();
+      } else if (resultado?.MotivoComprobanteConservado === "NO_ES_DUENO") {
+        avisar("Gasto eliminado", "El gasto se eliminó, pero el comprobante se conservó en el repositorio porque fue subido por otro usuario.");
+      } else if (resultado?.MotivoComprobanteConservado === "VIAJE_FINALIZADO") {
+        avisar("Gasto eliminado", "El gasto se eliminó, pero el comprobante se conservó porque el viaje ya finalizó.");
+      } else {
+        avisar("Gasto eliminado", "El gasto se eliminó correctamente.");
+      }
+    } catch (error) {
+      avisar(
+        "No se pudo eliminar",
+        error.message || "No se pudo eliminar el gasto. Intentá nuevamente."
+      );
+    } finally {
+      setDeletingExpenseId(null);
+    }
+  }
+
+  async function eliminarGasto(gasto) {
+    if (gasto.IdDocumentoComprobante) {
+      setGastoParaEliminar(gasto);
+    } else {
+      confirmar(
+        "Eliminar gasto",
+        `¿Seguro que querés eliminar "${gasto.Nombre}"? Esta acción no se puede deshacer y actualizará los balances del viaje.`,
+        () => ejecutarBorradoGasto(gasto.IdGasto, false)
+      );
+    }
   }
 
   const mySettlementBalance = useMemo(() => {
@@ -3499,6 +3515,44 @@ export default function TripDetailScreen({ navigation, route }) {
                 <Text style={styles.modalButtonTextConfirm}>
                   {leavingTrip ? "Saliendo..." : "Confirmar salida"}
                 </Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
+      <Modal
+        animationType="fade"
+        transparent={true}
+        visible={!!gastoParaEliminar}
+        onRequestClose={() => setGastoParaEliminar(null)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalIconContainer}>
+              <FontAwesome6 name="trash-can" size={22} color={colors.danger || "#ef4444"} />
+            </View>
+            <Text style={styles.modalTitle}>Eliminar gasto</Text>
+            <Text style={styles.modalMessage}>
+              ¿Seguro que querés eliminar "{gastoParaEliminar?.Nombre}"? Este gasto tiene un comprobante guardado en el repositorio. ¿Qué querés hacer con el archivo adjunto?
+            </Text>
+            <View style={{ width: "100%", gap: 10 }}>
+              <Pressable
+                style={[styles.modalButton, { backgroundColor: colors.danger || "#ef4444" }]}
+                onPress={() => ejecutarBorradoGasto(gastoParaEliminar?.IdGasto, true)}
+              >
+                <Text style={styles.modalButtonTextConfirm}>Eliminar ambos</Text>
+              </Pressable>
+              <Pressable
+                style={[styles.modalButton, { backgroundColor: colors.primary }]}
+                onPress={() => ejecutarBorradoGasto(gastoParaEliminar?.IdGasto, false)}
+              >
+                <Text style={styles.modalButtonTextConfirm}>Conservar comprobante</Text>
+              </Pressable>
+              <Pressable
+                style={[styles.modalButton, styles.modalButtonCancel]}
+                onPress={() => setGastoParaEliminar(null)}
+              >
+                <Text style={styles.modalButtonTextCancel}>Cancelar</Text>
               </Pressable>
             </View>
           </View>
