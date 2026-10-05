@@ -23,6 +23,8 @@ from app.schemas.usuario import (
     UsuarioProfileUpdate,
     ConsentimientoIARead,
     ConsentimientoIAUpdate,
+    ConsentimientoAsistenteIARead,
+    ConsentimientoAsistenteIAUpdate,
     PrivacidadRead,
     PrivacidadUpdate,
     PrivacidadUpdateResponse,
@@ -77,8 +79,10 @@ def _serializar_usuario_actual(usuario: Usuario) -> UsuarioProfileRead:
         consienteNotificacionesEmail=usuario.ConsienteNotificacionesEmail,
         consienteNotificacionesPush=usuario.ConsienteNotificacionesPush,
         consienteProcesamientoIA=usuario.ConsienteProcesamientoIA,
+        consienteAsistenteIA=usuario.ConsienteAsistenteIA,
         fechaConsentimientoNotificacionesEmail=usuario.FechaConsentimientoNotificacionesEmail,
         fechaConsentimientoNotificacionesPush=usuario.FechaConsentimientoNotificacionesPush,
+        fechaConsentimientoAsistenteIA=usuario.FechaConsentimientoAsistenteIA,
         recibeEmailsNuevasActividades=usuario.RecibeEmailsNuevasActividades,
         recibeEmailsNuevaVotacion=usuario.RecibeEmailsNuevaVotacion,
         recibeEmailsCambiosViaje=usuario.RecibeEmailsCambiosViaje,
@@ -117,6 +121,8 @@ def _anonimizar_usuario(usuario: Usuario) -> None:
     usuario.FechaConsentimientoNotificacionesPush = None
     usuario.ConsienteProcesamientoIA = False
     usuario.FechaConsentimientoIA = None
+    usuario.ConsienteAsistenteIA = False
+    usuario.FechaConsentimientoAsistenteIA = None
     usuario.RecibeEmailsNuevasActividades = False
     usuario.RecibeEmailsNuevaVotacion = False
     usuario.RecibeEmailsCambiosViaje = False
@@ -212,6 +218,24 @@ def update_ai_consent(
     return ConsentimientoIARead(
         consienteProcesamientoIA=current_user.ConsienteProcesamientoIA,
         fechaConsentimientoIA=current_user.FechaConsentimientoIA,
+    )
+
+
+@router.put("/me/consentimiento-asistente-ia", response_model=ConsentimientoAsistenteIARead)
+def update_assistant_ai_consent(
+    payload: ConsentimientoAsistenteIAUpdate,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> ConsentimientoAsistenteIARead:
+    current_user.ConsienteAsistenteIA = payload.consiente
+    current_user.FechaConsentimientoAsistenteIA = (
+        datetime.now(timezone.utc) if payload.consiente else None
+    )
+    db.commit()
+    db.refresh(current_user)
+    return ConsentimientoAsistenteIARead(
+        consienteAsistenteIA=current_user.ConsienteAsistenteIA,
+        fechaConsentimientoAsistenteIA=current_user.FechaConsentimientoAsistenteIA,
     )
 
 

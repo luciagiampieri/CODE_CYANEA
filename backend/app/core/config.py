@@ -74,6 +74,7 @@ class Settings(BaseSettings):
     # Con "mock" no se llama a ningún servicio externo (desarrollo y tests).
     ai_receipt_provider: str = "gemini"
     gemini_api_key: str | None = None
+    gemini_verify_ssl: bool = True
     ai_receipt_model: str = "gemini-3.8-flash"
     # Modelo alternativo si el principal está saturado, llegó al límite de uso,
     # no responde a tiempo o fue retirado (RNF-30). Vacío = sin respaldo.
@@ -81,6 +82,13 @@ class Settings(BaseSettings):
     # Tiempo máximo de espera al proveedor; se deja margen para cumplir los
     # 15 segundos totales del RNF-34 (subida + validaciones + respuesta).
     ai_receipt_timeout_seconds: float = 12.0
+
+    # Asistente IA del viaje
+    ai_assistant_enabled: bool = True
+    ai_assistant_provider: str = "gemini"
+    ai_assistant_model: str | None = None
+    ai_assistant_fallback_model: str | None = None
+    ai_assistant_timeout_seconds: float = 20.0
 
     model_config = SettingsConfigDict(
         env_file=".env",

@@ -484,6 +484,30 @@ export async function updatePrivacySettings(settings) {
   return parseResponse(response, "No se pudieron guardar tus preferencias de privacidad");
 }
 
+export async function updateAssistantConsent(consiente) {
+  const response = await fetch(`${API_BASE_URL}/users/me/consentimiento-asistente-ia`, {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+      ...(await authHeaders()),
+    },
+    body: JSON.stringify({ consiente }),
+  });
+  return parseResponse(response, "No se pudo actualizar el consentimiento del asistente");
+}
+
+export async function sendTripAssistantMessage(tripId, payload) {
+  const response = await fetch(`${API_BASE_URL}/trips/${tripId}/assistant/messages`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(await authHeaders()),
+    },
+    body: JSON.stringify(payload),
+  });
+  return parseResponse(response, "No se pudo contactar al asistente");
+}
+
 export async function verifyPassword(password) {
   const response = await fetch(
     `${API_BASE_URL}/users/me/verify-password`,
@@ -1543,4 +1567,4 @@ export async function savePlanningPreferences(tripId, payload) {
     body: JSON.stringify(payload),
   });
   return parseResponse(response, "No se pudieron guardar tus preferencias de planificación");
-}
+}

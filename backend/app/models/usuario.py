@@ -52,6 +52,12 @@ class Usuario(Base):
     FechaConsentimientoIA: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    ConsienteAsistenteIA: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
+    FechaConsentimientoAsistenteIA: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     RecibeEmailsNuevasActividades: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=True, server_default="true"
     )

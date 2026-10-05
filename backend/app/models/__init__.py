@@ -34,6 +34,8 @@ from app.models.recuperacion_password import TokenRecuperacionPassword, Solicitu
 from app.models.interes_planificacion import InteresPlanificacion
 from app.models.ritmo_viaje import RitmoViaje
 from app.models.preferencia_planificacion import PreferenciaPlanificacion
+from app.models.accion_asistente_viaje import AccionAsistenteViaje
+from app.models.voto import Voto
 __all__ = [
     "EstadoInvitacion",
     "EstadoParticipacion",
@@ -70,4 +72,6 @@ __all__ = [
     "InteresPlanificacion",
     "RitmoViaje",
     "PreferenciaPlanificacion",
+    "AccionAsistenteViaje",
+    "Voto",
 ]

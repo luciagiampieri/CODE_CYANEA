@@ -22,8 +22,10 @@ class UsuarioProfileRead(UsuarioRead):
     consienteNotificacionesEmail: bool
     consienteNotificacionesPush: bool
     consienteProcesamientoIA: bool = False
+    consienteAsistenteIA: bool = False
     fechaConsentimientoNotificacionesEmail: datetime | None = None
     fechaConsentimientoNotificacionesPush: datetime | None = None
+    fechaConsentimientoAsistenteIA: datetime | None = None
     recibeEmailsNuevasActividades: bool = True
     recibeEmailsNuevaVotacion: bool
     recibeEmailsCambiosViaje: bool
@@ -153,6 +155,15 @@ class ConsentimientoIAUpdate(BaseModel):
 class ConsentimientoIARead(BaseModel):
     consienteProcesamientoIA: bool
     fechaConsentimientoIA: datetime | None = None
+
+
+class ConsentimientoAsistenteIAUpdate(BaseModel):
+    consiente: bool
+
+
+class ConsentimientoAsistenteIARead(BaseModel):
+    consienteAsistenteIA: bool
+    fechaConsentimientoAsistenteIA: datetime | None = None
 
 
 Visibilidad = Literal["participantes", "privado"]

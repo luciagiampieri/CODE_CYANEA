@@ -72,6 +72,7 @@ class GeminiReceiptExtractor:
         model: str,
         timeout_seconds: float,
         fallback_model: str | None = None,
+        verify_ssl: bool = True,
         transport: httpx.AsyncBaseTransport | None = None,
     ):
         self.api_key = api_key
@@ -79,6 +80,7 @@ class GeminiReceiptExtractor:
         self.timeout_seconds = timeout_seconds
         respaldo = (fallback_model or "").strip()
         self.fallback_model = respaldo if respaldo and respaldo != model else None
+        self.verify_ssl = verify_ssl
         # Permite inyectar un transporte falso en los tests (sin red).
         self.transport = transport
 
@@ -155,6 +157,7 @@ class GeminiReceiptExtractor:
         try:
             async with httpx.AsyncClient(
                 timeout=httpx.Timeout(timeout_seconds, connect=min(5.0, timeout_seconds)),
+                verify=self.verify_ssl,
                 transport=self.transport,
             ) as client:
                 response = await client.post(
