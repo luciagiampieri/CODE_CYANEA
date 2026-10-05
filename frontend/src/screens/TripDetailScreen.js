@@ -6,6 +6,7 @@ import { useFocusEffect } from "@react-navigation/native";
 import {
   ActivityIndicator,
   Alert,
+  Image,
   ImageBackground,
   Keyboard,
   Linking,
@@ -17,6 +18,7 @@ import {
   Text,
   View,
   Modal,
+  useWindowDimensions,
 } from "react-native";
 
 import ScreenContainer from "../components/layout/ScreenContainer";
@@ -340,6 +342,32 @@ export default function TripDetailScreen({ navigation, route }) {
   const pendingCenterGastos = useRef(false);
 
   const [keyboardInset, setKeyboardInset] = useState(0);
+
+  const [comprobanteViendo, setComprobanteViendo] = useState(null);
+  const [descargandoComprobanteId, setDescargandoComprobanteId] = useState(null);
+  const { width: winW, height: winH } = useWindowDimensions();
+  const [comprobanteError, setComprobanteError] = useState(false);
+
+  useEffect(() => {
+    setComprobanteError(false);
+  }, [comprobanteViendo]);
+
+  async function handleDescargarComprobante(gasto) {
+    try {
+      setDescargandoComprobanteId(gasto.IdGasto);
+      await downloadTripDocument(trip.id, gasto.IdDocumentoComprobante, gasto.NombreComprobante);
+      avisar(
+        "Descarga completa",
+        Platform.OS === "web"
+          ? "El comprobante se descargó correctamente."
+          : "El comprobante se guardó en tu dispositivo."
+      );
+    } catch (error) {
+      avisar("Error", error.message || "No se pudo descargar el comprobante. Intentá nuevamente.");
+    } finally {
+      setDescargandoComprobanteId(null);
+    }
+  }
 
   useEffect(() => {
     const isIos = Platform.OS === "ios";
@@ -2486,6 +2514,9 @@ async function ejecutarBorradoGasto(gastoId, eliminarComprobante = false) {
                     onRetry={loadExpenses}
                     scrollRef={scrollRef}
                     cardRef={gastosCardRef}
+                    onViewReceipt={(gasto) => setComprobanteViendo(gasto)}
+                    onDownloadReceipt={handleDescargarComprobante}
+                    downloadingReceiptId={descargandoComprobanteId}
                   />
                 ) : gastosView === "transferencias" ? (
                   <SettlementTransfers
@@ -3558,6 +3589,59 @@ async function ejecutarBorradoGasto(gastoId, eliminarComprobante = false) {
           </View>
         </View>
       </Modal>
+      <Modal
+        animationType="fade"
+        transparent={true}
+        visible={!!comprobanteViendo}
+        onRequestClose={() => setComprobanteViendo(null)}
+      >
+        <View style={styles.viewerOverlay}>
+          <View style={styles.viewerHeader}>
+            <Text style={styles.viewerTitle} numberOfLines={1}>
+              {comprobanteViendo?.NombreComprobante || "Comprobante"}
+            </Text>
+            <Pressable
+              hitSlop={10}
+              onPress={() => setComprobanteViendo(null)}
+              style={styles.viewerCloseButton}
+            >
+              <FontAwesome6 name="xmark" size={20} color="#fff" />
+            </Pressable>
+          </View>
+          
+          <View style={styles.viewerContent}>
+            {comprobanteViendo?.NombreComprobante?.toLowerCase().endsWith('.pdf') ? (
+              <View style={{ alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+                <FontAwesome6 name="file-pdf" size={50} color="#94a3b8" style={{ marginBottom: 16 }} />
+                <Text style={{ color: '#fff', fontSize: 15, textAlign: 'center', lineHeight: 22 }}>
+                  El visor no soporta archivos PDF.{'\n'}Por favor, descargá el comprobante para verlo.
+                </Text>
+              </View>
+            ) : comprobanteViendo?.UrlComprobante && !comprobanteError ? (
+              <Image
+                source={{ uri: comprobanteViendo.UrlComprobante.replace(/ /g, "%20") }}
+                style={{ width: winW, height: winH * 0.6 }}
+                resizeMode="contain"
+                onError={() => setComprobanteError(true)}
+              />
+            ) : (
+              <Text style={{ color: "#fff", textAlign: "center", padding: 20 }}>
+                No se pudo mostrar el comprobante. Podés descargarlo con el botón de abajo.
+              </Text>
+            )}
+          </View>
+
+          <View style={styles.viewerFooter}>
+            <PrimaryButton 
+              label={descargandoComprobanteId === comprobanteViendo?.IdGasto ? "Descargando..." : "Descargar comprobante"}
+              icon="download" 
+              iconPosition="left"
+              disabled={descargandoComprobanteId === comprobanteViendo?.IdGasto}
+              onPress={() => handleDescargarComprobante(comprobanteViendo)}
+            />
+          </View>
+        </View>
+      </Modal>
     </ScreenContainer>
   );
 }
@@ -4364,4 +4448,49 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: "700",
   },
+  viewerOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0, 0, 0, 0.92)",
+    justifyContent: "space-between",
+  },
+  viewerHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingTop: Platform.OS === 'ios' ? 60 : 30,
+    paddingHorizontal: 20,
+    paddingBottom: 15,
+    backgroundColor: "rgba(0, 0, 0, 0.6)",
+    zIndex: 10,
+    width: "100%",
+  },
+  viewerTitle: {
+    color: "#fff",
+    fontSize: 16,
+    fontWeight: "bold",
+    flex: 1,
+    marginRight: 15,
+  },
+  viewerCloseButton: {
+    padding: 5,
+  },
+  viewerContent: {
+    flex: 1,
+    width: "100%",
+    justifyContent: "center",
+    alignItems: "center",
+    paddingVertical: 20,
+  },
+  viewerImage: {
+    flex: 1,
+    width: "100%",
+    height: "100%",
+  },
+  viewerFooter: {
+    padding: 20,
+    paddingBottom: Platform.OS === 'ios' ? 40 : 20,
+    backgroundColor: "rgba(0, 0, 0, 0.6)",
+    zIndex: 10,
+    width: "100%",
+  }
 });

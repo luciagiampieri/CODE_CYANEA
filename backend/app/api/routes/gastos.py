@@ -64,7 +64,7 @@ from app.services.receipt_ai.base import (
     MENSAJE_TIEMPO_AGOTADO,
 )
 from app.services.comprobante_gasto import guardar_comprobante
-from app.services.supabase.storage import eliminar_documento, eliminar_documento_storage
+from app.services.supabase.storage import eliminar_documento, eliminar_documento_storage, obtener_url_publica
 from app.services.websocket_manager import manager
 
 router = APIRouter()
@@ -669,8 +669,13 @@ def list_trip_gastos(
     current_user: Usuario = Depends(get_current_user),
 ):
     """Listado de gastos del viaje, del más reciente al más antiguo."""
-
-    require_trip_access(get_trip_with_relations(db, trip_id), current_user)
+    viaje = get_trip_with_relations(db, trip_id)
+    require_trip_access(viaje, current_user)
+    try:
+        require_trip_edit_access(viaje, current_user)
+        es_participante_actual = True
+    except Exception:
+        es_participante_actual = False
 
     query = (
         select(Gasto)
@@ -690,8 +695,13 @@ def list_trip_gastos(
     def _comprobante_visible(gasto: Gasto) -> bool:
         # Mismas reglas de acceso que el repositorio: público o propio (RN-28).
         comprobante = gasto.Comprobante
-        return comprobante is not None and (
-            comprobante.EsPublico or comprobante.IdUsuarioSubida == current_user.IdUsuario
+        return (
+            es_participante_actual
+            and comprobante is not None
+            and (
+                comprobante.EsPublico
+                or comprobante.IdUsuarioSubida == current_user.IdUsuario
+            )
         )
 
     return [
@@ -711,8 +721,17 @@ def list_trip_gastos(
                 gasto.IdDocumentoComprobante if _comprobante_visible(gasto) else None
             ),
             EsPropioComprobante=(
-                gasto.Comprobante is not None
+                es_participante_actual
+                and gasto.Comprobante is not None
                 and gasto.Comprobante.IdUsuarioSubida == current_user.IdUsuario
+            ),
+            UrlComprobante=(
+                obtener_url_publica(gasto.Comprobante.UrlArchivo)
+                if _comprobante_visible(gasto)
+                else None
+            ),
+            NombreComprobante=(
+                gasto.Comprobante.NombreArchivo if _comprobante_visible(gasto) else None
             ),
         )
         for gasto in gastos

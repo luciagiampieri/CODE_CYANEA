@@ -172,6 +172,9 @@ export default function ExpenseList({
   onRetry,
   scrollRef,
   cardRef,
+  onViewReceipt,
+  onDownloadReceipt,
+  downloadingReceiptId,
 }) {
   const { width: windowWidth, height: windowHeight } = useWindowDimensions();
 
@@ -827,6 +830,19 @@ export default function ExpenseList({
                           >
                             Registrado: {formatOriginalAmount(expense.MontoOriginal)} {originalCurrency}
                           </Text>
+                        ) : null}
+                        
+                        {expense.UrlComprobante ? (
+                          <View style={styles.receiptActionsRow}>
+                            <Pressable
+                              onPress={() => onViewReceipt && onViewReceipt(expense)}
+                              style={styles.receiptActionLink}
+                              hitSlop={8}
+                            >
+                              <FontAwesome6 name="receipt" size={12} color={colors.primary} />
+                              <Text style={styles.receiptActionText}>Ver comprobante</Text>
+                            </Pressable>
+                          </View>
                         ) : null}
                       </View>
                       <View style={styles.rowActions}>
@@ -1833,5 +1849,23 @@ const styles = StyleSheet.create({
   monthCountActive: {
     color: colors.textInverse,
     opacity: 0.85,
+  },
+  receiptActionsRow: {
+    flexDirection: "row",
+    marginTop: 4,
+  },
+  receiptActionLink: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: TINTE_PRIMARIO,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: radii.sm,
+  },
+  receiptActionText: {
+    ...textStyles.meta,
+    color: colors.primary,
+    fontWeight: "700",
   },
 });
