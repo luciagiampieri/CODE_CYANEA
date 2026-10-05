@@ -299,7 +299,7 @@ export default function ProfileScreen({ navigation }) {
 
               {trips.length > 0 ? (
                 <View style={styles.sectionBlock}>
-                  <Text style={styles.sectionLabel}>Estadísticas por año</Text>
+                  <Text style={styles.sectionLabel}>Resumen Anual</Text>
 
                   <ScrollView
                     horizontal

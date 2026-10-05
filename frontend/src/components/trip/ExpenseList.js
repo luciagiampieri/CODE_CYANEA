@@ -839,7 +839,7 @@ export default function ExpenseList({
                               style={styles.receiptActionLink}
                               hitSlop={8}
                             >
-                              <FontAwesome6 name="receipt" size={12} color={colors.primary} />
+                              <FontAwesome6 name="paperclip" size={12} color={colors.primary} />
                               <Text style={styles.receiptActionText}>Ver comprobante</Text>
                             </Pressable>
                           </View>
