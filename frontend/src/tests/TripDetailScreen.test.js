@@ -14,6 +14,7 @@ import {
   onTripFinishedError,
   getSentInvitations,
   cancelSentInvitation,
+  addTripParticipant,
   getTripExpenses,
   getExpenseCategories,
   sendTripAssistantMessage,
@@ -73,6 +74,7 @@ jest.mock("../services/api", () => ({
   getExpenseCategories: jest.fn(),
   getSentInvitations: jest.fn(),
   cancelSentInvitation: jest.fn(),
+  addTripParticipant: jest.fn(),
   getTripExpenses: jest.fn(),
   sendTripAssistantMessage: jest.fn(),
   updateAssistantConsent: jest.fn(),
@@ -857,6 +859,73 @@ describe("HU 72 - Cancelar invitación enviada", () => {
         "Solo se pueden cancelar invitaciones pendientes"
       )
     );
+  });
+
+  describe("volver a invitar a quien rechazó", () => {
+    beforeEach(() => {
+      getSentInvitations.mockResolvedValue([
+        {
+          userId: 4,
+          nombreUsuario: "camila",
+          nombreCompleto: "Camila Pardo",
+          status: "rechazada",
+          invitedAt: "2099-09-28T10:00:00",
+          respondedAt: "2099-09-29T10:00:00",
+        },
+      ]);
+    });
+
+    test("pide confirmación, reenvía la invitación y muestra el mensaje", async () => {
+      addTripParticipant.mockResolvedValueOnce({ message: "Invitación reenviada correctamente" });
+      jest.spyOn(Alert, "alert").mockImplementation((titulo, mensaje, botones) => {
+        botones?.find((boton) => boton.text === "Confirmar")?.onPress?.();
+      });
+
+      const { findByTestId } = await abrirInvitaciones();
+      fireEvent.press(await findByTestId("sent-invitation-resend-4"));
+
+      expect(Alert.alert).toHaveBeenCalledWith(
+        "Volver a invitar",
+        "@camila rechazó la invitación. ¿Querés enviársela de nuevo?",
+        expect.any(Array)
+      );
+      await waitFor(() => expect(addTripParticipant).toHaveBeenCalledWith(1, { userId: 4 }));
+      await waitFor(() =>
+        expect(Alert.alert).toHaveBeenCalledWith(
+          "Invitación reenviada",
+          "Invitación reenviada correctamente"
+        )
+      );
+    });
+
+    test("si se vuelve atrás en la confirmación, no se reenvía", async () => {
+      jest.spyOn(Alert, "alert").mockImplementation((titulo, mensaje, botones) => {
+        botones?.find((boton) => boton.text === "Volver")?.onPress?.();
+      });
+
+      const { findByTestId } = await abrirInvitaciones();
+      fireEvent.press(await findByTestId("sent-invitation-resend-4"));
+
+      expect(Alert.alert).toHaveBeenCalled();
+      expect(addTripParticipant).not.toHaveBeenCalled();
+    });
+
+    test("si el backend rechaza el reenvío, muestra el motivo", async () => {
+      addTripParticipant.mockRejectedValueOnce(new Error("El usuario ya está agregado al viaje"));
+      jest.spyOn(Alert, "alert").mockImplementation((titulo, mensaje, botones) => {
+        botones?.find((boton) => boton.text === "Confirmar")?.onPress?.();
+      });
+
+      const { findByTestId } = await abrirInvitaciones();
+      fireEvent.press(await findByTestId("sent-invitation-resend-4"));
+
+      await waitFor(() =>
+        expect(Alert.alert).toHaveBeenCalledWith(
+          "No se pudo reenviar",
+          "El usuario ya está agregado al viaje"
+        )
+      );
+    });
   });
 });
 

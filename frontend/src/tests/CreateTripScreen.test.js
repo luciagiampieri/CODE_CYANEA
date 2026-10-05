@@ -386,7 +386,7 @@ describe("US - Crear viaje (CreateTripScreen)", () => {
     });
 
     expect(
-      utils.getAllByText("Destinos seleccionados (1)").length
+      utils.getAllByText("Tus destinos (1)").length
     ).toBeGreaterThan(0);
 
     expect(utils.getAllByText("Bariloche").length).toBeGreaterThan(0);
@@ -717,10 +717,10 @@ describe("US - Crear viaje (CreateTripScreen)", () => {
     });
 
     // Seleccionar portada
-    await press(utils, "Elegir de la galería");
+    await press(utils, "Galería"); // opción "Galería · Elegir foto" de la portada
 
     await waitFor(() => {
-      expect(utils.getByText("Imagen personalizada")).toBeTruthy();
+      expect(utils.getByText("Tu foto")).toBeTruthy(); // insignia de la portada elegida de la galería
     });
 
     // Avanzar al paso 3
@@ -789,10 +789,10 @@ describe("US - Crear viaje (CreateTripScreen)", () => {
     );
 
     // Seleccionar portada
-    await press(utils, "Elegir de la galería");
+    await press(utils, "Galería"); // opción "Galería · Elegir foto" de la portada
 
     await waitFor(() => {
-      expect(utils.getByText("Imagen personalizada")).toBeTruthy();
+      expect(utils.getByText("Tu foto")).toBeTruthy(); // insignia de la portada elegida de la galería
     });
 
     expect(ImagePicker.launchImageLibraryAsync).toHaveBeenCalledWith({
@@ -836,7 +836,7 @@ describe("US - Crear viaje (CreateTripScreen)", () => {
     );
 
     // Intentar seleccionar una portada GIF
-    await press(utils, "Elegir de la galería");
+    await press(utils, "Galería"); // opción "Galería · Elegir foto" de la portada
 
     await waitFor(() => {
       expect(
@@ -846,7 +846,7 @@ describe("US - Crear viaje (CreateTripScreen)", () => {
       ).toBeTruthy();
     });
 
-    expect(utils.queryByText("Imagen personalizada")).toBeNull();
+    expect(utils.queryByText("Tu foto")).toBeNull();
     expect(uploadTripCover).not.toHaveBeenCalled();
   });
 
@@ -881,19 +881,19 @@ describe("US - Crear viaje (CreateTripScreen)", () => {
     );
 
     // Seleccionar portada JPG
-    await press(utils, "Elegir de la galería");
+    await press(utils, "Galería"); // opción "Galería · Elegir foto" de la portada
 
     await waitFor(() => {
-      expect(utils.getByText("Imagen personalizada")).toBeTruthy();
+      expect(utils.getByText("Tu foto")).toBeTruthy(); // insignia de la portada elegida de la galería
     });
 
-    // Cancelar la selección
-    await press(utils, "Cancelar selección");
+    // Descartar la foto elegida: se vuelve a la portada automática del destino
+    // (opción "Destino · Automática"; reemplaza al antiguo botón "Cancelar selección")
+    await press(utils, "Automática");
 
-    expect(utils.queryByText("Imagen personalizada")).toBeNull();
-    expect(
-      utils.getByText("Se usará una portada predeterminada")
-    ).toBeTruthy();
+    expect(utils.queryByText("Tu foto")).toBeNull();
+    // Este test no agrega destinos, así que no hay foto de destino: queda la predeterminada
+    expect(utils.getByText("Se usará una portada predeterminada")).toBeTruthy();
   });
 
   it("informa si se deniega el permiso para acceder a la galería", async () => {
@@ -921,7 +921,7 @@ describe("US - Crear viaje (CreateTripScreen)", () => {
     );
 
     // Intentar seleccionar una portada
-    await press(utils, "Elegir de la galería");
+    await press(utils, "Galería"); // opción "Galería · Elegir foto" de la portada
 
     await waitFor(() => {
       expect(

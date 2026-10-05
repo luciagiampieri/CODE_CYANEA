@@ -62,6 +62,21 @@ async function press(getters, texto) {
   });
 }
 
+// Presiona la primera coincidencia del texto. Se usa con "Cancelar", que aparece en la
+// portada y en el pie: el de la portada es el primero en pantalla.
+async function pressPrimero(getters, texto) {
+  await act(async () => {
+    fireEvent.press(getters.getAllByText(texto)[0]);
+  });
+}
+
+// La pantalla se organiza en pestañas: Información, Destinos y Portada.
+async function abrirPestania(getters, clave) {
+  await act(async () => {
+    fireEvent.press(getters.getByTestId(`edit-trip-tab-${clave}`));
+  });
+}
+
 async function renderPantallaCargada() {
   const utils = await render(<EditTripScreen navigation={navigation} route={route} />);
   await waitFor(() => expect(utils.getByText("Editar Viaje")).toBeTruthy());
@@ -94,6 +109,7 @@ describe("US - Editar viaje (EditTripScreen)", () => {
 
     expect(utils.getByDisplayValue("Viaje a la playa")).toBeTruthy();
     expect(utils.getByDisplayValue("Unas vacaciones con amigos")).toBeTruthy();
+    await abrirPestania(utils, "destinations"); // los destinos se ven en su pestaña
     expect(utils.getByText("Mar del Plata")).toBeTruthy();
   });
 
@@ -114,12 +130,12 @@ describe("US - Editar viaje (EditTripScreen)", () => {
     const utils = await renderPantallaCargada();
 
     expect(
-      utils.getByText("El viaje ya comenzó, la fecha de ida no se puede modificar.")
+      utils.getByText("El viaje ya comenzó, no se puede modificar.")
     ).toBeTruthy();
     // Solo debe quedar un botón "Seleccionar fecha"... en este caso ninguno,
     // porque ambas fechas ya tienen valor cargado; lo relevante es que NO
     // hay forma de abrir el picker de la fecha de ida.
-    expect(utils.queryByText("2020-01-01")).toBeTruthy();
+    expect(utils.queryByText("01/01/2020")).toBeTruthy(); // se muestra como texto fijo, sin selector
   });
 
   it("muestra error de validación si se elimina el único destino y título vacío", async () => {
@@ -131,13 +147,37 @@ describe("US - Editar viaje (EditTripScreen)", () => {
       fireEvent.changeText(utils.getByDisplayValue("Viaje a la playa"), "");
     });
 
+    await abrirPestania(utils, "destinations");
     await act(async () => {
       fireEvent.press(utils.getByTestId("edit-trip-remove-destination-0"));
     });
 
     await press(utils, "Guardar cambios");
 
+    // Al fallar la validación, la pantalla vuelve a la primera pestaña con errores
+    // (Información) aunque el usuario estuviera en Destinos.
     expect(utils.getByText("El título del viaje no puede quedar vacío.")).toBeTruthy();
+
+    await abrirPestania(utils, "destinations");
+    expect(
+      utils.getByText("El viaje debe mantener al menos un destino asignado.")
+    ).toBeTruthy();
+    expect(updateTrip).not.toHaveBeenCalled();
+  });
+
+  it("si el único error está en Destinos, al guardar lleva a esa pestaña", async () => {
+    getTripDetail.mockResolvedValue(tripFuturo);
+
+    const utils = await renderPantallaCargada();
+
+    await abrirPestania(utils, "destinations");
+    await act(async () => {
+      fireEvent.press(utils.getByTestId("edit-trip-remove-destination-0"));
+    });
+    await abrirPestania(utils, "info");
+
+    await press(utils, "Guardar cambios");
+
     expect(
       utils.getByText("El viaje debe mantener al menos un destino asignado.")
     ).toBeTruthy();
@@ -206,6 +246,7 @@ describe("US - Editar viaje (EditTripScreen)", () => {
     });
 
     const utils = await renderPantallaCargada();
+    await abrirPestania(utils, "cover"); // la portada se edita en su pestaña
 
     await press(utils, "Elegir de la galería");
 
@@ -238,8 +279,9 @@ describe("US - Editar viaje (EditTripScreen)", () => {
     });
 
     const utils = await renderPantallaCargada();
+    await abrirPestania(utils, "cover"); // la portada se edita en su pestaña
 
-    await press(utils, "Cambiar imagen");
+    await press(utils, "Cambiar imagen de galería");
 
     await waitFor(() => {
       expect(utils.getByText("Nueva imagen seleccionada")).toBeTruthy();
@@ -280,13 +322,14 @@ describe("US - Editar viaje (EditTripScreen)", () => {
     });
 
     const utils = await renderPantallaCargada();
+    await abrirPestania(utils, "cover"); // la portada se edita en su pestaña
 
-    await press(utils, "Cambiar imagen");
+    await press(utils, "Cambiar imagen de galería");
 
     await waitFor(() => {
       expect(
         utils.getByText(
-          "Tipo de archivo no permitido. Solo se permiten JPG, JPEG y PNG."
+          "Solo se permiten archivos JPG, JPEG y PNG."
         )
       ).toBeTruthy();
     });
@@ -304,13 +347,14 @@ describe("US - Editar viaje (EditTripScreen)", () => {
     });
 
     const utils = await renderPantallaCargada();
+    await abrirPestania(utils, "cover"); // la portada se edita en su pestaña
 
     await press(utils, "Elegir de la galería");
 
     await waitFor(() => {
       expect(
         utils.getByText(
-          "Necesitamos tu permiso para acceder a las fotos y poder elegir una portada."
+          "Necesitamos tu permiso para acceder a las fotos."
         )
       ).toBeTruthy();
     });
@@ -338,14 +382,15 @@ describe("US - Editar viaje (EditTripScreen)", () => {
     });
 
     const utils = await renderPantallaCargada();
+    await abrirPestania(utils, "cover"); // la portada se edita en su pestaña
 
-    await press(utils, "Cambiar imagen");
+    await press(utils, "Cambiar imagen de galería");
 
     await waitFor(() => {
       expect(utils.getByText("Nueva imagen seleccionada")).toBeTruthy();
     });
 
-    await press(utils, "Cancelar selección");
+    await pressPrimero(utils, "Cancelar"); // el de la portada, no el del pie
 
     expect(utils.queryByText("Nueva imagen seleccionada")).toBeNull();
     expect(utils.getByText("Portada personalizada actual")).toBeTruthy();
@@ -360,8 +405,9 @@ describe("US - Editar viaje (EditTripScreen)", () => {
     });
 
     const utils = await renderPantallaCargada();
+    await abrirPestania(utils, "cover"); // la portada se edita en su pestaña
 
-    await press(utils, "Usar portada de Google");
+    await press(utils, "Usar Google");
 
     expect(
       utils.getByText("Portada de Google Maps")
@@ -381,8 +427,9 @@ describe("US - Editar viaje (EditTripScreen)", () => {
     });
 
     const utils = await renderPantallaCargada();
+    await abrirPestania(utils, "cover"); // la portada se edita en su pestaña
 
-    await press(utils, "Usar portada de Google");
+    await press(utils, "Usar Google");
     await press(utils, "Guardar cambios");
 
     await waitFor(() => {

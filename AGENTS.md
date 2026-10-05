@@ -514,6 +514,12 @@ Para retomar o replicar la configuracion de push Android:
 - Botones: el de `style: "cancel"` queda como secundario a la izquierda; el ultimo boton no-cancelar es el principal; `style: "destructive"` lo pinta de rojo
 - Para avisos simples o confirmaciones con promesa, preferir `avisar` y `confirmar` de `frontend/src/utils/dialogs.js`
 
+### Invitaciones a viajes
+
+- Se puede volver a invitar a un usuario cuya participacion este en `cancelada`, `rechazado`, `expulsado` o `salio`: el backend la reactiva como `invitado` y limpia `FechaRespuesta` (`ESTADOS_REINVITABLES` y `_reinvitar_participante` en `backend/app/api/routes/trips.py`). La misma regla aplica al invitar por `userId` y por `email`
+- `invitado` o `aceptado` siguen respondiendo 409 ("El usuario ya está agregado al viaje")
+- En el frontend, `SentInvitationsList` muestra "Volver a invitar" en las invitaciones rechazadas (prop `onResend`); `TripDetailScreen` pide confirmacion y reutiliza `addTripParticipant`
+
 ### Navegacion
 
 - Usar React Navigation para la navegacion principal del frontend Expo

@@ -85,6 +85,25 @@ describe("SentInvitationsList", () => {
     expect(onCancel).toHaveBeenCalledWith(expect.objectContaining({ userId: 1 }));
   });
 
+  it("permite volver a invitar solo a quien rechazó la invitación", async () => {
+    const onResend = jest.fn();
+    const { getByTestId, queryByTestId } = await render(
+      <SentInvitationsList invitations={invitaciones} onResend={onResend} />
+    );
+
+    expect(queryByTestId("sent-invitation-resend-1")).toBeNull(); // pendiente
+    expect(queryByTestId("sent-invitation-resend-2")).toBeNull(); // aceptada
+
+    await fireEvent.press(getByTestId("sent-invitation-resend-3"));
+    expect(onResend).toHaveBeenCalledWith(expect.objectContaining({ userId: 3 }));
+  });
+
+  it("no muestra la acción de volver a invitar si no se recibe onResend", async () => {
+    const { queryByTestId } = await render(<SentInvitationsList invitations={invitaciones} />);
+
+    expect(queryByTestId("sent-invitation-resend-3")).toBeNull();
+  });
+
   it("no muestra la acción de cancelar si no se recibe onCancel", async () => {
     const { queryByTestId } = await render(<SentInvitationsList invitations={invitaciones} />);
 

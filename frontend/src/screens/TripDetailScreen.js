@@ -1269,6 +1269,29 @@ async function ejecutarBorradoGasto(gastoId, eliminarComprobante = false) {
     );
   }
 
+  // Quien rechazó la invitación puede ser invitado de nuevo (misma lógica que agregar
+  // un participante: el backend reactiva la invitación como pendiente).
+  function handleResendInvitation(invitation) {
+    if (!lock.canEdit("participantes") || !trip?.id) return;
+    confirmar(
+      "Volver a invitar",
+      `@${invitation.nombreUsuario} rechazó la invitación. ¿Querés enviársela de nuevo?`,
+      async () => {
+        try {
+          setMutatingParticipants(true);
+          const resultado = await addTripParticipant(trip.id, { userId: invitation.userId });
+          avisar("Invitación reenviada", resultado?.message || "Invitación reenviada correctamente");
+          await loadTripDetail();
+        } catch (error) {
+          avisar("No se pudo reenviar", error.message || "No se pudo reenviar la invitación.");
+          await loadSentInvitations();
+        } finally {
+          setMutatingParticipants(false);
+        }
+      }
+    );
+  }
+
   const tripSummaryMetrics = useMemo(() => {
     let noches = 0;
     let diasFaltan = 0;
@@ -2078,23 +2101,29 @@ async function ejecutarBorradoGasto(gastoId, eliminarComprobante = false) {
           {/* TAB 1: ITINERARIO */}
           {activeTab === "itinerario" ? (
             <>
-              <View style={styles.sectionCard}>
-                <Text style={styles.sectionHeading}>Explorar destinos</Text>
-                <Text style={styles.sectionCopy}>
-                  {lock.canEdit("itinerario")
-                    ? "Abre el mapa del viaje para revisar destinos base y guardar lugares de interés con Google Maps."
-                    : "Mirá en el mapa los destinos y lugares que guardaron para este viaje."}
-                </Text>
-                <PrimaryButton
-                  icon="map-location-dot"
-                  iconPosition="left"
-                  label={lock.canEdit("itinerario") ? "Explorar destinos de interés" : "Ver mapa del viaje"}
-                  onPress={() =>
-                    navigation.navigate("ExplorePlaces", { tripId: trip.id })
-                  }
-                  style={styles.fullButton}
-                />
-              </View>
+              <Pressable
+                accessibilityRole="button"
+                onPress={() => navigation.navigate("ExplorePlaces", { tripId: trip.id })}
+                style={({ pressed }) => [
+                  styles.itineraryExploreRow,
+                  pressed && styles.itineraryExploreRowPressed,
+                ]}
+              >
+                <View style={styles.itineraryExploreIcon}>
+                  <FontAwesome6 name="map-location-dot" size={16} color={colors.primary} />
+                </View>
+                <View style={styles.itineraryExploreContent}>
+                  <Text style={styles.itineraryExploreTitle}>
+                    {lock.canEdit("itinerario") ? "Explorar lugares de interés" : "Ver mapa del viaje"}
+                  </Text>
+                  <Text style={styles.itineraryExploreSubtitle}>
+                    {lock.canEdit("itinerario")
+                      ? "Buscá y guardá lugares para tu itinerario"
+                      : "Consultá los lugares guardados"}
+                  </Text>
+                </View>
+                <FontAwesome6 name="chevron-right" size={13} color={colors.primary} />
+              </Pressable>
               <View style={styles.itinerarioHeader}>
                 <ItinerarioViewToggle
                   onChange={setItinerarioView}
@@ -3177,6 +3206,9 @@ async function ejecutarBorradoGasto(gastoId, eliminarComprobante = false) {
                     onCancel={
                       lock.canEdit("participantes") ? handleCancelSentInvitation : undefined
                     }
+                    onResend={
+                      lock.canEdit("participantes") ? handleResendInvitation : undefined
+                    }
                   />
                 ) : (
                   <GroupMemberList
@@ -3858,6 +3890,41 @@ const styles = StyleSheet.create({
   itinerarioHeader: {
     flexDirection: "row",
     justifyContent: "flex-end",
+  },
+  itineraryExploreRow: {
+    ...surfaces.card,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+    borderRadius: radii.lg || 16,
+  },
+  itineraryExploreRowPressed: {
+    opacity: 0.7,
+    backgroundColor: colors.surfaceAlt,
+  },
+  itineraryExploreIcon: {
+    width: 34,
+    height: 34,
+    borderRadius: 10,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.surfaceAlt,
+  },
+  itineraryExploreContent: {
+    flex: 1,
+  },
+  itineraryExploreTitle: {
+    ...textStyles.bodyStrong,
+    color: colors.primary,
+    fontSize: 14,
+  },
+  itineraryExploreSubtitle: {
+    ...textStyles.meta,
+    color: colors.textSecondary,
+    fontSize: 11,
+    marginTop: 2,
   },
   loadingWrap: {
     position: "absolute",

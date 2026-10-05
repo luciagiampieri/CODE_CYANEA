@@ -504,6 +504,36 @@ def _build_trip_detail(
         infoEditableUntil=trip_info_editable_until(viaje),
     )
 
+
+# Estados de participación desde los que se puede volver a invitar a alguien.
+# HU 72: una invitación cancelada o rechazada se puede reenviar; quien fue expulsado
+# o salió del viaje también puede ser invitado de nuevo. Los demás estados (invitado,
+# aceptado) significan que la persona ya está en el viaje o tiene una invitación vigente.
+ESTADOS_REINVITABLES = {
+    "cancelada": "Invitación reenviada correctamente",
+    "rechazado": "Invitación reenviada correctamente",
+    "expulsado": "Participante vuelto a invitar correctamente",
+    "salio": "Participante vuelto a invitar correctamente",
+}
+
+
+def _reinvitar_participante(db, existente, estado_invitado, rol_participante, current_user):
+    """Vuelve a dejar como 'invitado' a un participante existente si su estado lo permite.
+
+    Devuelve el mensaje de éxito, o None si la persona no se puede reinvitar.
+    """
+    mensaje = ESTADOS_REINVITABLES.get(existente.EstadoParticipacion.Nombre)
+    if mensaje is None:
+        return None
+    existente.IdEstadoParticipacion = estado_invitado.IdEstadoParticipacion
+    existente.IdRolParticipante = rol_participante.IdRolParticipante
+    existente.InvitadoPor = current_user.IdUsuario
+    existente.FechaInvitacion = datetime.now()
+    existente.FechaRespuesta = None  # la respuesta anterior (rechazo) ya no aplica
+    db.commit()
+    return mensaje
+
+
 @router.post("/cover/ai/preview", response_model=TripCoverAIPreview)
 async def preview_trip_cover_ai(
     payload: TripCoverAIPreviewRequest,
@@ -1390,26 +1420,10 @@ def add_trip_participant(
             )
         )
         if existente is not None:
-
-            if existente.EstadoParticipacion.Nombre == "cancelada":
-                # HU 72: una invitación cancelada se puede volver a enviar.
-                existente.IdEstadoParticipacion = estado_invitado.IdEstadoParticipacion
-                existente.InvitadoPor = current_user.IdUsuario
-                existente.IdRolParticipante = rol_participante.IdRolParticipante
-                existente.FechaInvitacion = datetime.now()
-                existente.FechaRespuesta = None
-                db.commit()
-                return TripMutationResponse(message="Participante agregado correctamente")
-
-            if existente.EstadoParticipacion.Nombre in {"expulsado", "salio"}:
-                existente.IdEstadoParticipacion = estado_invitado.IdEstadoParticipacion
-                existente.InvitadoPor = current_user.IdUsuario
-                existente.IdRolParticipante = rol_participante.IdRolParticipante
-                existente.FechaInvitacion = datetime.now()
-                db.commit()
-                return TripMutationResponse(message="Participante reincorporado correctamente")
-            else:
+            mensaje = _reinvitar_participante(db, existente, estado_invitado, rol_participante, current_user)
+            if mensaje is None:
                 raise HTTPException(status_code=409, detail="El usuario ya está agregado al viaje")
+            return TripMutationResponse(message=mensaje)
 
         invitacion_externa = db.scalar(
             select(InvitacionViaje).where(
@@ -1452,14 +1466,10 @@ def add_trip_participant(
             )
         )
         if existente is not None:
-            if existente.EstadoParticipacion.Nombre in {"expulsado", "salio"}:
-                existente.IdEstadoParticipacion = estado_invitado.IdEstadoParticipacion
-                existente.IdRolParticipante = rol_participante.IdRolParticipante
-                existente.InvitadoPor = current_user.IdUsuario
-                existente.FechaInvitacion = datetime.now()
-                db.commit()
-                return TripMutationResponse(message="Participante vuelto a invitar correctamente")
-            raise HTTPException(status_code=409, detail="El usuario ya está agregado al viaje")
+            mensaje = _reinvitar_participante(db, existente, estado_invitado, rol_participante, current_user)
+            if mensaje is None:
+                raise HTTPException(status_code=409, detail="El usuario ya está agregado al viaje")
+            return TripMutationResponse(message=mensaje)
 
         db.add(
             ParticipanteViaje(

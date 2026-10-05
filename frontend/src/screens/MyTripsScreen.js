@@ -198,41 +198,51 @@ export default function MyTripsScreen({ navigation }) {
     <ScreenContainer fullWidth padded={false}>
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
         <View style={styles.header}>
-          <Text style={styles.heading}>Mis Viajes</Text>
-          <Text style={styles.subheading}>
-            {summary.activos} viajes activos · {summary.completados} completado
-            {summary.completados === 1 ? "" : "s"}
-          </Text>
-        </View>
-
-        <View style={styles.filterRow}>
-          <View style={styles.chipGroup}>
-            {FILTERS.map((filter) => {
-              const active = filter.key === activeFilter;
-              return (
-                <Pressable
-                  key={filter.key}
-                  onPress={() => setActiveFilter(filter.key)}
-                  testID={`mytrips-filter-${filter.key}`}
-                  style={[styles.chip, active && styles.chipActive]}
-                >
-                  <Text style={[styles.chipLabel, active && styles.chipLabelActive]}>
-                    {filter.label}
-                  </Text>
-                </Pressable>
-              );
-            })}
+          <View style={styles.headerText}>
+            <Text style={styles.heading}>Mis Viajes</Text>
+            <Text style={styles.subheading}>
+              {summary.activos} viajes activos · {summary.completados} completado
+              {summary.completados === 1 ? "" : "s"}
+            </Text>
           </View>
 
           <Pressable
             accessibilityLabel="Crear viaje"
+            accessibilityRole="button"
             onPress={() => navigation.navigate("NuevoViaje")}
-            style={styles.addButton}
+            style={({ pressed }) => [styles.addButton, pressed && styles.addButtonPressed]}
             testID="mytrips-add-button"
+            hitSlop={6}
           >
-            <FontAwesome6 name="plus" size={16} color={colors.primary} />
+            <FontAwesome6 name="plus" size={14} color={colors.primary} />
+            <Text style={styles.addButtonLabel}>{isTablet || isDesktop ? "Nuevo viaje" : "Nuevo"}</Text>
           </Pressable>
         </View>
+
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.filterRow}
+          style={styles.filterScroll}
+        >
+          {FILTERS.map((filter) => {
+            const active = filter.key === activeFilter;
+            return (
+              <Pressable
+                key={filter.key}
+                onPress={() => setActiveFilter(filter.key)}
+                testID={`mytrips-filter-${filter.key}`}
+                accessibilityRole="button"
+                accessibilityState={{ selected: active }}
+                style={[styles.chip, active && styles.chipActive]}
+              >
+                <Text style={[styles.chipLabel, active && styles.chipLabelActive]}>
+                  {filter.label}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </ScrollView>
 
         <View
           style={[
@@ -336,10 +346,17 @@ const styles = StyleSheet.create({
     paddingBottom: spacing.xxl,
   },
   header: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    gap: spacing.md,
     backgroundColor: colors.background,
     paddingHorizontal: spacing.lg,
     paddingTop: spacing.xl,
     paddingBottom: spacing.md,
+  },
+  headerText: {
+    flex: 1,
   },
   heading: {
     ...textStyles.screenTitle,
@@ -350,18 +367,15 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
     marginTop: spacing.xxs,
   },
+  filterScroll: {
+    flexGrow: 0,
+    marginTop: spacing.sm,
+  },
   filterRow: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: spacing.lg,
-    marginTop: spacing.sm,
-    gap: spacing.sm,
-  },
-  chipGroup: {
-    flexDirection: "row",
     gap: spacing.xs,
-    flexShrink: 1,
+    paddingHorizontal: spacing.lg,
   },
   chip: {
     paddingVertical: spacing.xs,
@@ -384,12 +398,22 @@ const styles = StyleSheet.create({
     color: colors.textInverse,
   },
   addButton: {
-    width: 40,
-    height: 40,
-    borderRadius: radii.md,
+    flexDirection: "row",
     alignItems: "center",
-    justifyContent: "center",
+    gap: 6,
+    minHeight: 40,
+    paddingHorizontal: spacing.md,
+    borderRadius: radii.pill,
     backgroundColor: colors.accent,
+    marginTop: spacing.xxs,
+  },
+  addButtonPressed: {
+    opacity: 0.85,
+  },
+  addButtonLabel: {
+    ...textStyles.bodyStrong,
+    fontSize: 14,
+    color: colors.primary,
   },
   tripList: {
     paddingHorizontal: spacing.lg,

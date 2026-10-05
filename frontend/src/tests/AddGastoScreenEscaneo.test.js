@@ -130,7 +130,7 @@ describe("US 93 - precarga del formulario con el comprobante escaneado", () => {
 
     await escanear(utils, { ...DATOS_COMPLETOS, FechaGasto: null });
 
-    expect(utils.getByText("Seleccionar fecha")).toBeTruthy();
+    expect(utils.getByText("Seleccionar")).toBeTruthy();
     await presionar(utils, "Registrar gasto");
     expect(utils.getByText("La fecha es obligatoria")).toBeTruthy();
     expect(createExpense).not.toHaveBeenCalled();
@@ -150,7 +150,7 @@ describe("US 93 - precarga del formulario con el comprobante escaneado", () => {
 
     expect(utils.getByPlaceholderText("Cena").props.value).toBe("");
     expect(utils.getByPlaceholderText("0").props.value).toBe("");
-    expect(utils.getByText("Seleccioná una categoría")).toBeTruthy();
+    expect(utils.getByText("Elegir")).toBeTruthy();
   });
 
   it("AC10: resalta los campos de baja confianza hasta que el usuario los edita", async () => {
@@ -159,13 +159,13 @@ describe("US 93 - precarga del formulario con el comprobante escaneado", () => {
     await escanear(utils, { ...DATOS_COMPLETOS, CamposBajaConfianza: ["MontoOriginal", "IdCategoria"] });
 
     expect(utils.getAllByText("Revisá este dato")).toHaveLength(1);
-    expect(utils.getByText("Revisá la categoría sugerida")).toBeTruthy();
+    expect(utils.getByText("Revisá la categoría")).toBeTruthy();
 
     await act(async () => {
       fireEvent.changeText(utils.getByDisplayValue("15230.5"), "15300");
     });
     expect(utils.queryByText("Revisá este dato")).toBeNull();
-    expect(utils.getByText("Revisá la categoría sugerida")).toBeTruthy();
+    expect(utils.getByText("Revisá la categoría")).toBeTruthy();
   });
 
   it("si no se detectó la moneda deja la del viaje y pide revisarla", async () => {
@@ -182,7 +182,7 @@ describe("US 93 - precarga del formulario con el comprobante escaneado", () => {
 
     await escanear(utils, { ...DATOS_COMPLETOS, IdCategoria: 999 });
 
-    expect(utils.getByText("Seleccioná una categoría")).toBeTruthy();
+    expect(utils.getByText("Elegir")).toBeTruthy();
   });
 
   it("AC1: en un viaje finalizado no se ofrece el escaneo", async () => {

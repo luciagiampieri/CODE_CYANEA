@@ -877,7 +877,8 @@ export default function AddGastoScreen({
           } else {
             appAlert(
               "Modo Offline",
-              "El gasto quedó guardado localmente con su moneda original." + avisoComprobanteOffline,
+              "El gasto quedó guardado localmente con su moneda original. Se convertirá y sincronizará cuando vuelva la conexión." +
+                avisoComprobanteOffline,
               [
                 {
                   text: "Entendido",
@@ -1091,6 +1092,15 @@ export default function AddGastoScreen({
                             ? "Monto ingresado manualmente."
                             : "Ingresá el monto para calcular la conversión."}
                         </Text>
+                      ) : null}
+                      {/* US 94 AC6: después de corregir a mano, se puede volver a la cotización automática */}
+                      {conversion.estado === "manual" && montoValido ? (
+                        <TouchableOpacity
+                          onPress={() => setConversion({ estado: "idle", fecha: null })}
+                          testID="usar-cotizacion-automatica"
+                        >
+                          <Text style={styles.conversionLink}>Usar la cotización automática</Text>
+                        </TouchableOpacity>
                       ) : null}
                       {errores.montoARS && <Text style={styles.error}>{errores.montoARS}</Text>}
                     </View>

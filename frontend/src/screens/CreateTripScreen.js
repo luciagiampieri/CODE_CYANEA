@@ -13,7 +13,6 @@ import {
   View,
   FlatList,
   TouchableOpacity,
-  TouchableWithoutFeedback,
   Keyboard,
   ActivityIndicator,
 } from "react-native";
@@ -290,7 +289,7 @@ const Field = forwardRef(function Field(
           <FontAwesome6
             name={icon}
             size={14}
-            color={focused ? colors.primary : colors.textMuted}
+            color={focused ? colors.primary : colors.overlay}
             style={multiline ? styles.inputIconTop : null}
           />
         ) : null}
@@ -304,7 +303,7 @@ const Field = forwardRef(function Field(
           }}
           onBlur={() => setFocused(false)}
           placeholder={placeholder}
-          placeholderTextColor={colors.textMuted}
+          placeholderTextColor={colors.overlay}
           returnKeyType={returnKeyType}
           onSubmitEditing={onSubmitEditing}
           blurOnSubmit={!multiline && returnKeyType !== "next"}
@@ -402,7 +401,7 @@ function DateField({
                 {valueText}
               </Text>
             </View>
-            <FontAwesome6 name="chevron-down" size={12} color={disabled ? colors.textMuted : colors.textSecondary} />
+            <FontAwesome6 name="chevron-down" size={12} color={disabled ? colors.overlay : colors.textSecondary} />
           </Pressable>
 
           <DatePickerModal
@@ -517,7 +516,6 @@ function DestinationPickerModal({
           style={styles.flex}
           behavior={Platform.OS === "ios" ? "padding" : undefined}
         >
-          {/* Encabezado igual al de la pantalla, con el buscador integrado */}
           <View style={styles.hero}>
             <View style={styles.heroTopRow}>
               <IconCircleButton icon="arrow-left" onPress={onClose} tone="light" />
@@ -537,7 +535,7 @@ function DestinationPickerModal({
                 value={search}
                 onChangeText={onSearchChange}
                 placeholder="Buscar ciudad o país..."
-                placeholderTextColor={colors.textMuted}
+                placeholderTextColor={colors.overlay}
                 style={styles.pickerSearchInput}
                 autoFocus
                 autoCorrect={false}
@@ -547,7 +545,7 @@ function DestinationPickerModal({
                 <ActivityIndicator size="small" color={colors.primary} />
               ) : search.length > 0 ? (
                 <Pressable onPress={() => onSearchChange("")} hitSlop={10}>
-                  <FontAwesome6 name="circle-xmark" size={17} color={colors.textMuted} />
+                  <FontAwesome6 name="circle-xmark" size={17} color={colors.overlay} />
                 </Pressable>
               ) : null}
             </View>
@@ -675,7 +673,7 @@ function DestinationPickerModal({
               ) : hasSearched ? (
                 <View style={styles.pickerIntro}>
                   <View style={styles.pickerEmptyIconCircle}>
-                    <FontAwesome6 name="magnifying-glass" size={20} color={colors.textMuted} />
+                    <FontAwesome6 name="magnifying-glass" size={20} color={colors.overlay} />
                   </View>
                   <Text style={styles.pickerEmptyTitle}>Sin resultados</Text>
                   <Text style={styles.pickerEmptyText}>
@@ -734,15 +732,11 @@ export default function CreateTripScreen({ navigation }) {
   const [aiCover, setAiCover] = useState(null); // { imageBase64, mimeType } generada con IA, se aplica al crear
   const [showAiGenerator, setShowAiGenerator] = useState(false);
   const lastContentHeightRef = useRef(0);
-  // Origen de la portada: foto del destino (automática), galería o IA
   const coverMode = coverImage ? "gallery" : aiCover ? "ai" : "destination";
 
   const tecladoVisible = useKeyboardVisible();
   const formScroll = useScrollAlCampo();
 
-  // Refs de los TextInput de texto libre. Se usan para sacarles el foco
-  // explícitamente antes de abrir cualquier modal/picker, así el teclado
-  // no se queda abierto "fantasma" cuando el modal se cierra.
   const titleInputRef = useRef(null);
   const descriptionInputRef = useRef(null);
 
@@ -752,12 +746,10 @@ export default function CreateTripScreen({ navigation }) {
     descriptionInputRef.current?.blur();
   }
 
-  // Al cerrarse el teclado se deja de seguir el campo activo
   useEffect(() => {
     if (!tecladoVisible) formScroll.limpiar();
   }, [tecladoVisible]);
 
-  // Al cambiar de paso, la pantalla vuelve arriba
   useEffect(() => {
     formScroll.ref.current?.scrollTo?.({ y: 0, animated: false });
   }, [step]);
@@ -798,7 +790,7 @@ export default function CreateTripScreen({ navigation }) {
       mimeType: asset.mimeType || (extension === "png" ? "image/png" : "image/jpeg"),
       file: asset.file,
     });
-    setAiCover(null); // una sola portada personalizada: la de galería reemplaza a la de IA
+    setAiCover(null); 
   }
 
   function handleRemoveCoverImage() {
@@ -806,8 +798,7 @@ export default function CreateTripScreen({ navigation }) {
     setCoverError("");
   }
 
-  // En la creación el viaje todavía no existe, así que la imagen aceptada se
-  // guarda en memoria y se asigna como portada apenas se crea el viaje.
+
   function handleGenerateAiCover(prompt) {
     return generateCoverPreviewAI({
       title: form.title,
@@ -818,7 +809,7 @@ export default function CreateTripScreen({ navigation }) {
 
   async function handleAcceptAiCover(preview) {
     setAiCover(preview);
-    setCoverImage(null); // la de IA reemplaza a una imagen de galería elegida antes
+    setCoverImage(null);
     setCoverError("");
     return "Portada generada seleccionada. Se aplicará al crear el viaje.";
   }
@@ -827,7 +818,6 @@ export default function CreateTripScreen({ navigation }) {
     setAiCover(null);
   }
 
-  // Vuelve a la portada automática (foto del primer destino)
   function handleUseDestinationCover() {
     setCoverImage(null);
     setAiCover(null);
@@ -835,8 +825,7 @@ export default function CreateTripScreen({ navigation }) {
     setShowAiGenerator(false);
   }
 
-  // Al abrir el generador de IA, la pantalla baja hasta el campo a completar
-  // (el generador es lo último del paso 2, por eso alcanza con ir al final).
+
   function handleToggleAiGenerator() {
     const willShow = !showAiGenerator;
     setShowAiGenerator(willShow);
@@ -996,8 +985,7 @@ export default function CreateTripScreen({ navigation }) {
     }
   }
 
-  // Cambio de fechas de ida / vuelta. Si la fecha de ida pasa a ser posterior
-  // a la de vuelta ya elegida, se limpia la de vuelta para no dejar un rango inválido.
+
   function handleDateChange(name, value) {
     setForm((current) => {
       const next = { ...current, [name]: value };
@@ -1304,13 +1292,11 @@ export default function CreateTripScreen({ navigation }) {
 
   return (
     <ScreenContainer fullWidth padded={false}>
-      <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
         <KeyboardAvoidingView
           behavior={Platform.OS === "ios" ? "padding" : "height"}
           style={styles.flex}
           keyboardVerticalOffset={Platform.OS === "ios" ? 64 : 0}
         >
-          {/* Encabezado fijo con indicador de pasos: siempre se sabe dónde está el usuario */}
           <View style={styles.hero}>
             <View style={styles.heroTopRow}>
               <IconCircleButton icon="arrow-left" onPress={handleBack} tone="light" />
@@ -1330,8 +1316,6 @@ export default function CreateTripScreen({ navigation }) {
             bounces={false}
             overScrollMode="never"
             onContentSizeChange={(_w, h) => {
-              // Con el generador de IA abierto, si el contenido crece (por ejemplo al
-              // desplegarse sus campos) la pantalla baja sola hasta ellos.
               const grew = h > lastContentHeightRef.current;
               lastContentHeightRef.current = h;
               if (grew && showAiGenerator && step === 2) {
@@ -1709,7 +1693,6 @@ export default function CreateTripScreen({ navigation }) {
             </View>
           )}
         </KeyboardAvoidingView>
-      </TouchableWithoutFeedback>
 
       <DestinationPickerModal
         visible={showDestinationPicker}
@@ -1736,7 +1719,6 @@ const styles = StyleSheet.create({
     flex: 1,
   },
 
-  /* Encabezado + stepper */
   hero: {
     backgroundColor: colors.primary,
     paddingHorizontal: spacing.lg,
@@ -1886,7 +1868,7 @@ const styles = StyleSheet.create({
   },
   optionalTag: {
     ...textStyles.meta,
-    color: colors.textMuted,
+    color: colors.overlay,
     marginLeft: 4,
   },
   inputWrap: {
@@ -1984,7 +1966,7 @@ const styles = StyleSheet.create({
     marginTop: 1,
   },
   datePlaceholder: {
-    color: colors.textMuted,
+    color: colors.overlay,
     fontWeight: "400",
   },
   durationChip: {
@@ -2020,7 +2002,7 @@ const styles = StyleSheet.create({
   searchBarText: {
     flex: 1,
     ...textStyles.body,
-    color: colors.textMuted,
+    color: colors.overlay,
   },
   searchBarAction: {
     width: 32,

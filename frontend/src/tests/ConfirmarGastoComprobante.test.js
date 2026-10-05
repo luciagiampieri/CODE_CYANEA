@@ -257,8 +257,9 @@ describe("US 94 - Confirmar gasto precargado desde un comprobante", () => {
 
     await presionar(utils, "Registrar gasto");
 
-    // El texto aparece en el placeholder del selector y en el mensaje de error.
-    expect(utils.getAllByText("Seleccioná una categoría")).toHaveLength(2);
+    // Mensaje de error de categoría + el selector sigue sin categoría ("Elegir")
+    expect(utils.getByText("Seleccioná una categoría")).toBeTruthy();
+    expect(utils.getByText("Elegir")).toBeTruthy();
     expect(createExpense).not.toHaveBeenCalled();
   });
 
@@ -279,7 +280,12 @@ describe("US 94 - Confirmar gasto precargado desde un comprobante", () => {
 
     await presionar(utils, "Bruno Díaz"); // abre el selector de pagador
     await presionar(utils, "Juan Pérez");
-    // El nuevo pagador se suma a la división junto con quien escaneó.
+    // Si en la división solo estaba el pagador anterior, el nuevo pagador lo reemplaza:
+    // el campo vuelve a pedir participantes hasta que se elija con quién se divide.
+    expect(utils.getByText("Seleccioná participantes")).toBeTruthy();
+    await presionarTestId(utils, "abrir-division");
+    await presionar(utils, "Seleccionar Todos");
+    await presionar(utils, "Listo");
     expect(utils.getByText("Todos los integrantes")).toBeTruthy();
     await presionar(utils, "Registrar gasto");
 
@@ -351,7 +357,7 @@ describe("US 94 - Confirmar gasto precargado desde un comprobante", () => {
 
     await waitFor(() =>
       expect(
-        utils.getByText("No pudimos obtener la cotización. Ingresá el monto convertido manualmente.")
+        utils.getByText("No pudimos obtener la cotización.")
       ).toBeTruthy()
     );
     await presionar(utils, "Registrar gasto");
@@ -454,16 +460,17 @@ describe("US 94 - Confirmar gasto precargado desde un comprobante", () => {
     await escanear(utils, { ...COMPROBANTE, MontoOriginal: "1000" });
 
     await presionar(utils, "Compartido");
-    await presionar(utils, "1 participantes");
+    await presionarTestId(utils, "abrir-division");
     await presionar(utils, "Seleccionar Todos");
-    await presionar(utils, "Listo");
+    // El tipo de división y los montos se eligen dentro del popup de división
     await presionar(utils, "Personalizada");
     await escribir(utils, "monto-personalizado-1", "600");
     await escribir(utils, "monto-personalizado-2", "300");
+    await presionar(utils, "Listo");
     await presionar(utils, "Registrar gasto");
 
     expect(
-      utils.getByText("La suma de los montos individuales debe ser igual al monto total (1000 ARS)")
+      utils.getByText("La suma de los montos individuales debe ser igual al monto total")
     ).toBeTruthy();
     expect(createExpense).not.toHaveBeenCalled();
   });
@@ -474,12 +481,13 @@ describe("US 94 - Confirmar gasto precargado desde un comprobante", () => {
     await escribir(utils, "monto-ars-input", "60000");
 
     await presionar(utils, "Compartido");
-    await presionar(utils, "1 participantes");
+    await presionarTestId(utils, "abrir-division");
     await presionar(utils, "Seleccionar Todos");
-    await presionar(utils, "Listo");
+    // El tipo de división y los montos se eligen dentro del popup de división
     await presionar(utils, "Personalizada");
     await escribir(utils, "monto-personalizado-1", "40000");
     await escribir(utils, "monto-personalizado-2", "20000");
+    await presionar(utils, "Listo");
     await presionar(utils, "Registrar gasto");
 
     expect(createExpense).toHaveBeenCalledWith(

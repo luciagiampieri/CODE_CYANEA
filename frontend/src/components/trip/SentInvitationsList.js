@@ -42,6 +42,7 @@ export default function SentInvitationsList({
   loading = false,
   error = "",
   onCancel,
+  onResend,
   onRetry,
 }) {
   const [filter, setFilter] = useState("todas");
@@ -127,6 +128,9 @@ export default function SentInvitationsList({
             };
             const canCancel =
               invitation.status === "pendiente" && typeof onCancel === "function";
+            // Quien rechazó la invitación puede ser invitado de nuevo
+            const canResend =
+              invitation.status === "rechazada" && typeof onResend === "function";
             const isLast = index === visibleInvitations.length - 1;
 
             return (
@@ -160,6 +164,17 @@ export default function SentInvitationsList({
                     testID={`sent-invitation-cancel-${invitation.userId}`}
                   >
                     <Text style={styles.cancelText}>Cancelar</Text>
+                  </Pressable>
+                ) : null}
+                {canResend ? (
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel={`Volver a invitar a ${invitation.nombreUsuario}`}
+                    hitSlop={8}
+                    onPress={() => onResend(invitation)}
+                    testID={`sent-invitation-resend-${invitation.userId}`}
+                  >
+                    <Text style={styles.resendText}>Volver a invitar</Text>
                   </Pressable>
                 ) : null}
               </View>
@@ -258,6 +273,11 @@ const styles = StyleSheet.create({
   cancelText: {
     ...textStyles.meta,
     color: colors.danger,
+    fontWeight: "700",
+  },
+  resendText: {
+    ...textStyles.meta,
+    color: colors.primary,
     fontWeight: "700",
   },
   errorState: {

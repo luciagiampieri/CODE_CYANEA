@@ -132,7 +132,7 @@ async function completarNombreYMonto(utils, nombre, monto) {
 }
 
 async function seleccionarCategoria(utils, nombreCategoria) {
-  await press(utils, "Seleccioná una categoría");
+  await press(utils, "Elegir");
   await press(utils, nombreCategoria);
 }
 
@@ -227,7 +227,7 @@ describe("US - Registrar gasto (AddGastoScreen)", () => {
       const utils = await renderPantallaCargada({ esperarMonedas: false });
 
       expect(mockOnClose).not.toHaveBeenCalled();
-      await press(utils, "Seleccioná una categoría");
+      await press(utils, "Elegir");
       expect(utils.getByText("Comida y Bebida")).toBeTruthy();
     });
   });
@@ -306,7 +306,9 @@ describe("US - Registrar gasto (AddGastoScreen)", () => {
 
       expect(utils.getByText("El concepto es obligatorio")).toBeTruthy();
       expect(utils.getByText("El monto es obligatorio")).toBeTruthy();
-      expect(utils.getAllByText("Seleccioná una categoría")).toHaveLength(2);
+      // Mensaje de error de categoría + el selector sigue sin categoría ("Elegir")
+      expect(utils.getByText("Seleccioná una categoría")).toBeTruthy();
+      expect(utils.getByText("Elegir")).toBeTruthy();
       expect(createExpense).not.toHaveBeenCalled();
     });
 
@@ -725,7 +727,7 @@ describe("US - Registrar gasto (AddGastoScreen)", () => {
       );
       expect(utils.getByDisplayValue("45000")).toBeTruthy();
       // No se asume "hoy": el campo queda vacío para que el usuario lo complete.
-      expect(utils.getByText("Seleccionar fecha")).toBeTruthy();
+      expect(utils.getByText("Seleccionar")).toBeTruthy();
 
       await press(utils, "Registrar gasto");
 

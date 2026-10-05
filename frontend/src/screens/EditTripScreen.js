@@ -269,6 +269,15 @@ export default function EditTripScreen({ navigation, route }) {
         }
 
         setErrors(localErrors);
+
+        // Con pestañas, un error puede quedar en una pestaña que no se está viendo:
+        // se lleva al usuario a la primera que tenga errores para que sepa qué corregir.
+        if (localErrors.title || localErrors.startDate || localErrors.endDate) {
+            setActiveTab("info");
+        } else if (localErrors.destinations) {
+            setActiveTab("destinations");
+        }
+
         return Object.keys(localErrors).length === 0;
     }
 
@@ -375,22 +384,31 @@ export default function EditTripScreen({ navigation, route }) {
             </View>
 
             {/* Pestañas de navegación interna para mejor UX */}
-            <View style={styles.tabsContainer}>
+            <View style={styles.tabsContainer} accessibilityRole="tablist">
               <Pressable
                 style={[styles.tabButton, activeTab === "info" && styles.tabButtonActive]}
                 onPress={() => setActiveTab("info")}
+                accessibilityRole="tab"
+                accessibilityState={{ selected: activeTab === "info" }}
+                testID="edit-trip-tab-info"
               >
                 <Text style={[styles.tabText, activeTab === "info" && styles.tabTextActive]}>Información</Text>
               </Pressable>
               <Pressable
                 style={[styles.tabButton, activeTab === "destinations" && styles.tabButtonActive]}
                 onPress={() => setActiveTab("destinations")}
+                accessibilityRole="tab"
+                accessibilityState={{ selected: activeTab === "destinations" }}
+                testID="edit-trip-tab-destinations"
               >
                 <Text style={[styles.tabText, activeTab === "destinations" && styles.tabTextActive]}>Destinos</Text>
               </Pressable>
               <Pressable
                 style={[styles.tabButton, activeTab === "cover" && styles.tabButtonActive]}
                 onPress={() => setActiveTab("cover")}
+                accessibilityRole="tab"
+                accessibilityState={{ selected: activeTab === "cover" }}
+                testID="edit-trip-tab-cover"
               >
                 <Text style={[styles.tabText, activeTab === "cover" && styles.tabTextActive]}>Portada</Text>
               </Pressable>
@@ -508,7 +526,13 @@ export default function EditTripScreen({ navigation, route }) {
                           <Text style={styles.destinationChipText}>{d.name}</Text>
                           <Text style={styles.destinationCountry}>{d.country}</Text>
                         </View>
-                        <Pressable onPress={() => removeDestination(d)} hitSlop={15}>
+                        <Pressable
+                          onPress={() => removeDestination(d)}
+                          hitSlop={15}
+                          accessibilityRole="button"
+                          accessibilityLabel={`Quitar ${d.name}`}
+                          testID={`edit-trip-remove-destination-${index}`}
+                        >
                           <FontAwesome6 name="xmark" size={14} color={colors.danger || "#FF3B30"} />
                         </Pressable>
                       </View>
@@ -806,7 +830,10 @@ const styles = StyleSheet.create({
     color: colors.primary,
     fontSize: 22,
   },
-  row: { gap: spacing.md },
+  row: { 
+    gap: spacing.md,
+    marginTop: spacing.md,
+  },
   rowTablet: { flexDirection: "row" },
   field: { flex: 1 },
   fieldLabel: {

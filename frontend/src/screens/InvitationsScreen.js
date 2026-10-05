@@ -165,11 +165,10 @@ export default function InvitationsScreen({ navigation }) {
           <View style={styles.headerRow}>
             <IconCircleButton icon="arrow-left" onPress={() => navigation.goBack()} tone="light" />
           </View>
-          <Text style={styles.title}>Notificaciones e Invitaciones</Text>
+          <Text style={styles.title}>Notificaciones</Text>
         </View>
 
         <View style={styles.body}>
-          {/* Botón general ubicado justo antes de listar las notificaciones */}
           {notifications.length > 0 && (
             <View style={styles.actionBar}>
               <Pressable onPress={handleMarkAllAsRead} style={styles.markAllButton}>
