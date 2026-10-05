@@ -2,7 +2,9 @@
  * Diálogos multiplataforma. En Expo Web `Alert.alert` no muestra botones,
  * así que ahí se usan `window.alert` y `window.confirm`.
  */
-import { Alert, Platform } from "react-native";
+import { Platform } from "react-native";
+
+import { appAlert } from "../components/ui/AppDialog";
 
 export function avisar(titulo, mensaje, onAceptar) {
   if (Platform.OS === "web") {
@@ -11,9 +13,9 @@ export function avisar(titulo, mensaje, onAceptar) {
     return;
   }
   if (onAceptar) {
-    Alert.alert(titulo, mensaje, [{ text: "Aceptar", onPress: onAceptar }]);
+    appAlert(titulo, mensaje, [{ text: "Aceptar", onPress: onAceptar }]);
   } else {
-    Alert.alert(titulo, mensaje);
+    appAlert(titulo, mensaje);
   }
 }
 
@@ -29,7 +31,7 @@ export function confirmar({
     return Promise.resolve(window.confirm(`${titulo}\n\n${mensaje}`));
   }
   return new Promise((resolve) => {
-    Alert.alert(
+    appAlert(
       titulo,
       mensaje,
       [

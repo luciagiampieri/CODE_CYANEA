@@ -7,9 +7,7 @@ import {
   TextInput,
   TouchableOpacity,
   ActivityIndicator,
-  Alert,
   Platform,
-  Modal,
   FlatList,
   Pressable,
   Animated,
@@ -19,6 +17,7 @@ import {
   Image,
   Switch,
 } from "react-native";
+import Modal from "../components/ui/AppModal";
 import { File } from "expo-file-system";
 
 import { FontAwesome6 } from "@expo/vector-icons";
@@ -57,6 +56,8 @@ import {
   guardarParticipantesEnCache,
   obtenerParticipantesCache,
 } from "../database/gastosLocal";
+
+import { appAlert } from "../components/ui/AppDialog";
 
 const ICONOS_CATEGORIAS = {
   "Comida y Bebida": "utensils",
@@ -284,7 +285,7 @@ export default function AddGastoScreen({
     }
 
     if (id === idPagador) {
-      Alert.alert(
+      appAlert(
         "Acción no permitida",
         "El responsable del gasto debe estar incluido sí o sí."
       );
@@ -378,7 +379,7 @@ export default function AddGastoScreen({
           setParticipantes(partsLocal);
           console.log("Formulario cargado con datos de respaldo local exitosamente.");
         } else {
-          Alert.alert("Sin conexión", "No hay datos locales guardados para este viaje todavía.");
+          appAlert("Sin conexión", "No hay datos locales guardados para este viaje todavía.");
           onClose();
         }
       } finally {
@@ -633,7 +634,7 @@ export default function AddGastoScreen({
 
         // Error del servidor común (validación, 4xx/5xx distintos a 503): NO se guarda offline
         if (!esCotizacionCaida && !esErrorDeRed(apiError)) {
-          Alert.alert(
+          appAlert(
             "No se pudo registrar el gasto",
             apiError?.message || "El servidor rechazó el gasto."
           );
@@ -653,7 +654,7 @@ export default function AddGastoScreen({
         if (guardadoConExito) {
           // Si fue por 503, mostramos la alerta específica que el test espera o el mensaje offline general
           if (esCotizacionCaida) {
-            Alert.alert(
+            appAlert(
               "Servicio no disponible",
               "El servicio de cotización no se encuentra disponible en este momento." + avisoComprobanteOffline,
               [
@@ -667,7 +668,7 @@ export default function AddGastoScreen({
               ]
             );
           } else {
-            Alert.alert(
+            appAlert(
               "Modo Offline",
               "El gasto quedó guardado localmente con su moneda original. Se convertirá y sincronizará cuando vuelva la conexión." +
                 avisoComprobanteOffline,
@@ -687,7 +688,7 @@ export default function AddGastoScreen({
         }
       }
     } catch (error) {
-      Alert.alert("Error", error.message);
+      appAlert("Error", error.message);
     } finally {
       setSaving(false);
     }
@@ -904,7 +905,7 @@ export default function AddGastoScreen({
                         marcarRevisado(CAMPO_FECHA);
 
                         if (val > limiteHoy) {
-                          Alert.alert("Fecha inválida", "No podés registrar un gasto en una fecha futura.");
+                          appAlert("Fecha inválida", "No podés registrar un gasto en una fecha futura.");
                           setFechaIso(limiteHoy);
                         } else {
                           setFechaIso(val);

@@ -5,7 +5,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useFocusEffect } from "@react-navigation/native";
 import {
   ActivityIndicator,
-  Alert,
   Image,
   ImageBackground,
   Keyboard,
@@ -17,9 +16,9 @@ import {
   StyleSheet,
   Text,
   View,
-  Modal,
   useWindowDimensions,
 } from "react-native";
+import Modal from "../components/ui/AppModal";
 
 import ScreenContainer from "../components/layout/ScreenContainer";
 import MapCanvas from "../components/map/MapCanvas";
@@ -100,6 +99,8 @@ import { getTripLock } from "../utils/tripLock";
 import { getRouteHint } from "../utils/routeMessages";
 import { formatMoney } from "../utils/money";
 import { centerInScroll } from "../utils/scrollHelpers";
+
+import { appAlert } from "../components/ui/AppDialog";
 
 const tabs = [
   { id: "resumen", label: "Resumen", icon: "chart-pie" },
@@ -225,7 +226,7 @@ function avisar(titulo, mensaje) {
   if (Platform.OS === "web") {
     window.alert(mensaje);
   } else {
-    Alert.alert(titulo, mensaje);
+    appAlert(titulo, mensaje);
   }
 }
 
@@ -234,7 +235,7 @@ function mostrarAlertaConfirmacion(titulo, mensaje, onAceptar) {
     window.alert(`${titulo}\n\n${mensaje}`);
     if (onAceptar) onAceptar();
   } else {
-    Alert.alert(
+    appAlert(
       titulo,
       mensaje,
       onAceptar ? [{ text: "Aceptar", onPress: onAceptar }] : undefined
@@ -248,7 +249,7 @@ function confirmar(titulo, mensaje, onConfirmar) {
       onConfirmar();
     }
   } else {
-    Alert.alert(titulo, mensaje, [
+    appAlert(titulo, mensaje, [
       { text: "Volver", style: "cancel" },
       { text: "Confirmar", style: "destructive", onPress: onConfirmar },
     ]);
@@ -825,7 +826,7 @@ async function ejecutarBorradoGasto(gastoId, eliminarComprobante = false) {
     try {
       await Linking.openURL(url);
     } catch (error) {
-      Alert.alert("Error", "No se pudo abrir el documento. Intentá nuevamente.");
+      appAlert("Error", "No se pudo abrir el documento. Intentá nuevamente.");
     }
   }
 
@@ -1600,7 +1601,7 @@ async function ejecutarBorradoGasto(gastoId, eliminarComprobante = false) {
         ejecutarBorradoActividad(dayId, activityId, activityTitle);
       }
     } else {
-      Alert.alert(
+      appAlert(
         "¿Eliminar actividad?",
         `Se va a eliminar "${activityTitle}" del itinerario. Esta acción no se puede deshacer.`,
         [
@@ -1663,12 +1664,12 @@ async function ejecutarBorradoGasto(gastoId, eliminarComprobante = false) {
       });
 
       setTimeout(() => {
-        Alert.alert("Viaje dado de baja", "El viaje ha sido eliminado correctamente.");
+        appAlert("Viaje dado de baja", "El viaje ha sido eliminado correctamente.");
       }, 300);
     } catch (error) {
       setLoading(false);
       setTimeout(() => {
-        Alert.alert("Error", error.message || "Ocurrió un problema al intentar eliminar el viaje.");
+        appAlert("Error", error.message || "Ocurrió un problema al intentar eliminar el viaje.");
       }, 300);
     }
   }
@@ -1732,7 +1733,7 @@ async function ejecutarBorradoGasto(gastoId, eliminarComprobante = false) {
                   icon="ellipsis-vertical"
                   onPress={() => {
                     if (trip?.hasLeft) {
-                      Alert.alert(
+                      appAlert(
                         "Modo consulta",
                         "Estás consultando este viaje desde tu historial. No se puede gestionar."
                       );
@@ -1741,7 +1742,7 @@ async function ejecutarBorradoGasto(gastoId, eliminarComprobante = false) {
                     if (isAdmin) {
                       setShowOptionsMenu(true);
                     } else {
-                      Alert.alert(
+                      appAlert(
                         "Acceso denegado",
                         "Solo el administrador de este viaje puede gestionarlo."
                       );

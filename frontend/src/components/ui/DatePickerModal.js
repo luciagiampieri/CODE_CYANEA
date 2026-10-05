@@ -1,5 +1,6 @@
 import { useMemo } from "react";
-import { Modal, Pressable, Text, StyleSheet, useWindowDimensions } from "react-native";
+import { Pressable, Text, StyleSheet, useWindowDimensions } from "react-native";
+import Modal from "./AppModal";
 import CalendarPicker from "react-native-calendar-picker";
 import { colors, radii, spacing, textStyles } from "../../theme/tokens";
 import { toYMD, parseYMD, toJsDate, getTodayIso } from "../../utils/dates";

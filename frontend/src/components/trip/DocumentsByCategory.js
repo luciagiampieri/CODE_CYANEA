@@ -6,10 +6,10 @@ import {
     Pressable,
     ScrollView,
     ActivityIndicator,
-    Modal,
     TextInput,
     Keyboard,
 } from "react-native";
+import Modal from "../ui/AppModal";
 import { FontAwesome6 } from "@expo/vector-icons";
 
 import { colors, radii, spacing, surfaces, textStyles } from "../../theme/tokens";

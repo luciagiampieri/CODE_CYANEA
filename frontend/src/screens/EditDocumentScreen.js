@@ -1,19 +1,18 @@
 import React, { useEffect, useState } from "react";
 import {
-    View,
-    Text,
-    StyleSheet,
-    ScrollView,
-    Pressable,
-    TextInput,
-    Alert,
-    ActivityIndicator,
-    Modal,
-    FlatList,
-    Platform,
-    KeyboardAvoidingView,
-    TouchableOpacity,
+  View,
+  Text,
+  StyleSheet,
+  ScrollView,
+  Pressable,
+  TextInput,
+  ActivityIndicator,
+  FlatList,
+  Platform,
+  KeyboardAvoidingView,
+  TouchableOpacity,
 } from "react-native";
+import Modal from "../components/ui/AppModal";
 
 import * as DocumentPicker from "expo-document-picker";
 import { FontAwesome6 } from "@expo/vector-icons";
@@ -26,12 +25,14 @@ import {
 
 import { colors, radii, spacing, surfaces, textStyles } from "../theme/tokens";
 
+import { appAlert } from "../components/ui/AppDialog";
+
 function mostrarAlertaConfirmacion(titulo, mensaje, onAceptar) {
     if (Platform.OS === "web") {
         window.alert(`${titulo}\n\n${mensaje}`);
         if (onAceptar) onAceptar();
     } else {
-        Alert.alert(
+        appAlert(
             titulo,
             mensaje,
             onAceptar ? [{ text: "Aceptar", onPress: onAceptar }] : undefined

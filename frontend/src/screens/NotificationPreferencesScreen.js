@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ActivityIndicator, Alert, Platform, ScrollView, StyleSheet, Switch, Text, View } from "react-native";
+import { ActivityIndicator, Platform, ScrollView, StyleSheet, Switch, Text, View } from "react-native";
 import { FontAwesome6 } from "@expo/vector-icons";
 
 import ScreenContainer from "../components/layout/ScreenContainer";
@@ -8,6 +8,8 @@ import useResponsive from "../hooks/useResponsive";
 import { getCurrentUser, registerPushToken, updateCurrentUser } from "../services/api";
 import { getExpoPushTokenForDevice, getPushAvailabilityReason } from "../services/pushNotifications";
 import { colors, radii, spacing, textStyles } from "../theme/tokens";
+
+import { appAlert } from "../components/ui/AppDialog";
 
 // Tipos de evento configurables por canal (US 60, criterio 1).
 export const TIPOS_NOTIFICACION = [
@@ -95,7 +97,7 @@ export function confirmarConsentimiento({ titulo, mensaje }) {
   }
 
   return new Promise((resolve) => {
-    Alert.alert(
+    appAlert(
       titulo,
       mensaje,
       [
@@ -207,7 +209,7 @@ export default function NotificationPreferencesScreen({ navigation }) {
       }
     } catch (error) {
       setUsuario(anterior);
-      Alert.alert("No se pudo guardar", error.message || "Intenta nuevamente en unos segundos.");
+      appAlert("No se pudo guardar", error.message || "Intenta nuevamente en unos segundos.");
     } finally {
       finalizarGuardado();
     }
@@ -251,7 +253,7 @@ export default function NotificationPreferencesScreen({ navigation }) {
           project_id_missing: "Falta configurar el proyecto Expo para obtener el token push.",
           firebase_not_configured: "Falta configurar Firebase/FCM en la build Android. Agrega google-services.json y recompila la dev build.",
         };
-        Alert.alert(
+        appAlert(
           "No se activaron las notificaciones push",
           mensajes[pushToken.reason] || "No se pudo obtener el token push del dispositivo."
         );
@@ -273,7 +275,7 @@ export default function NotificationPreferencesScreen({ navigation }) {
       });
     } catch (error) {
       setUsuario(anterior);
-      Alert.alert("No se pudo activar push", error.message || "Intenta nuevamente en unos segundos.");
+      appAlert("No se pudo activar push", error.message || "Intenta nuevamente en unos segundos.");
     } finally {
       finalizarGuardado();
     }

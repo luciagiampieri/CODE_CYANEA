@@ -1,23 +1,22 @@
 import { useState, useEffect, useRef } from "react";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import {
-    Platform,
-    Modal,
-    Pressable,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TextInput,
-    View,
-    Keyboard,
-    TouchableWithoutFeedback,
-    KeyboardAvoidingView,
-    ActivityIndicator,
-    TouchableOpacity,
-    FlatList,
-    Animated,
-    Alert,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+  Keyboard,
+  TouchableWithoutFeedback,
+  KeyboardAvoidingView,
+  ActivityIndicator,
+  TouchableOpacity,
+  FlatList,
+  Animated,
 } from "react-native";
+import Modal from "../components/ui/AppModal";
 import { FontAwesome6 } from "@expo/vector-icons";
 
 import PrimaryButton from "../components/ui/PrimaryButton";
@@ -29,12 +28,14 @@ import {
 import { colors, radii, spacing, textStyles } from "../theme/tokens";
 import ScreenContainer from "../components/layout/ScreenContainer";
 
+import { appAlert } from "../components/ui/AppDialog";
+
 function mostrarAlertaConfirmacion(titulo, mensaje, onAceptar) {
     if (Platform.OS === "web") {
         window.alert(`${titulo}\n\n${mensaje}`);
         if (onAceptar) onAceptar();
     } else {
-        Alert.alert(
+        appAlert(
             titulo,
             mensaje,
             onAceptar ? [{ text: "Aceptar", onPress: onAceptar }] : undefined
@@ -375,7 +376,7 @@ export default function AddActivityScreen({
             return;
         }
 
-        Alert.alert(titulo, mensaje, [
+        appAlert(titulo, mensaje, [
             { text: "Modificar horario", style: "cancel" },
             { text: textoConfirmar, onPress: () => enviarActividad({ ignorarAdvertencia: true }) },
         ]);

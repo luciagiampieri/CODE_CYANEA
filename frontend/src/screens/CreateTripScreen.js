@@ -10,7 +10,6 @@ import {
   Text,
   TextInput,
   View,
-  Modal,
   FlatList,
   TouchableOpacity,
   TouchableWithoutFeedback,
@@ -18,6 +17,7 @@ import {
   ActivityIndicator,
   useWindowDimensions,
 } from "react-native";
+import Modal from "../components/ui/AppModal";
 
 import { LocaleConfig } from "react-native-calendars";
 import DatePickerModal from "../components/ui/DatePickerModal";

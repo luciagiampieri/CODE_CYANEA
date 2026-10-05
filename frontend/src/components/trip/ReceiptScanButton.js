@@ -12,7 +12,8 @@
  * mensaje de error que ofrece la carga manual (AC13, AC14).
  */
 import React, { useEffect, useRef, useState } from "react";
-import { ActivityIndicator, Modal, Platform, Pressable, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, Platform, Pressable, StyleSheet, Text, View } from "react-native";
+import Modal from "../ui/AppModal";
 import { FontAwesome6 } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
 

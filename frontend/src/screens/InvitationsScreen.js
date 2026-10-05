@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { ActivityIndicator, Alert, ScrollView, StyleSheet, Text, View, Pressable } from "react-native";
+import { ActivityIndicator, ScrollView, StyleSheet, Text, View, Pressable } from "react-native";
 import { FontAwesome6 } from "@expo/vector-icons";
 
 import ScreenContainer from "../components/layout/ScreenContainer";
@@ -14,6 +14,8 @@ import {
   getNotificationsSocketUrl
 } from "../services/api";
 import { colors, spacing, surfaces, textStyles, radii } from "../theme/tokens";
+
+import { appAlert } from "../components/ui/AppDialog";
 
 function formatDate(dateString) {
   if (!dateString) return "";
@@ -57,7 +59,7 @@ export default function InvitationsScreen({ navigation }) {
 
       setNotifications([...formattedInvitations, ...formattedNotifications]);
     } catch (error) {
-      Alert.alert("Error", error.message || "No se pudieron cargar las notificaciones");
+      appAlert("Error", error.message || "No se pudieron cargar las notificaciones");
     } finally {
       setLoading(false);
     }
@@ -113,10 +115,10 @@ export default function InvitationsScreen({ navigation }) {
     try {
       setSubmitting(true);
       const result = await respondToInvitation(idViaje, decision);
-      Alert.alert("Éxito", result.message || "Invitación procesada correctamente.");
+      appAlert("Éxito", result.message || "Invitación procesada correctamente.");
       await loadData();
     } catch (error) {
-      Alert.alert("Atención", error.message || "Ocurrió un error al procesar la invitación.");
+      appAlert("Atención", error.message || "Ocurrió un error al procesar la invitación.");
       // Si la invitación fue cancelada mientras tanto, se recarga para que desaparezca.
       await loadData();
     } finally {
@@ -131,7 +133,7 @@ export default function InvitationsScreen({ navigation }) {
         prev.map((n) => (n.id === notificationId ? { ...n, leida: true } : n))
       );
     } catch (error) {
-      Alert.alert("Error", error.message || "No se pudo marcar la notificación como leída.");
+      appAlert("Error", error.message || "No se pudo marcar la notificación como leída.");
     }
   };
 
@@ -142,7 +144,7 @@ export default function InvitationsScreen({ navigation }) {
         prev.map((n) => ({ ...n, leida: true }))
       );
     } catch (error) {
-      Alert.alert("Error", error.message || "No se pudieron marcar las notificaciones.");
+      appAlert("Error", error.message || "No se pudieron marcar las notificaciones.");
     }
   };
 

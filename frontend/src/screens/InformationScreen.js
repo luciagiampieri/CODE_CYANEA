@@ -1,17 +1,16 @@
 import React, { useState, useEffect } from "react";
 import {
-    View,
-    Text,
-    StyleSheet,
-    ScrollView,
-    TextInput,
-    TouchableOpacity,
-    ActivityIndicator,
-    Alert,
-    Platform,
-    Modal,
-    KeyboardAvoidingView,
+  View,
+  Text,
+  StyleSheet,
+  ScrollView,
+  TextInput,
+  TouchableOpacity,
+  ActivityIndicator,
+  Platform,
+  KeyboardAvoidingView,
 } from "react-native";
+import Modal from "../components/ui/AppModal";
 
 import { FontAwesome6 } from "@expo/vector-icons";
 
@@ -19,6 +18,8 @@ import PrimaryButton from "../components/ui/PrimaryButton";
 
 import { createRepositorioItem, updateRepositorioItem } from "../services/api";
 import { colors, radii, spacing, shadows, textStyles } from "../theme/tokens";
+
+import { appAlert } from "../components/ui/AppDialog";
 
 const TIPOS = [
     { key: "enlace", label: "Enlace", icon: "link" },
@@ -31,7 +32,7 @@ function avisar(titulo, mensaje) {
     if (Platform.OS === "web") {
         window.alert(mensaje);
     } else {
-        Alert.alert(titulo, mensaje);
+        appAlert(titulo, mensaje);
     }
 }
 

@@ -2,13 +2,13 @@ import { FontAwesome6 } from "@expo/vector-icons";
 import { useEffect, useState } from "react";
 import {
   ActivityIndicator,
-  Modal,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
   View,
 } from "react-native";
+import Modal from "../ui/AppModal";
 
 import { getTerms } from "../../services/api";
 import { colors, radii, spacing, textStyles } from "../../theme/tokens";

@@ -3,7 +3,6 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Keyboard,
-  Modal,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -12,6 +11,7 @@ import {
   View,
   useWindowDimensions,
 } from "react-native";
+import Modal from "../ui/AppModal";
 import CalendarPicker from "react-native-calendar-picker";
 
 import { formatMoney } from "../../utils/money";

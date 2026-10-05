@@ -1,20 +1,19 @@
 import React, { useEffect, useState, useRef } from "react";
 import {
-    View,
-    Text,
-    StyleSheet,
-    ScrollView,
-    Pressable,
-    TextInput,
-    Alert,
-    ActivityIndicator,
-    Modal,
-    FlatList,
-    Platform,
-    KeyboardAvoidingView,
-    TouchableOpacity,
-    Animated, 
+  View,
+  Text,
+  StyleSheet,
+  ScrollView,
+  Pressable,
+  TextInput,
+  ActivityIndicator,
+  FlatList,
+  Platform,
+  KeyboardAvoidingView,
+  TouchableOpacity,
+  Animated,
 } from "react-native";
+import Modal from "../components/ui/AppModal";
 
 import * as DocumentPicker from "expo-document-picker";
 import { FontAwesome6 } from "@expo/vector-icons";
@@ -30,12 +29,14 @@ import {
 import { colors, radii, spacing, surfaces, textStyles } from "../theme/tokens";
 
 
+import { appAlert } from "../components/ui/AppDialog";
+
 function mostrarAlertaConfirmacion(titulo, mensaje, onAceptar) {
     if (Platform.OS === "web") {
         window.alert(`${titulo}\n\n${mensaje}`);
         if (onAceptar) onAceptar();
     } else {
-        Alert.alert(
+        appAlert(
             titulo,
             mensaje,
             onAceptar ? [{ text: "Aceptar", onPress: onAceptar }] : undefined
@@ -84,6 +85,8 @@ export default function DocumentsScreen({
     const [datosGastoSugerido, setDatosGastoSugerido] = useState(null);
     // Ref (y no state) para que onClose vea el valor actualizado en el mismo ciclo que onGastoCreado
     const gastoRegistradoRef = useRef(false);
+    // Evita subir dos veces si se toca el botón muy rápido (el disabled tarda un render)
+    const subiendoRef = useRef(false);
 
     const categoriaSeleccionada = categorias.find(
         (c) => c.IdCategoriaDocumento === idCategoria
@@ -195,6 +198,9 @@ export default function DocumentsScreen({
             return;
         }
 
+        if (subiendoRef.current) return;
+        subiendoRef.current = true;
+
         try {
             setSaving(true);
 
@@ -230,7 +236,7 @@ export default function DocumentsScreen({
                         return;
                     }
                 } else {
-                    Alert.alert(
+                    appAlert(
                         "¡Gasto detectado!",
                         "El sistema analizó el documento y encontró un posible gasto asociado. ¿Deseás registrarlo?",
                         [
@@ -266,6 +272,7 @@ export default function DocumentsScreen({
 
             const mensajeError = (error?.message || "").toLowerCase();
             const esNombreDuplicado =
+                mensajeError.includes("ya existe") ||
                 mensajeError.includes("duplicate") ||
                 mensajeError.includes("already exists") ||
                 mensajeError.includes("resource already exists") ||
@@ -279,6 +286,8 @@ export default function DocumentsScreen({
                     error?.message || "No se pudo subir el documento."
                 );
             }
+        } finally {
+            subiendoRef.current = false;
         }
     }
 

@@ -1,8 +1,6 @@
 import React, { useEffect, useState } from "react";
 import {
   ActivityIndicator,
-  Alert,
-  Modal,
   Platform,
   Pressable,
   ScrollView,
@@ -12,11 +10,14 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import Modal from "../components/ui/AppModal";
 import { FontAwesome6 } from "@expo/vector-icons";
 
 import PrimaryButton from "../components/ui/PrimaryButton";
 import { getPlanningPreferences, savePlanningPreferences } from "../services/api";
 import { colors, radii, spacing, textStyles } from "../theme/tokens";
+
+import { appAlert } from "../components/ui/AppDialog";
 
 const MAX_CONSIDERACIONES_DEFAULT = 300;
 const PRESUPUESTO_REGEX = /^\d+([.,]\d{1,2})?$/;
@@ -26,7 +27,7 @@ function mostrarAlerta(titulo, mensaje, onAceptar) {
     window.alert(`${titulo}\n\n${mensaje}`);
     if (onAceptar) onAceptar();
   } else {
-    Alert.alert(titulo, mensaje, onAceptar ? [{ text: "Aceptar", onPress: onAceptar }] : undefined);
+    appAlert(titulo, mensaje, onAceptar ? [{ text: "Aceptar", onPress: onAceptar }] : undefined);
   }
 }
 

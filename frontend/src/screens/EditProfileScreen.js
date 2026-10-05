@@ -3,9 +3,7 @@ import { useEffect, useMemo, useState, useCallback } from "react";
 import { useFocusEffect } from "@react-navigation/native";
 import {
   ActivityIndicator,
-  Alert,
   KeyboardAvoidingView,
-  Modal,
   Platform,
   Pressable,
   ScrollView,
@@ -14,6 +12,7 @@ import {
   TextInput,
   View,
 } from "react-native";
+import Modal from "../components/ui/AppModal";
 
 import { FontAwesome6 } from "@expo/vector-icons";
 
@@ -25,6 +24,8 @@ import useResponsive from "../hooks/useResponsive";
 import { useAuth } from "../context/AuthContext";
 import { getCurrentUser, updateCurrentUser, uploadProfilePhoto, deleteCurrentUser, verifyPassword } from "../services/api";
 import { colors, radii, spacing, surfaces, textStyles } from "../theme/tokens";
+
+import { appAlert } from "../components/ui/AppDialog";
 
 const initialForm = {
   nombre: "",
@@ -123,7 +124,7 @@ export default function EditProfileScreen({ navigation }) {
         fotoUrl: updated.fotoUrl ?? current.fotoUrl,
       }));
       setStatusMessage("La información del perfil se actualizó correctamente.");
-      Alert.alert("Perfil actualizado", "La información del perfil se actualizó correctamente.");
+      appAlert("Perfil actualizado", "La información del perfil se actualizó correctamente.");
       navigation.goBack();
     } catch (error) {
       setStatusMessage(error.message || "No se pudieron guardar los cambios.");
@@ -184,7 +185,7 @@ export default function EditProfileScreen({ navigation }) {
       return;
     }
 
-    Alert.alert(
+    appAlert(
       "Eliminar foto de perfil",
       "¿Querés quitar tu foto de perfil actual?",
       [

@@ -912,7 +912,7 @@ export async function resolveDestination(placeId, sessionToken) {
 }
 
 export async function createVotacion(payload) {
-  const response = await fetch(`${API_BASE_URL}/votaciones/`, {
+  const response = await fetch(`${API_BASE_URL}/votaciones`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",

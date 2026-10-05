@@ -7,6 +7,7 @@ import NetInfo from "@react-native-community/netinfo";
 
 import { AuthProvider } from "./src/context/AuthContext";
 import AppNavigator from "./src/navigation/AppNavigator";
+import { DialogHost } from "./src/components/ui/AppDialog";
 import { colors } from "./src/theme/tokens";
 import { injectWebFocusStyles } from "./src/theme/webFocusStyles";
 
@@ -89,6 +90,8 @@ export default function App() {
           <StatusBar style="light" />
           <AppNavigator />
         </NavigationContainer>
+        {/* Diálogo estándar para appAlert(): va después del navegador para quedar arriba */}
+        <DialogHost root />
       </AuthProvider>
     </SafeAreaProvider>
   );

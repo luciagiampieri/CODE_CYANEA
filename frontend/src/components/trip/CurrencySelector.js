@@ -2,7 +2,6 @@ import { useMemo, useState } from "react";
 import { FontAwesome6 } from "@expo/vector-icons";
 import {
   KeyboardAvoidingView,
-  Modal,
   FlatList,
   Platform,
   Pressable,
@@ -12,6 +11,7 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import Modal from "../ui/AppModal";
 
 import useResponsive from "../../hooks/useResponsive";
 import { colors, radii, shadows, spacing, textStyles } from "../../theme/tokens";

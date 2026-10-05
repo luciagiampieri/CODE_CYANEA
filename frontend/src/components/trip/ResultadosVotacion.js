@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, Pressable, Modal, ScrollView, Image } from "react-native";
+import { View, Text, StyleSheet, Pressable, ScrollView, Image } from "react-native";
+import Modal from "../ui/AppModal";
 import { FontAwesome6 } from "@expo/vector-icons";
 import { colors, radii, spacing, textStyles } from "../../theme/tokens";
 import StatusPill from "../ui/StatusPill";

@@ -400,6 +400,9 @@ Orden actual:
 - El ranking de atracciones populares en exploracion debe presentarse en un panel lateral o modal dedicado, no intercalado en el flujo principal de seleccion y guardado de lugares
 - Los destinos base del viaje contextualizan busquedas y recomendaciones de lugares, pero no restringen geograficamente lo que se puede guardar o agendar: un viaje puede incluir escapadas a otras ciudades, provincias o paises
 - Los componentes del feature de mapa viven en `frontend/src/components/map/`
+- Toda llamada a Google Places desde una ruta debe capturar la excepcion y responder 502 (o 503 si falta `GOOGLE_MAPS_API_KEY`), usando `_error_servicio_lugares` en `places.py`: un 500 no controlado sale sin headers CORS y el navegador lo informa como error de CORS. El helper deja en el log la respuesta textual de Google
+- Las rutas de coleccion se declaran con `""` (no `"/"`) para que `/recurso` responda sin redireccion 307; si una ruta necesita aceptar ambas variantes, se agrega un segundo decorador `"/"` con `include_in_schema=False`
+- uvicorn corre con `--proxy-headers --forwarded-allow-ips='*'` porque en Railway queda detras de un proxy HTTPS: sin eso cualquier redireccion sale como `http://` y el navegador la bloquea por mixed content
 - La HU 23 de visualizacion de recorridos se considera cerrada cuando:
   - la ruta generada puede abrirse en un mapa interactivo desde el dia correspondiente del itinerario
   - si no existe una ruta generada para ese dia, no debe mostrarse el mapa ni el CTA de visualizacion
@@ -501,6 +504,15 @@ Para retomar o replicar la configuracion de push Android:
 - Debe funcionar en mobile y web
 - En pantallas amplias, el layout debe aprovechar ancho sin estirarse en exceso
 - Usar hooks o helpers responsive compartidos, no condicionales dispersos por toda la app
+
+### Dialogos y mensajes
+
+- No usar `Alert.alert` directamente: usar `appAlert` de `frontend/src/components/ui/AppDialog.js`, que tiene la misma firma y muestra el dialogo con la identidad visual de Cyanea
+- `<DialogHost root />` se monta una sola vez en `App.js`; sin ese host (tests) `appAlert` delega en `Alert.alert` con los mismos argumentos, asi que los tests pueden seguir espiando `Alert.alert`
+- No importar `Modal` de `react-native`: usar `import Modal from ".../components/ui/AppModal"` (mismas props). AppModal monta su propio `DialogHost` y `appAlert` dibuja el dialogo en el modal visible mas reciente; con el `Modal` de react-native el dialogo quedaria detras del modal abierto (Android nueva arquitectura / iOS)
+- El tipo (icono y color) se deduce del titulo (`Éxito`, `Error`, `¿...?`, `Atención`) o se fuerza con `appAlert(titulo, mensaje, botones, { tipo: "success" | "error" | "warning" | "info" | "confirm" })`
+- Botones: el de `style: "cancel"` queda como secundario a la izquierda; el ultimo boton no-cancelar es el principal; `style: "destructive"` lo pinta de rojo
+- Para avisos simples o confirmaciones con promesa, preferir `avisar` y `confirmar` de `frontend/src/utils/dialogs.js`
 
 ### Navegacion
 

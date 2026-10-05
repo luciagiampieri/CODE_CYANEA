@@ -307,6 +307,47 @@ describe("DocumentsScreen", () => {
     );
   });
 
+  it("detecta el nombre duplicado con el mensaje en castellano que devuelve el backend", async () => {
+    uploadTripDocument.mockRejectedValue(
+      new Error("Ya existe un documento con ese nombre en este viaje.")
+    );
+    const alertMock = jest.spyOn(Alert, "alert").mockImplementation(() => {});
+
+    const utils = await renderPantallaCargada();
+
+    await seleccionarArchivoValido(utils);
+    await waitFor(() => expect(utils.getByText("Seguro.pdf")).toBeTruthy());
+    await elegirCategoria(utils, "Pasajes");
+
+    await pressSubmit(utils);
+
+    await waitFor(() =>
+      expect(utils.getByText("Ya existe un documento con ese nombre. Elegí otro.")).toBeTruthy()
+    );
+    expect(alertMock).not.toHaveBeenCalled();
+    alertMock.mockRestore();
+  });
+
+  it("si se toca Subir dos veces seguidas, sube el documento una sola vez", async () => {
+    let resolver;
+    uploadTripDocument.mockImplementation(() => new Promise((r) => { resolver = r; }));
+    const alertMock = jest.spyOn(Alert, "alert").mockImplementation(() => {});
+
+    const utils = await renderPantallaCargada();
+
+    await seleccionarArchivoValido(utils);
+    await waitFor(() => expect(utils.getByText("Seguro.pdf")).toBeTruthy());
+    await elegirCategoria(utils, "Pasajes");
+
+    await pressSubmit(utils);
+    await pressSubmit(utils);
+
+    expect(uploadTripDocument).toHaveBeenCalledTimes(1);
+
+    await act(async () => resolver({}));
+    alertMock.mockRestore();
+  });
+
   it("muestra un Alert de error genérico si falla la subida por otro motivo", async () => {
     uploadTripDocument.mockRejectedValue(new Error("El servidor no responde."));
     const alertMock = jest.spyOn(Alert, "alert").mockImplementation(() => {});

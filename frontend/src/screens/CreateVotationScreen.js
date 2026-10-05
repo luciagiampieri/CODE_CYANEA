@@ -1,18 +1,17 @@
 import { useState, useEffect, useRef } from "react";
 import {
-    View,
-    Text,
-    StyleSheet,
-    ScrollView,
-    TextInput,
-    TouchableOpacity,
-    Alert,
-    Platform,
-    Modal,
-    Pressable,
-    Keyboard,
-    KeyboardAvoidingView,
+  View,
+  Text,
+  StyleSheet,
+  ScrollView,
+  TextInput,
+  TouchableOpacity,
+  Platform,
+  Pressable,
+  Keyboard,
+  KeyboardAvoidingView,
 } from "react-native";
+import Modal from "../components/ui/AppModal";
 
 import { FontAwesome6 } from "@expo/vector-icons";
 import DatePickerModal from "../components/ui/DatePickerModal";     
@@ -23,6 +22,8 @@ import PrimaryButton from "../components/ui/PrimaryButton";
 import { createVotacion } from "../services/api";
 import { colors, shadows, textStyles, radii, spacing } from "../theme/tokens";
 import DateTimePicker from "@react-native-community/datetimepicker";
+
+import { appAlert } from "../components/ui/AppDialog";
 
 function fechaDefault() {
     const d = new Date();
@@ -142,14 +143,14 @@ export default function CrearVotacionScreen({ visible, onClose, IdViaje, onVotac
             if (Platform.OS === "web") {
                 window.alert("La votación se creó correctamente.");
             } else {
-                Alert.alert("Votación creada", "La votación se creó correctamente.");
+                appAlert("Votación creada", "La votación se creó correctamente.");
             }
 
             onVotacionCreada?.(nuevaVotacion);
             onClose();
 
         } catch (error) {
-            Alert.alert("No se pudo crear", error.message);
+            appAlert("No se pudo crear", error.message);
         } finally {
             setSaving(false);
         }

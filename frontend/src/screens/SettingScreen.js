@@ -1,7 +1,5 @@
 import { useState} from "react";
 import {
-  Alert,
-  Modal,
   Platform,
   Pressable,
   ScrollView,
@@ -9,6 +7,7 @@ import {
   Text,
   View,
 } from "react-native";
+import Modal from "../components/ui/AppModal";
 import { FontAwesome6 } from "@expo/vector-icons";
 
 import ScreenContainer from "../components/layout/ScreenContainer";
@@ -17,6 +16,8 @@ import PrimaryButton from "../components/ui/PrimaryButton";
 import { useAuth } from "../context/AuthContext";
 import useResponsive from "../hooks/useResponsive";
 import { colors, radii, spacing, surfaces, textStyles } from "../theme/tokens";
+
+import { appAlert } from "../components/ui/AppDialog";
 
 export default function SettingsScreen({ navigation }) {
   const { logout } = useAuth();
@@ -28,7 +29,7 @@ export default function SettingsScreen({ navigation }) {
     if (Platform.OS === "web") {
       setShowLogoutModal(true);
     } else {
-      Alert.alert(
+      appAlert(
         "Cerrar sesión",
         "¿Estás seguro de que deseás cerrar sesión en CYANEA?",
         [
@@ -109,7 +110,7 @@ export default function SettingsScreen({ navigation }) {
 
               <Pressable
                 onPress={() => {
-                  Alert.alert(
+                  appAlert(
                     "CYANEA Pro",
                     "La suscripción Pro estará disponible muy pronto con viajes ilimitados y funciones offline avanzadas."
                   );
@@ -444,4 +445,4 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
     marginTop: spacing.xs,
   }
-});
+});

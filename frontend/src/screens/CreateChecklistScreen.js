@@ -6,13 +6,12 @@ import {
   ScrollView,
   Pressable,
   TextInput,
-  Alert,
-  Modal,
   Platform,
   TouchableOpacity,
   FlatList,
-  ActivityIndicator
+  ActivityIndicator,
 } from "react-native";
+import Modal from "../components/ui/AppModal";
 
 import { FontAwesome6 } from "@expo/vector-icons";
 
@@ -20,6 +19,8 @@ import PrimaryButton from "../components/ui/PrimaryButton";
 
 import { createChecklist, updateChecklist, getChecklistCategories } from "../services/api";
 import { colors, radii, spacing, textStyles } from "../theme/tokens";
+
+import { appAlert } from "../components/ui/AppDialog";
 
 const NOMBRE_MAX_LENGTH = 60;
 
@@ -41,7 +42,7 @@ function mostrarAlertaConfirmacion(titulo, mensaje, onAceptar) {
     window.alert(`${titulo}\n\n${mensaje}`);
     if (onAceptar) onAceptar();
   } else {
-    Alert.alert(
+    appAlert(
       titulo,
       mensaje,
       onAceptar ? [{ text: "Aceptar", onPress: onAceptar }] : undefined

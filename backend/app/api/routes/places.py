@@ -37,6 +37,32 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 
 
+def _error_servicio_lugares(exc: Exception, accion: str) -> HTTPException:
+    """Convierte una falla de Google Places en un error HTTP controlado.
+
+    Sin esto la excepción sale como 500 y, como se escapa del middleware de
+    CORS, el navegador la reporta como un error de CORS. Además deja en el
+    log el motivo real que devuelve Google (key faltante, API no habilitada,
+    key con restricciones de Android o de dominio, etc.).
+    """
+    if isinstance(exc, ValueError):
+        # Por ejemplo: GOOGLE_MAPS_API_KEY no esta configurada
+        logger.error("Servicio de lugares no configurado (%s): %s", accion, exc)
+        return HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="El servicio de lugares no está configurado en el servidor.",
+        )
+    detalle_google = ""
+    respuesta = getattr(exc, "response", None)
+    if respuesta is not None:
+        detalle_google = f" | Google respondió {respuesta.status_code}: {respuesta.text[:500]}"
+    logger.error("Fallo Google Places (%s): %r%s", accion, exc, detalle_google)
+    return HTTPException(
+        status_code=status.HTTP_502_BAD_GATEWAY,
+        detail="No se pudo consultar el servicio externo de lugares.",
+    )
+
+
 def _actor_display_name(usuario: Usuario) -> str:
     return f"{usuario.Nombre} {usuario.Apellido}".strip() or usuario.NombreUsuario
 
@@ -303,7 +329,10 @@ async def get_place_details_route(
     current_user: Usuario = Depends(get_current_user),
 ) -> PlaceDetailRead:
     require_trip_edit_access(get_trip_with_relations(db, trip_id), current_user)
-    details = await get_place_details(placeId.strip())
+    try:
+        details = await get_place_details(placeId.strip())
+    except Exception as exc:
+        raise _error_servicio_lugares(exc, "detalle de lugar") from exc
     return PlaceDetailRead(
         placeId=details.place_id,
         name=details.name,
@@ -346,13 +375,16 @@ async def nearby_places(
             detail=f"Categoría inválida. Opciones válidas: {', '.join(CATEGORY_TYPE_MAP.keys())}",
         )
 
-    results = await search_nearby_places(
-        lat=lat,
-        lng=lng,
-        category=normalized_category,
-        radius=radius,
-        limit=limit,
-    )
+    try:
+        results = await search_nearby_places(
+            lat=lat,
+            lng=lng,
+            category=normalized_category,
+            radius=radius,
+            limit=limit,
+        )
+    except Exception as exc:
+        raise _error_servicio_lugares(exc, "lugares cercanos") from exc
     return NearbyPlacesResponse(
         category=normalized_category,
         items=[
