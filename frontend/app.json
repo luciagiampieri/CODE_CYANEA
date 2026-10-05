@@ -35,12 +35,7 @@
       "expo-sqlite",
       "expo-web-browser",
       "expo-font",
-      [
-        "react-native-maps",
-        {
-          "androidGoogleMapsApiKey": "AIzaSyC7CYPXZxfbrReuj82aWaTQ0oxrm8E5LAE"
-        }
-      ],
+      "react-native-maps",
       [
         "expo-image-picker",
         {

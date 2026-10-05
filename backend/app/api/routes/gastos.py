@@ -5,6 +5,7 @@ from decimal import Decimal
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
 from app.api.deps import get_current_user
@@ -12,6 +13,7 @@ from app.db.session import get_db
 
 from app.models import (
     CategoriasGastos,
+    DocumentoViaje,
     EstadoParticipacion,
     EstadoTransferenciaLiquidacion,
     Gasto,
@@ -40,6 +42,7 @@ from app.services.trip_access import (
     is_trip_finished,
     require_trip_access,
     require_trip_edit_access,
+    require_trip_not_finished,
 )
 from app.services.currency import obtener_tipo_cambio
 from app.core.config import settings
@@ -60,6 +63,9 @@ from app.services.receipt_ai.base import (
     MENSAJE_NO_DISPONIBLE,
     MENSAJE_TIEMPO_AGOTADO,
 )
+from app.services.comprobante_gasto import guardar_comprobante
+from app.services.supabase.storage import eliminar_documento, eliminar_documento_storage, obtener_url_publica
+from app.services.websocket_manager import manager
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -402,8 +408,12 @@ async def create_gasto(data: GastoCreate, db: Session = Depends(get_db), current
 
 
 @router.delete("/{gasto_id}")
-def delete_gasto(
+async def delete_gasto(
     gasto_id: int,
+    eliminar_comprobante: bool = Query(
+        default=False,
+        description="Si es true y el usuario es dueño del comprobante, también se elimina del repositorio.",
+    ),
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
 ):
@@ -414,7 +424,7 @@ def delete_gasto(
             detail="Gasto no encontrado.",
         )
 
-    require_trip_edit_access(
+    viaje = require_trip_edit_access(
         get_trip_with_relations(db, gasto.IdViaje),
         current_user,
     )
@@ -430,14 +440,114 @@ def delete_gasto(
         )
 
     viaje_id = gasto.IdViaje
+
+    # Reglas para borrar también el comprobante: solo si lo subió quien elimina
+    # y si el viaje no finalizó (los documentos quedan bloqueados al finalizar).
+    documento = (
+        db.get(DocumentoViaje, gasto.IdDocumentoComprobante)
+        if gasto.IdDocumentoComprobante is not None
+        else None
+    )
+    motivo_conservado = None
+    borrar_documento = False
+    if documento is not None and eliminar_comprobante:
+        if documento.IdUsuarioSubida != current_user.IdUsuario:
+            motivo_conservado = "NO_ES_DUENO"
+        elif is_trip_finished(viaje):
+            motivo_conservado = "VIAJE_FINALIZADO"
+        else:
+            borrar_documento = True
+
+    ruta_storage = documento.UrlArchivo if borrar_documento else None
+
     db.delete(gasto)
     db.flush()
+    if borrar_documento:
+        db.delete(documento)
+        db.flush()
     rebuild_settlement_plan(db, viaje_id)
+    db.commit()
+
+    if ruta_storage:
+        try:
+            eliminar_documento(ruta_storage)
+        except Exception:
+            # Si el archivo ya no estaba en el storage, no bloqueamos la eliminación.
+            pass
+        await manager.broadcast_to_trip(viaje_id, {"tipo": "documento_actualizado"})
 
     return {
         "message": "Gasto eliminado correctamente",
         "IdGasto": gasto_id,
+        "ComprobanteEliminado": borrar_documento,
+        "MotivoComprobanteConservado": motivo_conservado,
     }
+
+
+@router.post("/{gasto_id}/comprobante")
+async def asociar_comprobante_gasto(
+    gasto_id: int,
+    archivo: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+):
+    """Guarda el comprobante escaneado en el repositorio (categoría "Comprobantes")
+    y lo asocia al gasto. Solo participantes con permiso de edición (RN-28, RNF-14)."""
+    gasto = db.get(Gasto, gasto_id)
+    if gasto is None:
+        raise HTTPException(status_code=404, detail="Gasto no encontrado.")
+
+    viaje = require_trip_edit_access(
+        get_trip_with_relations(db, gasto.IdViaje),
+        current_user,
+    )
+    require_trip_not_finished(viaje, "los comprobantes")
+
+    if gasto.IdDocumentoComprobante is not None:
+        raise HTTPException(
+            status_code=409,
+            detail="El gasto ya tiene un comprobante asociado.",
+        )
+
+    contenido = await archivo.read(MAX_RECEIPT_BYTES + 1)
+    try:
+        mime = validar_documento(contenido)
+    except ReceiptScanError as error:
+        raise _error_escaneo(error)
+
+    ruta_subida = None
+    try:
+        documento = guardar_comprobante(db, gasto, current_user, contenido, mime)
+        ruta_subida = documento.UrlArchivo
+        nombre_documento = documento.NombreArchivo
+        id_documento = documento.IdDocumento
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        if ruta_subida:
+            eliminar_documento_storage(ruta_subida)
+        raise HTTPException(
+            status_code=409,
+            detail="Ya existe un documento con ese nombre en este viaje. Intentá nuevamente.",
+        )
+    except Exception:
+        logger.exception("No se pudo guardar el comprobante del gasto %s", gasto_id)
+        db.rollback()
+        if ruta_subida:
+            eliminar_documento_storage(ruta_subida)
+        raise HTTPException(
+            status_code=502,
+            detail="No se pudo guardar el comprobante en el repositorio.",
+        )
+
+    await manager.broadcast_to_trip(gasto.IdViaje, {"tipo": "documento_actualizado"})
+
+    return {
+        "message": "Comprobante guardado en el repositorio.",
+        "IdDocumento": id_documento,
+        "NombreArchivo": nombre_documento,
+    }
+
 
 @router.get("/categories", response_model=list[CategoriasGastosRead])
 def get_categories(
@@ -559,14 +669,20 @@ def list_trip_gastos(
     current_user: Usuario = Depends(get_current_user),
 ):
     """Listado de gastos del viaje, del más reciente al más antiguo."""
-
-    require_trip_access(get_trip_with_relations(db, trip_id), current_user)
+    viaje = get_trip_with_relations(db, trip_id)
+    require_trip_access(viaje, current_user)
+    try:
+        require_trip_edit_access(viaje, current_user)
+        es_participante_actual = True
+    except Exception:
+        es_participante_actual = False
 
     query = (
         select(Gasto)
         .options(
             selectinload(Gasto.Categoria),
             selectinload(Gasto.Pagador).selectinload(ParticipanteViaje.Usuario),
+            selectinload(Gasto.Comprobante),
         )
         .where(Gasto.IdViaje == trip_id)
         .order_by(Gasto.FechaGasto.desc(), Gasto.FechaCreacion.desc(), Gasto.IdGasto.desc())
@@ -575,6 +691,18 @@ def list_trip_gastos(
         query = query.where(Gasto.IdCategoria == categoria)
 
     gastos = db.scalars(query).all()
+
+    def _comprobante_visible(gasto: Gasto) -> bool:
+        # Mismas reglas de acceso que el repositorio: público o propio (RN-28).
+        comprobante = gasto.Comprobante
+        return (
+            es_participante_actual
+            and comprobante is not None
+            and (
+                comprobante.EsPublico
+                or comprobante.IdUsuarioSubida == current_user.IdUsuario
+            )
+        )
 
     return [
         GastoListItemRead(
@@ -589,6 +717,22 @@ def list_trip_gastos(
             IdPagador=gasto.IdPagador,
             IdUsuarioPagador=gasto.Pagador.IdUsuario,
             NombrePagador=_actor_display_name(gasto.Pagador.Usuario),
+            IdDocumentoComprobante=(
+                gasto.IdDocumentoComprobante if _comprobante_visible(gasto) else None
+            ),
+            EsPropioComprobante=(
+                es_participante_actual
+                and gasto.Comprobante is not None
+                and gasto.Comprobante.IdUsuarioSubida == current_user.IdUsuario
+            ),
+            UrlComprobante=(
+                obtener_url_publica(gasto.Comprobante.UrlArchivo)
+                if _comprobante_visible(gasto)
+                else None
+            ),
+            NombreComprobante=(
+                gasto.Comprobante.NombreArchivo if _comprobante_visible(gasto) else None
+            ),
         )
         for gasto in gastos
     ]

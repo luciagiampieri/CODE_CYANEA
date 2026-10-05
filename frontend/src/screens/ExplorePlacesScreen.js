@@ -797,7 +797,7 @@ export default function ExplorePlacesScreen({ navigation, route }) {
       return renderStateMessage({
         icon: "map",
         title: "No hay imperdibles para esta zona",
-        copy: "Mové el mapa hacia uno de los destinos del viaje y tocá “Buscar en esta zona”.",
+        copy: "Mové el mapa hacia cualquier zona que quieran explorar y tocá “Buscar en esta zona”.",
       });
     }
     return popularPlaces.map((place, index) => (

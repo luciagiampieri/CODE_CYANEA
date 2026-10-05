@@ -1,7 +1,16 @@
+const path = require("path");
 const { getDefaultConfig } = require("expo/metro-config");
 
-const config = getDefaultConfig(__dirname);
+const projectRoot = __dirname;
+const config = getDefaultConfig(projectRoot);
 const defaultRewriteRequestUrl = config.server?.rewriteRequestUrl;
+
+config.projectRoot = projectRoot;
+config.watchFolders = [];
+config.resolver = {
+  ...config.resolver,
+  nodeModulesPaths: [path.resolve(projectRoot, "node_modules")],
+};
 
 config.server = {
   ...config.server,

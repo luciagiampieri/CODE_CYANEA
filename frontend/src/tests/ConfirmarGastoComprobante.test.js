@@ -15,6 +15,7 @@ import {
   getExchangeRate,
   getExpenseCategories,
   getTripParticipants,
+  attachReceiptToExpense, 
 } from "../services/api";
 import { guardarGastoOffline } from "../database/gastosLocal";
 import { toYMD } from "../utils/dates";
@@ -31,6 +32,7 @@ jest.mock("../services/api", () => ({
   getCurrencies: jest.fn(),
   getExchangeRate: jest.fn(),
   createExpense: jest.fn(),
+  attachReceiptToExpense: jest.fn(), 
 }));
 
 jest.mock("../database/gastosLocal", () => ({
@@ -140,6 +142,9 @@ describe("US 94 - Confirmar gasto precargado desde un comprobante", () => {
     jest.clearAllMocks();
     jest.spyOn(Alert, "alert").mockImplementation(() => {});
     jest.spyOn(console, "log").mockImplementation(() => {});
+    
+    attachReceiptToExpense.mockResolvedValue({ message: "OK" }); 
+    
     getExpenseCategories.mockResolvedValue([
       { IdCategoria: 1, Nombre: "Comida y Bebida" },
       { IdCategoria: 2, Nombre: "Transporte" },
@@ -189,7 +194,7 @@ describe("US 94 - Confirmar gasto precargado desde un comprobante", () => {
         MontoConvertidoARS: null,
       })
     );
-    expect(Alert.alert).toHaveBeenCalledWith("Éxito", "Gasto registrado correctamente en el servidor.");
+    expect(Alert.alert).toHaveBeenCalledWith("Éxito", "Gasto registrado correctamente y comprobante guardado en el repositorio.");
     expect(utils.onGastoCreado).toHaveBeenCalled();
     expect(utils.onClose).toHaveBeenCalled();
   });

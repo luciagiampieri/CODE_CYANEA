@@ -27,6 +27,7 @@ def get_receipt_extractor() -> ReceiptExtractor:
         model=settings.ai_receipt_model,
         fallback_model=settings.ai_receipt_fallback_model,
         timeout_seconds=settings.ai_receipt_timeout_seconds,
+        verify_ssl=settings.gemini_verify_ssl,
     )
 
 

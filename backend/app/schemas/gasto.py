@@ -68,6 +68,10 @@ class GastoListItemRead(BaseModel):
     IdPagador: int
     IdUsuarioPagador: int
     NombrePagador: str
+    IdDocumentoComprobante: Optional[int] = None
+    EsPropioComprobante: bool = False
+    UrlComprobante: Optional[str] = None
+    NombreComprobante: Optional[str] = None
 
 
 class GastoRead(BaseModel):

@@ -23,11 +23,17 @@ from app.schemas.usuario import (
     UsuarioProfileUpdate,
     ConsentimientoIARead,
     ConsentimientoIAUpdate,
+    ConsentimientoAsistenteIARead,
+    ConsentimientoAsistenteIAUpdate,
+    PrivacidadRead,
+    PrivacidadUpdate,
+    PrivacidadUpdateResponse,
     UsuarioPushTokenResponse,
     UsuarioPushTokenUpsert,
     UsuarioRead,
     UsuarioDeleteRequest
 )
+from app.services.privacidad import VISIBILIDAD_PRIVADO, datos_visibles
 from app.services.supabase.storage import obtener_url_publica, subir_foto_perfil
 from app.services.websocket_manager import manager
 
@@ -73,8 +79,10 @@ def _serializar_usuario_actual(usuario: Usuario) -> UsuarioProfileRead:
         consienteNotificacionesEmail=usuario.ConsienteNotificacionesEmail,
         consienteNotificacionesPush=usuario.ConsienteNotificacionesPush,
         consienteProcesamientoIA=usuario.ConsienteProcesamientoIA,
+        consienteAsistenteIA=usuario.ConsienteAsistenteIA,
         fechaConsentimientoNotificacionesEmail=usuario.FechaConsentimientoNotificacionesEmail,
         fechaConsentimientoNotificacionesPush=usuario.FechaConsentimientoNotificacionesPush,
+        fechaConsentimientoAsistenteIA=usuario.FechaConsentimientoAsistenteIA,
         recibeEmailsNuevasActividades=usuario.RecibeEmailsNuevasActividades,
         recibeEmailsNuevaVotacion=usuario.RecibeEmailsNuevaVotacion,
         recibeEmailsCambiosViaje=usuario.RecibeEmailsCambiosViaje,
@@ -113,6 +121,8 @@ def _anonimizar_usuario(usuario: Usuario) -> None:
     usuario.FechaConsentimientoNotificacionesPush = None
     usuario.ConsienteProcesamientoIA = False
     usuario.FechaConsentimientoIA = None
+    usuario.ConsienteAsistenteIA = False
+    usuario.FechaConsentimientoAsistenteIA = None
     usuario.RecibeEmailsNuevasActividades = False
     usuario.RecibeEmailsNuevaVotacion = False
     usuario.RecibeEmailsCambiosViaje = False
@@ -127,6 +137,12 @@ def _anonimizar_usuario(usuario: Usuario) -> None:
     usuario.RecibePushRecordatoriosDeuda = False
     usuario.RecibePushRecordatoriosActividad = False
     usuario.RecibePushRecordatoriosReserva = False
+
+    # Una cuenta eliminada no se muestra ni se puede encontrar (US 61).
+    usuario.VisibilidadNombre = VISIBILIDAD_PRIVADO
+    usuario.VisibilidadEmail = VISIBILIDAD_PRIVADO
+    usuario.VisibilidadFotoPerfil = VISIBILIDAD_PRIVADO
+    usuario.PermiteBusquedaPorUsuario = False
 
     usuario.Activo = False
     usuario.FechaBaja = datetime.now(timezone.utc)
@@ -202,6 +218,59 @@ def update_ai_consent(
     return ConsentimientoIARead(
         consienteProcesamientoIA=current_user.ConsienteProcesamientoIA,
         fechaConsentimientoIA=current_user.FechaConsentimientoIA,
+    )
+
+
+@router.put("/me/consentimiento-asistente-ia", response_model=ConsentimientoAsistenteIARead)
+def update_assistant_ai_consent(
+    payload: ConsentimientoAsistenteIAUpdate,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> ConsentimientoAsistenteIARead:
+    current_user.ConsienteAsistenteIA = payload.consiente
+    current_user.FechaConsentimientoAsistenteIA = (
+        datetime.now(timezone.utc) if payload.consiente else None
+    )
+    db.commit()
+    db.refresh(current_user)
+    return ConsentimientoAsistenteIARead(
+        consienteAsistenteIA=current_user.ConsienteAsistenteIA,
+        fechaConsentimientoAsistenteIA=current_user.FechaConsentimientoAsistenteIA,
+    )
+
+
+def _serializar_privacidad(usuario: Usuario) -> PrivacidadRead:
+    return PrivacidadRead(
+        visibilidadNombre=usuario.VisibilidadNombre,
+        visibilidadEmail=usuario.VisibilidadEmail,
+        visibilidadFotoPerfil=usuario.VisibilidadFotoPerfil,
+        permiteBusquedaPorUsuario=usuario.PermiteBusquedaPorUsuario,
+    )
+
+
+@router.get("/me/privacidad", response_model=PrivacidadRead)
+def get_privacy_settings(current_user: Usuario = Depends(get_current_user)) -> PrivacidadRead:
+    """Preferencias de privacidad del perfil (US 61)."""
+    return _serializar_privacidad(current_user)
+
+
+@router.put("/me/privacidad", response_model=PrivacidadUpdateResponse)
+def update_privacy_settings(
+    payload: PrivacidadUpdate,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> PrivacidadUpdateResponse:
+    """Actualiza qué datos del perfil ven los demás participantes de los viajes
+    compartidos y si la cuenta se puede encontrar por nombre de usuario (US 61)."""
+    current_user.VisibilidadNombre = payload.visibilidadNombre
+    current_user.VisibilidadEmail = payload.visibilidadEmail
+    current_user.VisibilidadFotoPerfil = payload.visibilidadFotoPerfil
+    current_user.PermiteBusquedaPorUsuario = payload.permiteBusquedaPorUsuario
+    db.commit()
+    db.refresh(current_user)
+    return PrivacidadUpdateResponse(
+        **_serializar_privacidad(current_user).model_dump(),
+        message="Tu información de privacidad se actualizó correctamente.",
     )
 
 
@@ -410,33 +479,42 @@ def list_users(
     q: str | None = Query(default=None),
     limit: int = Query(default=8, ge=1, le=20),
     db: Session = Depends(get_db),
-    _: Usuario = Depends(get_current_user),
+    current_user: Usuario = Depends(get_current_user),
 ) -> list[UsuarioRead]:
-    query = select(Usuario).where(Usuario.Activo.is_(True))
+    """Búsqueda de usuarios para invitarlos a un viaje (US 61, CA 3).
+
+    Solo busca por nombre de usuario y solo devuelve cuentas que permiten ser
+    encontradas. El email nunca se expone acá: quien busca todavía no comparte
+    un viaje con esas personas. Nombre y foto respetan la privacidad de cada
+    usuario.
+    """
+    query = select(Usuario).where(
+        Usuario.Activo.is_(True),
+        or_(
+            Usuario.PermiteBusquedaPorUsuario.is_(True),
+            Usuario.IdUsuario == current_user.IdUsuario,
+        ),
+    )
 
     if q:
         pattern = f"%{q.strip()}%"
-        query = query.where(
-            or_(
-                Usuario.Nombre.ilike(pattern),
-                Usuario.Apellido.ilike(pattern),
-                Usuario.NombreUsuario.ilike(pattern),
-                Usuario.Email.ilike(pattern),
-            )
-        )
+        query = query.where(Usuario.NombreUsuario.ilike(pattern))
 
     usuarios = db.scalars(query.order_by(Usuario.NombreUsuario).limit(limit)).all()
 
-    return [
-        UsuarioRead(
-            id=usuario.IdUsuario,
-            nombreUsuario=usuario.NombreUsuario,
-            nombreCompleto=f"{usuario.Nombre} {usuario.Apellido}",
-            email=usuario.Email,
-            fotoUrl=usuario.FotoUrl,
+    resultado = []
+    for usuario in usuarios:
+        visibles = datos_visibles(usuario, current_user.IdUsuario, incluir_email=False)
+        resultado.append(
+            UsuarioRead(
+                id=usuario.IdUsuario,
+                nombreUsuario=usuario.NombreUsuario,
+                nombreCompleto=visibles.nombreCompleto,
+                email=None,
+                fotoUrl=visibles.fotoUrl,
+            )
         )
-        for usuario in usuarios
-    ]
+    return resultado
 
 
 @router.post("/me/verify-password")

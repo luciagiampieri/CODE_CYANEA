@@ -54,6 +54,9 @@ web-build/
 android/
 ios/
 cyfb/
+eas-tmp/
+eas-tmp-build/
+eas-tmp-clean/
 
 # Logs
 logs/

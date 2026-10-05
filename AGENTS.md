@@ -194,6 +194,7 @@ Notas del frontend Expo:
 - `frontend/metro.config.js` conserva el resolver por defecto de Expo 57; no fijar dependencias base con `resolver.extraNodeModules` ni desactivar `resolver.unstable_enablePackageExports`, porque puede romper la resolucion del paquete `expo` en web
 - Mantener `react` y `react-dom` exactamente en la misma version
 - El proyecto EAS activo del frontend es `@lcorrea87s-team/cyanea` con `extra.eas.projectId=0dddd612-ef66-4470-9a77-ce206f823efd`; `frontend/eas.json` define perfiles `development` y `production`
+- Los builds EAS deben excluir `logs/` y temporales locales mediante `.easignore`, y las carpetas locales `eas-tmp/`, `eas-tmp-build/` y `eas-tmp-clean/` deben estar ignoradas por Git; en repos dentro de OneDrive, usar `TEMP`/`TMP` fuera de `C:` cuando falte espacio o Windows bloquee carpetas temporales
 
 ### 4. Base de datos
 
@@ -330,6 +331,24 @@ Reglas vigentes para la HU de balance y liquidacion:
 
 - Ninguna integracion externa no esencial debe impedir los flujos base del dominio
 - Si falla la resolucion automatica de portada, lugares o metadata externa, el viaje debe poder crearse o actualizarse igual, degradando funcionalidad en forma controlada y registrando warning
+- El asistente IA del viaje se expone desde `POST /trips/{trip_id}/assistant/messages` y usa el proveedor configurado por `AI_ASSISTANT_*`; para pruebas automatizadas debe poder usarse `AI_ASSISTANT_PROVIDER=mock`
+- El asistente IA reutiliza `GEMINI_API_KEY` cuando `AI_ASSISTANT_PROVIDER=gemini`; si `AI_ASSISTANT_MODEL` o `AI_ASSISTANT_FALLBACK_MODEL` quedan vacios, usa `AI_RECEIPT_MODEL` y `AI_RECEIPT_FALLBACK_MODEL`; el backend consume Gemini por REST y no debe requerir SDK adicional para esta funcionalidad
+- En redes locales con inspeccion TLS o certificados corporativos, `GEMINI_VERIFY_SSL=false` permite probar Gemini desde Python/httpx; mantener `true` por defecto y no desactivar verificacion SSL fuera de entornos controlados
+- El uso del asistente IA requiere consentimiento explicito del usuario en `Usuarios.ConsienteAsistenteIA`, gestionado por `PUT /users/me/consentimiento-asistente-ia`
+- Toda accion mutante propuesta por el asistente debe persistirse primero en `AccionesAsistenteViaje` con estado `propuesta` y ejecutarse solo tras confirmacion explicita del usuario
+- Las herramientas permitidas inicialmente para el asistente son: crear actividad de itinerario, crear tarea de checklist, registrar gasto, crear votacion y generar ruta diaria; no habilitar acciones destructivas ni pagos reales desde el asistente
+- Las recomendaciones, resumenes e ideas de viaje del asistente deben resolverse como respuesta conversacional directa; solo se crea una accion confirmable cuando el usuario pide guardar, registrar, crear o generar algo concreto
+- El frontend del asistente debe enviar el historial conversacional reciente al backend; el backend lo expone al LLM como `conversacionReciente` y el modelo debe combinar datos de varios mensajes antes de pedir informacion nuevamente
+- Si el usuario envia nuevos datos mientras existe una accion propuesta pendiente, el frontend debe marcar la accion anterior como resuelta/descartada para evitar confirmar operaciones viejas con informacion incompleta
+- El proveedor IA del asistente actua como capa de extraccion estructurada: debe devolver `AssistantIntent` con `intent`, `confidence`, `payload`, `missingFields`, `clarifyingQuestion` y `response`; la clasificacion semantica de intencion y parametros corresponde al LLM, no a listas de palabras en backend
+- El backend del asistente valida la extraccion, construye la propuesta confirmable y ejecuta tools solo tras confirmacion; puede normalizar formatos mecanicos y bloquear datos genericos, pero no debe clasificar la intencion de usuario mediante palabras hardcodeadas
+- Las tools del asistente deben normalizar payloads conversacionales antes de ejecutar acciones: aceptar alias habituales de campos (`monto`, `importe`, `titulo`, `dia`, etc.), importes con formato local (`10.000`, `$ 10.000`, `10000`) y booleanos textuales (`si`, `no`, `true`, `false`)
+- Para `registrar_gasto`, el concepto (`nombre`) y la categoria deben ser inferidos por el LLM desde la conversacion y validados por backend contra categorias activas; no guardar gastos con nombres genericos como "Gasto registrado por IA" ni asignar una categoria por fallback silencioso
+- Las acciones propuestas por el asistente deben conservar el mensaje original del usuario en el payload interno (`_userMessage`) para permitir recuperacion defensiva de datos obvios si el proveedor IA devuelve un payload incompleto
+- El contexto del asistente debe incluir los lugares guardados del viaje para que `crear_actividad` pueda asociar `idLugarInteresViaje`; si el proveedor solo devuelve un nombre de ubicacion, la tool debe intentar vincularlo con lugares existentes antes de crear la actividad sin ubicacion
+- Para actividades creadas por el asistente con una ubicacion textual no guardada previamente, el backend puede crear un `LugarInteres` sintetico vinculado al viaje con `GooglePlaceId` prefijado por `assistant:` y `MetadataJson.approximate=true`; si no hay coordenadas del lugar, usa el centro del primer destino del viaje como referencia aproximada
+- Toda tool nueva o modificada del asistente debe quedar cubierta por tests backend en `backend/tests/test_assistant_ai.py`, verificando propuesta, confirmacion y persistencia real de la accion ejecutada
+- El contexto enviado al modelo debe ser un resumen operativo del viaje y no debe incluir credenciales, hashes, tokens ni datos sensibles innecesarios
 
 ## Convenciones de scripts SQL
 
@@ -374,10 +393,12 @@ Orden actual:
 - La portada visual del viaje se resuelve desde Google Places usando el primer destino seleccionado como referencia
 - El backend persiste `Viajes.GooglePlaceIdPortada` y expone la imagen por proxy propio para no exponer la API key de Google en el frontend
 - La exploracion de lugares de interes del viaje usa Google Places para busqueda y Google Maps JavaScript en web para visualizacion interactiva
+- La key de Google Maps para Android nativo de `react-native-maps` se configura en build con `GOOGLE_MAPS_ANDROID_API_KEY` desde `frontend/.env`, variables de entorno locales o secretos EAS; no debe quedar hardcodeada en `frontend/app.json`
 - En mobile nativo Expo, la fase 1 de parity usa `react-native-maps` en `frontend/src/components/map/MapCanvas.native.js`; la logica de busqueda, detalle y recomendados sigue centralizada en backend
 - En mobile nativo Expo, la fase 2 de parity habilita seleccion de POIs desde el mapa nativo con `onPoiClick` y presenta recomendados en formato bottom-sheet en lugar de panel lateral
 - El ranking de atracciones populares en exploracion se calcula dinamicamente desde Google Places segun el centro visible del mapa
 - El ranking de atracciones populares en exploracion debe presentarse en un panel lateral o modal dedicado, no intercalado en el flujo principal de seleccion y guardado de lugares
+- Los destinos base del viaje contextualizan busquedas y recomendaciones de lugares, pero no restringen geograficamente lo que se puede guardar o agendar: un viaje puede incluir escapadas a otras ciudades, provincias o paises
 - Los componentes del feature de mapa viven en `frontend/src/components/map/`
 - La HU 23 de visualizacion de recorridos se considera cerrada cuando:
   - la ruta generada puede abrirse en un mapa interactivo desde el dia correspondiente del itinerario
@@ -463,6 +484,7 @@ Para retomar o replicar la configuracion de push Android:
 - En Expo no se usa un `styles.css` global; la identidad visual debe centralizarse en tokens compartidos y helpers de estilo
 - Evitar hardcodear colores, radios o espaciados por componente si ya existe token equivalente
 - Los módulos de infraestructura nativa con dependencias exclusivas de dispositivo, como SQLite offline, deben resolverse con archivos por plataforma (`*.native.js` / `*.web.js`) para no romper el bundle web
+- Los contenedores con area segura deben importar `SafeAreaView` desde `react-native-safe-area-context`, no desde `react-native`, para evitar la API deprecada en Expo/React Native
 - La interfaz activa toma como referencia una app de viajes mobile-first con header azul profundo, superficies marfil y tarjetas con imagen protagonista
 - Usar serif editorial para wordmark de marca, titulos grandes de pantalla, nombres de viajes y valores KPI
 - Usar sans para labels, formularios, navegacion, metadata, tabs y acciones

@@ -1,0 +1,17 @@
+backend/
+frontend-ant/
+logs/
+node_modules/
+frontend/node_modules/
+frontend/android/
+frontend/.expo/
+frontend/dist/
+frontend/web-build/
+frontend/google-services.json
+frontend/GoogleService-Info.plist
+*.log
+*.tmp
+eas-tmp/
+eas-tmp-build/
+Z:/eas-tmp/
+Z:/eas-tmp-build/

@@ -6,6 +6,7 @@ import { useFocusEffect } from "@react-navigation/native";
 import {
   ActivityIndicator,
   Alert,
+  Image,
   ImageBackground,
   Keyboard,
   Linking,
@@ -17,6 +18,7 @@ import {
   Text,
   View,
   Modal,
+  useWindowDimensions,
 } from "react-native";
 
 import ScreenContainer from "../components/layout/ScreenContainer";
@@ -330,6 +332,7 @@ export default function TripDetailScreen({ navigation, route }) {
   const [descargandoDocId, setDescargandoDocId] = useState(null);
   const [eliminandoDocId, setEliminandoDocId] = useState(null);
   const [updatingTransferId, setUpdatingTransferId] = useState(null);
+  const [gastoParaEliminar, setGastoParaEliminar] = useState(null);
   const socketRef = useRef(null);
   const pendingEditRef = useRef(null);
   const [itinerarioView, setItinerarioView] = useItinerarioViewPreference();
@@ -339,6 +342,32 @@ export default function TripDetailScreen({ navigation, route }) {
   const pendingCenterGastos = useRef(false);
 
   const [keyboardInset, setKeyboardInset] = useState(0);
+
+  const [comprobanteViendo, setComprobanteViendo] = useState(null);
+  const [descargandoComprobanteId, setDescargandoComprobanteId] = useState(null);
+  const { width: winW, height: winH } = useWindowDimensions();
+  const [comprobanteError, setComprobanteError] = useState(false);
+
+  useEffect(() => {
+    setComprobanteError(false);
+  }, [comprobanteViendo]);
+
+  async function handleDescargarComprobante(gasto) {
+    try {
+      setDescargandoComprobanteId(gasto.IdGasto);
+      await downloadTripDocument(trip.id, gasto.IdDocumentoComprobante, gasto.NombreComprobante);
+      avisar(
+        "Descarga completa",
+        Platform.OS === "web"
+          ? "El comprobante se descargó correctamente."
+          : "El comprobante se guardó en tu dispositivo."
+      );
+    } catch (error) {
+      avisar("Error", error.message || "No se pudo descargar el comprobante. Intentá nuevamente.");
+    } finally {
+      setDescargandoComprobanteId(null);
+    }
+  }
 
   useEffect(() => {
     const isIos = Platform.OS === "ios";
@@ -581,28 +610,43 @@ export default function TripDetailScreen({ navigation, route }) {
     }
   }, [activeTab, loadExpenses]);
 
-  async function eliminarGasto(gasto) {
-    const ejecutar = async () => {
-      try {
-        setDeletingExpenseId(gasto.IdGasto);
-        await deleteExpense(gasto.IdGasto);
-        await Promise.all([loadExpenses(), loadSettlement()]);
-        avisar("Gasto eliminado", "El gasto se eliminó correctamente.");
-      } catch (error) {
-        avisar(
-          "No se pudo eliminar",
-          error.message || "No se pudo eliminar el gasto. Intentá nuevamente."
-        );
-      } finally {
-        setDeletingExpenseId(null);
-      }
-    };
+async function ejecutarBorradoGasto(gastoId, eliminarComprobante = false) {
+    try {
+      setGastoParaEliminar(null);
+      setDeletingExpenseId(gastoId);
+      const resultado = await deleteExpense(gastoId, { eliminarComprobante });
+      await Promise.all([loadExpenses(), loadSettlement()]);
 
-    confirmar(
-      "Eliminar gasto",
-      `¿Seguro que querés eliminar "${gasto.Nombre}"? Esta acción no se puede deshacer y actualizará los balances del viaje.`,
-      ejecutar
-    );
+      if (resultado?.ComprobanteEliminado) {
+        avisar("Gasto y comprobante eliminados", "Se eliminaron el gasto y su comprobante del repositorio.");
+        if (activeTab === "docs") loadDocumentos();
+      } else if (resultado?.MotivoComprobanteConservado === "NO_ES_DUENO") {
+        avisar("Gasto eliminado", "El gasto se eliminó, pero el comprobante se conservó en el repositorio porque fue subido por otro usuario.");
+      } else if (resultado?.MotivoComprobanteConservado === "VIAJE_FINALIZADO") {
+        avisar("Gasto eliminado", "El gasto se eliminó, pero el comprobante se conservó porque el viaje ya finalizó.");
+      } else {
+        avisar("Gasto eliminado", "El gasto se eliminó correctamente.");
+      }
+    } catch (error) {
+      avisar(
+        "No se pudo eliminar",
+        error.message || "No se pudo eliminar el gasto. Intentá nuevamente."
+      );
+    } finally {
+      setDeletingExpenseId(null);
+    }
+  }
+
+  async function eliminarGasto(gasto) {
+    if (gasto.IdDocumentoComprobante) {
+      setGastoParaEliminar(gasto);
+    } else {
+      confirmar(
+        "Eliminar gasto",
+        `¿Seguro que querés eliminar "${gasto.Nombre}"? Esta acción no se puede deshacer y actualizará los balances del viaje.`,
+        () => ejecutarBorradoGasto(gasto.IdGasto, false)
+      );
+    }
   }
 
   const mySettlementBalance = useMemo(() => {
@@ -1844,23 +1888,41 @@ export default function TripDetailScreen({ navigation, route }) {
           {activeTab === "resumen" ? (
             <View style={styles.summaryContainer}>
               <View style={styles.summaryGrid}>
-                <View style={styles.summaryCard}>
+                <Pressable
+                  style={({ pressed }) => [
+                    styles.summaryCard,
+                    pressed && { opacity: 0.7, backgroundColor: colors.surfaceAlt }
+                  ]}
+                  onPress={() => setActiveTab("itinerario")}
+                >
                   <View style={styles.summaryIconWrap}>
                     <FontAwesome6 name="moon" size={22} color={colors.primary} />
                   </View>
                   <Text style={styles.summaryValue}>{tripSummaryMetrics.noches}</Text>
                   <Text style={styles.summaryLabel}>Noches</Text>
-                </View>
+                </Pressable>
 
-                <View style={styles.summaryCard}>
+                <Pressable
+                  style={({ pressed }) => [
+                    styles.summaryCard,
+                    pressed && { opacity: 0.7, backgroundColor: colors.surfaceAlt }
+                  ]}
+                  onPress={() => setActiveTab("grupo")}
+                >
                   <View style={styles.summaryIconWrap}>
                     <FontAwesome6 name="users" size={22} color={colors.primary} />
                   </View>
                   <Text style={styles.summaryValue}>{participantesActivos.length}</Text>
                   <Text style={styles.summaryLabel}>Viajeros</Text>
-                </View>
+                </Pressable>
 
-                <View style={styles.summaryCard}>
+                <Pressable
+                  style={({ pressed }) => [
+                    styles.summaryCard,
+                    pressed && { opacity: 0.7, backgroundColor: colors.surfaceAlt }
+                  ]}
+                  onPress={() => setActiveTab("gastos")}
+                >
                   <View style={styles.summaryIconWrap}>
                     <FontAwesome6 name="sack-dollar" size={22} color={colors.primary} />
                   </View>
@@ -1873,9 +1935,15 @@ export default function TripDetailScreen({ navigation, route }) {
                   <Text style={styles.summaryLabel}>
                     Total gastado ({settlement?.Moneda || trip?.currency || "ARS"})
                   </Text>
-                </View>
+                </Pressable>
 
-                <View style={styles.summaryCard}>
+                <Pressable
+                  style={({ pressed }) => [
+                    styles.summaryCard,
+                    pressed && { opacity: 0.7, backgroundColor: colors.surfaceAlt }
+                  ]}
+                  onPress={() => setActiveTab("itinerario")}
+                >
                   <View style={styles.summaryIconWrap}>
                     <FontAwesome6 name="clock" size={22} color={colors.primary} />
                   </View>
@@ -1889,7 +1957,7 @@ export default function TripDetailScreen({ navigation, route }) {
                   <Text style={styles.summaryLabel}>
                     {tripSummaryMetrics.estaFinalizado ? "Estado" : tripSummaryMetrics.yaComenzo ? "Estado" : "Faltan"}
                   </Text>
-                </View>
+                </Pressable>
               </View>
 
               <View style={styles.progressCard}>
@@ -2446,6 +2514,9 @@ export default function TripDetailScreen({ navigation, route }) {
                     onRetry={loadExpenses}
                     scrollRef={scrollRef}
                     cardRef={gastosCardRef}
+                    onViewReceipt={(gasto) => setComprobanteViendo(gasto)}
+                    onDownloadReceipt={handleDescargarComprobante}
+                    downloadingReceiptId={descargandoComprobanteId}
                   />
                 ) : gastosView === "transferencias" ? (
                   <SettlementTransfers
@@ -3480,6 +3551,97 @@ export default function TripDetailScreen({ navigation, route }) {
           </View>
         </View>
       </Modal>
+      <Modal
+        animationType="fade"
+        transparent={true}
+        visible={!!gastoParaEliminar}
+        onRequestClose={() => setGastoParaEliminar(null)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalIconContainer}>
+              <FontAwesome6 name="trash-can" size={22} color={colors.danger || "#ef4444"} />
+            </View>
+            <Text style={styles.modalTitle}>Eliminar gasto</Text>
+            <Text style={styles.modalMessage}>
+              ¿Seguro que querés eliminar "{gastoParaEliminar?.Nombre}"? Este gasto tiene un comprobante guardado en el repositorio. ¿Qué querés hacer con el archivo adjunto?
+            </Text>
+            <View style={{ width: "100%", gap: 10 }}>
+              <Pressable
+                style={[styles.modalButton, { backgroundColor: colors.danger || "#ef4444" }]}
+                onPress={() => ejecutarBorradoGasto(gastoParaEliminar?.IdGasto, true)}
+              >
+                <Text style={styles.modalButtonTextConfirm}>Eliminar ambos</Text>
+              </Pressable>
+              <Pressable
+                style={[styles.modalButton, { backgroundColor: colors.primary }]}
+                onPress={() => ejecutarBorradoGasto(gastoParaEliminar?.IdGasto, false)}
+              >
+                <Text style={styles.modalButtonTextConfirm}>Conservar comprobante</Text>
+              </Pressable>
+              <Pressable
+                style={[styles.modalButton, styles.modalButtonCancel]}
+                onPress={() => setGastoParaEliminar(null)}
+              >
+                <Text style={styles.modalButtonTextCancel}>Cancelar</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
+      <Modal
+        animationType="fade"
+        transparent={true}
+        visible={!!comprobanteViendo}
+        onRequestClose={() => setComprobanteViendo(null)}
+      >
+        <View style={styles.viewerOverlay}>
+          <View style={styles.viewerHeader}>
+            <Text style={styles.viewerTitle} numberOfLines={1}>
+              {comprobanteViendo?.NombreComprobante || "Comprobante"}
+            </Text>
+            <Pressable
+              hitSlop={10}
+              onPress={() => setComprobanteViendo(null)}
+              style={styles.viewerCloseButton}
+            >
+              <FontAwesome6 name="xmark" size={20} color="#fff" />
+            </Pressable>
+          </View>
+          
+          <View style={styles.viewerContent}>
+            {comprobanteViendo?.NombreComprobante?.toLowerCase().endsWith('.pdf') ? (
+              <View style={{ alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+                <FontAwesome6 name="file-pdf" size={50} color="#94a3b8" style={{ marginBottom: 16 }} />
+                <Text style={{ color: '#fff', fontSize: 15, textAlign: 'center', lineHeight: 22 }}>
+                  El visor no soporta archivos PDF.{'\n'}Por favor, descargá el comprobante para verlo.
+                </Text>
+              </View>
+            ) : comprobanteViendo?.UrlComprobante && !comprobanteError ? (
+              <Image
+                source={{ uri: comprobanteViendo.UrlComprobante.replace(/ /g, "%20") }}
+                style={{ width: winW, height: winH * 0.6 }}
+                resizeMode="contain"
+                onError={() => setComprobanteError(true)}
+              />
+            ) : (
+              <Text style={{ color: "#fff", textAlign: "center", padding: 20 }}>
+                No se pudo mostrar el comprobante. Podés descargarlo con el botón de abajo.
+              </Text>
+            )}
+          </View>
+
+          <View style={styles.viewerFooter}>
+            <PrimaryButton 
+              label={descargandoComprobanteId === comprobanteViendo?.IdGasto ? "Descargando..." : "Descargar comprobante"}
+              icon="download" 
+              iconPosition="left"
+              disabled={descargandoComprobanteId === comprobanteViendo?.IdGasto}
+              onPress={() => handleDescargarComprobante(comprobanteViendo)}
+            />
+          </View>
+        </View>
+      </Modal>
     </ScreenContainer>
   );
 }
@@ -4286,4 +4448,49 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: "700",
   },
+  viewerOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0, 0, 0, 0.92)",
+    justifyContent: "space-between",
+  },
+  viewerHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingTop: Platform.OS === 'ios' ? 60 : 30,
+    paddingHorizontal: 20,
+    paddingBottom: 15,
+    backgroundColor: "rgba(0, 0, 0, 0.6)",
+    zIndex: 10,
+    width: "100%",
+  },
+  viewerTitle: {
+    color: "#fff",
+    fontSize: 16,
+    fontWeight: "bold",
+    flex: 1,
+    marginRight: 15,
+  },
+  viewerCloseButton: {
+    padding: 5,
+  },
+  viewerContent: {
+    flex: 1,
+    width: "100%",
+    justifyContent: "center",
+    alignItems: "center",
+    paddingVertical: 20,
+  },
+  viewerImage: {
+    flex: 1,
+    width: "100%",
+    height: "100%",
+  },
+  viewerFooter: {
+    padding: 20,
+    paddingBottom: Platform.OS === 'ios' ? 40 : 20,
+    backgroundColor: "rgba(0, 0, 0, 0.6)",
+    zIndex: 10,
+    width: "100%",
+  }
 });

@@ -75,6 +75,7 @@ from app.services.notifications import (
 )
 from app.services.destination_search import build_destination_image_url, search_destinations, autocomplete_destinations, resolve_destination
 from app.services.place_search import get_place_photo_uri
+from app.services.privacidad import datos_visibles, nombre_para_otros
 from app.services.trip_access import get_trip_with_relations, require_trip_access, require_trip_edit_access, require_trip_not_finished, resolve_trip_status, require_trip_info_editable, trip_info_editable_until
 from app.services.liquidacion_service import calcular_balances_participantes
 from app.services.supabase.storage import eliminar_documento_storage, subir_portada_viaje, subir_portada_viaje_bytes, obtener_url_publica
@@ -154,7 +155,8 @@ def _require_trip_admin(viaje: Viaje, current_user: Usuario) -> None:
 
 
 def _actor_display_name(usuario: Usuario) -> str:
-    return f"{usuario.Nombre} {usuario.Apellido}".strip() or usuario.NombreUsuario
+    # Respeta la privacidad del nombre (US 61): estos textos los leen otras personas.
+    return nombre_para_otros(usuario) or usuario.NombreUsuario
 
 
 def _trip_image_url(viaje: Viaje) -> str | None:
@@ -294,6 +296,37 @@ async def _sincronizar_y_notificar_ruta(db: Session, dia: DiaCronograma, trip_id
         })
 
 
+def _build_participant_read(
+    participacion: ParticipanteViaje,
+    id_observador: int | None,
+    *,
+    status: str,
+) -> TripParticipantRead:
+    usuario = participacion.Usuario
+    visibles = datos_visibles(usuario, id_observador)
+    return TripParticipantRead(
+        id=usuario.IdUsuario,
+        nombreCompleto=visibles.nombreCompleto,
+        nombreUsuario=usuario.NombreUsuario,
+        email=visibles.email,
+        fotoUrl=visibles.fotoUrl,
+        role=participacion.RolParticipante.Nombre,
+        status=status,
+    )
+
+
+def _datos_usuario_visibles(usuario: Usuario, id_observador: int | None) -> dict:
+    """Datos de un usuario para listas simples (UsuarioRead), con privacidad (US 61)."""
+    visibles = datos_visibles(usuario, id_observador)
+    return {
+        "id": usuario.IdUsuario,
+        "nombreUsuario": usuario.NombreUsuario,
+        "nombreCompleto": visibles.nombreCompleto,
+        "email": visibles.email,
+        "fotoUrl": visibles.fotoUrl,
+    }
+
+
 def _build_trip_detail(
         viaje: Viaje,
         current_user: Usuario | None = None,
@@ -303,6 +336,8 @@ def _build_trip_detail(
     has_left = False
     participantes_salidos_despues = []
     participacion_usuario = None
+    # Los datos de los demás usuarios respetan su configuración de privacidad (US 61).
+    id_observador = current_user.IdUsuario if current_user is not None else None
 
     if current_user is not None:
         participacion_usuario = next(
@@ -391,6 +426,8 @@ def _build_trip_detail(
     ]
     invitaciones_visibles.sort(key=lambda item: item.EmailInvitado.lower())
 
+    admin_visible = datos_visibles(admin_a_mostrar, id_observador)
+
     default_cover_image = (
         build_destination_image_url(viaje.GooglePlaceIdPortada)
         if viaje.GooglePlaceIdPortada
@@ -435,19 +472,15 @@ def _build_trip_detail(
         ],
         admin=TripAdminRead(
             id=admin_a_mostrar.IdUsuario,
-            nombreCompleto=f"{admin_a_mostrar.Nombre} {admin_a_mostrar.Apellido}",
+            nombreCompleto=admin_visible.nombreCompleto,
             nombreUsuario=admin_a_mostrar.NombreUsuario,
-            email=admin_a_mostrar.Email,
-            fotoUrl=admin_a_mostrar.FotoUrl,
+            email=admin_visible.email,
+            fotoUrl=admin_visible.fotoUrl,
         ),
         participants=[
-            TripParticipantRead(
-                id=participacion.Usuario.IdUsuario,
-                nombreCompleto=f"{participacion.Usuario.Nombre} {participacion.Usuario.Apellido}",
-                nombreUsuario=participacion.Usuario.NombreUsuario,
-                email=participacion.Usuario.Email,
-                fotoUrl=participacion.Usuario.FotoUrl,
-                role=participacion.RolParticipante.Nombre,
+            _build_participant_read(
+                participacion,
+                id_observador,
                 status=(
                     "aceptado"
                     if participacion.IdParticipanteViaje in ids_congelados_como_aceptado
@@ -771,13 +804,7 @@ def list_trips(
                 if participacion.EstadoParticipacion.Nombre == "aceptado"
             ],
             participants=[
-                {
-                    "id": participacion.Usuario.IdUsuario,
-                    "nombreUsuario": participacion.Usuario.NombreUsuario,
-                    "nombreCompleto": f"{participacion.Usuario.Nombre} {participacion.Usuario.Apellido}",
-                    "email": participacion.Usuario.Email,
-                    "fotoUrl": participacion.Usuario.FotoUrl,
-                }
+                _datos_usuario_visibles(participacion.Usuario, current_user.IdUsuario)
                 for participacion in viaje.Participantes
                 if participacion.EstadoParticipacion.Nombre == "aceptado"
             ],
@@ -1479,7 +1506,7 @@ def add_trip_participant(
                 to_email=email,
                 trip_title=viaje.Titulo,
                 trip_destination= ", ".join(f"{d.Destino.Nombre}, {d.Destino.Pais}" for d in viaje.Destinos),
-                inviter_name=f"{current_user.Nombre} {current_user.Apellido}",
+                inviter_name=nombre_para_otros(current_user),
                 invitation_token=token_invitacion,
                 expiration_at=vencimiento,
             )
@@ -1576,7 +1603,7 @@ def remove_trip_participant(
                     "trip_destination": ", ".join(
                         f"{d.Destino.Nombre}, {d.Destino.Pais}" for d in viaje.Destinos
                     ),
-                    "admin_name": f"{current_user.Nombre} {current_user.Apellido}",
+                    "admin_name": nombre_para_otros(current_user),
                 },
             )
         )
@@ -1676,8 +1703,8 @@ def list_sent_invitations(
         TripSentInvitationRead(
             userId=participacion.Usuario.IdUsuario,
             nombreUsuario=participacion.Usuario.NombreUsuario,
-            nombreCompleto=f"{participacion.Usuario.Nombre} {participacion.Usuario.Apellido}".strip(),
-            fotoUrl=participacion.Usuario.FotoUrl,
+            nombreCompleto=datos_visibles(participacion.Usuario, current_user.IdUsuario).nombreCompleto,
+            fotoUrl=datos_visibles(participacion.Usuario, current_user.IdUsuario).fotoUrl,
             status=ESTADO_PARTICIPACION_A_ESTADO_INVITACION[participacion.EstadoParticipacion.Nombre],
             invitedAt=participacion.FechaInvitacion,
             respondedAt=participacion.FechaRespuesta,
@@ -2185,7 +2212,7 @@ async def create_trip(
                 trip_destination="-".join(
                     f"{rel.Destino.Nombre}, {rel.Destino.Pais}" for rel in viaje.Destinos
                 ),
-                inviter_name=f"{administrador.Nombre} {administrador.Apellido}",
+                inviter_name=nombre_para_otros(administrador),
                 invitation_token=token_invitacion,
                 expiration_at=vencimiento,
             )
@@ -2461,7 +2488,7 @@ async def leave_trip(
             Tipo="nuevo_administrador",
             Titulo="Ahora eres el administrador del viaje",
             Mensaje=(
-                f"{current_user.Nombre} {current_user.Apellido} "
+                f"{nombre_para_otros(current_user)} "
                 f"te asignó como nuevo administrador del viaje '{viaje.Titulo}'."
             ),
         )
@@ -2482,7 +2509,7 @@ async def leave_trip(
             Tipo="participante_salio",
             Titulo="Un participante abandonó el viaje",
             Mensaje=(
-                f"{current_user.Nombre} {current_user.Apellido} "
+                f"{nombre_para_otros(current_user)} "
                 f"abandonó el viaje '{viaje.Titulo}'."
             ),
         )

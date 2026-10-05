@@ -42,6 +42,7 @@ const ICONOS_CATEGORIAS_DOCUMENTOS = {
     Excursiones: "map-location-dot",
     Seguros: "shield-halved",
     Documentación: "id-card",
+    Comprobantes: "receipt", 
     Otros: "ellipsis",
 };
 

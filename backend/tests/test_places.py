@@ -610,7 +610,7 @@ def test_resolve_place_devuelve_datos_completos(
     assert body["lng"] == 2.648
     assert body["category"] == "cathedral"
 
-def test_resolve_place_rechaza_lugar_fuera_del_destino(
+def test_resolve_place_permite_lugar_fuera_del_destino(
     client, auth_headers, viaje_con_admin, monkeypatch
 ):
     viaje, _ = viaje_con_admin
@@ -618,8 +618,17 @@ def test_resolve_place_rechaza_lugar_fuera_del_destino(
     async def fake_resolve_trip_place(
         place_id, allowed_regions, session_token=None
     ):
-        raise ValueError(
-            "El lugar seleccionado no pertenece a los destinos del viaje."
+        return PlaceSearchResult(
+            place_id="google:paris-1",
+            name="Torre Eiffel",
+            address="París, Francia",
+            country="Francia",
+            admin_area="Isla de Francia",
+            lat=48.8584,
+            lng=2.2945,
+            category="tourist_attraction",
+            provider="google_places",
+            metadata={"types": ["tourist_attraction"]},
         )
 
     monkeypatch.setattr(
@@ -630,14 +639,52 @@ def test_resolve_place_rechaza_lugar_fuera_del_destino(
 
     response = client.get(
         f"/api/v1/trips/{viaje.IdViaje}/places/resolve",
-        params={"placeId": "google:buenos-aires"},
+        params={"placeId": "google:paris-1"},
         headers=auth_headers,
     )
 
-    assert response.status_code == 400
-    assert response.json()["detail"] == (
-        "El lugar seleccionado no pertenece a los destinos del viaje."
+    assert response.status_code == 200
+    body = response.json()
+    assert body["placeId"] == "google:paris-1"
+    assert body["name"] == "Torre Eiffel"
+    assert body["country"] == "Francia"
+
+
+def test_resolve_trip_place_no_bloquea_lugares_de_otro_pais(monkeypatch):
+    class FakeResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {
+                "id": "paris-1",
+                "displayName": {"text": "Torre Eiffel"},
+                "formattedAddress": "Champ de Mars, París, Francia",
+                "location": {"latitude": 48.8584, "longitude": 2.2945},
+                "types": ["tourist_attraction"],
+                "primaryType": "tourist_attraction",
+                "addressComponents": [
+                    {"longText": "Francia", "types": ["country"]},
+                    {"longText": "Isla de Francia", "types": ["administrative_area_level_1"]},
+                ],
+            }
+
+    class FakeClient:
+        async def get(self, url, headers, params):
+            return FakeResponse()
+
+    monkeypatch.setattr(places_service.settings, "google_maps_api_key", "test-key")
+    monkeypatch.setattr(places_service, "_get_client", lambda: FakeClient())
+
+    result = asyncio.run(
+        places_service.resolve_trip_place(
+            "google:paris-1",
+            allowed_regions=[{"country": "España", "admin_area": None}],
+        )
     )
+
+    assert result.place_id == "google:paris-1"
+    assert result.country == "Francia"
 
 def test_resolve_place_error_servicio_externo(
     client, auth_headers, viaje_con_admin, monkeypatch

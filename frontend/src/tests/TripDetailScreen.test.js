@@ -16,6 +16,8 @@ import {
   cancelSentInvitation,
   getTripExpenses,
   getExpenseCategories,
+  sendTripAssistantMessage,
+  updateAssistantConsent,
 } from "../services/api";
 
 jest.mock("react-native-maps", () => {
@@ -72,6 +74,8 @@ jest.mock("../services/api", () => ({
   getSentInvitations: jest.fn(),
   cancelSentInvitation: jest.fn(),
   getTripExpenses: jest.fn(),
+  sendTripAssistantMessage: jest.fn(),
+  updateAssistantConsent: jest.fn(),
   onTripFinishedError: jest.fn(),
 }));
 
@@ -113,6 +117,11 @@ function setupDefaultMocks() {
   getExpenseCategories.mockResolvedValue([]);
   getSentInvitations.mockResolvedValue([]);
   getTripExpenses.mockResolvedValue([]);
+  sendTripAssistantMessage.mockResolvedValue({ message: "Listo" });
+  updateAssistantConsent.mockResolvedValue({
+    consienteAsistenteIA: true,
+    fechaConsentimientoAsistenteIA: "2026-10-03T00:00:00Z",
+  });
   getTripSettlement.mockResolvedValue({});
   onTripFinishedError.mockImplementation(() => jest.fn());
 }
