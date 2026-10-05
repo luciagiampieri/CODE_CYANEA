@@ -17,12 +17,12 @@ def monedas_seed(db_session):
 
 
 def test_get_monedas_no_requiere_auth(client, monedas_seed):
-    response = client.get("/api/v1/monedas/")
+    response = client.get("/api/v1/monedas")
     assert response.status_code == 200
 
 
 def test_get_monedas_lista_ordenada_por_codigo(client, monedas_seed):
-    response = client.get("/api/v1/monedas/")
+    response = client.get("/api/v1/monedas")
     assert response.status_code == 200
     codigos = [m["Codigo"] for m in response.json()]
     assert codigos == sorted(codigos)
@@ -30,7 +30,7 @@ def test_get_monedas_lista_ordenada_por_codigo(client, monedas_seed):
 
 
 def test_get_monedas_vacio_sin_datos(client):
-    response = client.get("/api/v1/monedas/")
+    response = client.get("/api/v1/monedas")
     assert response.status_code == 200
     assert response.json() == []
 

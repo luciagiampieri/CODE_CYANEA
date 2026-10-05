@@ -14,7 +14,7 @@ from sqlalchemy import or_, func
 
 router = APIRouter()
 
-@router.get("/", response_model=list[MonedasRead])
+@router.get("", response_model=list[MonedasRead])
 def get_monedas(db: Session = Depends(get_db)):
     return db.query(Moneda).order_by(Moneda.Codigo).all()
 

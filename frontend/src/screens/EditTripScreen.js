@@ -387,7 +387,6 @@ export default function EditTripScreen({ navigation, route }) {
               />
             </View>
             <Text style={styles.heroTitle}>Editar Viaje</Text>
-            <Text style={styles.heroCopy}>Modifica los detalles de tu viaje.</Text>
           </View>
 
           <View style={styles.body}>

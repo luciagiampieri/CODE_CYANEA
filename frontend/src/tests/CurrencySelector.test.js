@@ -224,4 +224,32 @@ describe("CurrencySelector", () => {
       expect(onSelectCurrency).toHaveBeenCalledWith("ARS");
     });
   });
+
+  describe("popup", () => {
+    it("sin búsqueda, muestra primero las monedas más usadas", async () => {
+      const desordenadas = [
+        { Codigo: "AED", Nombre: "Dírham" },
+        { Codigo: "EUR", Nombre: "Euro" },
+        { Codigo: "ARS", Nombre: "Peso argentino" },
+        { Codigo: "USD", Nombre: "Dólar estadounidense" },
+      ];
+      const utils = await render(<CurrencySelector {...baseProps} currencies={desordenadas} />);
+      await abrirSelector(utils);
+
+      const nombres = utils
+        .getAllByText(/^(Dírham|Euro|Peso argentino|Dólar estadounidense)$/)
+        .map((node) => node.props.children);
+      expect(nombres).toEqual(["Peso argentino", "Dólar estadounidense", "Euro", "Dírham"]);
+    });
+
+    it("si la lista de monedas llega vacía, avisa que no se pudieron cargar", async () => {
+      const utils = await render(
+        <CurrencySelector {...baseProps} currencies={[]} />
+      );
+      await abrirSelector(utils);
+
+      expect(utils.getByText("No pudimos cargar las monedas")).toBeTruthy();
+      expect(utils.queryByText("Sin resultados")).toBeNull();
+    });
+  });
 });

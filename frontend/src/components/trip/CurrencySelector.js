@@ -5,6 +5,7 @@ import {
   Modal,
   FlatList,
   Platform,
+  Pressable,
   StyleSheet,
   Text,
   TextInput,
@@ -12,8 +13,12 @@ import {
   View,
 } from "react-native";
 
-import ScreenContainer from "../layout/ScreenContainer";
-import { colors, radii, spacing, textStyles } from "../../theme/tokens";
+import useResponsive from "../../hooks/useResponsive";
+import { colors, radii, shadows, spacing, textStyles } from "../../theme/tokens";
+
+// Monedas que más se usan en viajes desde Argentina: aparecen primero en la
+// lista cuando no hay búsqueda, el resto sigue en el orden que trae el backend.
+const MONEDAS_FRECUENTES = ["ARS", "USD", "EUR", "BRL", "CLP", "UYU"];
 
 // Símbolos de las monedas más comunes; el resto muestra su código
 const SIMBOLOS = {
@@ -74,11 +79,19 @@ export default function CurrencySelector({
 }) {
   const [search, setSearch] = useState("");
   const [open, setOpen] = useState(false);
+  const { isTablet } = useResponsive();
 
   const filtered = useMemo(() => {
     const value = search.trim().toLowerCase();
 
-    if (!value) return currencies;
+    if (!value) {
+      const rank = (code) => {
+        const i = MONEDAS_FRECUENTES.indexOf(code);
+        return i === -1 ? MONEDAS_FRECUENTES.length : i;
+      };
+      // sort estable: dentro del mismo rango se respeta el orden original
+      return [...currencies].sort((a, b) => rank(a.Codigo) - rank(b.Codigo));
+    }
 
     return currencies.filter(
       (c) =>
@@ -135,109 +148,132 @@ export default function CurrencySelector({
       </TouchableOpacity>
       {error ? <Text style={styles.error}>{error}</Text> : null}
 
-      <Modal visible={open} animationType="slide" onRequestClose={closeModal} transparent={false}>
-        <ScreenContainer fullWidth padded={false}>
-          <KeyboardAvoidingView
-            style={styles.flex}
-            behavior={Platform.OS === "ios" ? "padding" : undefined}
+      <Modal visible={open} animationType="fade" onRequestClose={closeModal} transparent>
+        <KeyboardAvoidingView
+          style={styles.flex}
+          behavior={Platform.OS === "ios" ? "padding" : undefined}
+        >
+          <Pressable
+            style={[styles.overlay, isTablet ? styles.overlayCentered : styles.overlayBottom]}
+            onPress={closeModal}
           >
-            {/* Encabezado */}
-            <View style={styles.pickerHeader}>
-              <TouchableOpacity
-                onPress={closeModal}
-                hitSlop={10}
-                style={styles.roundButton}
-                activeOpacity={0.7}
-                accessibilityLabel="Cerrar selector de moneda"
-              >
-                <FontAwesome6 name="arrow-left" size={15} color={colors.primary} />
-              </TouchableOpacity>
+            {/* stopPropagation: tocar dentro del popup no lo cierra */}
+            <Pressable
+              style={[styles.sheet, isTablet ? styles.sheetCentered : styles.sheetBottom]}
+              onPress={(e) => e.stopPropagation()}
+              accessible={false}
+            >
+              {!isTablet && <View style={styles.grabber} />}
 
-              <View style={styles.headerTitleWrap}>
-                <Text style={styles.pickerTitle}>Moneda</Text>
-                <Text style={styles.pickerSubtitle}>
-                  {currencies.length} {currencies.length === 1 ? "disponible" : "disponibles"}
-                </Text>
-              </View>
-
-              <View style={styles.roundButtonPlaceholder} />
-            </View>
-
-            {/* Buscador */}
-            <View style={styles.searchWrapper}>
-              <View style={styles.pickerSearchBox}>
-                <FontAwesome6 name="magnifying-glass" size={14} color={colors.textMuted} />
-                <TextInput
-                  value={search}
-                  onChangeText={setSearch}
-                  placeholder="Buscá por nombre o código"
-                  placeholderTextColor={colors.textMuted}
-                  style={styles.pickerSearchInput}
-                  autoFocus
-                  autoCorrect={false}
-                  autoCapitalize="none"
-                />
-                {search.length > 0 && (
-                  <TouchableOpacity onPress={() => setSearch("")} hitSlop={8}>
-                    <FontAwesome6 name="circle-xmark" size={15} color={colors.textMuted} />
-                  </TouchableOpacity>
-                )}
-              </View>
-            </View>
-
-            {/* Lista */}
-            <FlatList
-              data={filtered}
-              keyExtractor={(item) => item.Codigo}
-              keyboardShouldPersistTaps="handled"
-              contentContainerStyle={styles.listContent}
-              showsVerticalScrollIndicator={false}
-              renderItem={({ item }) => {
-                const isActive = item.Codigo === selectedCurrency;
-                return (
-                  <TouchableOpacity
-                    style={[styles.item, isActive && styles.itemActive]}
-                    onPress={() => {
-                      onSelectCurrency(item.Codigo);
-                      closeModal();
-                    }}
-                    activeOpacity={0.75}
-                  >
-                    <View style={styles.itemLeft}>
-                      <CurrencyBadge code={item.Codigo} active={isActive} />
-                      <View style={styles.itemTextWrap}>
-                        <Text
-                          style={[styles.itemTitle, isActive && styles.itemTitleActive]}
-                          numberOfLines={1}
-                        >
-                          {item.Nombre}
-                        </Text>
-                        <Text style={styles.itemCode}>{item.Codigo}</Text>
-                      </View>
-                    </View>
-
-                    <View style={[styles.radioCheck, isActive && styles.radioCheckActive]}>
-                      {isActive && (
-                        <FontAwesome6 name="check" size={11} color={colors.textInverse || "#fff"} />
-                      )}
-                    </View>
-                  </TouchableOpacity>
-                );
-              }}
-              ListEmptyComponent={
-                <View style={styles.empty}>
-                  <View style={styles.emptyIconWrap}>
-                    <FontAwesome6 name="magnifying-glass" size={20} color={colors.textMuted} />
-                  </View>
-                  <Text style={styles.emptyTitle}>Sin resultados</Text>
-                  <Text style={styles.emptyText}>
-                    No encontramos ninguna moneda que coincida con tu búsqueda.
+              {/* Encabezado */}
+              <View style={styles.pickerHeader}>
+                <View style={styles.headerTitleWrap}>
+                  <Text style={styles.pickerTitle}>Moneda</Text>
+                  <Text style={styles.pickerSubtitle}>
+                    {currencies.length} {currencies.length === 1 ? "disponible" : "disponibles"}
                   </Text>
                 </View>
-              }
-            />
-          </KeyboardAvoidingView>
-        </ScreenContainer>
+
+                <TouchableOpacity
+                  onPress={closeModal}
+                  hitSlop={10}
+                  style={styles.roundButton}
+                  activeOpacity={0.7}
+                  accessibilityLabel="Cerrar selector de moneda"
+                >
+                  <FontAwesome6 name="xmark" size={15} color={colors.primary} />
+                </TouchableOpacity>
+              </View>
+
+              {/* Buscador */}
+              <View style={styles.searchWrapper}>
+                <View style={styles.pickerSearchBox}>
+                  <FontAwesome6 name="magnifying-glass" size={14} color={colors.textMuted} />
+                  <TextInput
+                    value={search}
+                    onChangeText={setSearch}
+                    placeholder="Buscá por nombre o código"
+                    placeholderTextColor={colors.textMuted}
+                    style={styles.pickerSearchInput}
+                    // En mobile no abrimos el teclado de entrada: taparía la lista
+                    autoFocus={Platform.OS === "web"}
+                    autoCorrect={false}
+                    autoCapitalize="none"
+                  />
+                  {search.length > 0 && (
+                    <TouchableOpacity onPress={() => setSearch("")} hitSlop={8}>
+                      <FontAwesome6 name="circle-xmark" size={15} color={colors.textMuted} />
+                    </TouchableOpacity>
+                  )}
+                </View>
+              </View>
+
+              {/* Lista */}
+              <FlatList
+                style={styles.list}
+                data={filtered}
+                keyExtractor={(item) => item.Codigo}
+                keyboardShouldPersistTaps="handled"
+                contentContainerStyle={styles.listContent}
+                showsVerticalScrollIndicator={false}
+                initialNumToRender={12}
+                renderItem={({ item }) => {
+                  const isActive = item.Codigo === selectedCurrency;
+                  return (
+                    <TouchableOpacity
+                      style={[styles.item, isActive && styles.itemActive]}
+                      onPress={() => {
+                        onSelectCurrency(item.Codigo);
+                        closeModal();
+                      }}
+                      activeOpacity={0.75}
+                    >
+                      <View style={styles.itemLeft}>
+                        <CurrencyBadge code={item.Codigo} active={isActive} size={36} />
+                        <View style={styles.itemTextWrap}>
+                          <Text
+                            style={[styles.itemTitle, isActive && styles.itemTitleActive]}
+                            numberOfLines={1}
+                          >
+                            {item.Nombre}
+                          </Text>
+                          <Text style={styles.itemCode}>{item.Codigo}</Text>
+                        </View>
+                      </View>
+
+                      {isActive && (
+                        <FontAwesome6 name="check" size={14} color={colors.primary} />
+                      )}
+                    </TouchableOpacity>
+                  );
+                }}
+                ListEmptyComponent={
+                  currencies.length === 0 ? (
+                    <View style={styles.empty}>
+                      <View style={styles.emptyIconWrap}>
+                        <FontAwesome6 name="wifi" size={18} color={colors.textMuted} />
+                      </View>
+                      <Text style={styles.emptyTitle}>No pudimos cargar las monedas</Text>
+                      <Text style={styles.emptyText}>
+                        Revisá tu conexión y volvé a abrir el selector.
+                      </Text>
+                    </View>
+                  ) : (
+                    <View style={styles.empty}>
+                      <View style={styles.emptyIconWrap}>
+                        <FontAwesome6 name="magnifying-glass" size={20} color={colors.textMuted} />
+                      </View>
+                      <Text style={styles.emptyTitle}>Sin resultados</Text>
+                      <Text style={styles.emptyText}>
+                        No encontramos ninguna moneda que coincida con tu búsqueda.
+                      </Text>
+                    </View>
+                  )
+                }
+              />
+            </Pressable>
+          </Pressable>
+        </KeyboardAvoidingView>
       </Modal>
     </View>
   );
@@ -246,7 +282,6 @@ export default function CurrencySelector({
 const styles = StyleSheet.create({
   flex: {
     flex: 1,
-    backgroundColor: colors.background || "#f8fafc",
   },
   container: {
     gap: spacing.xs,
@@ -336,7 +371,46 @@ const styles = StyleSheet.create({
     color: colors.textInverse || "#fff",
   },
 
-  // --- Modal ---
+  // --- Popup ---
+  overlay: {
+    flex: 1,
+    backgroundColor: colors.overlay || "rgba(10, 22, 48, 0.42)",
+  },
+  overlayBottom: {
+    justifyContent: "flex-end",
+  },
+  overlayCentered: {
+    justifyContent: "center",
+    alignItems: "center",
+    padding: spacing.lg,
+  },
+  sheet: {
+    backgroundColor: colors.surface,
+    overflow: "hidden",
+    ...(shadows?.floating || {}),
+  },
+  sheetBottom: {
+    width: "100%",
+    maxHeight: "80%",
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    paddingBottom: spacing.md,
+  },
+  sheetCentered: {
+    width: "100%",
+    maxWidth: 440,
+    maxHeight: "75%",
+    borderRadius: 24,
+    paddingBottom: spacing.sm,
+  },
+  grabber: {
+    alignSelf: "center",
+    width: 40,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: colors.border,
+    marginTop: spacing.sm,
+  },
   pickerHeader: {
     flexDirection: "row",
     alignItems: "center",
@@ -344,22 +418,17 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.lg,
     paddingTop: spacing.md,
     paddingBottom: spacing.sm,
-    backgroundColor: colors.surface,
   },
   roundButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     backgroundColor: colors.surfaceAlt || "#eef2f7",
     alignItems: "center",
     justifyContent: "center",
   },
-  roundButtonPlaceholder: {
-    width: 40,
-    height: 40,
-  },
   headerTitleWrap: {
-    alignItems: "center",
+    flex: 1,
   },
   pickerTitle: {
     ...textStyles.bodyStrong,
@@ -375,9 +444,7 @@ const styles = StyleSheet.create({
   },
   searchWrapper: {
     paddingHorizontal: spacing.lg,
-    paddingTop: spacing.xs,
-    paddingBottom: spacing.md,
-    backgroundColor: colors.surface,
+    paddingBottom: spacing.sm,
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
   },
@@ -385,8 +452,8 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 10,
-    minHeight: 48,
-    borderRadius: 24,
+    minHeight: 44,
+    borderRadius: 22,
     backgroundColor: colors.surfaceAlt || "#f1f5f9",
     paddingHorizontal: spacing.md,
   },
@@ -398,34 +465,28 @@ const styles = StyleSheet.create({
   },
 
   // --- Lista ---
+  list: {
+    flexGrow: 0,
+  },
   listContent: {
-    padding: spacing.lg,
-    gap: spacing.sm,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
   },
   item: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    paddingVertical: 12,
+    paddingVertical: 10,
     paddingHorizontal: spacing.md,
-    backgroundColor: colors.surface,
-    borderRadius: radii.lg || 16,
-    borderWidth: 1.5,
-    borderColor: "transparent",
-    shadowColor: "#0f172a",
-    shadowOpacity: 0.05,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 2 },
-    elevation: 1,
+    borderRadius: 14,
   },
   itemActive: {
-    borderColor: colors.primary,
     backgroundColor: (colors.primary || "#1d4ed8") + "0D",
   },
   itemLeft: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 14,
+    gap: 12,
     flex: 1,
   },
   itemTextWrap: {
@@ -444,27 +505,13 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
     fontSize: 12,
     fontWeight: "600",
-    marginTop: 2,
+    marginTop: 1,
     letterSpacing: 0.5,
-  },
-  radioCheck: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    borderWidth: 2,
-    borderColor: colors.border,
-    alignItems: "center",
-    justifyContent: "center",
-    marginLeft: spacing.sm,
-  },
-  radioCheckActive: {
-    backgroundColor: colors.primary,
-    borderColor: colors.primary,
   },
 
   // --- Estado vacío ---
   empty: {
-    paddingVertical: spacing.xxl,
+    paddingVertical: spacing.xl,
     alignItems: "center",
     gap: spacing.xs,
   },

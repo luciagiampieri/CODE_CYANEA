@@ -298,9 +298,6 @@ export default function EditProfileScreen({ navigation }) {
               <IconCircleButton icon="arrow-left" onPress={() => navigation.goBack()} tone="light" />
             </View>
             <Text style={styles.title}>Editar perfil</Text>
-            <Text style={styles.copy}>
-              Actualiza tus datos personales y tu foto para mantener el perfil al día.
-            </Text>
           </View>
 
           <View style={fieldShellStyle}>

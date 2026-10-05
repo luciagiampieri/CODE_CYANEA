@@ -164,7 +164,6 @@ export default function InvitationsScreen({ navigation }) {
             <IconCircleButton icon="arrow-left" onPress={() => navigation.goBack()} tone="light" />
           </View>
           <Text style={styles.title}>Notificaciones e Invitaciones</Text>
-          <Text style={styles.copy}>Revisá las invitaciones a nuevos viajes y avisos importantes de tus grupos.</Text>
         </View>
 
         <View style={styles.body}>
