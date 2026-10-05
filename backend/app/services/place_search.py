@@ -232,6 +232,12 @@ async def resolve_trip_place(
     allowed_regions: list[dict[str, str | float | None]],
     session_token: str | None = None,
 ) -> PlaceSearchResult:
+    """Resuelve un lugar elegido por el usuario.
+
+    `allowed_regions` se conserva para mantener el contrato con las rutas y el
+    autocomplete, pero no se usa como bloqueo: un viaje puede incluir escapadas
+    fuera del destino base.
+    """
 
     if not settings.google_maps_api_key:
         raise ValueError("GOOGLE_MAPS_API_KEY no esta configurada")
@@ -329,11 +335,6 @@ async def resolve_trip_place(
         rating=item.get("rating"),
         user_ratings_total=item.get("userRatingCount"),
     )
-
-    if not is_place_allowed(result, allowed_regions):
-        raise ValueError(
-            "El lugar seleccionado no pertenece a los destinos del viaje"
-        )
 
     return result
 

@@ -398,6 +398,7 @@ Orden actual:
 - En mobile nativo Expo, la fase 2 de parity habilita seleccion de POIs desde el mapa nativo con `onPoiClick` y presenta recomendados en formato bottom-sheet en lugar de panel lateral
 - El ranking de atracciones populares en exploracion se calcula dinamicamente desde Google Places segun el centro visible del mapa
 - El ranking de atracciones populares en exploracion debe presentarse en un panel lateral o modal dedicado, no intercalado en el flujo principal de seleccion y guardado de lugares
+- Los destinos base del viaje contextualizan busquedas y recomendaciones de lugares, pero no restringen geograficamente lo que se puede guardar o agendar: un viaje puede incluir escapadas a otras ciudades, provincias o paises
 - Los componentes del feature de mapa viven en `frontend/src/components/map/`
 - La HU 23 de visualizacion de recorridos se considera cerrada cuando:
   - la ruta generada puede abrirse en un mapa interactivo desde el dia correspondiente del itinerario
