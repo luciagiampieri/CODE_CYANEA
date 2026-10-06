@@ -47,6 +47,8 @@ backend/.pytest_cache/
 backend/.env
 frontend/.env
 frontend-ant/.env
+frontend/credentials.json
+frontend/credentials/
 
 # Mobile / Expo residues
 .expo/
