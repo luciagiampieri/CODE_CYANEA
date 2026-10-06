@@ -13,7 +13,7 @@ import {
   respondToInvitation,
   getNotificationsSocketUrl
 } from "../services/api";
-import { colors, spacing, surfaces, textStyles, radii } from "../theme/tokens";
+import { colors, spacing, surfaces, textStyles, radii, typography } from "../theme/tokens";
 
 import { appAlert } from "../components/ui/AppDialog";
 
@@ -318,7 +318,7 @@ const styles = StyleSheet.create({
   body: {
     backgroundColor: colors.background,
     padding: spacing.lg,
-    gap: spacing.md,
+    gap: 0,
   },
   emptyCard: {
     ...surfaces.card,
@@ -335,67 +335,77 @@ const styles = StyleSheet.create({
     marginTop: spacing.sm,
   },
   card: {
-    ...surfaces.card,
-    padding: spacing.lg,
-    marginBottom: spacing.md,
+    backgroundColor: "transparent",
+    borderBottomWidth: 0.5,
+    borderBottomColor: colors.overlay,
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.xs,
   },
   unreadCard: {
-    borderLeftWidth: 4,
+    borderLeftWidth: 3,
     borderLeftColor: colors.primary,
-    backgroundColor: colors.surfaceAlt || "#f8fafc",
+    backgroundColor: colors.surface,
+    paddingLeft: spacing.sm,
   },
   cardHeaderRow: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    marginBottom: 4,
+    marginBottom: spacing.xxs,
   },
   unreadDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: colors.primary,
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: colors.primarySoft,
   },
   cardDate: {
     ...textStyles.meta,
     color: colors.textMuted,
-    fontSize: 12,
+    fontSize: typography.tiny,
   },
   cardTitle: {
-    ...textStyles.tripTitle,
+    ...textStyles.bodyStrong,
     color: colors.primary,
-    fontSize: 20,
+    fontSize: 15,
+    lineHeight: 21,
   },
   cardMeta: {
-    ...textStyles.body,
+    ...textStyles.meta,
     color: colors.textSecondary,
-    marginTop: spacing.xs,
+    marginTop: spacing.xxs,
+    lineHeight: 20,
   },
   markAsReadButton: {
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
-    marginTop: spacing.md,
+    marginTop: spacing.sm,
     alignSelf: "flex-start",
-    paddingVertical: 6,
-    paddingHorizontal: 10,
-    borderRadius: radii.md,
-    backgroundColor: colors.surfaceAlt,
+    paddingVertical: spacing.xxs,
+    paddingHorizontal: 0,
   },
   markAsReadText: {
-    ...textStyles.meta,
-    color: colors.primary,
-    fontWeight: "600",
+    ...textStyles.label,
+    color: colors.textMuted,
+    fontSize: typography.tiny,
+    letterSpacing: 0.3,
   },
   actions: {
     flexDirection: "row",
-    gap: spacing.md,
-    marginTop: spacing.lg,
+    gap: spacing.sm,
+    marginTop: spacing.md,
   },
   primaryAction: {
     flex: 1,
+    minHeight: 42,
+    borderRadius: radii.sm,
+    paddingHorizontal: spacing.sm,
   },
   secondaryAction: {
     flex: 1,
+    minHeight: 42,
+    borderRadius: radii.sm,
+    paddingHorizontal: spacing.sm,
   },
 });

@@ -9,7 +9,6 @@ import {
   TextInput,
   View,
   Keyboard,
-  TouchableWithoutFeedback,
   KeyboardAvoidingView,
   ActivityIndicator,
   TouchableOpacity,
@@ -102,6 +101,7 @@ export default function AddActivityScreen({
     const [submitting, setSubmitting] = useState(false);
     const [analizando, setAnalizando] = useState(false);
     const submittingRef = useRef(false);
+    const closingRef = useRef(false);
 
     const [ubicacion, setUbicacion] = useState(null);
     const [showLocationPicker, setShowLocationPicker] = useState(false);
@@ -141,6 +141,7 @@ export default function AddActivityScreen({
 
     useEffect(() => {
         if (!visible) return;
+        closingRef.current = false;
 
         if (activityToEdit) {
             setNombre(activityToEdit.title ?? "");
@@ -217,6 +218,9 @@ export default function AddActivityScreen({
     }
 
     function resetAndClose() {
+        if (closingRef.current) return;
+        closingRef.current = true;
+
         if (activityToEdit?.id) {
             onCancelEdit?.(activityToEdit.id);
         }
@@ -322,11 +326,13 @@ export default function AddActivityScreen({
     async function handleSubmit() {
         if (!nombre.trim()) {
             setError("El nombre de la actividad es obligatorio.");
+            setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 0);
             return;
         }
 
         if (!isValidTime(horaInicio) || !isValidTime(horaFin)) {
             setError("Ingresá los horarios en formato HH:MM.");
+            setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 0);
             return;
         }
 
@@ -338,6 +344,7 @@ export default function AddActivityScreen({
             } else {
                 setError("La hora de fin debe ser posterior a la hora de inicio (dentro del mismo día).");
             }
+            setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 0);
             return;
         }
 
@@ -497,8 +504,7 @@ export default function AddActivityScreen({
                             showsVerticalScrollIndicator={false}
                             contentContainerStyle={{ paddingBottom: spacing.xl }}
                         >
-                            <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-                                <View>
+                            <View>
                                     <View style={styles.headerRow}>
                                         <Text style={styles.title}>
                                             {activityToEdit ? "Editar actividad" : "Agregar actividad"}
@@ -715,8 +721,7 @@ export default function AddActivityScreen({
                                         onPress={handleSubmit}
                                         style={styles.submitButton}
                                     />
-                                </View>
-                            </TouchableWithoutFeedback>
+                            </View>
                         </ScrollView>
 
                         {/* MODAL DESPLEGABLE PARA SELECCIONAR ÍCONO */}
