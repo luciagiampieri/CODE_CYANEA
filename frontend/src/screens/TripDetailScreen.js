@@ -95,6 +95,8 @@ import useResponsive from "../hooks/useResponsive";
 import ItinerarioViewToggle from "../components/trip/ItinerarioViewToggle";
 import ItinerarioCalendarView from "../components/trip/ItinerarioCalendarView";
 import { buildRouteMarkers } from "../utils/routeMarkers";
+import DayAgenda from "../components/trip/DayAgenda";
+import { isTodayISO, resumenDelDia } from "../utils/agenda";
 import { getTripLock } from "../utils/tripLock";
 import { getRouteHint } from "../utils/routeMessages";
 import { formatMoney } from "../utils/money";
@@ -1489,11 +1491,7 @@ async function ejecutarBorradoGasto(gastoId, eliminarComprobante = false) {
   const [mapaModalData, setMapaModalData] = useState(null);
   const [modoTransporteDayId, setModoTransporteDayId] = useState({});
 
-  // Cantidad de actividades visibles de un día antes de pasar a scroll interno
-  const ACTIVIDADES_VISIBLES = 5;
   const dayCardRefs = useRef({});
-  // Altura (por día) que ocupan las primeras ACTIVIDADES_VISIBLES actividades
-  const [agendaAlturas, setAgendaAlturas] = useState({});
 
   function handleToggleDay(dayId, isExpanded) {
     if (isExpanded) {
@@ -1510,12 +1508,6 @@ async function ejecutarBorradoGasto(gastoId, eliminarComprobante = false) {
         centerInScroll(scroller, card, { align: "top", margin: spacing.sm });
       }
     }, 200);
-  }
-
-  function handleActividadLayout(dayId, event) {
-    const { y, height } = event.nativeEvent.layout;
-    const altura = Math.round(y + height);
-    setAgendaAlturas((prev) => (prev[dayId] === altura ? prev : { ...prev, [dayId]: altura }));
   }
 
   const MODOS_RUTA = [
@@ -2136,8 +2128,9 @@ async function ejecutarBorradoGasto(gastoId, eliminarComprobante = false) {
           {activeTab === "itinerario" && itinerarioView === "timeline" ? (
             itinerarioDias.length > 0 ? (
               itinerarioDias.map((day) => {
-                const { dayId, dayIndex, dayDateText, actividades, ruta } = day;
+                const { dayId, dayIndex, dayDateText, fechaRaw, actividades, ruta } = day;
                 const isExpanded = expandedDayId === dayId;
+                const esHoy = isTodayISO(fechaRaw);
 
                 return (
                   <View
@@ -2168,8 +2161,17 @@ async function ejecutarBorradoGasto(gastoId, eliminarComprobante = false) {
                         </Text>
                       </View>
                       <View style={styles.dayTitleWrap}>
-                        <Text style={styles.dayTitle}>{dayDateText}</Text>
-                        <Text style={styles.daySubtitle}>Día {dayIndex} del viaje</Text>
+                        <View style={styles.dayTitleRow}>
+                          <Text style={styles.dayTitle}>{dayDateText}</Text>
+                          {esHoy ? (
+                            <View style={styles.dayTodayPill}>
+                              <Text style={styles.dayTodayText}>HOY</Text>
+                            </View>
+                          ) : null}
+                        </View>
+                        <Text style={styles.daySubtitle}>
+                          Día {dayIndex} · {resumenDelDia(actividades)}
+                        </Text>
                       </View>
                       <FontAwesome6
                         color={colors.textSecondary}
@@ -2180,123 +2182,34 @@ async function ejecutarBorradoGasto(gastoId, eliminarComprobante = false) {
 
                     {isExpanded ? (
                       <View style={styles.dayAgenda}>
-                        {actividades.length > 0 ? (
-                          <ScrollView
-                            nestedScrollEnabled
-                            showsVerticalScrollIndicator={actividades.length > ACTIVIDADES_VISIBLES}
-                            scrollEnabled={actividades.length > ACTIVIDADES_VISIBLES}
-                            style={
-                              actividades.length > ACTIVIDADES_VISIBLES && agendaAlturas[dayId]
-                                ? { maxHeight: agendaAlturas[dayId] }
-                                : undefined
-                            }
-                            contentContainerStyle={styles.dayAgendaList}
-                          >
-                          {actividades.map((item, actIndex) => (
-                            <View
-                              key={item.id ?? actIndex}
-                              onLayout={
-                                actIndex === ACTIVIDADES_VISIBLES - 1
-                                  ? (event) => handleActividadLayout(dayId, event)
-                                  : undefined
-                              }
-                              style={styles.agendaItem}
-                            >
-                              <View style={styles.agendaIcon}>
-                                <FontAwesome6
-                                  color={colors.primary}
-                                  name={item.icon ?? "location-dot"}
-                                  size={14}
-                                />
-                              </View>
-                              <View style={styles.agendaContent}>
-                                <View style={styles.agendaHeaderRow}>
-                                  <Text style={styles.agendaTime}>
-                                    {item.time ?? item.Hora ?? "---"}
-                                  </Text>
-                                  <Text style={styles.agendaTitle}>
-                                    {item.title ?? item.Titulo}
-                                  </Text>
-                                </View>
-                                {!!item.note || item.Notas ? (
-                                  <Text style={styles.agendaNote}>
-                                    {item.note ?? item.Notas}
-                                  </Text>
-                                ) : null}
-                              </View>
-                              {lock.canEdit("itinerario") ? (
-                                <View style={styles.agendaActions}>
-                                  <Pressable
-                                    hitSlop={8}
-                                    onPress={() => {
-                                      const enviado = enviarMensajeWebSocket({
-                                        tipo: "iniciar_edicion",
-                                        idActividad: item.id,
-                                      });
+                        <DayAgenda
+                          actividades={actividades}
+                          fecha={fechaRaw}
+                          canEdit={lock.canEdit("itinerario")}
+                          onAdd={() =>
+                            setActivityModalDay({
+                              id: dayId,
+                              label: `${dayDateText} · Día ${dayIndex}`,
+                            })
+                          }
+                          onEdit={(item) => {
+                            const enviado = enviarMensajeWebSocket({
+                              tipo: "iniciar_edicion",
+                              idActividad: item.id,
+                            });
 
-                                      if (!enviado) return;
+                            if (!enviado) return;
 
-                                      pendingEditRef.current = {
-                                        id: dayId,
-                                        label: `${dayDateText} · Día ${dayIndex}`,
-                                        activity: item,
-                                      };
-                                    }}
-                                    style={styles.agendaActionButton}
-                                  >
-                                    <FontAwesome6
-                                      color={colors.primary}
-                                      name="pen"
-                                      size={13}
-                                    />
-                                  </Pressable>
-
-                                  <Pressable
-                                    hitSlop={8}
-                                    onPress={() =>
-                                      handleDeleteActivity(
-                                        dayId,
-                                        item.id,
-                                        item.title ?? item.Titulo
-                                      )
-                                    }
-                                    style={styles.agendaActionButton}
-                                  >
-                                    <FontAwesome6
-                                      color={colors.textMuted}
-                                      name="trash"
-                                      size={13}
-                                    />
-                                  </Pressable>
-                                </View>
-                              ) : null}
-                            </View>
-                          ))}
-                          </ScrollView>
-                        ) : (
-                          <Text style={styles.sectionCopy}>
-                            No hay actividades agendadas para este día todavía.
-                          </Text>
-                        )}
-
-                        {lock.canEdit("itinerario") ? (
-                          <Pressable
-                            onPress={() =>
-                              setActivityModalDay({
-                                id: dayId,
-                                label: `${dayDateText} · Día ${dayIndex}`,
-                              })
-                            }
-                            style={styles.addActivityButton}
-                          >
-                            <FontAwesome6
-                              color={colors.primary}
-                              name="plus"
-                              size={12}
-                            />
-                            <Text style={styles.addActivityText}>Agregar actividad</Text>
-                          </Pressable>
-                        ) : null}
+                            pendingEditRef.current = {
+                              id: dayId,
+                              label: `${dayDateText} · Día ${dayIndex}`,
+                              activity: item,
+                            };
+                          }}
+                          onDelete={(item) =>
+                            handleDeleteActivity(dayId, item.id, item.title ?? item.Titulo)
+                          }
+                        />
 
                         {(() => {
                           const actividadesConUbicacion = actividades.filter(
@@ -3979,6 +3892,25 @@ const styles = StyleSheet.create({
     ...textStyles.meta,
     color: colors.textSecondary,
     marginTop: spacing.xxs,
+  },
+  dayTitleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.xs,
+    flexWrap: "wrap",
+  },
+  dayTodayPill: {
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 8,
+    backgroundColor: colors.primary,
+  },
+  dayTodayText: {
+    ...textStyles.meta,
+    color: colors.textInverse,
+    fontWeight: "700",
+    fontSize: 10,
+    letterSpacing: 0.4,
   },
   dayAgenda: {
     marginTop: spacing.md,

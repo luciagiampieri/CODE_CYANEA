@@ -1,16 +1,36 @@
 import { FontAwesome6 } from "@expo/vector-icons";
-import { useMemo, useState } from "react";
-import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 
 import MapCanvas from "../map/MapCanvas";
+import DayTimeGrid from "./DayTimeGrid";
 import useResponsive from "../../hooks/useResponsive";
 import { colors, radii, spacing, surfaces, textStyles } from "../../theme/tokens";
 import { calcularActividadesSolapadas } from "../../utils/itinerarioOverlaps";
+import { isTodayISO } from "../../utils/agenda";
 import { buildRouteMarkers } from "../../utils/routeMarkers";
 import { getRouteHint } from "../../utils/routeMessages";
 
 const ANCHO_MINIMO_COLUMNA = 240;
 const MAXIMO_COLUMNAS = 4;
+const ANCHO_MOBILE = 768;
+const DIAS_SEMANA = ["DOM", "LUN", "MAR", "MIE", "JUE", "VIE", "SAB"];
+const DIAS_LARGOS = ["Domingo", "Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"];
+const MESES = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"];
+const ANCHO_DIA = 48;
+const SEPARACION_DIA = 6;
+
+function fechaLarga(fechaRaw) {
+  const fecha = new Date(`${String(fechaRaw ?? "").slice(0, 10)}T12:00:00`);
+  if (Number.isNaN(fecha.getTime())) return "";
+  return `${DIAS_LARGOS[fecha.getDay()]} ${fecha.getDate()} de ${MESES[fecha.getMonth()]}`;
+}
+
+function partesDeFecha(fechaRaw) {
+  const fecha = new Date(`${String(fechaRaw ?? "").slice(0, 10)}T12:00:00`);
+  if (Number.isNaN(fecha.getTime())) return { semana: "", numero: "" };
+  return { semana: DIAS_SEMANA[fecha.getDay()], numero: String(fecha.getDate()) };
+}
 
 const MODOS_RUTA = [
   { valor: "walking", label: "Caminando", icono: "person-walking" },
@@ -29,6 +49,10 @@ export default function ItinerarioCalendarView({
   const { width } = useResponsive();
   const [diaConMapaVisible, setDiaConMapaVisible] = useState(null);
   const [modoTransporteDayId, setModoTransporteDayId] = useState({});
+  const [diaSeleccionadoId, setDiaSeleccionadoId] = useState(null);
+  const esMobile = width < ANCHO_MOBILE;
+  const tiraRef = useRef(null);
+  const [anchoTira, setAnchoTira] = useState(0);
 
   function resolverModoDelDia(dayId, ruta) {
     return modoTransporteDayId[dayId] ?? ruta?.modo ?? "walking";
@@ -40,7 +64,16 @@ export default function ItinerarioCalendarView({
     return Math.min(Math.max(calculadas, 1), MAXIMO_COLUMNAS);
   }, [width]);
 
-  const anchoCelda = `${100 / columnas}%`;
+  const anchoCelda = esMobile ? "100%" : `${100 / columnas}%`;
+
+  const diaActual = useMemo(() => {
+    if (!dias || dias.length === 0) return null;
+    return (
+      dias.find((d) => d.dayId === diaSeleccionadoId) ??
+      dias.find((d) => isTodayISO(d.fechaRaw)) ??
+      dias[0]
+    );
+  }, [dias, diaSeleccionadoId]);
 
   if (!dias || dias.length === 0) {
     return (
@@ -53,9 +86,97 @@ export default function ItinerarioCalendarView({
     );
   }
 
+  const indiceActual = diaActual && dias ? dias.findIndex((d) => d.dayId === diaActual.dayId) : -1;
+
+  // Mantiene el día elegido centrado en la tira, aunque el viaje tenga muchos días.
+  useEffect(() => {
+    if (!esMobile || indiceActual < 0 || !anchoTira) return;
+    const x = indiceActual * (ANCHO_DIA + SEPARACION_DIA) - (anchoTira - ANCHO_DIA) / 2;
+    tiraRef.current?.scrollTo?.({ x: Math.max(0, x), animated: true });
+  }, [esMobile, indiceActual, anchoTira]);
+
+  function irAlDia(delta) {
+    const destino = dias[indiceActual + delta];
+    if (destino) setDiaSeleccionadoId(destino.dayId);
+  }
+
+  const diasVisibles = esMobile && diaActual ? [diaActual] : dias;
+
   return (
-    <View style={styles.grid}>
-      {dias.map((dia) => {
+    <View>
+      {esMobile && diaActual ? (
+        <View style={styles.selectorHeader}>
+          <Pressable
+            accessibilityLabel="Día anterior"
+            disabled={indiceActual <= 0}
+            hitSlop={8}
+            onPress={() => irAlDia(-1)}
+            style={[styles.flecha, indiceActual <= 0 && styles.flechaOff]}
+            testID="calendar-prev"
+          >
+            <FontAwesome6 color={colors.primary} name="chevron-left" size={13} />
+          </Pressable>
+          <View style={styles.selectorCentro}>
+            <Text numberOfLines={1} style={styles.selectorFecha}>
+              {fechaLarga(diaActual.fechaRaw) || diaActual.dayDateText}
+            </Text>
+            <Text style={styles.selectorSub}>
+              Día {diaActual.dayIndex} de {dias.length}
+              {isTodayISO(diaActual.fechaRaw) ? " · Hoy" : ""}
+            </Text>
+          </View>
+          <Pressable
+            accessibilityLabel="Día siguiente"
+            disabled={indiceActual >= dias.length - 1}
+            hitSlop={8}
+            onPress={() => irAlDia(1)}
+            style={[styles.flecha, indiceActual >= dias.length - 1 && styles.flechaOff]}
+            testID="calendar-next"
+          >
+            <FontAwesome6 color={colors.primary} name="chevron-right" size={13} />
+          </Pressable>
+        </View>
+      ) : null}
+      {esMobile ? (
+        <ScrollView
+          ref={tiraRef}
+          contentContainerStyle={styles.tira}
+          horizontal
+          onLayout={(e) => setAnchoTira(e.nativeEvent.layout.width)}
+          showsHorizontalScrollIndicator={false}
+          style={styles.tiraScroll}
+        >
+          {dias.map((d) => {
+            const activo = d.dayId === diaActual?.dayId;
+            const { semana, numero } = partesDeFecha(d.fechaRaw);
+            const hoy = isTodayISO(d.fechaRaw);
+            const cantidad = (d.actividades ?? []).length;
+            return (
+              <Pressable
+                key={d.dayId}
+                accessibilityLabel={`Día ${d.dayIndex}, ${cantidad} ${cantidad === 1 ? "actividad" : "actividades"}`}
+                accessibilityRole="button"
+                accessibilityState={{ selected: activo }}
+                onPress={() => setDiaSeleccionadoId(d.dayId)}
+                style={[styles.tiraDia, activo && styles.tiraDiaActivo]}
+              >
+                <Text style={[styles.tiraSemana, activo && styles.tiraTextoActivo]}>{semana}</Text>
+                <Text style={[styles.tiraNumero, activo && styles.tiraTextoActivo]}>{numero}</Text>
+                <View
+                  style={[
+                    styles.tiraPunto,
+                    cantidad > 0 && styles.tiraPuntoLleno,
+                    activo && cantidad > 0 && styles.tiraPuntoActivo,
+                    hoy && !activo && styles.tiraPuntoHoy,
+                  ]}
+                />
+              </Pressable>
+            );
+          })}
+        </ScrollView>
+      ) : null}
+    <View style={esMobile ? undefined : styles.grid}>
+      {diasVisibles.map((dia) => {
         const solapadas = calcularActividadesSolapadas(dia.actividades);
         const actividadesOrdenadas = [...dia.actividades].sort((a, b) =>
           (a.horaInicio ?? "").localeCompare(b.horaInicio ?? "")
@@ -72,12 +193,24 @@ export default function ItinerarioCalendarView({
                   <Text numberOfLines={1} style={styles.celdaTitulo}>
                     {dia.dayDateTextCorta || dia.dayDateText}
                   </Text>
-                  <Text style={styles.celdaSubtitulo}>Dia {dia.dayIndex}</Text>
+                  <Text style={styles.celdaSubtitulo}>
+                    Día {dia.dayIndex}
+                    {isTodayISO(dia.fechaRaw) ? " · Hoy" : ""}
+                  </Text>
                 </View>
               </View>
 
               <View style={styles.celdaAgenda}>
-                {actividadesOrdenadas.length > 0 ? (
+                {esMobile ? (
+                  <DayTimeGrid
+                    actividades={dia.actividades}
+                    canEdit={Boolean(onEditActivity)}
+                    fecha={dia.fechaRaw}
+                    onAdd={onAddActivity ? () => onAddActivity(dia) : undefined}
+                    onDelete={onDeleteActivity ? (item) => onDeleteActivity(dia, item) : undefined}
+                    onEdit={onEditActivity ? (item) => onEditActivity(dia, item) : undefined}
+                  />
+                ) : actividadesOrdenadas.length > 0 ? (
                   actividadesOrdenadas.map((actividad) => {
                     const seSolapa = solapadas.has(actividad.id);
                     return (
@@ -142,7 +275,7 @@ export default function ItinerarioCalendarView({
                   <Text style={styles.sinActividades}>Sin actividades agendadas.</Text>
                 )}
 
-                {onAddActivity ? (
+                {onAddActivity && !esMobile ? (
                   <Pressable onPress={() => onAddActivity(dia)} style={styles.agregarBoton}>
                     <FontAwesome6 color={colors.primary} name="plus" size={11} />
                     <Text style={styles.agregarTexto}>Agregar</Text>
@@ -274,10 +407,80 @@ export default function ItinerarioCalendarView({
         );
       })}
     </View>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
+  tiraScroll: {
+    flexGrow: 0,
+    marginBottom: spacing.xs,
+  },
+  tira: {
+    gap: SEPARACION_DIA,
+    paddingHorizontal: spacing.xs,
+    paddingVertical: spacing.xxs,
+  },
+  selectorHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+    paddingHorizontal: spacing.xs,
+    marginBottom: spacing.xs,
+  },
+  selectorCentro: { flex: 1, alignItems: "center" },
+  selectorFecha: { ...textStyles.bodyStrong, color: colors.primary, fontSize: 15 },
+  selectorSub: { ...textStyles.meta, color: colors.textSecondary, fontSize: 11 },
+  flecha: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.surfaceAlt,
+  },
+  flechaOff: { opacity: 0.35 },
+  tiraDia: {
+    width: ANCHO_DIA,
+    alignItems: "center",
+    paddingVertical: 6,
+    borderRadius: radii.md ?? 12,
+    backgroundColor: colors.surfaceAlt,
+    gap: 1,
+  },
+  tiraDiaActivo: {
+    backgroundColor: colors.primary,
+  },
+  tiraSemana: {
+    ...textStyles.meta,
+    color: colors.textSecondary,
+    fontSize: 10,
+    fontWeight: "600",
+  },
+  tiraNumero: {
+    ...textStyles.bodyStrong,
+    color: colors.primary,
+    fontSize: 17,
+  },
+  tiraTextoActivo: {
+    color: colors.textInverse,
+  },
+  tiraPunto: {
+    width: 5,
+    height: 5,
+    borderRadius: 3,
+    backgroundColor: "transparent",
+    marginTop: 2,
+  },
+  tiraPuntoLleno: {
+    backgroundColor: colors.primary,
+  },
+  tiraPuntoActivo: {
+    backgroundColor: colors.textInverse,
+  },
+  tiraPuntoHoy: {
+    backgroundColor: colors.warning,
+  },
   grid: {
     flexDirection: "row",
     flexWrap: "wrap",

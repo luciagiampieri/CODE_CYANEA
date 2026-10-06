@@ -1062,3 +1062,116 @@ describe("Tab Gastos rediseñado", () => {
     expect(await findByTestId("expense-filter-tag-categorias")).toBeTruthy();
   });
 });
+
+describe("Tab Itinerario: agenda por día", () => {
+  const navigation = {
+    goBack: jest.fn(),
+    navigate: jest.fn(),
+    setParams: jest.fn(),
+    addListener: jest.fn(() => jest.fn()),
+  };
+
+  const hoy = new Date();
+  const fechaHoy = `${hoy.getFullYear()}-${String(hoy.getMonth() + 1).padStart(2, "0")}-${String(
+    hoy.getDate()
+  ).padStart(2, "0")}`;
+
+  const crearTrip = (fecha) => ({
+    id: 5,
+    title: "Viaje a Mendoza",
+    status: "activo",
+    hasLeft: false,
+    currency: "ARS",
+    startDate: fecha,
+    endDate: fecha,
+    admin: { id: 1, nombreCompleto: "Juan Pérez", email: "juan@gmail.com" },
+    participants: [
+      { id: 1, nombreCompleto: "Juan Pérez", role: "administrador", status: "aceptado" },
+    ],
+    cronograma: [
+      {
+        id: 11,
+        indiceDia: 1,
+        fecha,
+        actividades: [
+          {
+            idActividad: 100,
+            nombre: "Desayuno en el hotel",
+            horaInicio: "09:00:00",
+            horaFin: "10:00:00",
+            icono: "mug-hot",
+            descripcion: "Buffet libre",
+          },
+          {
+            idActividad: 101,
+            nombre: "Visita a la bodega",
+            horaInicio: "15:00:00",
+            horaFin: "17:30:00",
+            icono: "wine-glass",
+          },
+        ],
+      },
+    ],
+  });
+
+  async function abrirItinerario(trip) {
+    getTripDetail.mockResolvedValue(trip);
+    const utils = await render(
+      <TripDetailScreen navigation={navigation} route={{ params: { trip } }} />
+    );
+    fireEvent.press(await utils.findByText("Itinerario"));
+    return utils;
+  }
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    setupDefaultMocks();
+    getCurrentUser.mockResolvedValue({ id: 1, nombre: "Juan", apellido: "Pérez" });
+  });
+
+  test("el encabezado del día muestra solo la cantidad de actividades, sin el rango de horas", async () => {
+    const { findByText, queryByText } = await abrirItinerario(crearTrip("2099-12-01"));
+
+    expect(await findByText("Día 1 · 2 actividades")).toBeTruthy();
+    expect(queryByText(/09:00–17:30/)).toBeNull();
+  });
+
+  test("el día abierto muestra cada actividad con su nombre y su horario", async () => {
+    const { findByText } = await abrirItinerario(crearTrip("2099-12-01"));
+
+    expect(await findByText("Desayuno en el hotel")).toBeTruthy();
+    expect(await findByText("Visita a la bodega")).toBeTruthy();
+    expect(await findByText(/09:00 – 10:00/)).toBeTruthy();
+    expect(await findByText("Buffet libre")).toBeTruthy();
+  });
+
+  test("el día de hoy lleva la marca HOY", async () => {
+    const { findByText } = await abrirItinerario(crearTrip(fechaHoy));
+
+    expect(await findByText("HOY")).toBeTruthy();
+  });
+
+  test("un día que no es hoy no lleva la marca HOY", async () => {
+    const { findByText, queryByText } = await abrirItinerario(crearTrip("2099-12-01"));
+
+    expect(await findByText("Día 1 · 2 actividades")).toBeTruthy();
+    expect(queryByText("HOY")).toBeNull();
+  });
+
+  test("un participante con permisos ve los botones para editar y eliminar", async () => {
+    const { findByLabelText, findByText } = await abrirItinerario(crearTrip("2099-12-01"));
+
+    expect(await findByLabelText("Editar Desayuno en el hotel")).toBeTruthy();
+    expect(await findByLabelText("Eliminar Desayuno en el hotel")).toBeTruthy();
+    expect(await findByText("Agregar actividad")).toBeTruthy();
+  });
+
+  test("un día sin actividades lo indica y no muestra el rango de horas", async () => {
+    const trip = crearTrip("2099-12-01");
+    trip.cronograma[0].actividades = [];
+    const { findByText } = await abrirItinerario(trip);
+
+    expect(await findByText("Día 1 · Sin actividades")).toBeTruthy();
+    expect(await findByText("Todavía no hay planes para este día")).toBeTruthy();
+  });
+});

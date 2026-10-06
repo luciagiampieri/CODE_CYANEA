@@ -22,6 +22,8 @@ import {
 injectWebFocusStyles();
 SplashScreen.preventAutoHideAsync().catch(() => {});
 
+import { Platform } from "react-native";
+
 const navigationTheme = {
   ...DefaultTheme,
   colors: {
@@ -47,6 +49,19 @@ const linkingConfig = {
 };
 
 export default function App() {
+
+  useEffect(() => {
+    if (Platform.OS !== "web") return;
+
+    const root = document.getElementById("root");
+    if (root) {
+      root.style.height = "100dvh";
+    }
+    document.documentElement.style.height = "100%";
+    document.body.style.height = "100%";
+    document.body.style.overflow = "hidden";
+  }, []);
+
   useEffect(() => {
     const splashFallback = setTimeout(() => {
       SplashScreen.hideAsync().catch(() => {});
