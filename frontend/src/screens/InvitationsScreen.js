@@ -195,6 +195,15 @@ export default function InvitationsScreen({ navigation }) {
     }
   };
 
+  const handleBack = () => {
+    if (typeof navigation.canGoBack !== "function" || navigation.canGoBack()) {
+      navigation.goBack();
+      return;
+    }
+
+    navigation.navigate("Tabs", { screen: "Inicio" });
+  };
+
   if (loading) {
     return (
       <ScreenContainer>
@@ -325,7 +334,15 @@ export default function InvitationsScreen({ navigation }) {
       >
         <View style={styles.header}>
           <View style={styles.headerRow}>
-            <IconCircleButton icon="arrow-left" onPress={() => navigation.goBack()} tone="light" />
+            <IconCircleButton
+              icon="arrow-left"
+              onPress={handleBack}
+              tone="light"
+              testID="invitations-back-button"
+              accessibilityLabel="Volver"
+              hitSlop={10}
+              style={styles.backButton}
+            />
             <View style={styles.headerTitleWrap} pointerEvents="none">
               <Text style={styles.title}>Notificaciones</Text>
             </View>
@@ -410,6 +427,10 @@ const styles = StyleSheet.create({
     minHeight: 44,
     justifyContent: "center",
     alignItems: "flex-start",
+  },
+  backButton: {
+    zIndex: 1,
+    elevation: 1,
   },
   title: {
     ...textStyles.tripTitle,
