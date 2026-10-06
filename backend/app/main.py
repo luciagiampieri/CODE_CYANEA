@@ -1,3 +1,12 @@
+import os
+import time
+
+# El servidor corre en UTC: forzamos hora argentina para que date.today()
+# y datetime.now() den la fecha local en todo el backend.
+os.environ["TZ"] = "America/Argentina/Buenos_Aires"
+if hasattr(time, "tzset"):
+    time.tzset()
+
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
