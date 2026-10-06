@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useContext, useEffect, useRef, useState } from "react";
 import { FontAwesome6 } from "@expo/vector-icons";
 import {
     ActivityIndicator,
@@ -10,9 +10,16 @@ import {
     Text,
     TextInput,
     View,
+    Image,
     ImageBackground,
-    Alert,
+    FlatList,
+    TouchableOpacity,
+    TouchableWithoutFeedback,
+    Keyboard,
+    StatusBar,
 } from "react-native";
+import { SafeAreaInsetsContext } from "react-native-safe-area-context";
+import Modal from "../components/ui/AppModal";
 
 import ScreenContainer from "../components/layout/ScreenContainer";
 import IconCircleButton from "../components/ui/IconCircleButton";
@@ -21,13 +28,31 @@ import PrimaryButton from "../components/ui/PrimaryButton";
 import AICoverGenerator from "../components/trip/AICoverGenerator";
 import DatePickerModal from "../components/ui/DatePickerModal";
 import useResponsive from "../hooks/useResponsive";
-import { getTripDetail, updateTrip, searchDestinations, uploadTripCover, removeTripCover, generateTripCoverAI, acceptTripCoverAI } from "../services/api.js";
+import { 
+    getTripDetail, 
+    updateTrip, 
+    searchDestinations, 
+    resolveDestination, 
+    uploadTripCover, 
+    removeTripCover, 
+    generateTripCoverAI, 
+    acceptTripCoverAI 
+} from "../services/api.js";
 import { colors, radii, spacing, surfaces, textStyles } from "../theme/tokens";
 
 import * as ImagePicker from "expo-image-picker";
 
+const COLOR_SOFT = colors.primarySoft ? `${colors.primarySoft}33` : "#eef2ff";
+const COLOR_DANGER = colors.danger || "#FF3B30";
+const COLOR_DANGER_SOFT = colors.danger ? `${colors.danger}14` : "rgba(255,59,48,0.08)";
+const ALLOWED_COVER_EXTENSIONS = ["jpg", "jpeg", "png"];
+
 function isSameDestination(a, b) {
-    return a.name === b.name && a.country === b.country;
+    return (a.placeId && b.placeId && a.placeId === b.placeId) || (a.name === b.name && a.country === b.country);
+}
+
+function makeSessionToken() {
+  return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
 function todayISO() {
@@ -36,6 +61,102 @@ function todayISO() {
     const month = String(now.getMonth() + 1).padStart(2, "0");
     const day = String(now.getDate()).padStart(2, "0");
     return `${year}-${month}-${day}`;
+}
+
+// toISOString() convierte a UTC y en Argentina (UTC-3) corre el día por la noche; se usa la fecha local.
+function dateToLocalISO(date) {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, "0");
+    const day = String(date.getDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
+}
+
+// Valida que "YYYY-MM-DD" exista realmente en el calendario (rechaza 2026-02-31, etc.)
+function isValidISODate(value) {
+    if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+    const [year, month, day] = value.split("-").map(Number);
+    const date = new Date(year, month - 1, day, 12, 0, 0);
+    return (
+        !Number.isNaN(date.getTime()) &&
+        date.getFullYear() === year &&
+        date.getMonth() === month - 1 &&
+        date.getDate() === day
+    );
+}
+
+function normalizeText(value) {
+    return String(value || "").normalize("NFD").replace(/[̀-ͯ]/g, "").trim().toLowerCase();
+}
+
+// El backend puede devolver la foto de un destino bajo distintos nombres: se toma la primera URL usable.
+function pickDestinationImage(dest) {
+    if (!dest) return null;
+    const candidates = [
+        dest.imageUrl,
+        dest.image,
+        dest.image_url,
+        dest.imageURL,
+        dest.photoUrl,
+        dest.photoURL,
+        dest.photoUri,
+        dest.photo,
+        dest.coverImage,
+        dest.coverImageUrl,
+        dest.thumbnail,
+        dest.thumbnailUrl,
+        dest.picture,
+    ];
+    for (const candidate of candidates) {
+        if (typeof candidate === "string" && candidate.trim()) return candidate.trim();
+        if (candidate && typeof candidate === "object") {
+            const uri = candidate.uri || candidate.url;
+            if (typeof uri === "string" && uri.trim()) return uri.trim();
+        }
+    }
+    return null;
+}
+
+// Los destinos guardados en el viaje pueden venir sin foto: se pide a Google (vía resolveDestination)
+// con el placeId, o buscándolo por nombre y país si el destino no tiene placeId.
+async function fetchDestinationImage(dest) {
+    try {
+        let placeId = dest.placeId;
+        if (!placeId) {
+            const query = [dest.name, dest.country].filter(Boolean).join(", ");
+            const results = await searchDestinations(query, makeSessionToken());
+            const match = (results || []).find(
+                (r) =>
+                    normalizeText(r.name) === normalizeText(dest.name) &&
+                    (!dest.country || normalizeText(r.country) === normalizeText(dest.country))
+            );
+            // Si el país no coincide exacto (p. ej. otro idioma), se acepta un resultado cuyo nombre contenga al destino.
+            const loose = (results || []).find((r) => normalizeText(r.name).includes(normalizeText(dest.name)));
+            placeId = (match || loose)?.placeId;
+        }
+        if (!placeId) return null;
+        const full = await resolveDestination(placeId, makeSessionToken());
+        return pickDestinationImage(full);
+    } catch {
+        return null;
+    }
+}
+
+// Miniatura de destino: si la imagen no carga, muestra el ícono en lugar de quedar en blanco.
+function DestinationThumb({ uri }) {
+    const [failed, setFailed] = useState(false);
+
+    useEffect(() => {
+        setFailed(false);
+    }, [uri]);
+
+    if (!uri || failed) {
+        return (
+            <View style={[styles.destinationThumb, styles.destinationThumbEmpty]}>
+                <FontAwesome6 name="location-dot" size={16} color={colors.primary} />
+            </View>
+        );
+    }
+    return <Image source={{ uri }} style={styles.destinationThumb} onError={() => setFailed(true)} />;
 }
 
 function formatDateToDisplay(isoString) {
@@ -54,7 +175,421 @@ function computeTripDays(startDate, endDate) {
     const end = new Date(`${endDate}T12:00:00`);
     if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return 0;
     const diffMs = end.getTime() - start.getTime();
-  return Math.round(diffMs / (1000 * 60 * 60 * 24)) + 1;
+    const nights = Math.round(diffMs / (1000 * 60 * 60 * 24));
+    if (nights < 0) return 0;
+    const days = nights + 1;
+    return `${nights} ${nights === 1 ? "noche" : "noches"} · ${days} días`;
+}
+
+function CardHeader({ icon, title, subtitle }) {
+  return (
+    <View style={styles.cardHeader}>
+      <View style={styles.cardIconCircle}>
+        <FontAwesome6 name={icon} size={15} color={colors.primary} />
+      </View>
+      <View style={styles.flex}>
+        <Text style={styles.cardTitle}>{title}</Text>
+        {subtitle ? <Text style={styles.cardSubtitle}>{subtitle}</Text> : null}
+      </View>
+    </View>
+  );
+}
+
+function RouteRail({ children, topHeight = 18, showTop = true, showBottom = true }) {
+  return (
+    <View style={styles.routeRail}>
+      <View style={[styles.routeLine, { height: topHeight }, !showTop && styles.routeLineHidden]} />
+      {children}
+      <View style={[styles.routeLineBottom, showBottom && styles.routeLine]} />
+    </View>
+  );
+}
+
+function HighlightMatch({ text, query, style, matchStyle }) {
+  const value = String(text || "");
+  const q = String(query || "").trim();
+  const normalize = (v) => v.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+  const index = q ? normalize(value).indexOf(normalize(q)) : -1;
+
+  if (index < 0) {
+    return (
+      <Text style={style} numberOfLines={1}>
+        {value}
+      </Text>
+    );
+  }
+  return (
+    <Text style={style} numberOfLines={1}>
+      {value.slice(0, index)}
+      <Text style={matchStyle}>{value.slice(index, index + q.length)}</Text>
+      {value.slice(index + q.length)}
+    </Text>
+  );
+}
+
+// Avatar redondo de un destino ya elegido: foto de Google o, si no hay, ícono de ubicación.
+function DestinationAvatar({ uri, size = 32 }) {
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    setFailed(false);
+  }, [uri]);
+
+  const box = { width: size, height: size, borderRadius: size / 2 };
+  if (!uri || failed) {
+    return (
+      <View style={[styles.dpAvatarFallback, box]}>
+        <FontAwesome6 name="location-dot" size={size * 0.4} color={colors.primary} />
+      </View>
+    );
+  }
+  return <Image source={{ uri }} style={[styles.dpAvatarImage, box]} onError={() => setFailed(true)} />;
+}
+
+function DestinationPickerModal({
+  visible,
+  onClose,
+  search,
+  onSearchChange,
+  options,
+  searching,
+  hasSearched,
+  onSelect,
+  selectedDestinations,
+  onRemoveSelected,
+  resolving,
+  error,
+}) {
+  const query = search.trim();
+  const tooShort = query.length < 2;
+  const count = selectedDestinations.length;
+  const [searchFocused, setSearchFocused] = useState(false);
+
+  // El modal se abre a pantalla completa, por encima de la barra de estado / notch: se respeta el margen superior.
+  // Sin SafeAreaProvider (p. ej. en tests) el contexto es null: se asume margen 0.
+  const insets = useContext(SafeAreaInsetsContext) || { top: 0 };
+  const topInset = Math.max(insets.top, Platform.OS === "android" ? StatusBar.currentHeight || 0 : 0);
+
+  // Con el teclado abierto el pie se compacta (el contenido sube con KeyboardAvoidingView).
+  const [keyboardVisible, setKeyboardVisible] = useState(false);
+
+  useEffect(() => {
+    if (!visible) {
+      setKeyboardVisible(false);
+      return undefined;
+    }
+    const showEvent = Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
+    const hideEvent = Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide";
+    const showSub = Keyboard.addListener(showEvent, () => setKeyboardVisible(true));
+    const hideSub = Keyboard.addListener(hideEvent, () => setKeyboardVisible(false));
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, [visible]);
+
+  // Aviso breve al agregar un destino: confirma que se sumó aunque la lista de resultados siga a la vista.
+  const prevCountRef = useRef(count);
+  const [toast, setToast] = useState("");
+
+  useEffect(() => {
+    let timer;
+    if (!visible) {
+      setToast("");
+    } else if (count > prevCountRef.current) {
+      setToast(selectedDestinations[count - 1]?.name || "Destino");
+      timer = setTimeout(() => setToast(""), 2200);
+    } else if (count < prevCountRef.current) {
+      setToast("");
+    }
+    prevCountRef.current = count;
+    return () => {
+      if (timer) clearTimeout(timer);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [count, visible]);
+
+  return (
+    <Modal visible={visible} animationType="slide" onRequestClose={onClose} transparent={false}>
+      <ScreenContainer fullWidth padded={false}>
+        <KeyboardAvoidingView style={styles.flex} behavior="padding">
+          {/* View intermedia: TouchableWithoutFeedback necesita un hijo nativo para detectar el toque fuera del teclado. */}
+          <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
+            <View style={styles.flex}>
+              {/* ENCABEZADO: volver, título, "Listo" y buscador */}
+              <View style={[styles.dpHeader, keyboardVisible && styles.dpHeaderCompact, { paddingTop: Math.max(spacing.lg, topInset + spacing.sm) }]}>
+                <View style={styles.dpHeaderRow}>
+                  <IconCircleButton icon="arrow-left" onPress={onClose} tone="light" />
+                  <View style={styles.dpTitleWrap} pointerEvents="none">
+                    <Text style={styles.dpTitle}>Agregar destino</Text>
+                  </View>
+                </View>
+
+                {!keyboardVisible && search.length === 0 ? (
+                  <Text style={styles.dpHeaderHint}>¿A dónde vas? Buscá una ciudad o un país.</Text>
+                ) : (
+                  <View style={styles.dpHeaderGap} />
+                )}
+
+                <View style={[styles.dpSearch, searchFocused && styles.dpSearchFocused]}>
+                  <FontAwesome6 name="magnifying-glass" size={15} color={colors.primary} />
+                  <TextInput
+                    value={search}
+                    onChangeText={onSearchChange}
+                    onFocus={() => setSearchFocused(true)}
+                    onBlur={() => setSearchFocused(false)}
+                    placeholder="Ej: Bariloche, Roma, Chile..."
+                    placeholderTextColor={colors.textMuted}
+                    style={styles.dpSearchInput}
+                    autoFocus
+                    autoCorrect={false}
+                    returnKeyType="done"
+                    blurOnSubmit
+                    onSubmitEditing={Keyboard.dismiss}
+                  />
+                  {resolving ? (
+                    <ActivityIndicator size="small" color={colors.primary} />
+                  ) : search.length > 0 ? (
+                    <Pressable
+                      onPress={() => onSearchChange("")}
+                      hitSlop={10}
+                      accessibilityRole="button"
+                      accessibilityLabel="Borrar búsqueda"
+                    >
+                      <FontAwesome6 name="circle-xmark" size={17} color={colors.textMuted} />
+                    </Pressable>
+                  ) : null}
+                </View>
+              </View>
+
+              <View style={styles.dpBody}>
+                {error ? (
+                  <View style={styles.dpError}>
+                    <FontAwesome6 name="circle-exclamation" size={13} color={COLOR_DANGER} />
+                    <Text style={styles.dpErrorText}>{error}</Text>
+                  </View>
+                ) : null}
+
+                {/* TU RUTA: lista de destinos elegidos. Sin buscar ocupa todo el espacio; al buscar se limita para dejar lugar a los resultados. */}
+
+                {count > 0 && !tooShort ? (
+                  <View style={styles.dpStrip}>
+                    <View style={styles.dpStripRow}>
+                      <Text style={styles.dpStripLabel}>Tu ruta ({count})</Text>
+                      {keyboardVisible ? (
+                        <Pressable
+                          onPress={onClose}
+                          hitSlop={8}
+                          style={styles.dpStripDone}
+                          accessibilityRole="button"
+                          accessibilityLabel="Listo"
+                        >
+                          <Text style={styles.dpStripDoneText}>Listo</Text>
+                          <FontAwesome6 name="check" size={11} color={colors.primary} />
+                        </Pressable>
+                      ) : null}
+                    </View>
+                    <ScrollView
+                      horizontal
+                      showsHorizontalScrollIndicator={false}
+                      keyboardShouldPersistTaps="handled"
+                      contentContainerStyle={styles.dpStripList}
+                    >
+                      {selectedDestinations.map((d, index) => (
+                        <View key={`${d.name}-${d.country}-${index}`} style={styles.dpMiniChip}>
+                          <DestinationAvatar uri={pickDestinationImage(d)} size={24} />
+                          <Text style={styles.dpMiniChipText} numberOfLines={1}>{d.name}</Text>
+                          <Pressable
+                            onPress={() => onRemoveSelected(d)}
+                            hitSlop={10}
+                            accessibilityRole="button"
+                            accessibilityLabel={`Quitar ${d.name}`}
+                          >
+                            <FontAwesome6 name="xmark" size={11} color={COLOR_DANGER} />
+                          </Pressable>
+                        </View>
+                      ))}
+                    </ScrollView>
+                  </View>
+                ) : null}
+
+                {count > 0 && tooShort ? (
+                  <View style={[styles.dpSelected, styles.dpSelectedFull]}>
+                    <View style={styles.dpSectionRow}>
+                      <Text style={styles.dpSectionLabel}>Tu ruta</Text>
+                      <View style={styles.dpCountPill}>
+                        <Text style={styles.dpCountPillText}>{count}</Text>
+                      </View>
+                    </View>
+                    <ScrollView
+                      keyboardShouldPersistTaps="handled"
+                      showsVerticalScrollIndicator={false}
+                      contentContainerStyle={styles.dpRouteList}
+                    >
+                      {selectedDestinations.map((d, index) => (
+                        <View key={`${d.name}-${d.country}-${index}`} style={styles.dpRouteRow}>
+                          <View style={styles.dpRouteIndex}>
+                            <Text style={styles.dpRouteIndexText}>{index + 1}</Text>
+                          </View>
+                          <DestinationAvatar uri={pickDestinationImage(d)} size={40} />
+                          <View style={styles.flex}>
+                            <Text style={styles.dpRouteName} numberOfLines={1}>{d.name}</Text>
+                            <Text style={styles.dpRouteCountry} numberOfLines={1}>
+                              {[d.provinceState, d.country].filter(Boolean).join(", ")}
+                            </Text>
+                          </View>
+                          <Pressable
+                            onPress={() => onRemoveSelected(d)}
+                            hitSlop={10}
+                            style={styles.dpChipRemove}
+                            accessibilityRole="button"
+                            accessibilityLabel={`Quitar ${d.name}`}
+                          >
+                            <FontAwesome6 name="xmark" size={11} color={COLOR_DANGER} />
+                          </Pressable>
+                        </View>
+                      ))}
+                      {tooShort ? (
+                        <Text style={styles.dpRouteHint}>Escribí al menos 2 letras para sumar otro destino.</Text>
+                      ) : null}
+                    </ScrollView>
+                  </View>
+                ) : null}
+
+                {!(tooShort && count > 0) ? (
+                <View style={styles.dpResults}>
+                  {tooShort ? (
+                    count === 0 ? (
+                      <ScrollView
+                        keyboardShouldPersistTaps="handled"
+                        showsVerticalScrollIndicator={false}
+                        contentContainerStyle={styles.dpIdleContent}
+                      >
+                        <View style={styles.dpIdleHero}>
+                          <View style={styles.dpIdleIcon}>
+                            <FontAwesome6 name="earth-americas" size={24} color={colors.primary} />
+                          </View>
+                          <Text style={styles.dpIdleTitle}>Elegí tu primer destino</Text>
+                        </View>
+                        <Text style={styles.dpIdleText}>Escribí al menos 2 letras del nombre de una ciudad o país.</Text>
+                      </ScrollView>
+                    ) : null
+                  ) : searching ? (
+                    <View style={styles.dpListContent}>
+                      {[0, 1, 2].map((n) => (
+                        <View key={n} style={[styles.dpSkeletonRow, { opacity: 1 - n * 0.2 }]}>
+                          <View style={styles.dpSkeletonCircle} />
+                          <View style={styles.flex}>
+                            <View style={styles.dpSkeletonLong} />
+                            <View style={styles.dpSkeletonShort} />
+                          </View>
+                        </View>
+                      ))}
+                    </View>
+                  ) : options.length > 0 ? (
+                    <FlatList
+                      data={options}
+                      keyExtractor={(item, index) => `${item.name}-${item.country}-${index}`}
+                      keyboardShouldPersistTaps="handled"
+                      keyboardDismissMode="on-drag"
+                      showsVerticalScrollIndicator={false}
+                      contentContainerStyle={styles.dpListContent}
+                      ListHeaderComponent={keyboardVisible ? null : <Text style={styles.dpResultsLabel}>Resultados · tocá para agregar</Text>}
+                      ItemSeparatorComponent={() => <View style={styles.dpSeparator} />}
+                      renderItem={({ item }) => {
+                        const selectedMatch = selectedDestinations.find(
+                          (d) =>
+                            (item.placeId && d.placeId === item.placeId) ||
+                            (d.name === item.name && d.country === item.country)
+                        );
+                        const isSelected = Boolean(selectedMatch);
+                        return (
+                          <TouchableOpacity
+                            onPress={() => (isSelected ? onRemoveSelected(selectedMatch) : onSelect(item))}
+                            disabled={resolving && !isSelected}
+                            activeOpacity={0.7}
+                            style={[styles.dpItem, isSelected && styles.dpItemActive]}
+                            accessibilityRole="button"
+                            accessibilityLabel={`${isSelected ? "Quitar" : "Agregar"} ${item.name}`}
+                          >
+                            <View style={[styles.dpItemIcon, isSelected && styles.dpItemIconActive]}>
+                              <FontAwesome6
+                                name="location-dot"
+                                size={14}
+                                color={isSelected ? colors.textInverse : colors.primary}
+                              />
+                            </View>
+                            <View style={styles.dpItemTexts}>
+                              <HighlightMatch
+                                text={item.name}
+                                query={query}
+                                style={[styles.dpItemName, isSelected && styles.dpItemNameActive]}
+                                matchStyle={styles.dpItemMatch}
+                              />
+                              <Text style={styles.dpItemSub} numberOfLines={1}>
+                                {[item.provinceState, item.country].filter(Boolean).join(", ")}
+                              </Text>
+                            </View>
+                            {isSelected ? (
+                              <View style={styles.dpAddedPill}>
+                                <FontAwesome6 name="check" size={10} color={colors.textInverse} />
+                                <Text style={styles.dpAddedText}>Agregado</Text>
+                              </View>
+                            ) : (
+                              <View style={styles.dpAddButton}>
+                                <FontAwesome6 name="plus" size={12} color={colors.primary} />
+                              </View>
+                            )}
+                          </TouchableOpacity>
+                        );
+                      }}
+                    />
+                  ) : hasSearched ? (
+                    <ScrollView
+                      keyboardShouldPersistTaps="handled"
+                      showsVerticalScrollIndicator={false}
+                      contentContainerStyle={styles.dpIdleContent}
+                    >
+                      <View style={styles.dpIdleHero}>
+                        <View style={styles.dpIdleIcon}>
+                          <FontAwesome6 name="magnifying-glass" size={20} color={colors.textMuted} />
+                        </View>
+                        <Text style={styles.dpIdleTitle}>Sin resultados</Text>
+                      </View>
+                      <Text style={styles.dpIdleText}>
+                        No encontramos destinos para "{query}". Probá con otro nombre o revisá la ortografía.
+                      </Text>
+                    </ScrollView>
+                  ) : null}
+                </View>
+                ) : null}
+                {toast ? (
+                  <View style={styles.dpToast}>
+                    <FontAwesome6 name="circle-check" size={14} color={colors.primary} />
+                    <Text style={styles.dpToastText} numberOfLines={1}>{toast} agregado a tu ruta</Text>
+                  </View>
+                ) : null}
+              </View>
+
+              {/* PIE: botón principal siempre a la vista; sube junto con el teclado */}
+              {!keyboardVisible ? (
+              <View style={styles.dpFooter}>
+                <PrimaryButton
+                  label={
+                    count > 0
+                      ? `Listo · ${count} ${count === 1 ? "destino" : "destinos"}`
+                      : "Cerrar"
+                  }
+                  onPress={onClose}
+                />
+              </View>
+              ) : null}
+            </View>
+          </TouchableWithoutFeedback>
+        </KeyboardAvoidingView>
+      </ScreenContainer>
+    </Modal>
+  );
 }
 
 export default function EditTripScreen({ navigation, route }) {
@@ -64,10 +599,8 @@ export default function EditTripScreen({ navigation, route }) {
     const [loading, setLoading] = useState(true);
     const [loadError, setLoadError] = useState("");
     
-    // Pestañas para evitar vista de lista larga
     const [activeTab, setActiveTab] = useState("info"); // "info" | "destinations" | "cover"
 
-    // La moneda base no se edita: se conserva el valor original y se reenvía tal cual.
     const [form, setForm] = useState({
         title: "",
         description: "",
@@ -84,8 +617,14 @@ export default function EditTripScreen({ navigation, route }) {
     const [showStartPicker, setShowStartPicker] = useState(false);
     const [showEndPicker, setShowEndPicker] = useState(false);
 
+    const sessionTokenRef = useRef(makeSessionToken());
+    const [showDestinationPicker, setShowDestinationPicker] = useState(false);
     const [destinationSearch, setDestinationSearch] = useState("");
     const [destinationOptions, setDestinationOptions] = useState([]);
+    const [searchingDestinations, setSearchingDestinations] = useState(false);
+    const [hasSearchedDestinations, setHasSearchedDestinations] = useState(false);
+    const [resolvingDestination, setResolvingDestination] = useState(false);
+    const lastQueryLengthRef = useRef(0);
 
     const tripAlreadyStarted = originalStartDate ? originalStartDate <= todayISO() : false;
 
@@ -95,8 +634,6 @@ export default function EditTripScreen({ navigation, route }) {
     const [hasCustomCover, setHasCustomCover] = useState(false);
     const [currentCoverUrl, setCurrentCoverUrl] = useState(null);
     const [defaultCoverUrl, setDefaultCoverUrl] = useState(null);
-
-    const ALLOWED_COVER_EXTENSIONS = ["jpg", "jpeg", "png"];
 
     function getExtensionFromAsset(asset) {
       const fromFileName = asset.fileName?.split(".").pop();
@@ -115,7 +652,18 @@ export default function EditTripScreen({ navigation, route }) {
                     startDate: trip.startDate ?? "",
                     endDate: trip.endDate ?? "",
                     currency: trip.currency ?? "ARS",
-                    destinations: trip.destinations ?? [],
+                    // La portada "de Google Maps" del viaje es la foto de su destino principal (el primero):
+                    // se usa como respaldo inmediato mientras se piden las fotos faltantes.
+                    destinations: (trip.destinations ?? []).map((d, index) => ({
+                        ...d,
+                        imageUrl:
+                            pickDestinationImage(d) ||
+                            (index === 0
+                                ? pickDestinationImage({
+                                      imageUrl: trip.defaultCoverImage || (!trip.hasCustomCover ? trip.image : null),
+                                  })
+                                : null),
+                    })),
                 });
                 setOriginalStartDate(trip.startDate ?? "");
                 setHasCustomCover(Boolean(trip.hasCustomCover));
@@ -130,21 +678,70 @@ export default function EditTripScreen({ navigation, route }) {
         loadTrip();
     }, [tripId]);
 
+    // Una vez cargado el viaje, completa la foto de Google de los destinos que vinieron sin imagen.
     useEffect(() => {
-        const timeout = setTimeout(async () => {
-            if (!destinationSearch.trim()) {
-                setDestinationOptions([]);
-                return;
-            }
-            try {
-                const results = await searchDestinations(destinationSearch);
-                setDestinationOptions(results);
-            } catch {
-                setDestinationOptions([]);
-            }
-        }, 300);
+        if (loading) return undefined;
+        let active = true;
+        const pending = form.destinations.filter((d) => !d.imageUrl);
 
-        return () => clearTimeout(timeout);
+        pending.forEach(async (dest) => {
+            const imageUrl = await fetchDestinationImage(dest);
+            if (!active || !imageUrl) return;
+            setForm((current) => ({
+                ...current,
+                destinations: current.destinations.map((d) =>
+                    isSameDestination(d, dest) && !d.imageUrl ? { ...d, imageUrl } : d
+                ),
+            }));
+        });
+
+        return () => {
+            active = false;
+        };
+        // Solo al terminar la carga inicial; los destinos nuevos ya traen su foto desde resolveDestination.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [loading]);
+
+    useEffect(() => {
+        let active = true;
+        const queryLimpia = destinationSearch.trim();
+
+        if (queryLimpia.length < 2) {
+            setDestinationOptions([]);
+            setSearchingDestinations(false);
+            setHasSearchedDestinations(false);
+            lastQueryLengthRef.current = 0;
+            return;
+        }
+
+        const isFirstSearch = lastQueryLengthRef.current < 2;
+        lastQueryLengthRef.current = queryLimpia.length;
+        const delay = isFirstSearch ? 0 : 150;
+
+        setSearchingDestinations(true);
+        setHasSearchedDestinations(false);
+
+        const timeout = setTimeout(async () => {
+            try {
+                const results = await searchDestinations(queryLimpia, sessionTokenRef.current);
+                if (active) {
+                    setDestinationOptions(results);
+                    setSearchingDestinations(false);
+                    setHasSearchedDestinations(true);
+                }
+            } catch {
+                if (active) {
+                    setDestinationOptions([]);
+                    setSearchingDestinations(false);
+                    setHasSearchedDestinations(true);
+                }
+            }
+        }, delay);
+
+        return () => {
+            active = false;
+            clearTimeout(timeout);
+        };
     }, [destinationSearch]);
 
     async function handlePickCoverImage() {
@@ -210,62 +807,110 @@ export default function EditTripScreen({ navigation, route }) {
     }
 
     function handleInputChange(name, value) {
-        setForm((current) => ({ ...current, [name]: value }));
-        if (errors[name]) {
-            setErrors((current) => ({ ...current, [name]: null }));
+        setForm((current) => {
+            const next = { ...current, [name]: value };
+            if (name === "startDate" && current.endDate && current.endDate < value) {
+                next.endDate = "";
+            }
+            return next;
+        });
+        setErrors((current) => {
+            if (!current[name] && !(name === "startDate" && current.endDate)) return current;
+            return {
+                ...current,
+                [name]: null,
+                // Al cambiar la ida, el error de la vuelta (rango) puede dejar de aplicar.
+                ...(name === "startDate" ? { endDate: null } : {}),
+            };
+        });
+        if (submitStatus === "error") {
+            setSubmitStatus("idle");
+            setSubmitMessage("");
         }
     }
 
-    function addDestination(dest) {
-        setForm((current) => {
-            if (current.destinations.some((d) => isSameDestination(d, dest))) return current;
-            return { ...current, destinations: [...current.destinations, dest] };
-        });
+    async function addDestination(suggestion) {
+        const alreadyAdded = form.destinations.some((d) => isSameDestination(d, suggestion));
+        if (alreadyAdded) return;
+
         setDestinationSearch("");
         setDestinationOptions([]);
-        if (errors.destinations) {
-            setErrors((current) => ({ ...current, destinations: null }));
+        setResolvingDestination(true);
+        setErrors((current) => ({ ...current, destinations: null }));
+        try {
+            const full = await resolveDestination(suggestion.placeId, sessionTokenRef.current);
+            setForm((current) => ({
+                ...current,
+                destinations: [...current.destinations, {
+                    ...full,
+                    imageUrl: pickDestinationImage(full),
+                }],
+            }));
+            sessionTokenRef.current = makeSessionToken();
+        } catch {
+            setErrors((current) => ({ ...current, destinations: "No se pudo agregar ese destino, probá de nuevo." }));
+        } finally {
+            setResolvingDestination(false);
         }
     }
 
-    function removeDestination(dest) {
+    function removeDestination(destinationToRemove) {
         setForm((current) => ({
             ...current,
-            destinations: current.destinations.filter((d) => !isSameDestination(d, dest)),
+            destinations: current.destinations.filter(
+                (item) => !isSameDestination(item, destinationToRemove)
+            ),
         }));
+    }
+
+    function openDestinationPicker() {
+        Keyboard.dismiss();
+        setShowDestinationPicker(true);
+    }
+
+    function closeDestinationPicker() {
+        setShowDestinationPicker(false);
+        setDestinationSearch("");
+        setDestinationOptions([]);
     }
 
     function validateForm() {
         const localErrors = {};
-        const hoy = new Date();
-        hoy.setHours(0, 0, 0, 0);
+        const hoy = todayISO();
+        const title = form.title.trim();
 
-        if (!form.title.trim()) {
-            localErrors.title = "El título del viaje no puede quedar vacío.";
+        // Título
+        if (!title) {
+            localErrors.title = "El título del viaje es obligatorio.";
+        } else if (title.length < 3) {
+            localErrors.title = "El título debe tener al menos 3 caracteres.";
+        } else if (title.length > 100) {
+            localErrors.title = "El título no puede superar los 100 caracteres.";
         }
+
+        // Destinos
         if (form.destinations.length === 0) {
-            localErrors.destinations = "El viaje debe mantener al menos un destino asignado.";
+            localErrors.destinations = "Debes agregar al menos un destino.";
         }
+
+        // Fecha de ida
         if (!form.startDate) {
-            localErrors.startDate = "La fecha de inicio es obligatoria.";
+            localErrors.startDate = "La fecha de ida es obligatoria.";
+        } else if (!isValidISODate(form.startDate)) {
+            localErrors.startDate = "La fecha de ida no es válida.";
+        } else if (!tripAlreadyStarted && form.startDate < hoy) {
+            localErrors.startDate = "La fecha de ida debe ser igual o posterior a hoy.";
         }
+
+        // Fecha de vuelta
         if (!form.endDate) {
-            localErrors.endDate = "La fecha de finalización es obligatoria.";
-        }
-
-        if (!tripAlreadyStarted && form.startDate) {
-            const start = new Date(`${form.startDate}T12:00:00`);
-            if (start < hoy) {
-                localErrors.startDate = "La fecha de inicio debe ser igual o posterior a la actual.";
-            }
-        }
-
-        if (form.startDate && form.endDate) {
-            const start = new Date(`${form.startDate}T12:00:00`);
-            const end = new Date(`${form.endDate}T12:00:00`);
-            if (end < start) {
-                localErrors.endDate = "La fecha de fin no puede ser anterior a la de inicio.";
-            }
+            localErrors.endDate = "La fecha de vuelta es obligatoria.";
+        } else if (!isValidISODate(form.endDate)) {
+            localErrors.endDate = "La fecha de vuelta no es válida.";
+        } else if (!localErrors.startDate && form.startDate && form.endDate < form.startDate) {
+            localErrors.endDate = "La fecha de vuelta no puede ser anterior a la de ida.";
+        } else if (!tripAlreadyStarted && form.endDate < hoy) {
+            localErrors.endDate = "La fecha de vuelta debe ser igual o posterior a hoy.";
         }
 
         setErrors(localErrors);
@@ -292,16 +937,19 @@ export default function EditTripScreen({ navigation, route }) {
       setSubmitMessage("");
       try {
         const response = await updateTrip(tripId, {
-          title: form.title,
+          title: form.title.trim(),
           description: form.description.trim() ? form.description.trim() : null,
           startDate: form.startDate,
           endDate: form.endDate,
           currency: form.currency,
-          destinations: form.destinations.map(({ name, country, lat, lng }) => ({
+          destinations: form.destinations.map(({ name, country, lat, lng, placeId, provinceState, imageUrl, image }) => ({
             name,
             country,
             lat,
             lng,
+            placeId,
+            provinceState,
+            imageUrl: pickDestinationImage({ imageUrl, image }),
           })),
         });
 
@@ -352,128 +1000,180 @@ export default function EditTripScreen({ navigation, route }) {
     );
   }
 
+  const tripDuration = computeTripDays(form.startDate, form.endDate);
+
+  // Marca en la pestaña si tiene un error pendiente, para no perderlo de vista.
+  const tabHasError = {
+    info: Boolean(errors.title || errors.description || errors.startDate || errors.endDate),
+    destinations: Boolean(errors.destinations),
+    cover: Boolean(coverError),
+  };
+
   return (
     <ScreenContainer fullWidth padded={false}>
       <KeyboardAvoidingView
         behavior={Platform.OS === "ios" ? "padding" : "height"}
         style={styles.flex}
       >
+        <View style={styles.hero}>
+          <View style={styles.heroTopRow}>
+            <IconCircleButton
+              icon="arrow-left"
+              onPress={() => navigation.goBack()}
+              tone="light"
+            />
+            <View style={styles.heroTitleWrap} pointerEvents="none">
+              <Text style={styles.heroTitle}>Editar viaje</Text>
+            </View>
+          </View>
+        </View>
+
         <ScrollView
           contentContainerStyle={styles.scrollContent}
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
         >
-          <View style={styles.hero}>
-            <View style={styles.heroTopRow}>
-              <IconCircleButton
-                icon="arrow-left"
-                onPress={() => navigation.goBack()}
-                tone="light"
-              />
-            </View>
-            <Text style={styles.heroTitle}>Editar Viaje</Text>
-          </View>
-
           <View style={styles.body}>
             <View style={styles.metricsRow}>
               <MetricCard label="Destinos" value={form.destinations.length} />
               <MetricCard
-                label="Días de viaje"
-                value={computeTripDays(form.startDate, form.endDate)}
+                label="Duración"
+                value={tripDuration || "Sin fechas"}
               />
             </View>
 
-            {/* Pestañas de navegación interna para mejor UX */}
-            <View style={styles.tabsContainer} accessibilityRole="tablist">
+            <View style={styles.tabsContainer}>
               <Pressable
                 style={[styles.tabButton, activeTab === "info" && styles.tabButtonActive]}
                 onPress={() => setActiveTab("info")}
-                accessibilityRole="tab"
-                accessibilityState={{ selected: activeTab === "info" }}
                 testID="edit-trip-tab-info"
+                accessibilityRole="tab"
               >
                 <Text style={[styles.tabText, activeTab === "info" && styles.tabTextActive]}>Información</Text>
+                {tabHasError.info ? <View style={styles.tabErrorDot} /> : null}
               </Pressable>
               <Pressable
                 style={[styles.tabButton, activeTab === "destinations" && styles.tabButtonActive]}
                 onPress={() => setActiveTab("destinations")}
-                accessibilityRole="tab"
-                accessibilityState={{ selected: activeTab === "destinations" }}
                 testID="edit-trip-tab-destinations"
+                accessibilityRole="tab"
               >
                 <Text style={[styles.tabText, activeTab === "destinations" && styles.tabTextActive]}>Destinos</Text>
+                {tabHasError.destinations ? <View style={styles.tabErrorDot} /> : null}
               </Pressable>
               <Pressable
                 style={[styles.tabButton, activeTab === "cover" && styles.tabButtonActive]}
                 onPress={() => setActiveTab("cover")}
-                accessibilityRole="tab"
-                accessibilityState={{ selected: activeTab === "cover" }}
                 testID="edit-trip-tab-cover"
+                accessibilityRole="tab"
               >
                 <Text style={[styles.tabText, activeTab === "cover" && styles.tabTextActive]}>Portada</Text>
+                {tabHasError.cover ? <View style={styles.tabErrorDot} /> : null}
               </Pressable>
             </View>
 
             {/* PESTAÑA 1: INFORMACIÓN */}
             {activeTab === "info" && (
               <View style={styles.card}>
-                <Text style={styles.cardTitle}>Detalles Principales</Text>
+                <CardHeader
+                  icon="suitcase-rolling"
+                  title="Información Básica"
+                  subtitle="Modificá los detalles principales de tu viaje."
+                />
 
                 <Field
                   error={errors.title}
-                  label="Título"
-                  onChange={handleInputChange}
-                  placeholder="Escapada a Córdoba"
-                  value={form.title}
+                  icon="pen"
+                  label="Título del viaje"
+                  required
                   name="title"
+                  onChange={handleInputChange}
+                  placeholder="Escapada a Bariloche"
+                  value={form.title}
+                  maxLength={100}
                 />
 
-                <View style={styles.field}>
-                  <Text style={styles.fieldLabel}>Descripción (opcional)</Text>
-                  <TextInput
-                    onChangeText={(text) => handleInputChange("description", text)}
-                    placeholder="Contanos de qué se trata este viaje..."
-                    placeholderTextColor="#00000059"
-                    style={[styles.input, styles.textArea]}
-                    value={form.description}
-                    multiline
-                    numberOfLines={3}
-                  />
-                </View>
+                <Field
+                  error={errors.description}
+                  icon="align-left"
+                  label="Descripción"
+                  optional
+                  multiline
+                  name="description"
+                  onChange={handleInputChange}
+                  placeholder="Notas, idea general o resumen para los participantes..."
+                  value={form.description}
+                />
 
-                <View style={[styles.row, isTablet && styles.rowTablet]}>
-                  {tripAlreadyStarted ? (
-                    <View style={styles.field}>
-                      <Text style={styles.fieldLabel}>Fecha ida</Text>
-                      <View style={[styles.input, styles.inputDisabled]}>
-                        <Text style={styles.dateButtonText}>{formatDateToDisplay(form.startDate)}</Text>
+                <View style={styles.sectionBlock}>
+                  <View style={styles.labelRow}>
+                    <Text style={styles.fieldLabel}>Fechas del viaje</Text>
+                    <Text style={styles.requiredMark}>*</Text>
+                  </View>
+
+                  <View style={[styles.row, isTablet && styles.rowTablet]}>
+                    {tripAlreadyStarted ? (
+                      <View style={styles.dateField}>
+                        <View style={styles.labelRow}>
+                          <Text style={styles.fieldLabel}>Fecha de ida</Text>
+                        </View>
+                        <View style={[styles.dateTile, styles.dateTileDisabled]}>
+                          <View style={styles.dateIconCircle}>
+                            <FontAwesome6 name="plane-departure" size={14} color={colors.primary} />
+                          </View>
+                          <View style={styles.flex}>
+                            <Text style={styles.dateCaption}>Fecha de ida</Text>
+                            <Text style={styles.dateValue}>{formatDateToDisplay(form.startDate)}</Text>
+                          </View>
+                        </View>
+                        <Text style={styles.fieldHint}>El viaje ya comenzó, no se puede modificar.</Text>
                       </View>
-                      <Text style={styles.fieldHint}>El viaje ya comenzó, no se puede modificar.</Text>
-                    </View>
-                  ) : (
+                    ) : (
+                      <DateField
+                        error={errors.startDate}
+                        icon="plane-departure"
+                        label="Fecha de ida"
+                        minDate={new Date()}
+                        onChange={handleInputChange}
+                        onOpenPicker={() => setShowStartPicker(true)}
+                        pickerVisible={showStartPicker}
+                        pickerValue={form.startDate}
+                        fieldName="startDate"
+                        setPickerVisible={setShowStartPicker}
+                      />
+                    )}
+
                     <DateField
-                      error={errors.startDate}
-                      label="Fecha ida"
+                      error={errors.endDate}
+                      icon="plane-arrival"
+                      label="Fecha de vuelta"
+                      disabled={!form.startDate}
+                      disabledText="Elegí primero la fecha de ida"
+                      minDate={form.startDate ? new Date(`${form.startDate}T12:00:00`) : new Date()}
                       onChange={handleInputChange}
-                      onOpenPicker={() => setShowStartPicker(true)}
-                      pickerVisible={showStartPicker}
-                      pickerValue={form.startDate}
-                      fieldName="startDate"
-                      setPickerVisible={setShowStartPicker}
-                      minDate={new Date()}
+                      onOpenPicker={() => {
+                        if (!form.startDate) {
+                          setErrors((current) => ({
+                            ...current,
+                            endDate: "Primero elegí la fecha de ida.",
+                          }));
+                          return;
+                        }
+                        setShowEndPicker(true);
+                      }}
+                      pickerVisible={showEndPicker}
+                      pickerValue={form.endDate}
+                      fieldName="endDate"
+                      setPickerVisible={setShowEndPicker}
                     />
-                  )}
-                  <DateField
-                    error={errors.endDate}
-                    label="Fecha vuelta"
-                    onChange={handleInputChange}
-                    onOpenPicker={() => setShowEndPicker(true)}
-                    pickerVisible={showEndPicker}
-                    pickerValue={form.endDate}
-                    fieldName="endDate"
-                    setPickerVisible={setShowEndPicker}
-                    minDate={form.startDate ? new Date(`${form.startDate}T12:00:00`) : new Date()}
-                  />
+                  </View>
+
+                  {tripDuration ? (
+                    <View style={styles.durationChip}>
+                      <FontAwesome6 name="moon" size={12} color={colors.primary} />
+                      <Text style={styles.durationChipText}>{tripDuration}</Text>
+                    </View>
+                  ) : null}
                 </View>
               </View>
             )}
@@ -481,63 +1181,88 @@ export default function EditTripScreen({ navigation, route }) {
             {/* PESTAÑA 2: DESTINOS */}
             {activeTab === "destinations" && (
               <View style={styles.card}>
-                <Text style={styles.cardTitle}>Destinos del Viaje</Text>
+                <CardHeader
+                  icon="location-dot"
+                  title="Destinos y Ruta"
+                  subtitle="Administrá las ciudades o países que vas a visitar."
+                />
 
-                <View style={[styles.field, styles.destinationSection]}>
-                  <Text style={styles.fieldLabel}>Agregar destino</Text>
-                  <TextInput
-                      value={destinationSearch}
-                      onChangeText={setDestinationSearch}
-                      placeholder="Córdoba, Bariloche, Chile..."
-                      placeholderTextColor="#00000059"
-                    style={styles.input}
-                  />
+                <View style={styles.sectionBlock}>
+                  <View style={styles.labelRow}>
+                    <Text style={styles.fieldLabel}>Destino</Text>
+                    <Text style={styles.requiredMark}>*</Text>
+                  </View>
 
-                  {destinationOptions.length > 0 && (
-                    <View style={styles.destinationResults}>
-                      <ScrollView nestedScrollEnabled keyboardShouldPersistTaps="handled">
-                        {destinationOptions.map((item, index) => (
-                          <Pressable
-                            key={`${item.name}-${item.country}-${index}`}
-                            onPress={() => addDestination(item)}
-                            style={styles.destinationItem}
-                          >
-                            <View style={{ flexDirection: "row", alignItems: "center" }}>
-                              <FontAwesome6 name="location-dot" size={15} color={colors.primary} />
-                              <View style={{ marginLeft: 10 }}>
-                                <Text style={styles.destinationName}>{item.name}</Text>
-                                <Text style={styles.destinationCountry}>{item.country}</Text>
-                              </View>
+                  {form.destinations.length === 0 ? (
+                    <>
+                      <TouchableOpacity
+                        style={[styles.searchBar, errors.destinations && styles.inputError]}
+                        onPress={openDestinationPicker}
+                        activeOpacity={0.8}
+                        accessibilityRole="button"
+                        accessibilityLabel="Buscar destino"
+                      >
+                        <FontAwesome6 name="magnifying-glass" size={15} color={colors.primary} />
+                        <Text style={styles.searchBarText} numberOfLines={1}>Buscar ciudad o país...</Text>
+                        <View style={styles.searchBarAction}>
+                          <FontAwesome6 name="plus" size={13} color={colors.textInverse} />
+                        </View>
+                      </TouchableOpacity>
+                      <Text style={styles.fieldHint}>Podés agregar más de un destino.</Text>
+                    </>
+                  ) : (
+                    <View>
+                      {form.destinations.map((d, index) => (
+                        <View key={`${d.name}-${d.country}-${index}`} style={styles.routeRow}>
+                          <RouteRail showTop={index > 0}>
+                            <View style={styles.routeDot}>
+                              <Text style={styles.routeDotText}>{index + 1}</Text>
                             </View>
-                          </Pressable>
-                        ))}
-                      </ScrollView>
+                          </RouteRail>
+                          <View style={styles.routeContent}>
+                            <View style={styles.destinationCard}>
+                              <DestinationThumb uri={pickDestinationImage(d)} />
+                              <View style={styles.flex}>
+                                <Text style={styles.destinationChipText} numberOfLines={1}>{d.name}</Text>
+                                <Text style={styles.destinationCountry} numberOfLines={1}>
+                                  {[d.provinceState, d.country].filter(Boolean).join(", ")}
+                                </Text>
+                              </View>
+                              <Pressable
+                                onPress={() => removeDestination(d)}
+                                hitSlop={12}
+                                testID={`edit-trip-remove-destination-${index}`}
+                                style={styles.destinationRemoveButton}
+                                accessibilityLabel={`Quitar ${d.name}`}
+                              >
+                                <FontAwesome6 name="xmark" size={12} color={COLOR_DANGER} />
+                              </Pressable>
+                            </View>
+                          </View>
+                        </View>
+                      ))}
+
+                      <View style={styles.routeRow}>
+                        <RouteRail topHeight={9} showBottom={false}>
+                          <View style={[styles.routeDot, styles.routeDotAdd]}>
+                            <FontAwesome6 name="plus" size={11} color={colors.primary} />
+                          </View>
+                        </RouteRail>
+                        <View style={styles.routeContent}>
+                          <TouchableOpacity style={styles.addAnotherButton} onPress={openDestinationPicker} activeOpacity={0.8}>
+                            <Text style={styles.addAnotherText}>Agregar otro destino</Text>
+                          </TouchableOpacity>
+                        </View>
+                      </View>
                     </View>
                   )}
-                  {errors.destinations ? <Text style={styles.fieldError}>{errors.destinations}</Text> : null}
-                </View>
 
-                <View style={styles.selectedDestinationsContainer}>
-                  <Text style={styles.fieldLabel}>Seleccionados ({form.destinations.length})</Text>
-                  <ScrollView style={styles.selectedDestinationsScroll} nestedScrollEnabled>
-                    {form.destinations.map((d, index) => (
-                      <View key={`${d.name}-${d.country}-${index}`} style={styles.destinationCurrencyRow}>
-                        <View style={{ flex: 1 }}>
-                          <Text style={styles.destinationChipText}>{d.name}</Text>
-                          <Text style={styles.destinationCountry}>{d.country}</Text>
-                        </View>
-                        <Pressable
-                          onPress={() => removeDestination(d)}
-                          hitSlop={15}
-                          accessibilityRole="button"
-                          accessibilityLabel={`Quitar ${d.name}`}
-                          testID={`edit-trip-remove-destination-${index}`}
-                        >
-                          <FontAwesome6 name="xmark" size={14} color={colors.danger || "#FF3B30"} />
-                        </Pressable>
-                      </View>
-                    ))}
-                  </ScrollView>
+                  {errors.destinations ? (
+                    <View style={styles.errorRow}>
+                      <FontAwesome6 name="circle-exclamation" size={12} color={COLOR_DANGER} />
+                      <Text style={styles.fieldError}>{errors.destinations}</Text>
+                    </View>
+                  ) : null}
                 </View>
               </View>
             )}
@@ -545,7 +1270,11 @@ export default function EditTripScreen({ navigation, route }) {
             {/* PESTAÑA 3: PORTADA */}
             {activeTab === "cover" && (
               <View style={styles.card}>
-                <Text style={styles.cardTitle}>Personalizar Portada</Text>
+                <CardHeader
+                  icon="image"
+                  title="Portada del Viaje"
+                  subtitle="Personaliza la imagen principal de tu experiencia."
+                />
 
                 {coverImage ? (
                   <ImageBackground
@@ -553,8 +1282,9 @@ export default function EditTripScreen({ navigation, route }) {
                     imageStyle={styles.coverPreviewImage}
                     style={styles.coverPreview}
                   >
-                    <View style={styles.coverPreviewOverlay}>
-                      <Text style={styles.coverPreviewBadge}>Nueva imagen seleccionada</Text>
+                    <View style={styles.coverBadge}>
+                      <FontAwesome6 name="image" size={11} color={colors.primary} />
+                      <Text style={styles.coverBadgeText}>Nueva imagen seleccionada</Text>
                     </View>
                   </ImageBackground>
                 ) : removeCoverRequested ? (
@@ -564,14 +1294,17 @@ export default function EditTripScreen({ navigation, route }) {
                       imageStyle={styles.coverPreviewImage}
                       style={styles.coverPreview}
                     >
-                      <View style={styles.coverPreviewOverlay}>
-                        <Text style={styles.coverPreviewBadge}>Portada de Google Maps</Text>
+                      <View style={styles.coverBadge}>
+                        <FontAwesome6 name="location-dot" size={11} color={colors.primary} />
+                        <Text style={styles.coverBadgeText}>Portada de Google Maps</Text>
                       </View>
                     </ImageBackground>
                   ) : (
                     <View style={[styles.coverPreview, styles.coverPreviewEmpty]}>
-                      <FontAwesome6 name="image" size={20} color={colors.textMuted} />
-                      <Text style={styles.coverPreviewEmptyText}>Se usará portada predeterminada</Text>
+                      <View style={styles.coverEmptyIcon}>
+                        <FontAwesome6 name="image" size={20} color={colors.primary} />
+                      </View>
+                      <Text style={styles.coverPreviewEmptyTitle}>Se usará una portada predeterminada</Text>
                     </View>
                   )
                 ) : currentCoverUrl ? (
@@ -580,20 +1313,22 @@ export default function EditTripScreen({ navigation, route }) {
                     imageStyle={styles.coverPreviewImage}
                     style={styles.coverPreview}
                   >
-                    <View style={styles.coverPreviewOverlay}>
-                      <Text style={styles.coverPreviewBadge}>
+                    <View style={styles.coverBadge}>
+                      <FontAwesome6 name={hasCustomCover ? "image" : "location-dot"} size={11} color={colors.primary} />
+                      <Text style={styles.coverBadgeText}>
                         {hasCustomCover ? "Portada personalizada actual" : "Portada según destino"}
                       </Text>
                     </View>
                   </ImageBackground>
                 ) : (
                   <View style={[styles.coverPreview, styles.coverPreviewEmpty]}>
-                    <FontAwesome6 name="image" size={20} color={colors.textMuted} />
-                    <Text style={styles.coverPreviewEmptyText}>Se usará una portada predeterminada</Text>
+                    <View style={styles.coverEmptyIcon}>
+                      <FontAwesome6 name="image" size={20} color={colors.primary} />
+                    </View>
+                    <Text style={styles.coverPreviewEmptyTitle}>Se usará una portada predeterminada</Text>
                   </View>
                 )}
 
-                {/* Acciones de portada: botones de ancho completo con el mismo estilo */}
                 <View style={styles.coverActions}>
                   <Pressable onPress={handlePickCoverImage} style={styles.coverActionButton}>
                     <FontAwesome6 name="image" size={14} color={colors.primary} />
@@ -625,7 +1360,12 @@ export default function EditTripScreen({ navigation, route }) {
                   </View>
                 ) : null}
 
-                {coverError ? <Text style={styles.fieldError}>{coverError}</Text> : null}
+                {coverError ? (
+                  <View style={styles.errorRow}>
+                    <FontAwesome6 name="circle-exclamation" size={12} color={COLOR_DANGER} />
+                    <Text style={styles.fieldError}>{coverError}</Text>
+                  </View>
+                ) : null}
 
                 <AICoverGenerator
                   generate={(prompt) => generateTripCoverAI(tripId, prompt)}
@@ -635,28 +1375,30 @@ export default function EditTripScreen({ navigation, route }) {
             )}
 
             {submitMessage ? (
-              <Text
-                style={[
-                  styles.submitMessage,
-                  submitStatus === "error" ? styles.submitError : styles.submitSuccess,
-                ]}
-              >
-                {submitMessage}
-              </Text>
+              <View style={[styles.banner, submitStatus === "error" ? styles.bannerError : styles.bannerSuccess]}>
+                <FontAwesome6
+                  name={submitStatus === "error" ? "circle-exclamation" : "circle-check"}
+                  size={14}
+                  color={submitStatus === "error" ? COLOR_DANGER : colors.success}
+                />
+                <Text style={[styles.bannerText, submitStatus === "error" ? styles.submitError : styles.submitSuccess]}>
+                  {submitMessage}
+                </Text>
+              </View>
             ) : null}
 
             <View style={styles.actions}>
-              <PrimaryButton
-                label={submitStatus === "submitting" ? "Guardando..." : "Guardar cambios"}
-                loading={submitStatus === "submitting"}
-                onPress={handleSubmit}
-                style={styles.actionPrimary}
-              />
               <PrimaryButton
                 label="Cancelar"
                 onPress={() => navigation.goBack()}
                 variant="secondary"
                 style={styles.actionSecondary}
+              />
+              <PrimaryButton
+                label={submitStatus === "submitting" ? "Guardando..." : "Guardar cambios"}
+                loading={submitStatus === "submitting"}
+                onPress={handleSubmit}
+                style={styles.actionPrimary}
               />
             </View>
           </View>
@@ -666,44 +1408,96 @@ export default function EditTripScreen({ navigation, route }) {
       <DatePickerModal
         visible={showStartPicker}
         onClose={() => setShowStartPicker(false)}
-        onSelectDate={(date) => {
-          handleInputChange("startDate", date);
+        title="Fecha de ida"
+        value={form.startDate}
+        onChange={(ymd) => {
+          handleInputChange("startDate", ymd);
           setShowStartPicker(false);
         }}
-        selectedDate={form.startDate}
+        minDate={new Date()}
       />
 
       <DatePickerModal
         visible={showEndPicker}
         onClose={() => setShowEndPicker(false)}
-        onSelectDate={(date) => {
-          handleInputChange("endDate", date);
+        title="Fecha de vuelta"
+        value={form.endDate}
+        onChange={(ymd) => {
+          handleInputChange("endDate", ymd);
           setShowEndPicker(false);
         }}
-        selectedDate={form.endDate}
+        minDate={form.startDate ? new Date(`${form.startDate}T12:00:00`) : new Date()}
+      />
+
+      <DestinationPickerModal
+        visible={showDestinationPicker}
+        onClose={closeDestinationPicker}
+        search={destinationSearch}
+        onSearchChange={setDestinationSearch}
+        options={destinationOptions}
+        searching={searchingDestinations}
+        hasSearched={hasSearchedDestinations}
+        onSelect={addDestination}
+        selectedDestinations={form.destinations}
+        onRemoveSelected={removeDestination}
+        resolving={resolvingDestination}
+        error={errors.destinations}
       />
     </ScreenContainer>
   );
 }
 
-function Field({ label, name, onChange, value, placeholder, error = null }) {
+function Field({ label, name, onChange, value, placeholder, icon, multiline = false, required = false, optional = false, error = null, maxLength }) {
+  const [focused, setFocused] = useState(false);
+
   return (
     <View style={styles.field}>
-      <Text style={styles.fieldLabel}>{label}</Text>
-      <TextInput
-        onChangeText={(text) => onChange(name, text)}
-        placeholder={placeholder}
-        placeholderTextColor="#00000059"
-        style={[styles.input, error && styles.inputError]}
-        value={value}
-      />
-      {error ? <Text style={styles.fieldError}>{error}</Text> : null}
+      <View style={styles.labelRow}>
+        <Text style={styles.fieldLabel}>{label}</Text>
+        {required ? <Text style={styles.requiredMark}>*</Text> : null}
+        {optional ? <Text style={styles.optionalTag}>Opcional</Text> : null}
+      </View>
+      <View
+        style={[
+          styles.inputWrap,
+          multiline && styles.inputWrapMultiline,
+          focused && styles.inputWrapFocused,
+          error && styles.inputError,
+        ]}
+      >
+        {icon ? (
+          <FontAwesome6
+            name={icon}
+            size={14}
+            color={focused ? colors.primary : colors.textMuted}
+            style={multiline ? styles.inputIconTop : null}
+          />
+        ) : null}
+        <TextInput
+          multiline={multiline}
+          maxLength={maxLength}
+          onChangeText={(text) => onChange(name, text)}
+          onFocus={() => setFocused(true)}
+          onBlur={() => setFocused(false)}
+          placeholder={placeholder}
+          placeholderTextColor={colors.textMuted}
+          style={[styles.input, multiline && styles.inputMultiline]}
+          value={value}
+        />
+      </View>
+      {error ? (
+        <View style={styles.errorRow}>
+          <FontAwesome6 name="circle-exclamation" size={12} color={COLOR_DANGER} />
+          <Text style={styles.fieldError}>{error}</Text>
+        </View>
+      ) : null}
     </View>
   );
 }
 
 function DateField({
   label,
+  icon,
   fieldName,
   onChange,
   pickerVisible,
@@ -712,40 +1506,81 @@ function DateField({
   onOpenPicker,
   error,
   minDate,
+  disabled = false,
+  disabledText = "",
 }) {
+  const valueText = pickerValue
+    ? formatDateToDisplay(pickerValue)
+    : disabled && disabledText
+      ? disabledText
+      : "Seleccionar fecha";
+
+  const iconCircle = (
+    <View style={[styles.dateIconCircle, pickerValue && styles.dateIconCircleOn]}>
+      <FontAwesome6 name={icon} size={14} color={pickerValue ? colors.textInverse : colors.primary} />
+    </View>
+  );
+
   return (
-    <View style={styles.field}>
-      <Text style={styles.fieldLabel}>{label}</Text>
+    <View style={styles.dateField}>
       {Platform.OS === "web" ? (
-        <View style={[styles.input, error && styles.inputError, { justifyContent: "center", paddingVertical: 0 }]}>
-          <input
-            type="date"
-            min={minDate ? minDate.toISOString().split("T")[0] : undefined}
-            value={pickerValue || ""}
-            onChange={(e) => onChange(fieldName, e.target.value)}
-            style={{
-              border: "none",
-              width: "100%",
-              outline: "none",
-              backgroundColor: "transparent",
-              fontFamily: "inherit",
-              fontSize: "16px",
-              color: "inherit",
-              cursor: "pointer",
-            }}
-          />
+        <View
+          style={[
+            styles.dateTile,
+            pickerValue && styles.dateTileFilled,
+            error && styles.inputError,
+            disabled && styles.dateTileDisabled,
+          ]}
+        >
+          {iconCircle}
+          <View style={styles.flex}>
+            <Text style={styles.dateCaption}>{label}</Text>
+            <input
+              type="date"
+              disabled={disabled}
+              min={minDate ? dateToLocalISO(minDate) : undefined}
+              value={pickerValue || ""}
+              onChange={(e) => onChange(fieldName, e.target.value)}
+              style={{
+                border: "none",
+                width: "100%",
+                outline: "none",
+                backgroundColor: "transparent",
+                fontFamily: "inherit",
+                fontSize: "16px",
+                color: "inherit",
+                cursor: disabled ? "not-allowed" : "pointer",
+                padding: 0,
+              }}
+            />
+          </View>
         </View>
       ) : (
-        <>
-          <Pressable onPress={onOpenPicker} style={[styles.dateButton, error && styles.inputError]}>
-            <Text style={[styles.dateButtonText, !pickerValue && styles.datePlaceholder]}>
-              {pickerValue ? formatDateToDisplay(pickerValue) : "Seleccionar fecha"}
+        <Pressable
+          onPress={onOpenPicker}
+          style={[
+            styles.dateTile,
+            pickerValue && styles.dateTileFilled,
+            error && styles.inputError,
+            disabled && styles.dateTileDisabled,
+          ]}
+        >
+          {iconCircle}
+          <View style={styles.flex}>
+            <Text style={styles.dateCaption}>{label}</Text>
+            <Text numberOfLines={1} style={[styles.dateValue, !pickerValue && styles.datePlaceholder]}>
+              {valueText}
             </Text>
-            <FontAwesome6 color={colors.textPrimary} name="calendar" size={14} />
-          </Pressable>
-        </>
+          </View>
+          <FontAwesome6 name="chevron-down" size={12} color={disabled ? colors.textMuted : colors.textSecondary} />
+        </Pressable>
       )}
-      {error ? <Text style={styles.fieldError}>{error}</Text> : null}
+      {error ? (
+        <View style={styles.errorRow}>
+          <FontAwesome6 name="circle-exclamation" size={12} color={COLOR_DANGER} />
+          <Text style={styles.fieldError}>{error}</Text>
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -759,32 +1594,40 @@ const styles = StyleSheet.create({
     gap: spacing.md,
     padding: spacing.lg,
   },
-  scrollContent: { paddingBottom: 140 },
+  scrollContent: {
+    flexGrow: 1,
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.md,
+    paddingBottom: spacing.xl,
+    gap: spacing.md,
+  },
   hero: {
     backgroundColor: colors.primary,
     paddingHorizontal: spacing.lg,
     paddingTop: spacing.lg,
-    paddingBottom: spacing.xl,
-    borderBottomLeftRadius: 32,
-    borderBottomRightRadius: 32,
-    alignItems: "center",
+    paddingBottom: spacing.md,
+    borderBottomLeftRadius: 24,
+    borderBottomRightRadius: 24,
   },
   heroTopRow: {
-    flexDirection: "row",
+    minHeight: 44,
+    justifyContent: "center",
+    alignItems: "flex-start",
+  },
+  heroTitleWrap: {
+    position: "absolute",
+    left: 0,
+    right: 0,
     alignItems: "center",
-    alignSelf: "flex-start",
+    justifyContent: "center",
   },
   heroTitle: {
     ...textStyles.tripTitle,
     color: colors.textInverse,
-    fontSize: 26,
-    marginTop: spacing.xs,
-    textAlign: "center",
+    fontSize: 20,
   },
   body: {
-    backgroundColor: colors.background,
-    paddingHorizontal: spacing.lg,
-    paddingTop: spacing.lg,
+    gap: spacing.md,
   },
   metricsRow: {
     flexDirection: "row",
@@ -795,7 +1638,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surfaceMuted || "#E9ECEF",
     borderRadius: radii.md,
     padding: 4,
-    marginTop: spacing.md,
+    marginTop: spacing.xs,
   },
   tabButton: {
     flex: 1,
@@ -819,147 +1662,337 @@ const styles = StyleSheet.create({
   tabTextActive: {
     color: colors.primary,
   },
+  tabErrorDot: {
+    position: "absolute",
+    top: 6,
+    right: 8,
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: COLOR_DANGER,
+  },
   card: {
     ...surfaces.card,
     padding: spacing.lg,
     gap: spacing.md,
-    marginTop: spacing.md,
+  },
+  cardHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+  },
+  cardIconCircle: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: COLOR_SOFT,
   },
   cardTitle: {
     ...textStyles.tripTitle,
     color: colors.primary,
-    fontSize: 22,
+    fontSize: 20,
   },
-  row: { 
-    gap: spacing.md,
-    marginTop: spacing.md,
-  },
-  rowTablet: { flexDirection: "row" },
-  field: { flex: 1 },
-  fieldLabel: {
-    ...textStyles.label,
-    color: colors.primary,
-    marginBottom: spacing.xs,
-  },
-  input: {
-    minHeight: 52,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: radii.md,
-    backgroundColor: colors.surface,
-    paddingHorizontal: spacing.md,
-    paddingVertical: 13,
-    color: colors.textPrimary,
-    ...textStyles.body,
-  },
-  inputError: { borderColor: colors.danger },
-  textArea: {
-    minHeight: 90,
-    paddingTop: 13,
-    textAlignVertical: "top",
-  },
-  inputDisabled: {
-    justifyContent: "center",
-    backgroundColor: colors.surfaceMuted || "#F2F2F2",
-  },
-  fieldHint: {
-    ...textStyles.meta,
-    color: colors.textSecondary,
-    marginTop: spacing.xs,
-  },
-  fieldError: {
-    ...textStyles.meta,
-    color: colors.danger,
-    marginTop: spacing.xs,
-  },
-  dateButton: {
-    minHeight: 52,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: radii.md,
-    backgroundColor: colors.surface,
-    paddingHorizontal: spacing.md,
-    alignItems: "center",
-    justifyContent: "space-between",
-    flexDirection: "row",
-  },
-  dateButtonText: {
-    ...textStyles.body,
-    color: colors.textPrimary,
-  },
-  datePlaceholder: { color: colors.textMuted },
-  destinationResults: {
-    maxHeight: 220,
-    marginTop: 8,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: radii.md,
-    backgroundColor: colors.surface,
-    position: "relative",
-    zIndex: 30,
-    elevation: 10,
-  },
-  destinationItem: {
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: "#ECECEC",
-  },
-  destinationName: {
-    ...textStyles.bodyStrong,
-    color: colors.textPrimary,
-  },
-  destinationCountry: {
+  cardSubtitle: {
     ...textStyles.meta,
     color: colors.textSecondary,
     marginTop: 2,
   },
-  selectedDestinationsScroll: {
-    maxHeight: 170,
-    marginTop: spacing.sm,
+  sectionBlock: {
+    gap: spacing.xs,
   },
-  selectedDestinationsContainer: {
-    zIndex: 1,
+  row: {
+    gap: spacing.sm,
   },
-  destinationCurrencyRow: {
+  rowTablet: {
+    flexDirection: "row",
+  },
+  field: {
+    gap: spacing.xs,
+  },
+  labelRow: {
     flexDirection: "row",
     alignItems: "center",
+    gap: 4,
+  },
+  fieldLabel: {
+    ...textStyles.label,
+    textTransform: "none",
+    color: colors.primary,
+    marginBottom: 0,
+  },
+  requiredMark: {
+    ...textStyles.label,
+    color: COLOR_DANGER,
+  },
+  optionalTag: {
+    ...textStyles.meta,
+    color: colors.textMuted,
+    marginLeft: 4,
+  },
+  inputWrap: {
+    minHeight: 52,
     borderWidth: 1,
     borderColor: colors.border,
     borderRadius: radii.md,
     backgroundColor: colors.surface,
     paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-    marginBottom: spacing.sm,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+  inputWrapMultiline: {
+    alignItems: "flex-start",
+    minHeight: 96,
+  },
+  inputWrapFocused: {
+    borderColor: colors.primary,
+  },
+  inputIconTop: {
+    marginTop: 17,
+  },
+  input: {
+    flex: 1,
+    color: colors.textPrimary,
+    paddingVertical: 13,
+    ...textStyles.body,
+  },
+  inputMultiline: {
+    minHeight: 96,
+    textAlignVertical: "top",
+  },
+  inputError: {
+    borderColor: COLOR_DANGER,
+  },
+  errorRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 6,
+    marginTop: 2,
+  },
+  fieldError: {
+    ...textStyles.meta,
+    color: COLOR_DANGER,
+    flex: 1,
+  },
+  fieldHint: {
+    ...textStyles.meta,
+    color: colors.textSecondary,
+  },
+  dateField: {
+    flex: 1,
+    gap: spacing.xs,
+  },
+  dateTile: {
+    minHeight: 62,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radii.md,
+    backgroundColor: colors.surface,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 10,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
+  dateTileFilled: {
+    borderColor: colors.primary,
+  },
+  dateTileDisabled: {
+    opacity: 0.55,
+    backgroundColor: colors.surfaceMuted,
+  },
+  dateIconCircle: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: COLOR_SOFT,
+  },
+  dateIconCircleOn: {
+    backgroundColor: colors.primary,
+  },
+  dateCaption: {
+    ...textStyles.meta,
+    color: colors.textSecondary,
+  },
+  dateValue: {
+    ...textStyles.bodyStrong,
+    color: colors.textPrimary,
+    marginTop: 1,
+  },
+  datePlaceholder: {
+    color: colors.textMuted,
+    fontWeight: "400",
+  },
+  durationChip: {
+    alignSelf: "flex-start",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: COLOR_SOFT,
+    borderRadius: 20,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    marginTop: 2,
+  },
+  durationChipText: {
+    ...textStyles.meta,
+    color: colors.primary,
+    fontWeight: "700",
+  },
+  searchBar: {
+    minHeight: 56,
+    borderWidth: 1.5,
+    borderColor: colors.primary,
+    borderRadius: radii.lg,
+    backgroundColor: colors.surface,
+    paddingLeft: spacing.md,
+    paddingRight: spacing.sm,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
+  searchBarText: {
+    flex: 1,
+    ...textStyles.body,
+    color: colors.textMuted,
+  },
+  searchBarAction: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.primary,
+  },
+  routeRow: {
+    flexDirection: "row",
+    gap: 12,
+  },
+  routeRail: {
+    width: 28,
+    alignItems: "center",
+  },
+  routeLine: {
+    width: 2,
+    backgroundColor: colors.border,
+  },
+  routeLineHidden: {
+    backgroundColor: "transparent",
+  },
+  routeLineBottom: {
+    flex: 1,
+    width: 2,
+  },
+  routeDot: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.primary,
+  },
+  routeDotText: {
+    ...textStyles.meta,
+    color: colors.textInverse,
+    fontWeight: "700",
+  },
+  routeDotAdd: {
+    backgroundColor: COLOR_SOFT,
+    borderWidth: 1.5,
+    borderStyle: "dashed",
+    borderColor: colors.primary,
+  },
+  routeContent: {
+    flex: 1,
+    paddingBottom: spacing.xs,
+  },
+  destinationCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    minHeight: 64,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radii.md,
+    backgroundColor: colors.surface,
+    padding: 6,
+    paddingRight: spacing.sm,
+  },
+  destinationThumb: {
+    width: 52,
+    height: 52,
+    borderRadius: radii.sm || 8,
+    backgroundColor: colors.surfaceMuted,
+  },
+  destinationThumbEmpty: {
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: COLOR_SOFT,
   },
   destinationChipText: {
     ...textStyles.bodyStrong,
-    fontSize: 14,
     color: colors.primary,
   },
-  destinationSection: {
-    marginTop: spacing.lg,
-    position: "relative",
-    zIndex: 20,
+  destinationRemoveButton: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: COLOR_DANGER_SOFT,
   },
-  submitMessage: {
+  addAnotherButton: {
+    alignItems: "center",
+    justifyContent: "center",
+    minHeight: 46,
+    borderWidth: 1.5,
+    borderStyle: "dashed",
+    borderColor: colors.primary,
+    borderRadius: radii.md,
+    backgroundColor: COLOR_SOFT,
+  },
+  addAnotherText: {
     ...textStyles.bodyStrong,
-    marginTop: spacing.lg,
+    color: colors.primary,
   },
-  submitError: { color: colors.danger },
-  submitSuccess: { color: colors.success },
+  banner: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 8,
+    marginTop: spacing.xs,
+    padding: spacing.sm,
+    borderRadius: radii.md,
+  },
+  bannerError: {
+    backgroundColor: COLOR_DANGER_SOFT,
+  },
+  bannerSuccess: {
+    backgroundColor: colors.successSurface || "rgba(34,197,94,0.1)",
+  },
+  bannerText: {
+    ...textStyles.bodyStrong,
+    fontSize: 13,
+    flex: 1,
+  },
+  submitError: {
+    color: COLOR_DANGER,
+  },
+  submitSuccess: {
+    color: colors.success,
+  },
   actions: {
     flexDirection: Platform.OS === "web" ? "row" : "column",
-    gap: spacing.md,
-    marginTop: spacing.xl,
+    gap: spacing.sm,
+    marginTop: spacing.md,
   },
   actionPrimary: { flex: 1 },
   actionSecondary: { flex: 1 },
-  coverPreviewSection: {
-    marginTop: spacing.md,
-  },
   coverPreview: {
-    minHeight: 180,
+    height: 200,
     borderRadius: radii.lg,
     overflow: "hidden",
     justifyContent: "flex-end",
@@ -967,24 +2000,45 @@ const styles = StyleSheet.create({
   coverPreviewImage: {
     borderRadius: radii.lg,
   },
-  coverPreviewOverlay: {
-    padding: spacing.lg,
-    backgroundColor: "rgba(19, 39, 80, 0.42)",
+  coverBadge: {
+    position: "absolute",
+    top: spacing.sm,
+    left: spacing.sm,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: "rgba(255,255,255,0.92)",
+    borderRadius: 16,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
   },
-  coverPreviewBadge: {
-    ...textStyles.label,
-    color: colors.accent,
-    marginBottom: spacing.xs,
+  coverBadgeText: {
+    ...textStyles.meta,
+    color: colors.primary,
+    fontWeight: "700",
   },
   coverPreviewEmpty: {
     alignItems: "center",
     justifyContent: "center",
     gap: spacing.xs,
+    paddingHorizontal: spacing.lg,
     backgroundColor: colors.surfaceMuted,
+    borderWidth: 1.5,
+    borderStyle: "dashed",
+    borderColor: colors.border,
   },
-  coverPreviewEmptyText: {
-    ...textStyles.meta,
-    color: colors.textMuted,
+  coverEmptyIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: COLOR_SOFT,
+  },
+  coverPreviewEmptyTitle: {
+    ...textStyles.bodyStrong,
+    color: colors.textPrimary,
+    textAlign: "center",
   },
   coverActions: {
     gap: spacing.sm,
@@ -1023,8 +2077,428 @@ const styles = StyleSheet.create({
   },
   coverActionTextSecondary: {
     ...textStyles.bodyStrong,
-    color: colors.danger || "#FF3B30",
+    color: COLOR_DANGER,
     fontSize: 13,
     textAlign: "center",
+  },
+  destinationCountry: {
+    ...textStyles.meta,
+    color: colors.textSecondary,
+    marginTop: 2,
+  },
+  dpHeader: {
+    backgroundColor: colors.primary,
+    paddingHorizontal: spacing.lg,
+    paddingBottom: spacing.lg,
+    borderBottomLeftRadius: 28,
+    borderBottomRightRadius: 28,
+  },
+  dpHeaderRow: {
+    minHeight: 44,
+    justifyContent: "center",
+    alignItems: "flex-start",
+  },
+  dpTitleWrap: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  dpTitle: {
+    ...textStyles.tripTitle,
+    color: colors.textInverse,
+    fontSize: 20,
+  },
+  dpHeaderHint: {
+    ...textStyles.body,
+    color: colors.textInverse,
+    opacity: 0.85,
+    marginTop: spacing.sm,
+    marginBottom: spacing.sm,
+  },
+  dpSearch: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    minHeight: 54,
+    borderRadius: radii.lg,
+    borderWidth: 2,
+    borderColor: "transparent",
+    backgroundColor: colors.surface,
+    paddingHorizontal: spacing.md,
+  },
+  dpSearchFocused: {
+    borderColor: colors.accent || colors.surface,
+  },
+  dpSearchInput: {
+    flex: 1,
+    ...textStyles.body,
+    color: colors.textPrimary,
+    paddingVertical: 10,
+  },
+  dpBody: {
+    flex: 1,
+    minHeight: 0,
+    overflow: "hidden",
+    backgroundColor: colors.background,
+  },
+  dpError: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginHorizontal: spacing.lg,
+    marginTop: spacing.md,
+    padding: spacing.sm,
+    borderRadius: radii.md,
+    backgroundColor: COLOR_DANGER_SOFT,
+  },
+  dpErrorText: {
+    ...textStyles.meta,
+    color: COLOR_DANGER,
+    fontWeight: "600",
+    flex: 1,
+  },
+  dpSelected: {
+    paddingTop: spacing.md,
+    flexShrink: 0,
+  },
+  dpSectionRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingHorizontal: spacing.lg,
+    marginBottom: spacing.xs,
+  },
+  dpSectionLabel: {
+    ...textStyles.label,
+    textTransform: "none",
+    color: colors.primary,
+  },
+  dpCountPill: {
+    minWidth: 22,
+    height: 22,
+    borderRadius: 11,
+    paddingHorizontal: 6,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.primary,
+  },
+  dpCountPillText: {
+    ...textStyles.meta,
+    color: colors.textInverse,
+    fontWeight: "700",
+    fontSize: 11,
+  },
+  dpAvatarImage: {
+    backgroundColor: colors.surfaceMuted,
+  },
+  dpAvatarFallback: {
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: COLOR_SOFT,
+  },
+  dpResults: {
+    flex: 1,
+    minHeight: 0,
+  },
+  dpListContent: {
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.sm,
+    paddingBottom: spacing.lg,
+  },
+  dpSeparator: {
+    height: 6,
+  },
+  dpItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    minHeight: 56,
+    paddingHorizontal: spacing.sm + 4,
+    paddingVertical: 6,
+    borderWidth: 1.5,
+    borderColor: colors.border,
+    borderRadius: radii.md,
+    backgroundColor: colors.surface,
+  },
+  dpItemActive: {
+    borderColor: colors.primary,
+    backgroundColor: COLOR_SOFT,
+  },
+  dpItemIcon: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: COLOR_SOFT,
+  },
+  dpItemIconActive: {
+    backgroundColor: colors.primary,
+  },
+  dpItemTexts: {
+    flex: 1,
+  },
+  dpItemName: {
+    ...textStyles.bodyStrong,
+    color: colors.textPrimary,
+    fontWeight: "500",
+  },
+  dpItemNameActive: {
+    color: colors.primary,
+  },
+  dpItemMatch: {
+    color: colors.primary,
+    fontWeight: "800",
+  },
+  dpItemSub: {
+    ...textStyles.meta,
+    color: colors.textSecondary,
+    marginTop: 2,
+  },
+  dpAddButton: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: COLOR_SOFT,
+  },
+  dpAddedPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    height: 28,
+    borderRadius: 14,
+    paddingHorizontal: 10,
+    backgroundColor: colors.primary,
+  },
+  dpAddedText: {
+    ...textStyles.meta,
+    color: colors.textInverse,
+    fontWeight: "700",
+    fontSize: 11,
+  },
+  dpIdleContent: {
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.lg,
+    paddingBottom: spacing.lg,
+  },
+  dpIdleHero: {
+    alignItems: "center",
+    gap: spacing.xs,
+    marginBottom: spacing.xs,
+  },
+  dpIdleIcon: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: COLOR_SOFT,
+  },
+  dpIdleTitle: {
+    ...textStyles.bodyStrong,
+    color: colors.textPrimary,
+    fontSize: 16,
+  },
+  dpIdleText: {
+    ...textStyles.meta,
+    color: colors.textSecondary,
+    textAlign: "center",
+  },
+  dpSkeletonRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    minHeight: 64,
+    paddingHorizontal: spacing.sm + 4,
+    marginBottom: 8,
+    borderRadius: radii.md,
+    backgroundColor: colors.surface,
+  },
+  dpSkeletonCircle: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: colors.surfaceMuted,
+  },
+  dpSkeletonLong: {
+    width: "60%",
+    height: 12,
+    borderRadius: 6,
+    backgroundColor: colors.surfaceMuted,
+  },
+  dpSkeletonShort: {
+    width: "35%",
+    height: 10,
+    borderRadius: 5,
+    marginTop: 8,
+    backgroundColor: colors.surfaceMuted,
+  },
+  dpFooter: {
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.sm,
+    paddingBottom: spacing.md,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+    backgroundColor: colors.surface,
+  },
+  dpSelectedFull: {
+    flex: 1,
+    minHeight: 0,
+  },
+  dpSelectedCompact: {
+    maxHeight: 190,
+    flexShrink: 1,
+  },
+  dpRouteList: {
+    gap: 8,
+    paddingHorizontal: spacing.lg,
+    paddingBottom: spacing.md,
+  },
+  dpRouteRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    minHeight: 60,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+    paddingVertical: 8,
+    paddingLeft: 10,
+    paddingRight: 12,
+  },
+  dpRouteIndex: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.primary,
+  },
+  dpRouteIndexText: {
+    ...textStyles.meta,
+    color: colors.textInverse,
+    fontWeight: "700",
+    fontSize: 11,
+  },
+  dpRouteName: {
+    ...textStyles.bodyStrong,
+    color: colors.primary,
+  },
+  dpRouteCountry: {
+    ...textStyles.meta,
+    color: colors.textSecondary,
+    marginTop: 1,
+  },
+  dpRouteHint: {
+    ...textStyles.meta,
+    color: colors.textMuted,
+    textAlign: "center",
+    marginTop: spacing.xs,
+  },
+  dpChipRemove: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: COLOR_DANGER_SOFT,
+  },
+  dpToast: {
+    position: "absolute",
+    left: spacing.lg,
+    right: spacing.lg,
+    bottom: spacing.md,
+    zIndex: 10,
+    elevation: 6,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingVertical: 10,
+    paddingHorizontal: spacing.md,
+    borderRadius: radii.md,
+    backgroundColor: colors.surface,
+    borderWidth: 1.5,
+    borderColor: colors.primary,
+  },
+  dpToastText: {
+    ...textStyles.bodyStrong,
+    color: colors.primary,
+    fontSize: 13,
+    flex: 1,
+  },
+  dpStrip: {
+    paddingTop: spacing.sm,
+    paddingBottom: spacing.xs,
+    flexShrink: 0,
+  },
+  dpStripLabel: {
+    ...textStyles.label,
+    textTransform: "none",
+    color: colors.primary,
+  },
+  dpStripList: {
+    gap: 8,
+    paddingHorizontal: spacing.lg,
+    paddingBottom: 2,
+  },
+  dpMiniChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    maxWidth: 190,
+    height: 36,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+    paddingLeft: 6,
+    paddingRight: 12,
+  },
+  dpMiniChipText: {
+    ...textStyles.bodyStrong,
+    color: colors.primary,
+    fontSize: 13,
+    flexShrink: 1,
+  },
+  dpResultsLabel: {
+    ...textStyles.label,
+    textTransform: "none",
+    color: colors.textSecondary,
+    marginBottom: spacing.sm,
+  },
+  dpFooterKeyboard: {
+    paddingBottom: spacing.sm,
+  },
+  dpHeaderCompact: {
+    paddingBottom: spacing.sm,
+  },
+  dpHeaderGap: {
+    height: spacing.xs,
+  },
+  dpStripRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: spacing.lg,
+    marginBottom: spacing.xs,
+  },
+  dpStripDone: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingVertical: 4,
+    paddingHorizontal: 10,
+    borderRadius: 14,
+    backgroundColor: COLOR_SOFT,
+  },
+  dpStripDoneText: {
+    ...textStyles.meta,
+    color: colors.primary,
+    fontWeight: "700",
   },
 });
