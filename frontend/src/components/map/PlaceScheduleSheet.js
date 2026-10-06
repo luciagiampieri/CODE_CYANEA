@@ -15,6 +15,7 @@ import {
   Animated,
 } from "react-native";
 import DateTimePicker from "@react-native-community/datetimepicker";
+import WebPickerOverlay from "../ui/WebPickerOverlay";
 import Modal from "../ui/AppModal";
 import { FontAwesome6 } from "@expo/vector-icons";
 
@@ -170,6 +171,15 @@ export default function PlaceScheduleSheet({ days = [], onClose, onSubmit, place
         setError("");
       }
     }
+  }
+
+  // Web: el <input type="time"> del navegador devuelve "HH:MM". Se guarda tal cual y
+  // las reglas (fin posterior al inicio, 00:00, etc.) se validan al guardar, como antes.
+  function handleWebTimeChange(type, value) {
+    if (!value || !isValidTime(value)) return;
+    if (type === "inicio") setHoraInicio(value);
+    else setHoraFin(value);
+    setError("");
   }
 
   function handleTimeChange(event, selectedDate) {
@@ -333,13 +343,14 @@ export default function PlaceScheduleSheet({ days = [], onClose, onSubmit, place
                   {Platform.OS === "web" ? (
                     <View style={styles.dateBox}>
                       <FontAwesome6 name="clock" size={14} color={colors.overlay} />
-                      <TextInput
-                        onChangeText={setHoraInicio}
-                        placeholder="HH:MM"
-                        placeholderTextColor={colors.overlay}
-                        style={styles.inputInner}
-                        value={horaInicio}
+                      <Text style={horaInicio ? styles.timeText : styles.placeholderText}>
+                        {horaInicio || "10:00"}
+                      </Text>
+                      <WebPickerOverlay
                         type="time"
+                        label="Hora de inicio"
+                        value={horaInicio}
+                        onChange={(value) => handleWebTimeChange("inicio", value)}
                       />
                     </View>
                   ) : (
@@ -357,13 +368,14 @@ export default function PlaceScheduleSheet({ days = [], onClose, onSubmit, place
                   {Platform.OS === "web" ? (
                     <View style={styles.dateBox}>
                       <FontAwesome6 name="clock" size={14} color={colors.overlay} />
-                      <TextInput
-                        onChangeText={setHoraFin}
-                        placeholder="HH:MM"
-                        placeholderTextColor={colors.overlay}
-                        style={styles.inputInner}
-                        value={horaFin}
+                      <Text style={horaFin ? styles.timeText : styles.placeholderText}>
+                        {horaFin || "12:00"}
+                      </Text>
+                      <WebPickerOverlay
                         type="time"
+                        label="Hora de fin"
+                        value={horaFin}
+                        onChange={(value) => handleWebTimeChange("fin", value)}
                       />
                     </View>
                   ) : (

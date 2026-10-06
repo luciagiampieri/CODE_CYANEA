@@ -14,7 +14,8 @@ import {
 import Modal from "../components/ui/AppModal";
 
 import { FontAwesome6 } from "@expo/vector-icons";
-import DatePickerModal from "../components/ui/DatePickerModal";     
+import DatePickerModal from "../components/ui/DatePickerModal";
+import WebPickerOverlay from "../components/ui/WebPickerOverlay";     
 import { toYMD, parseYMD, getTodayIso } from "../utils/dates";     
 
 
@@ -30,14 +31,6 @@ function fechaDefault() {
     d.setDate(d.getDate());
     d.setHours(23, 59, 0, 0); 
     return d;
-}
-
-function toDatetimeLocal(date) {
-    const pad = (n) => String(n).padStart(2, "0");
-    return (
-        `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}` +
-        `T${pad(date.getHours())}:${pad(date.getMinutes())}`
-    );
 }
 
 export default function CrearVotacionScreen({ visible, onClose, IdViaje, onVotacionCreada }) {
@@ -257,17 +250,48 @@ export default function CrearVotacionScreen({ visible, onClose, IdViaje, onVotac
 
                             <Text style={styles.label}>Cierre (fecha y hora)</Text>
                             {Platform.OS === "web" ? (
-                                <View style={styles.dateBox}>
-                                    <input
-                                        type="datetime-local"
-                                        value={toDatetimeLocal(fechaCierre)}
-                                        min={toDatetimeLocal(new Date())}
-                                        onChange={(e) => {
-                                            if (!e.target.value) return;
-                                            setFechaCierre(new Date(e.target.value));
-                                        }}
-                                        style={{ border: "none", width: "100%", outline: "none", background: "transparent", fontFamily: "inherit", fontSize: "16px", color: 'inherit', cursor: 'pointer' }}
-                                    />
+                                // Web: mismo botón combinado que en la app; cada mitad tiene encima
+                                // el selector del navegador (calendario para la fecha, reloj para la hora).
+                                <View style={[styles.dateBoxContainer, errores.fechaCierre && styles.inputError]}>
+                                    <View style={styles.dateButtonPart}>
+                                        <FontAwesome6 name="calendar" size={15} color={colors.primary} />
+                                        <Text style={styles.inputText}>{fechaCierreTexto().split(",")[0] || fechaCierreTexto()}</Text>
+                                        <WebPickerOverlay
+                                            type="date"
+                                            label="Fecha de cierre"
+                                            value={toYMD(fechaCierre)}
+                                            min={getTodayIso()}
+                                            onChange={(ymd) => {
+                                                if (!ymd) return;
+                                                // Solo cambia año/mes/día: la hora elegida se mantiene.
+                                                const [year, month, day] = ymd.split("-").map(Number);
+                                                const nueva = new Date(fechaCierre);
+                                                nueva.setFullYear(year, month - 1, day);
+                                                setFechaCierre(nueva);
+                                            }}
+                                        />
+                                    </View>
+
+                                    <View style={styles.dateDivider} />
+
+                                    <View style={styles.timeButtonPart}>
+                                        <FontAwesome6 name="clock" size={15} color={colors.primary} />
+                                        <Text style={styles.inputText}>
+                                            {String(fechaCierre.getHours()).padStart(2, "0")}:{String(fechaCierre.getMinutes()).padStart(2, "0")}
+                                        </Text>
+                                        <WebPickerOverlay
+                                            type="time"
+                                            label="Hora de cierre"
+                                            value={`${String(fechaCierre.getHours()).padStart(2, "0")}:${String(fechaCierre.getMinutes()).padStart(2, "0")}`}
+                                            onChange={(hhmm) => {
+                                                if (!hhmm) return;
+                                                const [h, m] = hhmm.split(":").map(Number);
+                                                const nueva = new Date(fechaCierre);
+                                                nueva.setHours(h, m, 0, 0);
+                                                setFechaCierre(nueva);
+                                            }}
+                                        />
+                                    </View>
                                 </View>
                             ) : (
                                 <>

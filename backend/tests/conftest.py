@@ -21,6 +21,7 @@ from app.models.estado_transferencia_liquidacion import EstadoTransferenciaLiqui
 from app.models.participante_viaje import ParticipanteViaje
 
 
+
 @compiles(BigInteger, "sqlite")
 def _compile_big_integer_as_integer_for_sqlite(type_, compiler, **kw):
     return "INTEGER"

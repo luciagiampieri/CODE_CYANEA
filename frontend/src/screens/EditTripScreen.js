@@ -27,6 +27,7 @@ import MetricCard from "../components/ui/MetricCard";
 import PrimaryButton from "../components/ui/PrimaryButton";
 import AICoverGenerator from "../components/trip/AICoverGenerator";
 import DatePickerModal from "../components/ui/DatePickerModal";
+import WebPickerOverlay from "../components/ui/WebPickerOverlay";
 import useResponsive from "../hooks/useResponsive";
 import { 
     getTripDetail, 
@@ -1531,9 +1532,24 @@ function DateField({
     </View>
   );
 
+  const tileContent = (
+    <>
+      {iconCircle}
+      <View style={styles.flex}>
+        <Text style={styles.dateCaption}>{label}</Text>
+        <Text numberOfLines={1} style={[styles.dateValue, !pickerValue && styles.datePlaceholder]}>
+          {valueText}
+        </Text>
+      </View>
+      <FontAwesome6 name="chevron-down" size={12} color={disabled ? colors.textMuted : colors.textSecondary} />
+    </>
+  );
+
   return (
     <View style={styles.dateField}>
       {Platform.OS === "web" ? (
+        // Web: mismo diseño que en la app; el <input type="date"> invisible va encima
+        // y abre el calendario del navegador (igual que en Crear viaje).
         <View
           style={[
             styles.dateTile,
@@ -1542,28 +1558,15 @@ function DateField({
             disabled && styles.dateTileDisabled,
           ]}
         >
-          {iconCircle}
-          <View style={styles.flex}>
-            <Text style={styles.dateCaption}>{label}</Text>
-            <input
-              type="date"
-              disabled={disabled}
-              min={minDate ? dateToLocalISO(minDate) : undefined}
-              value={pickerValue || ""}
-              onChange={(e) => onChange(fieldName, e.target.value)}
-              style={{
-                border: "none",
-                width: "100%",
-                outline: "none",
-                backgroundColor: "transparent",
-                fontFamily: "inherit",
-                fontSize: "16px",
-                color: "inherit",
-                cursor: disabled ? "not-allowed" : "pointer",
-                padding: 0,
-              }}
-            />
-          </View>
+          {tileContent}
+          <WebPickerOverlay
+            type="date"
+            label={label}
+            disabled={disabled}
+            min={minDate ? dateToLocalISO(minDate) : undefined}
+            value={pickerValue}
+            onChange={(ymd) => onChange(fieldName, ymd)}
+          />
         </View>
       ) : (
         <Pressable
@@ -1575,14 +1578,7 @@ function DateField({
             disabled && styles.dateTileDisabled,
           ]}
         >
-          {iconCircle}
-          <View style={styles.flex}>
-            <Text style={styles.dateCaption}>{label}</Text>
-            <Text numberOfLines={1} style={[styles.dateValue, !pickerValue && styles.datePlaceholder]}>
-              {valueText}
-            </Text>
-          </View>
-          <FontAwesome6 name="chevron-down" size={12} color={disabled ? colors.textMuted : colors.textSecondary} />
+          {tileContent}
         </Pressable>
       )}
       {error ? (

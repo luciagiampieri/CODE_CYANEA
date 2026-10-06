@@ -27,6 +27,7 @@ from app.schemas.password_reset import (
     TokenValidationResponse,
 )
 from app.services.auth import password_reset_service
+from app.services.invitaciones_externas import vincular_invitaciones_externas_seguro
 from app.schemas.usuario import UsuarioRegister, UsuarioRegisterResponse
 from app.services.auth.google_auth_service import GoogleAuthService
 from app.services.auth.facebook_auth_service import FacebookAuthService
@@ -97,6 +98,9 @@ def register(
     db.add(nuevo)
     db.commit()
     db.refresh(nuevo)
+
+    # Si lo habían invitado por mail a algún viaje, la invitación pasa a su cuenta.
+    vincular_invitaciones_externas_seguro(db, nuevo)
 
     token = create_email_confirmation_token(nuevo.Email)
     confirm_url = (
@@ -194,6 +198,8 @@ def login(payload: LoginRequest, db: Session = Depends(get_db)) -> TokenResponse
             detail="Debés confirmar tu correo electrónico antes de iniciar sesión.",
         )
 
+    vincular_invitaciones_externas_seguro(db, usuario)
+
     token = create_access_token(
         {"sub": usuario.Email, "user_id": usuario.IdUsuario}
     )
@@ -218,6 +224,7 @@ def login_with_google(
                 detail="La cuenta no se encuentra habilitada",
             )
 
+        vincular_invitaciones_externas_seguro(db, usuario)
         token = create_access_token({"sub": usuario.Email, "user_id": usuario.IdUsuario})
         logger.info("Login con Google exitoso", extra={"user_id": usuario.IdUsuario})
         return GoogleAuthResponse(requiereRegistro=False, access_token=token)
@@ -249,6 +256,7 @@ def register_with_google(
     _registrar_aceptacion_terminos(usuario)
     db.commit()
     db.refresh(usuario)
+    vincular_invitaciones_externas_seguro(db, usuario)
 
     _send_template_no_bloqueante(
         mail_service,
@@ -284,6 +292,8 @@ def login_with_facebook(payload: FacebookLoginRequest, db: Session = Depends(get
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="La cuenta no se encuentra habilitada",
             )
+
+        vincular_invitaciones_externas_seguro(db, usuario)
 
         token = create_access_token(
             {
@@ -340,6 +350,7 @@ def register_with_facebook(
     _registrar_aceptacion_terminos(usuario)
     db.commit()
     db.refresh(usuario)
+    vincular_invitaciones_externas_seguro(db, usuario)
 
     _send_template_no_bloqueante(
         mail_service,

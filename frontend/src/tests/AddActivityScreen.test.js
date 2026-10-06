@@ -70,12 +70,16 @@ async function llenarFormularioValido(utils, overrides = {}) {
     fireEvent.changeText(utils.getByPlaceholderText("Visita al museo"), nombre);
   });
 
-  await act(async () => {
-    fireEvent.changeText(utils.getAllByPlaceholderText("HH:MM")[0], inicio);
-  });
+  await elegirHora(utils, 0, inicio);
+  await elegirHora(utils, 1, fin);
+}
 
+// En web los horarios se eligen con el <input type="time"> del navegador
+// (0 = hora de inicio, 1 = hora de fin).
+async function elegirHora(utils, indice, valor) {
   await act(async () => {
-    fireEvent.changeText(utils.getAllByPlaceholderText("HH:MM")[1], fin);
+    const label = indice === 0 ? "Hora de inicio" : "Hora de fin";
+    fireEvent(utils.getByLabelText(label), "change", { target: { value: valor } });
   });
 }
 
@@ -247,8 +251,9 @@ describe("AddActivityScreen", () => {
 
     expect(utils.getByDisplayValue("Cena de bienvenida")).toBeTruthy();
     expect(utils.getByDisplayValue("Reservar mesa para 6")).toBeTruthy();
-    expect(utils.getByDisplayValue("20:00")).toBeTruthy();
-    expect(utils.getByDisplayValue("22:00")).toBeTruthy();
+    // En web los horarios se muestran como texto sobre el selector del navegador.
+    expect(utils.getByText("20:00")).toBeTruthy();
+    expect(utils.getByText("22:00")).toBeTruthy();
     expect(utils.getByText("Restó La Cyanea")).toBeTruthy();
     expect(utils.getByText("Guardar cambios")).toBeTruthy();
   });
@@ -698,12 +703,8 @@ describe("US 98 - la advertencia no impide registrar o modificar", () => {
 
     // El formulario sigue editable y el botón vuelve a estar disponible.
     expect(utils.getAllByText("Agregar actividad").length).toBeGreaterThan(0);
-    await act(async () => {
-      fireEvent.changeText(utils.getAllByPlaceholderText("HH:MM")[0], "11:00");
-    });
-    await act(async () => {
-      fireEvent.changeText(utils.getAllByPlaceholderText("HH:MM")[1], "13:00");
-    });
+    await elegirHora(utils, 0, "11:00");
+    await elegirHora(utils, 1, "13:00");
     await pressSubmit(utils);
 
     await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(2));

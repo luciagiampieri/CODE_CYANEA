@@ -74,3 +74,20 @@ describe("TripCard", () => {
     expect(getByText("$1 ARS · 0% usado")).toBeTruthy();
   });
 });
+describe("TripCard - badges como en Mis viajes", () => {
+  it("un viaje en curso muestra 'En curso' (antes decía 'Planificando')", async () => {
+    const { getByText, queryByText } = await render(
+      <TripCard trip={buildTrip({ phase: "en_curso" })} onPress={jest.fn()} />
+    );
+    expect(getByText("En curso")).toBeTruthy();
+    expect(queryByText("Planificando")).toBeNull();
+  });
+
+  it("el próximo viaje muestra 'Próximo' y 'Planificando'", async () => {
+    const { getByText } = await render(
+      <TripCard trip={buildTrip({ phase: "proximo", isNext: true })} onPress={jest.fn()} />
+    );
+    expect(getByText("Próximo")).toBeTruthy();
+    expect(getByText("Planificando")).toBeTruthy();
+  });
+});

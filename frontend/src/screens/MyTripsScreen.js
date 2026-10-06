@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
+import { useFocusEffect } from "@react-navigation/native";
 import {
   ImageBackground,
   Pressable,
@@ -12,6 +13,8 @@ import { Feather, FontAwesome6 } from "@expo/vector-icons";
 import ScreenContainer from "../components/layout/ScreenContainer";
 import StatusPill from "../components/ui/StatusPill";
 import useResponsive from "../hooks/useResponsive";
+import { getTodayIso } from "../utils/dates";
+import { PHASE_ORDER, getNextTripId, getTripBadges, getTripPhase } from "../utils/tripPhase";
 import { getTrips } from "../services/api";
 import {
   colors,
@@ -41,8 +44,6 @@ const QUICK_ACTIONS = [
   { key: "docs", label: "Docs", icon: "file-text", color: "#7c6fa8" },
 ];
 
-const ESTADOS_INACTIVOS = new Set(["finalizado", "cancelado", "eliminado"]);
-
 function formatDateRange(trip) {
   const startDateStr = trip.startDate || trip.FechaInicio;
   const endDateStr = trip.endDate || trip.FechaFin;
@@ -67,22 +68,6 @@ function formatDateRange(trip) {
   });
 
   return `${dayFormatter.format(start)}-${dayFormatter.format(end)} ${monthFormatter.format(end)} ${end.getUTCFullYear()}`;
-}
-
-const PHASE_ORDER = { en_curso: 0, proximo: 1, pasado: 2};
-
-function getTripPhase(trip, now) {
-  // Ya no está activo: lo abandonó, o el backend lo marcó finalizado/cancelado/eliminado,
-  // o ya pasó la fecha de fin.
-  const yaNoActivo =
-    trip.hasLeft ||
-    ESTADOS_INACTIVOS.has(trip.status) ||
-    (trip.endDate && now > trip.endDate);
-  if (yaNoActivo) return "pasado";
-
-  if (trip.startDate && now < trip.startDate) return "proximo";
-
-  return "en_curso";
 }
 
 function sortByPhase(a, b) {
@@ -126,33 +111,35 @@ export default function MyTripsScreen({ navigation }) {
   const [activeFilter, setActiveFilter] = useState("todos");
   const { isTablet, isDesktop } = useResponsive();
 
-  useEffect(() => {
-    async function loadData() {
-      try {
-        const tripData = await getTrips();
-        setTrips(tripData);
-      } catch {
-        setTrips([]);
-      }
-    }
+  // Se recarga cada vez que la pestaña vuelve a tener foco (igual que Home), así
+  // un viaje recién creado, editado o abandonado no queda desactualizado acá.
+  useFocusEffect(
+    useCallback(() => {
+      let activo = true;
+      getTrips()
+        .then((tripData) => {
+          if (activo) setTrips(tripData);
+        })
+        .catch(() => {
+          if (activo) setTrips([]);
+        });
+      return () => {
+        activo = false;
+      };
+    }, [])
+  );
 
-    loadData();
-  }, []);
-
+  // La fase se calcula con los datos crudos del backend (fechas "YYYY-MM-DD"),
+  // con la misma lógica que Home (utils/tripPhase).
   const decoratedTrips = useMemo(() => {
-    const now = new Date();
-    return trips.map((trip) => {
-      const normalized = normalizeTrip(trip);
-      return { ...normalized, phase: getTripPhase(normalized, now) };
-    });
+    const today = getTodayIso();
+    return trips.map((trip) => ({
+      ...normalizeTrip(trip),
+      phase: getTripPhase(trip, today),
+    }));
   }, [trips]);
 
-  const nextTripId = useMemo(() => {
-    const proximos = decoratedTrips
-      .filter((trip) => trip.phase === "proximo")
-      .sort((a, b) => (a.startDate ?? Infinity) - (b.startDate ?? Infinity));
-    return proximos[0]?.id;
-  }, [decoratedTrips]);
+  const nextTripId = useMemo(() => getNextTripId(trips), [trips]);
 
   const filteredTrips = useMemo(() => {
     let base = decoratedTrips;
@@ -177,21 +164,11 @@ export default function MyTripsScreen({ navigation }) {
 
 
   function badgeInfo(trip) {
-    if (trip.hasLeft) {
-      return [{ tone: "saliste", label: "Saliste" }];
-    }
-    if (trip.phase === "pasado") {
-      return [{ tone: "finalizado", label: "Finalizado" }];
-    }
-    if (trip.phase === "proximo") {
-      const badges = [{ tone: "planificando", label: "Planificando" }];
-      if (trip.id === nextTripId) {
-        badges.unshift({ tone: "proximo", label: "Próximo" });
-      }
-      return badges;
-    }
-    // en_curso
-    return [{ tone: "activo", label: "En curso" }];
+    return getTripBadges({
+      phase: trip.phase,
+      hasLeft: trip.hasLeft,
+      isNext: trip.id === nextTripId,
+    });
   }
 
   return (

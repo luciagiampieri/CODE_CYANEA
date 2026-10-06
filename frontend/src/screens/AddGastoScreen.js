@@ -22,6 +22,7 @@ import { File } from "expo-file-system";
 import { FontAwesome6 } from "@expo/vector-icons";
 
 import DatePickerModal from "../components/ui/DatePickerModal";
+import WebPickerOverlay from "../components/ui/WebPickerOverlay";
 import { toYMD, parseYMD, formatDateDisplay, getTodayIso } from "../utils/dates";
 
 import PrimaryButton from "../components/ui/PrimaryButton";
@@ -1135,14 +1136,29 @@ export default function AddGastoScreen({
                     <View style={styles.tileWrap}>
                       <Text style={styles.label}>Fecha</Text>
                       {Platform.OS === "web" ? (
-                        <View style={[styles.tile, debeRevisar(CAMPO_FECHA) && styles.campoRevisar]}>
-                          <input
+                        // Web: mismo diseño que en la app; encima va el selector de fecha del navegador.
+                        <View
+                          style={[
+                            styles.tile,
+                            debeRevisar(CAMPO_FECHA) && styles.campoRevisar,
+                            errores.fecha && styles.inputError,
+                          ]}
+                        >
+                          <FontAwesome6 name="calendar" size={15} color={colors.primary} />
+                          <Text
+                            numberOfLines={1}
+                            style={[styles.tileText, !fechaIso && styles.datePlaceholder]}
+                          >
+                            {fechaIso ? formatDateDisplay(fechaIso) : "Seleccionar"}
+                          </Text>
+                          <WebPickerOverlay
                             type="date"
+                            label="Fecha del gasto"
                             value={fechaIso}
-                            max={toYMD(new Date())}
-                            onChange={(e) => {
-                              const val = e.target.value;
-                              const limiteHoy = toYMD(new Date());
+                            max={getTodayIso()}
+                            onChange={(val) => {
+                              if (!val) return;
+                              const limiteHoy = getTodayIso();
                               marcarRevisado(CAMPO_FECHA);
                               if (val > limiteHoy) {
                                 appAlert("Fecha inválida", "No podés registrar un gasto en una fecha futura.");
@@ -1151,7 +1167,6 @@ export default function AddGastoScreen({
                                 setFechaIso(val);
                               }
                             }}
-                            style={{ border: "none", width: "100%", outline: "none", background: "transparent", fontFamily: "inherit", fontSize: "16px", color: "inherit", cursor: "pointer" }}
                           />
                         </View>
                       ) : (

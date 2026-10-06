@@ -3,6 +3,17 @@ import { act, fireEvent, render } from "@testing-library/react-native";
 import MyTripsScreen from "../screens/MyTripsScreen";
 import * as api from "../services/api";
 
+jest.mock("@react-navigation/native", () => {
+  const actualNav = jest.requireActual("@react-navigation/native");
+  return {
+    ...actualNav,
+    useFocusEffect: (callback) => {
+      const { useEffect } = require("react");
+      useEffect(callback, []);
+    },
+  };
+});
+
 jest.mock("../services/api", () => ({
   getTrips: jest.fn(),
 }));

@@ -14,6 +14,14 @@ import TripCard from "../components/home/TripCard";
 import IconCircleButton from "../components/ui/IconCircleButton";
 import MetricCard from "../components/ui/MetricCard";
 import useResponsive from "../hooks/useResponsive";
+import { getTodayIso } from "../utils/dates";
+import {
+  PHASE_ORDER,
+  getNextTripId,
+  getTripEndKey,
+  getTripPhase,
+  getTripStartKey,
+} from "../utils/tripPhase";
 import { getCurrentUser, getTrips, getNotifications, getPendingInvitations, getNotificationsSocketUrl } from "../services/api";
 
 import {
@@ -63,8 +71,8 @@ function normalizeTrip(trip, phase, isNext) {
     title: trip.title || trip.Titulo || "Viaje sin nombre",
     destination: destinationLabel,
     status: (trip.status || trip.Estado || "activo").toLowerCase(),
-    phase, // 👈
-    isNext: Boolean(isNext), // 👈
+    phase,
+    isNext: Boolean(isNext),
     hasLeft: trip.hasLeft ?? trip.HasLeft ?? false,
     image: trip.image || null,
     dateLabel: formatDateRange(trip),
@@ -77,25 +85,6 @@ function normalizeTrip(trip, phase, isNext) {
     budgetProgress: trip.budgetProgress ?? null,
   };
 }
-
-const ESTADOS_INACTIVOS = new Set(["cancelado", "eliminado", "finalizado"]);
-
- function getTripPhase(trip, now) {
-    const startDateStr = trip.startDate || trip.FechaInicio;
-    const endDateStr = trip.endDate || trip.FechaFin;
-    const startDate = startDateStr ? new Date(startDateStr) : null;
-    const endDate = endDateStr ? new Date(endDateStr) : null;
-
-    if (!startDate || Number.isNaN(startDate.getTime())) return null;
-
-    if (endDate && !Number.isNaN(endDate.getTime()) && now > endDate) {
-      return "finalizado"; // ya terminó, no debe mostrarse acá
-    }
-    if (now < startDate) {
-      return "planificando"; // todavía no inició
-    }
-    return "en_curso"; // fechaInicio <= hoy <= fechaFin (o sin fechaFin definida)
-  }
 
 export default function HomeScreen({ navigation }) {
 
@@ -182,29 +171,28 @@ export default function HomeScreen({ navigation }) {
     };
   }, [loadNotificationBadge]);
 
+  // Misma lógica que Mis viajes (utils/tripPhase): acá solo se muestran los
+  // viajes en curso y los próximos.
   const decoratedTrips = useMemo(() => {
-    const now = new Date();
-    const withPhase = trips
-      .map((trip) => ({ trip, phase: getTripPhase(trip, now) }))
-      .filter(({ trip, phase }) => {
-        if (trip.hasLeft ?? trip.HasLeft ?? false) return false;
-        const estado = (trip.status || trip.Estado || "").toLowerCase();
-        if (ESTADOS_INACTIVOS.has(estado)) return false;
-        return phase === "en_curso" || phase === "planificando";
-      })
+    const today = getTodayIso();
+    const nextTripId = getNextTripId(trips, today);
+
+    return trips
+      .map((trip) => ({ trip, phase: getTripPhase(trip, today) }))
+      .filter(({ phase }) => phase === "en_curso" || phase === "proximo")
       .sort((a, b) => {
-        const startA = new Date(a.trip.startDate || a.trip.FechaInicio);
-        const startB = new Date(b.trip.startDate || b.trip.FechaInicio);
-        return startA - startB;
+        if (a.phase !== b.phase) return PHASE_ORDER[a.phase] - PHASE_ORDER[b.phase];
+        if (a.phase === "en_curso") {
+          // en curso: el que termina antes, primero
+          return (getTripEndKey(a.trip) ?? "9999").localeCompare(getTripEndKey(b.trip) ?? "9999");
+        }
+        // próximos: el que arranca antes, primero
+        return (getTripStartKey(a.trip) ?? "9999").localeCompare(getTripStartKey(b.trip) ?? "9999");
+      })
+      .map(({ trip, phase }) => {
+        const tripId = trip.id ?? trip.IdViaje;
+        return normalizeTrip(trip, phase, tripId === nextTripId);
       });
-
-    const nextPlanificando = withPhase.find(({ phase }) => phase === "planificando");
-    const nextTripId = nextPlanificando ? (nextPlanificando.trip.id ?? nextPlanificando.trip.IdViaje) : null;
-
-    return withPhase.map(({ trip, phase }) => {
-      const tripId = trip.id ?? trip.IdViaje;
-      return normalizeTrip(trip, phase, tripId === nextTripId);
-    });
   }, [trips]);
 
   const metrics = useMemo(() => {

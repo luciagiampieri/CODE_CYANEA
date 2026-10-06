@@ -4,20 +4,15 @@ import { ImageBackground, Pressable, StyleSheet, Text, View } from "react-native
 import AvatarStack from "../ui/AvatarStack";
 import StatusPill from "../ui/StatusPill";
 import { colors, radii, spacing, surfaces, textStyles } from "../../theme/tokens";
+import { getTripBadges } from "../../utils/tripPhase";
 
-const PHASE_LABEL = {
-  activo: "En curso",
-  planificando: "Planificando",
-};
-
+// Mismos badges que en Mis viajes (ver utils/tripPhase).
 function getBadges(trip) {
-  const phase = trip.phase ?? "planificando";
-  const badges = [];
-  if (phase === "planificando" && trip.isNext) {
-    badges.push({ tone: "proximo", label: "Próximo" });
-  }
-  badges.push({ tone: phase, label: PHASE_LABEL[phase] ?? "Planificando" });
-  return badges;
+  return getTripBadges({
+    phase: trip.phase ?? "proximo",
+    hasLeft: trip.hasLeft,
+    isNext: trip.isNext,
+  });
 }
 
 export default function TripCard({ trip, onPress, compact = false }) {
