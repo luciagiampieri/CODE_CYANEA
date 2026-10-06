@@ -21,7 +21,7 @@ import {
   respondToInvitation,
   getNotificationsSocketUrl,
 } from "../services/api";
-import { colors, spacing, surfaces, textStyles, radii, typography } from "../theme/tokens";
+import { colors, spacing, surfaces, textStyles, radii } from "../theme/tokens";
 
 import { appAlert } from "../components/ui/AppDialog";
 
@@ -276,7 +276,7 @@ export default function InvitationsScreen({ navigation }) {
     return (
       <View key={item.idUnico} style={[styles.noteCard, !leida ? styles.noteCardUnread : styles.noteCardRead]}>
         <View style={[styles.noteIcon, !leida ? styles.noteIconUnread : styles.noteIconRead]}>
-          <FontAwesome6 name="bell" size={13} color={!leida ? colors.textInverse : colors.textMuted} />
+          <FontAwesome6 name="bell" size={13} color={!leida ? colors.textInverse : colors.primary} />
         </View>
 
         <View style={styles.flex}>
@@ -480,20 +480,8 @@ const styles = StyleSheet.create({
   sectionCountText: {
     ...textStyles.meta,
     color: colors.textInverse,
-    fontSize: 26,
-    marginTop: spacing.xs,
-    textAlign: "center",
-  },
-  copy: {
-    ...textStyles.body,
-    color: "rgba(255,255,255,0.8)",
-    marginTop: spacing.xs,
-    textAlign: "center",
-  },
-  body: {
-    backgroundColor: colors.background,
-    padding: spacing.lg,
-    gap: 0,
+    fontWeight: "700",
+    fontSize: 11,
   },
   emptyCard: {
     ...surfaces.card,
@@ -522,17 +510,13 @@ const styles = StyleSheet.create({
     textAlign: "center",
   },
   card: {
-    backgroundColor: "transparent",
-    borderBottomWidth: 0.5,
-    borderBottomColor: colors.overlay,
-    paddingVertical: spacing.md,
-    paddingHorizontal: spacing.xs,
+    ...surfaces.card,
+    padding: spacing.md,
+    gap: spacing.sm,
   },
-  unreadCard: {
-    borderLeftWidth: 3,
-    borderLeftColor: colors.primary,
-    backgroundColor: colors.surface,
-    paddingLeft: spacing.sm,
+  inviteCard: {
+    borderWidth: 1.5,
+    borderColor: colors.primary,
   },
   cardTop: {
     flexDirection: "row",
@@ -544,61 +528,154 @@ const styles = StyleSheet.create({
     height: 38,
     borderRadius: 19,
     alignItems: "center",
-    marginBottom: spacing.xxs,
+    justifyContent: "center",
   },
-  unreadDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: colors.primarySoft,
+  iconCircleInvite: {
+    backgroundColor: colors.primary,
   },
   inviteTag: {
     ...textStyles.meta,
-    color: colors.textMuted,
-    fontSize: typography.tiny,
+    color: colors.primary,
+    fontWeight: "700",
+    marginBottom: 1,
   },
   cardTitle: {
-    ...textStyles.bodyStrong,
+    ...textStyles.tripTitle,
     color: colors.primary,
-    fontSize: 15,
-    lineHeight: 21,
+    fontSize: 17,
   },
-  cardMeta: {
+  cardDate: {
     ...textStyles.meta,
-    color: colors.textSecondary,
-    marginTop: spacing.xxs,
-    lineHeight: 20,
+    color: colors.textMuted,
+    fontSize: 12,
+    marginTop: 2,
+  },
+  infoBlock: {
+    gap: 6,
+    padding: spacing.sm,
+    borderRadius: radii.md,
+    backgroundColor: COLOR_SOFT,
+  },
+  infoRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+  infoIcon: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.surface,
+  },
+  infoText: {
+    ...textStyles.body,
+    color: colors.textPrimary,
+    fontSize: 14,
+    flex: 1,
   },
   markAsReadButton: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 6,
-    marginTop: spacing.sm,
-    alignSelf: "flex-start",
-    paddingVertical: spacing.xxs,
-    paddingHorizontal: 0,
+    gap: 5,
   },
   markAsReadText: {
-    ...textStyles.label,
-    color: colors.textMuted,
-    fontSize: typography.tiny,
-    letterSpacing: 0.3,
+    ...textStyles.meta,
+    color: colors.primary,
+    fontWeight: "600",
+    fontSize: 12,
   },
   actions: {
     flexDirection: "row",
     gap: spacing.sm,
-    marginTop: spacing.md,
+    marginTop: 2,
   },
   primaryAction: {
     flex: 1,
-    minHeight: 42,
-    borderRadius: radii.sm,
-    paddingHorizontal: spacing.sm,
   },
   secondaryAction: {
     flex: 1,
-    minHeight: 42,
-    borderRadius: radii.sm,
-    paddingHorizontal: spacing.sm,
+  },
+  noteCard: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 10,
+    paddingVertical: 10,
+    paddingHorizontal: spacing.md - 2,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    borderColor: colors.primary,
+    backgroundColor: colors.background,
+  },
+  noteCardUnread: {
+    borderColor: colors.primary,
+    backgroundColor: colors.surface || "#eef2ff",
+  },
+  noteCardRead: {
+    opacity: 1,
+  },
+  noteIcon: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    alignItems: "center",
+    justifyContent: "center",
+    marginTop: 1,
+  },
+  noteIconUnread: {
+    backgroundColor: colors.primary,
+  },
+  noteIconRead: {
+    backgroundColor: colors.surfaceMuted || "#eef0f3",
+    borderWidth: 1,
+    borderColor: colors.primary,
+  },
+  noteTitleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  noteTitle: {
+    ...textStyles.bodyStrong,
+    color: colors.primary,
+    fontSize: 14,
+    flexShrink: 1,
+  },
+  noteTitleRead: {
+    color: colors.textPrimary,
+    fontWeight: "500",
+  },
+  unreadDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: colors.primary,
+  },
+  noteMessage: {
+    ...textStyles.body,
+    color: colors.textSecondary,
+    fontSize: 13,
+    marginTop: 2,
+  },
+  noteFooter: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 8,
+    marginTop: 6,
+    minHeight: 18,
+  },
+  noteDate: {
+    ...textStyles.meta,
+    color: colors.textMuted,
+    fontSize: 11,
+  },
+  headerTitleWrap: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    alignItems: "center",
+    justifyContent: "center",
   },
 });

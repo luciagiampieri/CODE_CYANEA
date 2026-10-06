@@ -618,6 +618,7 @@ export default function EditTripScreen({ navigation, route }) {
     const [showEndPicker, setShowEndPicker] = useState(false);
 
     const sessionTokenRef = useRef(makeSessionToken());
+    const navigationTimerRef = useRef(null);
     const [showDestinationPicker, setShowDestinationPicker] = useState(false);
     const [destinationSearch, setDestinationSearch] = useState("");
     const [destinationOptions, setDestinationOptions] = useState([]);
@@ -625,6 +626,14 @@ export default function EditTripScreen({ navigation, route }) {
     const [hasSearchedDestinations, setHasSearchedDestinations] = useState(false);
     const [resolvingDestination, setResolvingDestination] = useState(false);
     const lastQueryLengthRef = useRef(0);
+
+    useEffect(() => {
+        return () => {
+            if (navigationTimerRef.current) {
+                clearTimeout(navigationTimerRef.current);
+            }
+        };
+    }, []);
 
     const tripAlreadyStarted = originalStartDate ? originalStartDate <= todayISO() : false;
 
@@ -970,7 +979,8 @@ export default function EditTripScreen({ navigation, route }) {
 
         setSubmitStatus("success");
         setSubmitMessage((response.message || "Cambios guardados correctamente.") + coverWarning);
-        setTimeout(() => {
+        navigationTimerRef.current = setTimeout(() => {
+          navigationTimerRef.current = null;
           navigation.goBack();
         }, 900);
       } catch (error) {

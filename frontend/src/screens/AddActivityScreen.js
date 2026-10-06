@@ -992,10 +992,11 @@ const styles = StyleSheet.create({
         marginTop: 4,
     },
     inputInner: {
-        flex: 1,
-        color: colors.textPrimary,
-        paddingVertical: 8,
-        ...textStyles.body,
+    flex: 1,
+    minWidth: 0,
+    color: colors.textPrimary,
+    paddingVertical: 8,
+    ...textStyles.body,
     },
     dateBox: {
         minHeight: 48,
@@ -1006,8 +1007,9 @@ const styles = StyleSheet.create({
         paddingHorizontal: spacing.md,
         flexDirection: "row",
         alignItems: "center",
-        justifyContent: "center",
+        justifyContent: "flex-start",
         gap: 10,
+        overflow: "hidden", 
     },
     inputMultiline: {
         minHeight: 90,
