@@ -98,6 +98,27 @@ const currentUser = {
 };
 
 
+
+// Placeholder del campo de búsqueda dentro del buscador de destinos (el botón de la pantalla
+// que lo abre sigue diciendo "Buscar ciudad o país...").
+const PLACEHOLDER_BUSCADOR = "Ej: Bariloche, Roma, Chile...";
+
+const BARILOCHE_SUGERENCIA = {
+  name: "Bariloche",
+  country: "Argentina",
+  placeId: "google:bariloche-id",
+};
+
+const BARILOCHE_RESUELTO = {
+  name: "Bariloche",
+  country: "Argentina",
+  provinceState: "Río Negro",
+  lat: -41.1335,
+  lng: -71.3103,
+  placeId: "google:bariloche-id",
+  imageUrl: "https://example.com/bariloche.jpg",
+};
+
 async function press(getters, texto) {
   await act(async () => {
     fireEvent.press(getters.getByText(texto));
@@ -139,6 +160,44 @@ async function irAlPaso3(utils) {
   await press(utils, "Siguiente");
   await waitFor(() =>
     expect(utils.getByText("Invitar participantes (Opcional)")).toBeTruthy()
+  );
+}
+
+
+// Completa el paso 1, pasa al paso 2 y abre el buscador de destinos.
+async function abrirBuscadorDeDestinos() {
+  const utils = await renderPantallaCargada();
+
+  await act(async () => {
+    fireEvent.changeText(
+      utils.getByPlaceholderText("Escapada a Bariloche"),
+      "Viaje de prueba"
+    );
+  });
+
+  await completarFechas(utils);
+  await irAlPaso2(utils);
+  await press(utils, "Buscar ciudad o país...");
+
+  return utils;
+}
+
+async function buscarDestino(utils, texto) {
+  await act(async () => {
+    fireEvent.changeText(utils.getByPlaceholderText(PLACEHOLDER_BUSCADOR), texto);
+  });
+}
+
+// Busca "Bariloche" y toca el resultado: queda agregado a la ruta.
+async function agregarBariloche(utils) {
+  await buscarDestino(utils, "Bariloche");
+  await waitFor(() => expect(utils.getByText("Bariloche")).toBeTruthy());
+  await press(utils, "Bariloche");
+  await waitFor(() =>
+    expect(resolveDestination).toHaveBeenCalledWith(
+      "google:bariloche-id",
+      expect.any(String)
+    )
   );
 }
 
@@ -209,7 +268,7 @@ describe("US - Crear viaje (CreateTripScreen)", () => {
 
     await act(async () => {
       fireEvent.changeText(
-        utils.getByPlaceholderText("Buscar ciudad o país..."),
+        utils.getByPlaceholderText(PLACEHOLDER_BUSCADOR),
         "Bariloche"
       );
     });
@@ -366,7 +425,7 @@ describe("US - Crear viaje (CreateTripScreen)", () => {
     // Buscar Bariloche
     await act(async () => {
       fireEvent.changeText(
-        utils.getByPlaceholderText("Buscar ciudad o país..."),
+        utils.getByPlaceholderText(PLACEHOLDER_BUSCADOR),
         "Bariloche"
       );
     });
@@ -386,7 +445,7 @@ describe("US - Crear viaje (CreateTripScreen)", () => {
     });
 
     expect(
-      utils.getAllByText("Tus destinos (1)").length
+      utils.getAllByText("Tu ruta").length
     ).toBeGreaterThan(0);
 
     expect(utils.getAllByText("Bariloche").length).toBeGreaterThan(0);
@@ -434,7 +493,7 @@ describe("US - Crear viaje (CreateTripScreen)", () => {
 
     await act(async () => {
       fireEvent.changeText(
-        utils.getByPlaceholderText("Buscar ciudad o país..."),
+        utils.getByPlaceholderText(PLACEHOLDER_BUSCADOR),
         "Bariloche"
       );
     });
@@ -540,7 +599,7 @@ describe("US - Crear viaje (CreateTripScreen)", () => {
 
     await act(async () => {
       fireEvent.changeText(
-        utils.getByPlaceholderText("Buscar ciudad o país..."),
+        utils.getByPlaceholderText(PLACEHOLDER_BUSCADOR),
         "Bariloche"
       );
     });
@@ -624,7 +683,7 @@ describe("US - Crear viaje (CreateTripScreen)", () => {
 
     await act(async () => {
       fireEvent.changeText(
-        utils.getByPlaceholderText("Buscar ciudad o país..."),
+        utils.getByPlaceholderText(PLACEHOLDER_BUSCADOR),
         "Bariloche"
       );
     });
@@ -698,7 +757,7 @@ describe("US - Crear viaje (CreateTripScreen)", () => {
 
     await act(async () => {
       fireEvent.changeText(
-        utils.getByPlaceholderText("Buscar ciudad o país..."),
+        utils.getByPlaceholderText(PLACEHOLDER_BUSCADOR),
         "Bariloche"
       );
     });
@@ -932,5 +991,180 @@ describe("US - Crear viaje (CreateTripScreen)", () => {
     });
 
     expect(ImagePicker.launchImageLibraryAsync).not.toHaveBeenCalled();
+  });
+  describe("buscador de destinos", () => {
+    beforeEach(() => {
+      searchDestinations.mockResolvedValue([BARILOCHE_SUGERENCIA]);
+      resolveDestination.mockResolvedValue(BARILOCHE_RESUELTO);
+    });
+
+    it("al abrirse muestra la guía inicial y el botón para cerrar", async () => {
+      const utils = await abrirBuscadorDeDestinos();
+
+      expect(utils.getByText("Agregar destino")).toBeTruthy();
+      expect(utils.getByText("Elegí tu primer destino")).toBeTruthy();
+      expect(
+        utils.getByText("Escribí al menos 2 letras del nombre de una ciudad o país.")
+      ).toBeTruthy();
+      expect(utils.getByText("Cerrar")).toBeTruthy();
+      // No hay sugerencias fijas: solo resultados de la búsqueda.
+      expect(utils.queryByText("Sugerencias")).toBeNull();
+    });
+
+    it("no busca mientras haya menos de 2 letras", async () => {
+      const utils = await abrirBuscadorDeDestinos();
+
+      await buscarDestino(utils, "B");
+
+      expect(searchDestinations).not.toHaveBeenCalled();
+      expect(utils.getByText("Elegí tu primer destino")).toBeTruthy();
+    });
+
+    it("muestra 'Sin resultados' si la búsqueda no devuelve destinos", async () => {
+      searchDestinations.mockResolvedValue([]);
+
+      const utils = await abrirBuscadorDeDestinos();
+      await buscarDestino(utils, "Zzzzz");
+
+      await waitFor(() => expect(utils.getByText("Sin resultados")).toBeTruthy());
+      expect(utils.getByText(/No encontramos destinos para "Zzzzz"/)).toBeTruthy();
+    });
+
+    it("al agregar un destino lo suma a 'Tu ruta' y muestra el aviso", async () => {
+      const utils = await abrirBuscadorDeDestinos();
+
+      await agregarBariloche(utils);
+
+      await waitFor(() =>
+        expect(utils.getByText("Bariloche agregado a tu ruta")).toBeTruthy()
+      );
+      expect(utils.getAllByText("Tu ruta").length).toBeGreaterThan(0);
+      expect(utils.getAllByText("Bariloche").length).toBeGreaterThan(0);
+      // Con un destino elegido el botón inferior lo cuenta.
+      expect(utils.getByText("Listo · 1 destino")).toBeTruthy();
+      // Al agregar se limpia la búsqueda y se vuelve a ver la ruta completa.
+      expect(
+        utils.getByText("Escribí al menos 2 letras para sumar otro destino.")
+      ).toBeTruthy();
+    });
+
+    it("al buscar con destinos elegidos muestra 'Tu ruta (n)' y marca el ya elegido como 'Agregado'", async () => {
+      const utils = await abrirBuscadorDeDestinos();
+      await agregarBariloche(utils);
+
+      await buscarDestino(utils, "Bariloche");
+
+      await waitFor(() => expect(utils.getByText("Agregado")).toBeTruthy());
+      expect(utils.getByText("Tu ruta (1)")).toBeTruthy();
+      expect(utils.getByText("Resultados · tocá para agregar")).toBeTruthy();
+    });
+
+    it("tocar un resultado 'Agregado' lo quita de la ruta", async () => {
+      const utils = await abrirBuscadorDeDestinos();
+      await agregarBariloche(utils);
+
+      await buscarDestino(utils, "Bariloche");
+      await waitFor(() => expect(utils.getByText("Agregado")).toBeTruthy());
+
+      await press(utils, "Agregado");
+
+      await waitFor(() => expect(utils.queryByText("Agregado")).toBeNull());
+      expect(utils.queryByText("Tu ruta (1)")).toBeNull();
+    });
+
+    it("permite quitar un destino desde la lista 'Tu ruta'", async () => {
+      const utils = await abrirBuscadorDeDestinos();
+      await agregarBariloche(utils);
+
+      // El botón de quitar existe en el buscador y en la pantalla de fondo: ambos hacen lo mismo.
+      await act(async () => {
+        fireEvent.press(utils.getAllByLabelText("Quitar Bariloche").pop());
+      });
+
+      await waitFor(() =>
+        expect(utils.getByText("Elegí tu primer destino")).toBeTruthy()
+      );
+      expect(utils.getByText("Cerrar")).toBeTruthy();
+    });
+
+    it("no vuelve a agregar un destino que ya está elegido", async () => {
+      const utils = await abrirBuscadorDeDestinos();
+      await agregarBariloche(utils);
+
+      resolveDestination.mockClear();
+      await buscarDestino(utils, "Bariloche");
+      await waitFor(() => expect(utils.getByText("Agregado")).toBeTruthy());
+
+      // Tocarlo lo quita (no lo duplica) y no se vuelve a consultar el destino.
+      await press(utils, "Agregado");
+      expect(resolveDestination).not.toHaveBeenCalled();
+    });
+
+    it("se cierra con 'Listo' y conserva los destinos elegidos", async () => {
+      const utils = await abrirBuscadorDeDestinos();
+      await agregarBariloche(utils);
+
+      await press(utils, "Listo · 1 destino");
+
+      await waitFor(() =>
+        expect(utils.queryByPlaceholderText(PLACEHOLDER_BUSCADOR)).toBeNull()
+      );
+      // El destino sigue en la pantalla y se puede volver a abrir el buscador para sumar otro.
+      expect(utils.getAllByText("Bariloche").length).toBeGreaterThan(0);
+
+      await press(utils, "Agregar otro destino");
+      expect(utils.getByPlaceholderText(PLACEHOLDER_BUSCADOR)).toBeTruthy();
+      expect(utils.getAllByText("Tu ruta").length).toBeGreaterThan(0);
+    });
+
+    it("se cierra con 'Cerrar' si no se eligió ningún destino", async () => {
+      const utils = await abrirBuscadorDeDestinos();
+
+      await press(utils, "Cerrar");
+
+      await waitFor(() =>
+        expect(utils.queryByPlaceholderText(PLACEHOLDER_BUSCADOR)).toBeNull()
+      );
+    });
+
+    it("al reabrir el buscador la búsqueda anterior está vacía", async () => {
+      const utils = await abrirBuscadorDeDestinos();
+
+      await buscarDestino(utils, "Bari");
+      await press(utils, "Cerrar");
+      await waitFor(() =>
+        expect(utils.queryByPlaceholderText(PLACEHOLDER_BUSCADOR)).toBeNull()
+      );
+
+      await press(utils, "Buscar ciudad o país...");
+
+      expect(utils.getByPlaceholderText(PLACEHOLDER_BUSCADOR).props.value).toBe("");
+      expect(utils.getByText("Elegí tu primer destino")).toBeTruthy();
+    });
+
+    it("el destino elegido viaja con su foto de Google al crear el viaje", async () => {
+      const utils = await abrirBuscadorDeDestinos();
+      await agregarBariloche(utils);
+      await press(utils, "Listo · 1 destino");
+
+      await press(utils, "Siguiente");
+      await waitFor(() =>
+        expect(utils.getByText("Invitar participantes (Opcional)")).toBeTruthy()
+      );
+      await press(utils, "Crear viaje");
+
+      await waitFor(() => expect(createTrip).toHaveBeenCalledTimes(1));
+      expect(createTrip).toHaveBeenCalledWith(
+        expect.objectContaining({
+          destinations: [
+            expect.objectContaining({
+              name: "Bariloche",
+              placeId: "google:bariloche-id",
+              imageUrl: "https://example.com/bariloche.jpg",
+            }),
+          ],
+        })
+      );
+    });
   });
 });

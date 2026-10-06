@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useMemo, useState, useRef, forwardRef } from "react";
+import { Fragment, useCallback, useContext, useEffect, useMemo, useState, useRef, forwardRef } from "react";
 import { FontAwesome6 } from "@expo/vector-icons";
 import {
   Image,
@@ -15,7 +15,10 @@ import {
   TouchableOpacity,
   Keyboard,
   ActivityIndicator,
+  TouchableWithoutFeedback,
+  StatusBar,
 } from "react-native";
+import { SafeAreaInsetsContext } from "react-native-safe-area-context";
 import Modal from "../components/ui/AppModal";
 
 import { LocaleConfig } from "react-native-calendars";
@@ -491,6 +494,53 @@ function HighlightMatch({ text, query, style, matchStyle }) {
   );
 }
 
+function pickDestinationImage(dest) {
+    if (!dest) return null;
+    const candidates = [
+        dest.imageUrl,
+        dest.image,
+        dest.image_url,
+        dest.imageURL,
+        dest.photoUrl,
+        dest.photoURL,
+        dest.photoUri,
+        dest.photo,
+        dest.coverImage,
+        dest.coverImageUrl,
+        dest.thumbnail,
+        dest.thumbnailUrl,
+        dest.picture,
+    ];
+    for (const candidate of candidates) {
+        if (typeof candidate === "string" && candidate.trim()) return candidate.trim();
+        if (candidate && typeof candidate === "object") {
+            const uri = candidate.uri || candidate.url;
+            if (typeof uri === "string" && uri.trim()) return uri.trim();
+        }
+    }
+    return null;
+}
+
+
+// Avatar redondo de un destino ya elegido: foto de Google o, si no hay, ícono de ubicación.
+function DestinationAvatar({ uri, size = 32 }) {
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    setFailed(false);
+  }, [uri]);
+
+  const box = { width: size, height: size, borderRadius: size / 2 };
+  if (!uri || failed) {
+    return (
+      <View style={[styles.dpAvatarFallback, box]}>
+        <FontAwesome6 name="location-dot" size={size * 0.4} color={colors.primary} />
+      </View>
+    );
+  }
+  return <Image source={{ uri }} style={[styles.dpAvatarImage, box]} onError={() => setFailed(true)} />;
+}
+
 function DestinationPickerModal({
   visible,
   onClose,
@@ -508,199 +558,334 @@ function DestinationPickerModal({
   const query = search.trim();
   const tooShort = query.length < 2;
   const count = selectedDestinations.length;
+  const [searchFocused, setSearchFocused] = useState(false);
+
+  // El modal se abre a pantalla completa, por encima de la barra de estado / notch: se respeta el margen superior.
+  // Sin SafeAreaProvider (p. ej. en tests) el contexto es null: se asume margen 0.
+  const insets = useContext(SafeAreaInsetsContext) || { top: 0 };
+  const topInset = Math.max(insets.top, Platform.OS === "android" ? StatusBar.currentHeight || 0 : 0);
+
+  // Con el teclado abierto el pie se compacta (el contenido sube con KeyboardAvoidingView).
+  const [keyboardVisible, setKeyboardVisible] = useState(false);
+
+  useEffect(() => {
+    if (!visible) {
+      setKeyboardVisible(false);
+      return undefined;
+    }
+    const showEvent = Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
+    const hideEvent = Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide";
+    const showSub = Keyboard.addListener(showEvent, () => setKeyboardVisible(true));
+    const hideSub = Keyboard.addListener(hideEvent, () => setKeyboardVisible(false));
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, [visible]);
+
+  // Aviso breve al agregar un destino: confirma que se sumó aunque la lista de resultados siga a la vista.
+  const prevCountRef = useRef(count);
+  const [toast, setToast] = useState("");
+
+  useEffect(() => {
+    let timer;
+    if (!visible) {
+      setToast("");
+    } else if (count > prevCountRef.current) {
+      setToast(selectedDestinations[count - 1]?.name || "Destino");
+      timer = setTimeout(() => setToast(""), 2200);
+    } else if (count < prevCountRef.current) {
+      setToast("");
+    }
+    prevCountRef.current = count;
+    return () => {
+      if (timer) clearTimeout(timer);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [count, visible]);
 
   return (
     <Modal visible={visible} animationType="slide" onRequestClose={onClose} transparent={false}>
       <ScreenContainer fullWidth padded={false}>
-        <KeyboardAvoidingView
-          style={styles.flex}
-          behavior={Platform.OS === "ios" ? "padding" : undefined}
-        >
-          <View style={styles.hero}>
-            <View style={styles.heroTopRow}>
-              <IconCircleButton icon="arrow-left" onPress={onClose} tone="light" />
-              <View style={styles.heroTitleWrap} pointerEvents="none">
-                <Text style={styles.heroTitle}>Agregar destino</Text>
-              </View>
-              {count > 0 ? (
-                <View style={styles.pickerCountBadge}>
-                  <Text style={styles.pickerCountBadgeText}>{count}</Text>
-                </View>
-              ) : null}
-            </View>
-
-            <View style={styles.pickerSearchBox}>
-              <FontAwesome6 name="magnifying-glass" size={15} color={colors.primary} />
-              <TextInput
-                value={search}
-                onChangeText={onSearchChange}
-                placeholder="Buscar ciudad o país..."
-                placeholderTextColor={colors.overlay}
-                style={styles.pickerSearchInput}
-                autoFocus
-                autoCorrect={false}
-                returnKeyType="search"
-              />
-              {resolving ? (
-                <ActivityIndicator size="small" color={colors.primary} />
-              ) : search.length > 0 ? (
-                <Pressable onPress={() => onSearchChange("")} hitSlop={10}>
-                  <FontAwesome6 name="circle-xmark" size={17} color={colors.overlay} />
-                </Pressable>
-              ) : null}
-            </View>
-          </View>
-
-          <View style={styles.pickerBody}>
-            {error ? (
-              <View style={styles.pickerError}>
-                <FontAwesome6 name="circle-exclamation" size={13} color={COLOR_DANGER} />
-                <Text style={styles.pickerErrorText}>{error}</Text>
-              </View>
-            ) : null}
-
-            {count > 0 && (
-              <View style={styles.pickerSelectedSection}>
-                <Text style={styles.pickerSelectedLabel}>Tus destinos ({count})</Text>
-                <ScrollView
-                  style={styles.pickerSelectedScroll}
-                  contentContainerStyle={styles.pickerSelectedList}
-                  nestedScrollEnabled
-                  showsVerticalScrollIndicator={false}
-                  keyboardShouldPersistTaps="handled"
-                >
-                  {selectedDestinations.map((d, index) => (
-                    <View key={`${d.name}-${d.country}-${index}`} style={styles.pickerSelectedRow}>
-                      <View style={styles.pickerChipIndex}>
-                        <Text style={styles.pickerChipIndexText}>{index + 1}</Text>
-                      </View>
-                      <View style={styles.flex}>
-                        <Text style={styles.pickerSelectedName} numberOfLines={1}>{d.name}</Text>
-                        <Text style={styles.pickerSelectedCountry} numberOfLines={1}>
-                          {[d.provinceState, d.country].filter(Boolean).join(", ")}
-                        </Text>
-                      </View>
-                      <Pressable
-                        onPress={() => onRemoveSelected(d)}
-                        hitSlop={10}
-                        style={styles.pickerSelectedRemove}
-                        accessibilityLabel={`Quitar ${d.name}`}
-                      >
-                        <FontAwesome6 name="xmark" size={11} color={COLOR_DANGER} />
-                      </Pressable>
-                    </View>
-                  ))}
-                </ScrollView>
-              </View>
-            )}
-
-            <View style={styles.pickerListContainer}>
-              {tooShort ? (
-                <View style={styles.pickerIntro}>
-                  <View style={styles.pickerEmptyIconCircle}>
-                    <FontAwesome6 name="earth-americas" size={22} color={colors.primary} />
+        <KeyboardAvoidingView style={styles.flex} behavior="padding">
+          {/* View intermedia: TouchableWithoutFeedback necesita un hijo nativo para detectar el toque fuera del teclado. */}
+          <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
+            <View style={styles.flex}>
+              {/* ENCABEZADO: volver, título, "Listo" y buscador */}
+              <View style={[styles.dpHeader, keyboardVisible && styles.dpHeaderCompact, { paddingTop: Math.max(spacing.lg, topInset + spacing.sm) }]}>
+                <View style={styles.dpHeaderRow}>
+                  <IconCircleButton icon="arrow-left" onPress={onClose} tone="light" />
+                  <View style={styles.dpTitleWrap} pointerEvents="none">
+                    <Text style={styles.dpTitle}>Agregar destino</Text>
                   </View>
-                  <Text style={styles.pickerEmptyTitle}>
-                    {count > 0 ? "Sumá otro destino" : "Buscá tu próximo destino"}
-                  </Text>
-                  <Text style={styles.pickerEmptyText}>
-                    Escribí al menos 2 letras del nombre de una ciudad o país.
-                  </Text>
                 </View>
-              ) : searching ? (
-                <View style={styles.pickerListContent}>
-                  {[0, 1, 2, 3].map((n) => (
-                    <View key={n} style={styles.pickerSkeletonRow}>
-                      <View style={styles.pickerSkeletonCircle} />
-                      <View style={styles.flex}>
-                        <View style={styles.pickerSkeletonLineLong} />
-                        <View style={styles.pickerSkeletonLineShort} />
+
+                {!keyboardVisible && search.length === 0 ? (
+                  <Text style={styles.dpHeaderHint}>¿A dónde vas? Buscá una ciudad o un país.</Text>
+                ) : (
+                  <View style={styles.dpHeaderGap} />
+                )}
+
+                <View style={[styles.dpSearch, searchFocused && styles.dpSearchFocused]}>
+                  <FontAwesome6 name="magnifying-glass" size={15} color={colors.primary} />
+                  <TextInput
+                    value={search}
+                    onChangeText={onSearchChange}
+                    onFocus={() => setSearchFocused(true)}
+                    onBlur={() => setSearchFocused(false)}
+                    placeholder="Ej: Bariloche, Roma, Chile..."
+                    placeholderTextColor={colors.textMuted}
+                    style={styles.dpSearchInput}
+                    autoFocus
+                    autoCorrect={false}
+                    returnKeyType="done"
+                    blurOnSubmit
+                    onSubmitEditing={Keyboard.dismiss}
+                  />
+                  {resolving ? (
+                    <ActivityIndicator size="small" color={colors.primary} />
+                  ) : search.length > 0 ? (
+                    <Pressable
+                      onPress={() => onSearchChange("")}
+                      hitSlop={10}
+                      accessibilityRole="button"
+                      accessibilityLabel="Borrar búsqueda"
+                    >
+                      <FontAwesome6 name="circle-xmark" size={17} color={colors.textMuted} />
+                    </Pressable>
+                  ) : null}
+                </View>
+              </View>
+
+              <View style={styles.dpBody}>
+                {error ? (
+                  <View style={styles.dpError}>
+                    <FontAwesome6 name="circle-exclamation" size={13} color={COLOR_DANGER} />
+                    <Text style={styles.dpErrorText}>{error}</Text>
+                  </View>
+                ) : null}
+
+                {/* TU RUTA: lista de destinos elegidos. Sin buscar ocupa todo el espacio; al buscar se limita para dejar lugar a los resultados. */}
+
+                {count > 0 && !tooShort ? (
+                  <View style={styles.dpStrip}>
+                    <View style={styles.dpStripRow}>
+                      <Text style={styles.dpStripLabel}>Tu ruta ({count})</Text>
+                      {keyboardVisible ? (
+                        <Pressable
+                          onPress={onClose}
+                          hitSlop={8}
+                          style={styles.dpStripDone}
+                          accessibilityRole="button"
+                          accessibilityLabel="Listo"
+                        >
+                          <Text style={styles.dpStripDoneText}>Listo</Text>
+                          <FontAwesome6 name="check" size={11} color={colors.primary} />
+                        </Pressable>
+                      ) : null}
+                    </View>
+                    <ScrollView
+                      horizontal
+                      showsHorizontalScrollIndicator={false}
+                      keyboardShouldPersistTaps="handled"
+                      contentContainerStyle={styles.dpStripList}
+                    >
+                      {selectedDestinations.map((d, index) => (
+                        <View key={`${d.name}-${d.country}-${index}`} style={styles.dpMiniChip}>
+                          <DestinationAvatar uri={pickDestinationImage(d)} size={24} />
+                          <Text style={styles.dpMiniChipText} numberOfLines={1}>{d.name}</Text>
+                          <Pressable
+                            onPress={() => onRemoveSelected(d)}
+                            hitSlop={10}
+                            accessibilityRole="button"
+                            accessibilityLabel={`Quitar ${d.name}`}
+                          >
+                            <FontAwesome6 name="xmark" size={11} color={COLOR_DANGER} />
+                          </Pressable>
+                        </View>
+                      ))}
+                    </ScrollView>
+                  </View>
+                ) : null}
+
+                {count > 0 && tooShort ? (
+                  <View style={[styles.dpSelected, styles.dpSelectedFull]}>
+                    <View style={styles.dpSectionRow}>
+                      <Text style={styles.dpSectionLabel}>Tu ruta</Text>
+                      <View style={styles.dpCountPill}>
+                        <Text style={styles.dpCountPillText}>{count}</Text>
                       </View>
                     </View>
-                  ))}
-                </View>
-              ) : options.length > 0 ? (
-                <FlatList
-                  data={options}
-                  keyExtractor={(item, index) => `${item.name}-${item.country}-${index}`}
-                  keyboardShouldPersistTaps="handled"
-                  keyboardDismissMode="on-drag"
-                  showsVerticalScrollIndicator={false}
-                  contentContainerStyle={styles.pickerListContent}
-                  ItemSeparatorComponent={() => <View style={styles.pickerListSeparator} />}
-                  renderItem={({ item }) => {
-                    const selectedMatch = selectedDestinations.find(
-                      (d) =>
-                        (item.placeId && d.placeId === item.placeId) ||
-                        (d.name === item.name && d.country === item.country)
-                    );
-                    const isSelected = Boolean(selectedMatch);
-                    return (
-                      <TouchableOpacity
-                        onPress={() => (isSelected ? onRemoveSelected(selectedMatch) : onSelect(item))}
-                        activeOpacity={0.7}
-                        style={[styles.destinationItem, isSelected && styles.destinationItemActive]}
+                    <ScrollView
+                      keyboardShouldPersistTaps="handled"
+                      showsVerticalScrollIndicator={false}
+                      contentContainerStyle={styles.dpRouteList}
+                    >
+                      {selectedDestinations.map((d, index) => (
+                        <View key={`${d.name}-${d.country}-${index}`} style={styles.dpRouteRow}>
+                          <View style={styles.dpRouteIndex}>
+                            <Text style={styles.dpRouteIndexText}>{index + 1}</Text>
+                          </View>
+                          <DestinationAvatar uri={pickDestinationImage(d)} size={40} />
+                          <View style={styles.flex}>
+                            <Text style={styles.dpRouteName} numberOfLines={1}>{d.name}</Text>
+                            <Text style={styles.dpRouteCountry} numberOfLines={1}>
+                              {[d.provinceState, d.country].filter(Boolean).join(", ")}
+                            </Text>
+                          </View>
+                          <Pressable
+                            onPress={() => onRemoveSelected(d)}
+                            hitSlop={10}
+                            style={styles.dpChipRemove}
+                            accessibilityRole="button"
+                            accessibilityLabel={`Quitar ${d.name}`}
+                          >
+                            <FontAwesome6 name="xmark" size={11} color={COLOR_DANGER} />
+                          </Pressable>
+                        </View>
+                      ))}
+                      {tooShort ? (
+                        <Text style={styles.dpRouteHint}>Escribí al menos 2 letras para sumar otro destino.</Text>
+                      ) : null}
+                    </ScrollView>
+                  </View>
+                ) : null}
+
+                {!(tooShort && count > 0) ? (
+                <View style={styles.dpResults}>
+                  {tooShort ? (
+                    count === 0 ? (
+                      <ScrollView
+                        keyboardShouldPersistTaps="handled"
+                        showsVerticalScrollIndicator={false}
+                        contentContainerStyle={styles.dpIdleContent}
                       >
-                        <View style={[styles.destinationIconCircle, isSelected && styles.destinationIconCircleActive]}>
-                          <FontAwesome6
-                            name="location-dot"
-                            size={14}
-                            color={isSelected ? colors.textInverse : colors.primary}
-                          />
+                        <View style={styles.dpIdleHero}>
+                          <View style={styles.dpIdleIcon}>
+                            <FontAwesome6 name="earth-americas" size={24} color={colors.primary} />
+                          </View>
+                          <Text style={styles.dpIdleTitle}>Elegí tu primer destino</Text>
                         </View>
-                        <View style={styles.destinationItemTexts}>
-                          <HighlightMatch
-                            text={item.name}
-                            query={query}
-                            style={[styles.destinationName, isSelected && styles.destinationNameActive]}
-                            matchStyle={styles.destinationMatch}
-                          />
-                          <Text style={styles.destinationCountry} numberOfLines={1}>
-                            {[item.provinceState, item.country].filter(Boolean).join(", ")}
-                          </Text>
+                        <Text style={styles.dpIdleText}>Escribí al menos 2 letras del nombre de una ciudad o país.</Text>
+                      </ScrollView>
+                    ) : null
+                  ) : searching ? (
+                    <View style={styles.dpListContent}>
+                      {[0, 1, 2].map((n) => (
+                        <View key={n} style={[styles.dpSkeletonRow, { opacity: 1 - n * 0.2 }]}>
+                          <View style={styles.dpSkeletonCircle} />
+                          <View style={styles.flex}>
+                            <View style={styles.dpSkeletonLong} />
+                            <View style={styles.dpSkeletonShort} />
+                          </View>
                         </View>
-                        <View style={[styles.destinationAction, isSelected && styles.destinationActionActive]}>
-                          <FontAwesome6
-                            name={isSelected ? "check" : "plus"}
-                            size={12}
-                            color={isSelected ? colors.textInverse : colors.primary}
-                          />
+                      ))}
+                    </View>
+                  ) : options.length > 0 ? (
+                    <FlatList
+                      data={options}
+                      keyExtractor={(item, index) => `${item.name}-${item.country}-${index}`}
+                      keyboardShouldPersistTaps="handled"
+                      keyboardDismissMode="on-drag"
+                      showsVerticalScrollIndicator={false}
+                      contentContainerStyle={styles.dpListContent}
+                      ListHeaderComponent={keyboardVisible ? null : <Text style={styles.dpResultsLabel}>Resultados · tocá para agregar</Text>}
+                      ItemSeparatorComponent={() => <View style={styles.dpSeparator} />}
+                      renderItem={({ item }) => {
+                        const selectedMatch = selectedDestinations.find(
+                          (d) =>
+                            (item.placeId && d.placeId === item.placeId) ||
+                            (d.name === item.name && d.country === item.country)
+                        );
+                        const isSelected = Boolean(selectedMatch);
+                        return (
+                          <TouchableOpacity
+                            onPress={() => (isSelected ? onRemoveSelected(selectedMatch) : onSelect(item))}
+                            disabled={resolving && !isSelected}
+                            activeOpacity={0.7}
+                            style={[styles.dpItem, isSelected && styles.dpItemActive]}
+                            accessibilityRole="button"
+                            accessibilityLabel={`${isSelected ? "Quitar" : "Agregar"} ${item.name}`}
+                          >
+                            <View style={[styles.dpItemIcon, isSelected && styles.dpItemIconActive]}>
+                              <FontAwesome6
+                                name="location-dot"
+                                size={14}
+                                color={isSelected ? colors.textInverse : colors.primary}
+                              />
+                            </View>
+                            <View style={styles.dpItemTexts}>
+                              <HighlightMatch
+                                text={item.name}
+                                query={query}
+                                style={[styles.dpItemName, isSelected && styles.dpItemNameActive]}
+                                matchStyle={styles.dpItemMatch}
+                              />
+                              <Text style={styles.dpItemSub} numberOfLines={1}>
+                                {[item.provinceState, item.country].filter(Boolean).join(", ")}
+                              </Text>
+                            </View>
+                            {isSelected ? (
+                              <View style={styles.dpAddedPill}>
+                                <FontAwesome6 name="check" size={10} color={colors.textInverse} />
+                                <Text style={styles.dpAddedText}>Agregado</Text>
+                              </View>
+                            ) : (
+                              <View style={styles.dpAddButton}>
+                                <FontAwesome6 name="plus" size={12} color={colors.primary} />
+                              </View>
+                            )}
+                          </TouchableOpacity>
+                        );
+                      }}
+                    />
+                  ) : hasSearched ? (
+                    <ScrollView
+                      keyboardShouldPersistTaps="handled"
+                      showsVerticalScrollIndicator={false}
+                      contentContainerStyle={styles.dpIdleContent}
+                    >
+                      <View style={styles.dpIdleHero}>
+                        <View style={styles.dpIdleIcon}>
+                          <FontAwesome6 name="magnifying-glass" size={20} color={colors.textMuted} />
                         </View>
-                      </TouchableOpacity>
-                    );
-                  }}
+                        <Text style={styles.dpIdleTitle}>Sin resultados</Text>
+                      </View>
+                      <Text style={styles.dpIdleText}>
+                        No encontramos destinos para "{query}". Probá con otro nombre o revisá la ortografía.
+                      </Text>
+                    </ScrollView>
+                  ) : null}
+                </View>
+                ) : null}
+                {toast ? (
+                  <View style={styles.dpToast}>
+                    <FontAwesome6 name="circle-check" size={14} color={colors.primary} />
+                    <Text style={styles.dpToastText} numberOfLines={1}>{toast} agregado a tu ruta</Text>
+                  </View>
+                ) : null}
+              </View>
+
+              {/* PIE: botón principal siempre a la vista; sube junto con el teclado */}
+              {!keyboardVisible ? (
+              <View style={styles.dpFooter}>
+                <PrimaryButton
+                  label={
+                    count > 0
+                      ? `Listo · ${count} ${count === 1 ? "destino" : "destinos"}`
+                      : "Cerrar"
+                  }
+                  onPress={onClose}
                 />
-              ) : hasSearched ? (
-                <View style={styles.pickerIntro}>
-                  <View style={styles.pickerEmptyIconCircle}>
-                    <FontAwesome6 name="magnifying-glass" size={20} color={colors.overlay} />
-                  </View>
-                  <Text style={styles.pickerEmptyTitle}>Sin resultados</Text>
-                  <Text style={styles.pickerEmptyText}>
-                    No encontramos destinos para "{query}". Probá con otro nombre o revisá la ortografía.
-                  </Text>
-                </View>
+              </View>
               ) : null}
             </View>
-          </View>
-
-          <View style={styles.pickerFooter}>
-            <PrimaryButton
-              label={
-                count > 0
-                  ? `Listo · ${count} ${count === 1 ? "destino" : "destinos"}`
-                  : "Cerrar"
-              }
-              onPress={onClose}
-            />
-          </View>
+          </TouchableWithoutFeedback>
         </KeyboardAvoidingView>
       </ScreenContainer>
     </Modal>
   );
 }
-
-/* ───────────────────────── Pantalla ───────────────────────── */
 
 export default function CreateTripScreen({ navigation }) {
   const [step, setStep] = useState(1); // Control del paso actual (1, 2, 3)
@@ -2345,44 +2530,69 @@ const styles = StyleSheet.create({
   },
 
   /* Buscador de destinos (modal) */
-  pickerCountBadge: {
+  destinationCountry: {
+    ...textStyles.meta,
+    color: colors.textSecondary,
+    marginTop: 2,
+  },
+  dpHeader: {
+    backgroundColor: colors.primary,
+    paddingHorizontal: spacing.lg,
+    paddingBottom: spacing.lg,
+    borderBottomLeftRadius: 28,
+    borderBottomRightRadius: 28,
+  },
+  dpHeaderRow: {
+    minHeight: 44,
+    justifyContent: "center",
+    alignItems: "flex-start",
+  },
+  dpTitleWrap: {
     position: "absolute",
+    left: 0,
     right: 0,
-    top: 8,
-    minWidth: 28,
-    height: 28,
-    borderRadius: 14,
-    paddingHorizontal: 8,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: colors.surface,
   },
-  pickerCountBadgeText: {
-    ...textStyles.meta,
-    color: colors.primary,
-    fontWeight: "700",
+  dpTitle: {
+    ...textStyles.tripTitle,
+    color: colors.textInverse,
+    fontSize: 20,
   },
-  pickerSearchBox: {
+  dpHeaderHint: {
+    ...textStyles.body,
+    color: colors.textInverse,
+    opacity: 0.85,
+    marginTop: spacing.sm,
+    marginBottom: spacing.sm,
+  },
+  dpSearch: {
     flexDirection: "row",
     alignItems: "center",
     gap: 10,
-    marginTop: spacing.sm,
-    minHeight: 52,
+    minHeight: 54,
     borderRadius: radii.lg,
+    borderWidth: 2,
+    borderColor: "transparent",
     backgroundColor: colors.surface,
     paddingHorizontal: spacing.md,
   },
-  pickerSearchInput: {
+  dpSearchFocused: {
+    borderColor: colors.accent || colors.surface,
+  },
+  dpSearchInput: {
     flex: 1,
     ...textStyles.body,
     color: colors.textPrimary,
     paddingVertical: 10,
   },
-  pickerBody: {
+  dpBody: {
     flex: 1,
+    minHeight: 0,
+    overflow: "hidden",
     backgroundColor: colors.background,
   },
-  pickerError: {
+  dpError: {
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
@@ -2392,100 +2602,80 @@ const styles = StyleSheet.create({
     borderRadius: radii.md,
     backgroundColor: COLOR_DANGER_SOFT,
   },
-  pickerErrorText: {
+  dpErrorText: {
     ...textStyles.meta,
     color: COLOR_DANGER,
     fontWeight: "600",
     flex: 1,
   },
-  pickerSelectedSection: {
+  dpSelected: {
     paddingTop: spacing.md,
+    flexShrink: 0,
   },
-  pickerSelectedLabel: {
-    ...textStyles.label,
-    textTransform: "none",
-    color: colors.primary,
+  dpSectionRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
     paddingHorizontal: spacing.lg,
     marginBottom: spacing.xs,
   },
-  pickerSelectedScroll: {
-    maxHeight: 190,
-    flexGrow: 0,
-  },
-  pickerSelectedList: {
-    gap: 6,
-    paddingHorizontal: spacing.lg,
-  },
-  pickerSelectedRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    backgroundColor: COLOR_SOFT,
-    borderRadius: radii.md,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-  },
-  pickerSelectedName: {
-    ...textStyles.bodyStrong,
+  dpSectionLabel: {
+    ...textStyles.label,
+    textTransform: "none",
     color: colors.primary,
   },
-  pickerSelectedCountry: {
-    ...textStyles.meta,
-    color: colors.textSecondary,
-  },
-  pickerSelectedRemove: {
-    width: 26,
-    height: 26,
-    borderRadius: 13,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: COLOR_DANGER_SOFT,
-  },
-  pickerChipIndex: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
+  dpCountPill: {
+    minWidth: 22,
+    height: 22,
+    borderRadius: 11,
+    paddingHorizontal: 6,
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: colors.primary,
   },
-  pickerChipIndexText: {
+  dpCountPillText: {
     ...textStyles.meta,
     color: colors.textInverse,
     fontWeight: "700",
     fontSize: 11,
   },
-  pickerListContainer: {
-    flex: 1,
+  dpAvatarImage: {
+    backgroundColor: colors.surfaceMuted,
   },
-  pickerListContent: {
+  dpAvatarFallback: {
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: COLOR_SOFT,
+  },
+  dpResults: {
+    flex: 1,
+    minHeight: 0,
+  },
+  dpListContent: {
     paddingHorizontal: spacing.lg,
-    paddingTop: spacing.md,
+    paddingTop: spacing.sm,
     paddingBottom: spacing.lg,
   },
-  pickerListSeparator: {
-    height: 8,
+  dpSeparator: {
+    height: 6,
   },
-  destinationItem: {
+  dpItem: {
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
-    minHeight: 64,
+    minHeight: 56,
     paddingHorizontal: spacing.sm + 4,
-    paddingVertical: spacing.sm,
+    paddingVertical: 6,
     borderWidth: 1.5,
     borderColor: colors.border,
     borderRadius: radii.md,
     backgroundColor: colors.surface,
   },
-  destinationItemActive: {
+  dpItemActive: {
     borderColor: colors.primary,
     backgroundColor: COLOR_SOFT,
   },
-  destinationItemTexts: {
-    flex: 1,
-  },
-  destinationIconCircle: {
+  dpItemIcon: {
     width: 38,
     height: 38,
     borderRadius: 19,
@@ -2493,62 +2683,81 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     backgroundColor: COLOR_SOFT,
   },
-  destinationIconCircleActive: {
+  dpItemIconActive: {
     backgroundColor: colors.primary,
   },
-  destinationName: {
+  dpItemTexts: {
+    flex: 1,
+  },
+  dpItemName: {
     ...textStyles.bodyStrong,
     color: colors.textPrimary,
     fontWeight: "500",
   },
-  destinationNameActive: {
+  dpItemNameActive: {
     color: colors.primary,
   },
-  destinationMatch: {
+  dpItemMatch: {
     color: colors.primary,
     fontWeight: "800",
   },
-  destinationCountry: {
+  dpItemSub: {
     ...textStyles.meta,
     color: colors.textSecondary,
     marginTop: 2,
   },
-  destinationAction: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
+  dpAddButton: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: COLOR_SOFT,
   },
-  destinationActionActive: {
+  dpAddedPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    height: 28,
+    borderRadius: 14,
+    paddingHorizontal: 10,
     backgroundColor: colors.primary,
   },
-  pickerIntro: {
+  dpAddedText: {
+    ...textStyles.meta,
+    color: colors.textInverse,
+    fontWeight: "700",
+    fontSize: 11,
+  },
+  dpIdleContent: {
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.lg,
+    paddingBottom: spacing.lg,
+  },
+  dpIdleHero: {
     alignItems: "center",
     gap: spacing.xs,
-    paddingTop: spacing.lg,
-    paddingHorizontal: spacing.xl,
+    marginBottom: spacing.xs,
   },
-  pickerEmptyIconCircle: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
+  dpIdleIcon: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: COLOR_SOFT,
-    marginBottom: spacing.xs,
   },
-  pickerEmptyTitle: {
+  dpIdleTitle: {
     ...textStyles.bodyStrong,
     color: colors.textPrimary,
+    fontSize: 16,
   },
-  pickerEmptyText: {
+  dpIdleText: {
     ...textStyles.meta,
     color: colors.textSecondary,
     textAlign: "center",
   },
-  pickerSkeletonRow: {
+  dpSkeletonRow: {
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
@@ -2558,31 +2767,187 @@ const styles = StyleSheet.create({
     borderRadius: radii.md,
     backgroundColor: colors.surface,
   },
-  pickerSkeletonCircle: {
+  dpSkeletonCircle: {
     width: 38,
     height: 38,
     borderRadius: 19,
     backgroundColor: colors.surfaceMuted,
   },
-  pickerSkeletonLineLong: {
+  dpSkeletonLong: {
     width: "60%",
     height: 12,
     borderRadius: 6,
     backgroundColor: colors.surfaceMuted,
   },
-  pickerSkeletonLineShort: {
+  dpSkeletonShort: {
     width: "35%",
     height: 10,
     borderRadius: 5,
     marginTop: 8,
     backgroundColor: colors.surfaceMuted,
   },
-  pickerFooter: {
+  dpFooter: {
     paddingHorizontal: spacing.lg,
     paddingTop: spacing.sm,
     paddingBottom: spacing.md,
     borderTopWidth: 1,
     borderTopColor: colors.border,
     backgroundColor: colors.surface,
+  },
+  dpSelectedFull: {
+    flex: 1,
+    minHeight: 0,
+  },
+  dpSelectedCompact: {
+    maxHeight: 190,
+    flexShrink: 1,
+  },
+  dpRouteList: {
+    gap: 8,
+    paddingHorizontal: spacing.lg,
+    paddingBottom: spacing.md,
+  },
+  dpRouteRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    minHeight: 60,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+    paddingVertical: 8,
+    paddingLeft: 10,
+    paddingRight: 12,
+  },
+  dpRouteIndex: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.primary,
+  },
+  dpRouteIndexText: {
+    ...textStyles.meta,
+    color: colors.textInverse,
+    fontWeight: "700",
+    fontSize: 11,
+  },
+  dpRouteName: {
+    ...textStyles.bodyStrong,
+    color: colors.primary,
+  },
+  dpRouteCountry: {
+    ...textStyles.meta,
+    color: colors.textSecondary,
+    marginTop: 1,
+  },
+  dpRouteHint: {
+    ...textStyles.meta,
+    color: colors.textMuted,
+    textAlign: "center",
+    marginTop: spacing.xs,
+  },
+  dpChipRemove: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: COLOR_DANGER_SOFT,
+  },
+  dpToast: {
+    position: "absolute",
+    left: spacing.lg,
+    right: spacing.lg,
+    bottom: spacing.md,
+    zIndex: 10,
+    elevation: 6,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingVertical: 10,
+    paddingHorizontal: spacing.md,
+    borderRadius: radii.md,
+    backgroundColor: colors.surface,
+    borderWidth: 1.5,
+    borderColor: colors.primary,
+  },
+  dpToastText: {
+    ...textStyles.bodyStrong,
+    color: colors.primary,
+    fontSize: 13,
+    flex: 1,
+  },
+  dpStrip: {
+    paddingTop: spacing.sm,
+    paddingBottom: spacing.xs,
+    flexShrink: 0,
+  },
+  dpStripLabel: {
+    ...textStyles.label,
+    textTransform: "none",
+    color: colors.primary,
+  },
+  dpStripList: {
+    gap: 8,
+    paddingHorizontal: spacing.lg,
+    paddingBottom: 2,
+  },
+  dpMiniChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    maxWidth: 190,
+    height: 36,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+    paddingLeft: 6,
+    paddingRight: 12,
+  },
+  dpMiniChipText: {
+    ...textStyles.bodyStrong,
+    color: colors.primary,
+    fontSize: 13,
+    flexShrink: 1,
+  },
+  dpResultsLabel: {
+    ...textStyles.label,
+    textTransform: "none",
+    color: colors.textSecondary,
+    marginBottom: spacing.sm,
+  },
+  dpFooterKeyboard: {
+    paddingBottom: spacing.sm,
+  },
+  dpHeaderCompact: {
+    paddingBottom: spacing.sm,
+  },
+  dpHeaderGap: {
+    height: spacing.xs,
+  },
+  dpStripRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: spacing.lg,
+    marginBottom: spacing.xs,
+  },
+  dpStripDone: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingVertical: 4,
+    paddingHorizontal: 10,
+    borderRadius: 14,
+    backgroundColor: COLOR_SOFT,
+  },
+  dpStripDoneText: {
+    ...textStyles.meta,
+    color: colors.primary,
+    fontWeight: "700",
   },
 });
