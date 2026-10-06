@@ -54,12 +54,30 @@ export default function App() {
     if (Platform.OS !== "web") return;
 
     const root = document.getElementById("root");
-    if (root) {
-      root.style.height = "100dvh";
-    }
+    const vv = window.visualViewport;
+    if (!root) return;
+
     document.documentElement.style.height = "100%";
     document.body.style.height = "100%";
     document.body.style.overflow = "hidden";
+    root.style.position = "fixed";
+    root.style.left = "0";
+    root.style.right = "0";
+
+    const ajustar = () => {
+      root.style.top = `${vv ? vv.offsetTop : 0}px`;
+      root.style.height = `${vv ? vv.height : window.innerHeight}px`;
+    };
+
+    ajustar();
+    vv?.addEventListener("resize", ajustar);
+    vv?.addEventListener("scroll", ajustar);
+    window.addEventListener("resize", ajustar);
+    return () => {
+      vv?.removeEventListener("resize", ajustar);
+      vv?.removeEventListener("scroll", ajustar);
+      window.removeEventListener("resize", ajustar);
+    };
   }, []);
 
   useEffect(() => {

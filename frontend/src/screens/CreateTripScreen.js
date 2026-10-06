@@ -123,9 +123,25 @@ function describeDuration(startDate, endDate) {
   return `${nights} ${nights === 1 ? "noche" : "noches"} · ${days} días`;
 }
 
+/**
+ * Indica si el teclado está abierto.
+ * - Nativo: eventos de Keyboard.
+ * - Web: en el navegador no existen esos eventos, así que se detecta comparando
+ *   el alto de la ventana con el área visible (visualViewport), que se achica
+ *   cuando aparece el teclado del celular.
+ */
 function useKeyboardVisible() {
   const [visible, setVisible] = useState(false);
   useEffect(() => {
+    if (Platform.OS === "web") {
+      const vv = typeof window !== "undefined" ? window.visualViewport : null;
+      if (!vv) return undefined;
+      const check = () => setVisible(window.innerHeight - vv.height > 150);
+      check();
+      vv.addEventListener("resize", check);
+      return () => vv.removeEventListener("resize", check);
+    }
+
     const showEvent = Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
     const hideEvent = Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide";
     const showSub = Keyboard.addListener(showEvent, () => setVisible(true));
@@ -352,9 +368,24 @@ function DateField({
     </View>
   );
 
+  const tileContent = (
+    <>
+      {iconCircle}
+      <View style={styles.flex}>
+        <Text style={styles.dateCaption}>{label}</Text>
+        <Text numberOfLines={1} style={[styles.dateValue, !pickerValue && styles.datePlaceholder]}>
+          {valueText}
+        </Text>
+      </View>
+      <FontAwesome6 name="chevron-down" size={12} color={disabled ? colors.overlay : colors.textSecondary} />
+    </>
+  );
+
   return (
     <View style={styles.dateField}>
       {Platform.OS === "web" ? (
+        // Web: se muestra el mismo diseño que en la app y encima va el <input type="date">
+        // invisible, ocupando toda la tarjeta. Al tocarlo se abre el calendario nativo del navegador.
         <View
           style={[
             styles.dateTile,
@@ -363,28 +394,37 @@ function DateField({
             disabled && styles.dateTileDisabled,
           ]}
         >
-          {iconCircle}
-          <View style={styles.flex}>
-            <Text style={styles.dateCaption}>{label}</Text>
-            <input
-              type="date"
-              disabled={disabled}
-              min={minYMD ?? undefined}
-              value={pickerValue || ""}
-              onChange={(e) => onChange(fieldName, e.target.value)}
-              style={{
-                border: "none",
-                width: "100%",
-                outline: "none",
-                backgroundColor: "transparent",
-                fontFamily: "inherit",
-                fontSize: "16px",
-                color: "inherit",
-                cursor: disabled ? "not-allowed" : "pointer",
-                padding: 0,
-              }}
-            />
-          </View>
+          {tileContent}
+          <input
+            type="date"
+            aria-label={label}
+            disabled={disabled}
+            min={minYMD ?? undefined}
+            value={pickerValue || ""}
+            onChange={(e) => onChange(fieldName, e.target.value)}
+            onClick={(e) => {
+              // En escritorio el calendario solo se abre tocando el iconito; showPicker lo abre siempre.
+              try {
+                e.currentTarget.showPicker?.();
+              } catch {
+                // Algunos navegadores no lo permiten: se ignora y queda el comportamiento por defecto.
+              }
+            }}
+            style={{
+              position: "absolute",
+              top: 0,
+              left: 0,
+              width: "100%",
+              height: "100%",
+              opacity: 0,
+              margin: 0,
+              padding: 0,
+              border: "none",
+              boxSizing: "border-box",
+              fontSize: 16, // evita el zoom automático de iPhone al tocar el campo
+              cursor: disabled ? "not-allowed" : "pointer",
+            }}
+          />
         </View>
       ) : (
         <>
@@ -397,14 +437,7 @@ function DateField({
               disabled && styles.dateTileDisabled,
             ]}
           >
-            {iconCircle}
-            <View style={styles.flex}>
-              <Text style={styles.dateCaption}>{label}</Text>
-              <Text numberOfLines={1} style={[styles.dateValue, !pickerValue && styles.datePlaceholder]}>
-                {valueText}
-              </Text>
-            </View>
-            <FontAwesome6 name="chevron-down" size={12} color={disabled ? colors.overlay : colors.textSecondary} />
+            {tileContent}
           </Pressable>
 
           <DatePickerModal
@@ -495,32 +528,31 @@ function HighlightMatch({ text, query, style, matchStyle }) {
 }
 
 function pickDestinationImage(dest) {
-    if (!dest) return null;
-    const candidates = [
-        dest.imageUrl,
-        dest.image,
-        dest.image_url,
-        dest.imageURL,
-        dest.photoUrl,
-        dest.photoURL,
-        dest.photoUri,
-        dest.photo,
-        dest.coverImage,
-        dest.coverImageUrl,
-        dest.thumbnail,
-        dest.thumbnailUrl,
-        dest.picture,
-    ];
-    for (const candidate of candidates) {
-        if (typeof candidate === "string" && candidate.trim()) return candidate.trim();
-        if (candidate && typeof candidate === "object") {
-            const uri = candidate.uri || candidate.url;
-            if (typeof uri === "string" && uri.trim()) return uri.trim();
-        }
+  if (!dest) return null;
+  const candidates = [
+    dest.imageUrl,
+    dest.image,
+    dest.image_url,
+    dest.imageURL,
+    dest.photoUrl,
+    dest.photoURL,
+    dest.photoUri,
+    dest.photo,
+    dest.coverImage,
+    dest.coverImageUrl,
+    dest.thumbnail,
+    dest.thumbnailUrl,
+    dest.picture,
+  ];
+  for (const candidate of candidates) {
+    if (typeof candidate === "string" && candidate.trim()) return candidate.trim();
+    if (candidate && typeof candidate === "object") {
+      const uri = candidate.uri || candidate.url;
+      if (typeof uri === "string" && uri.trim()) return uri.trim();
     }
-    return null;
+  }
+  return null;
 }
-
 
 // Avatar redondo de un destino ya elegido: foto de Google o, si no hay, ícono de ubicación.
 function DestinationAvatar({ uri, size = 32 }) {
@@ -566,22 +598,9 @@ function DestinationPickerModal({
   const topInset = Math.max(insets.top, Platform.OS === "android" ? StatusBar.currentHeight || 0 : 0);
 
   // Con el teclado abierto el pie se compacta (el contenido sube con KeyboardAvoidingView).
-  const [keyboardVisible, setKeyboardVisible] = useState(false);
-
-  useEffect(() => {
-    if (!visible) {
-      setKeyboardVisible(false);
-      return undefined;
-    }
-    const showEvent = Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
-    const hideEvent = Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide";
-    const showSub = Keyboard.addListener(showEvent, () => setKeyboardVisible(true));
-    const hideSub = Keyboard.addListener(hideEvent, () => setKeyboardVisible(false));
-    return () => {
-      showSub.remove();
-      hideSub.remove();
-    };
-  }, [visible]);
+  // useKeyboardVisible también funciona en web.
+  const keyboardOpen = useKeyboardVisible();
+  const keyboardVisible = visible && keyboardOpen;
 
   // Aviso breve al agregar un destino: confirma que se sumó aunque la lista de resultados siga a la vista.
   const prevCountRef = useRef(count);
@@ -752,9 +771,94 @@ function DestinationPickerModal({
                 ) : null}
 
                 {!(tooShort && count > 0) ? (
-                <View style={styles.dpResults}>
-                  {tooShort ? (
-                    count === 0 ? (
+                  <View style={styles.dpResults}>
+                    {tooShort ? (
+                      count === 0 ? (
+                        <ScrollView
+                          keyboardShouldPersistTaps="handled"
+                          showsVerticalScrollIndicator={false}
+                          contentContainerStyle={styles.dpIdleContent}
+                        >
+                          <View style={styles.dpIdleHero}>
+                            <View style={styles.dpIdleIcon}>
+                              <FontAwesome6 name="earth-americas" size={24} color={colors.primary} />
+                            </View>
+                            <Text style={styles.dpIdleTitle}>Elegí tu primer destino</Text>
+                          </View>
+                          <Text style={styles.dpIdleText}>Escribí al menos 2 letras del nombre de una ciudad o país.</Text>
+                        </ScrollView>
+                      ) : null
+                    ) : searching ? (
+                      <View style={styles.dpListContent}>
+                        {[0, 1, 2].map((n) => (
+                          <View key={n} style={[styles.dpSkeletonRow, { opacity: 1 - n * 0.2 }]}>
+                            <View style={styles.dpSkeletonCircle} />
+                            <View style={styles.flex}>
+                              <View style={styles.dpSkeletonLong} />
+                              <View style={styles.dpSkeletonShort} />
+                            </View>
+                          </View>
+                        ))}
+                      </View>
+                    ) : options.length > 0 ? (
+                      <FlatList
+                        data={options}
+                        keyExtractor={(item, index) => `${item.name}-${item.country}-${index}`}
+                        keyboardShouldPersistTaps="handled"
+                        keyboardDismissMode="on-drag"
+                        showsVerticalScrollIndicator={false}
+                        contentContainerStyle={styles.dpListContent}
+                        ListHeaderComponent={keyboardVisible ? null : <Text style={styles.dpResultsLabel}>Resultados · tocá para agregar</Text>}
+                        ItemSeparatorComponent={() => <View style={styles.dpSeparator} />}
+                        renderItem={({ item }) => {
+                          const selectedMatch = selectedDestinations.find(
+                            (d) =>
+                              (item.placeId && d.placeId === item.placeId) ||
+                              (d.name === item.name && d.country === item.country)
+                          );
+                          const isSelected = Boolean(selectedMatch);
+                          return (
+                            <TouchableOpacity
+                              onPress={() => (isSelected ? onRemoveSelected(selectedMatch) : onSelect(item))}
+                              disabled={resolving && !isSelected}
+                              activeOpacity={0.7}
+                              style={[styles.dpItem, isSelected && styles.dpItemActive]}
+                              accessibilityRole="button"
+                              accessibilityLabel={`${isSelected ? "Quitar" : "Agregar"} ${item.name}`}
+                            >
+                              <View style={[styles.dpItemIcon, isSelected && styles.dpItemIconActive]}>
+                                <FontAwesome6
+                                  name="location-dot"
+                                  size={14}
+                                  color={isSelected ? colors.textInverse : colors.primary}
+                                />
+                              </View>
+                              <View style={styles.dpItemTexts}>
+                                <HighlightMatch
+                                  text={item.name}
+                                  query={query}
+                                  style={[styles.dpItemName, isSelected && styles.dpItemNameActive]}
+                                  matchStyle={styles.dpItemMatch}
+                                />
+                                <Text style={styles.dpItemSub} numberOfLines={1}>
+                                  {[item.provinceState, item.country].filter(Boolean).join(", ")}
+                                </Text>
+                              </View>
+                              {isSelected ? (
+                                <View style={styles.dpAddedPill}>
+                                  <FontAwesome6 name="check" size={10} color={colors.textInverse} />
+                                  <Text style={styles.dpAddedText}>Agregado</Text>
+                                </View>
+                              ) : (
+                                <View style={styles.dpAddButton}>
+                                  <FontAwesome6 name="plus" size={12} color={colors.primary} />
+                                </View>
+                              )}
+                            </TouchableOpacity>
+                          );
+                        }}
+                      />
+                    ) : hasSearched ? (
                       <ScrollView
                         keyboardShouldPersistTaps="handled"
                         showsVerticalScrollIndicator={false}
@@ -762,101 +866,16 @@ function DestinationPickerModal({
                       >
                         <View style={styles.dpIdleHero}>
                           <View style={styles.dpIdleIcon}>
-                            <FontAwesome6 name="earth-americas" size={24} color={colors.primary} />
+                            <FontAwesome6 name="magnifying-glass" size={20} color={colors.textMuted} />
                           </View>
-                          <Text style={styles.dpIdleTitle}>Elegí tu primer destino</Text>
+                          <Text style={styles.dpIdleTitle}>Sin resultados</Text>
                         </View>
-                        <Text style={styles.dpIdleText}>Escribí al menos 2 letras del nombre de una ciudad o país.</Text>
+                        <Text style={styles.dpIdleText}>
+                          No encontramos destinos para "{query}". Probá con otro nombre o revisá la ortografía.
+                        </Text>
                       </ScrollView>
-                    ) : null
-                  ) : searching ? (
-                    <View style={styles.dpListContent}>
-                      {[0, 1, 2].map((n) => (
-                        <View key={n} style={[styles.dpSkeletonRow, { opacity: 1 - n * 0.2 }]}>
-                          <View style={styles.dpSkeletonCircle} />
-                          <View style={styles.flex}>
-                            <View style={styles.dpSkeletonLong} />
-                            <View style={styles.dpSkeletonShort} />
-                          </View>
-                        </View>
-                      ))}
-                    </View>
-                  ) : options.length > 0 ? (
-                    <FlatList
-                      data={options}
-                      keyExtractor={(item, index) => `${item.name}-${item.country}-${index}`}
-                      keyboardShouldPersistTaps="handled"
-                      keyboardDismissMode="on-drag"
-                      showsVerticalScrollIndicator={false}
-                      contentContainerStyle={styles.dpListContent}
-                      ListHeaderComponent={keyboardVisible ? null : <Text style={styles.dpResultsLabel}>Resultados · tocá para agregar</Text>}
-                      ItemSeparatorComponent={() => <View style={styles.dpSeparator} />}
-                      renderItem={({ item }) => {
-                        const selectedMatch = selectedDestinations.find(
-                          (d) =>
-                            (item.placeId && d.placeId === item.placeId) ||
-                            (d.name === item.name && d.country === item.country)
-                        );
-                        const isSelected = Boolean(selectedMatch);
-                        return (
-                          <TouchableOpacity
-                            onPress={() => (isSelected ? onRemoveSelected(selectedMatch) : onSelect(item))}
-                            disabled={resolving && !isSelected}
-                            activeOpacity={0.7}
-                            style={[styles.dpItem, isSelected && styles.dpItemActive]}
-                            accessibilityRole="button"
-                            accessibilityLabel={`${isSelected ? "Quitar" : "Agregar"} ${item.name}`}
-                          >
-                            <View style={[styles.dpItemIcon, isSelected && styles.dpItemIconActive]}>
-                              <FontAwesome6
-                                name="location-dot"
-                                size={14}
-                                color={isSelected ? colors.textInverse : colors.primary}
-                              />
-                            </View>
-                            <View style={styles.dpItemTexts}>
-                              <HighlightMatch
-                                text={item.name}
-                                query={query}
-                                style={[styles.dpItemName, isSelected && styles.dpItemNameActive]}
-                                matchStyle={styles.dpItemMatch}
-                              />
-                              <Text style={styles.dpItemSub} numberOfLines={1}>
-                                {[item.provinceState, item.country].filter(Boolean).join(", ")}
-                              </Text>
-                            </View>
-                            {isSelected ? (
-                              <View style={styles.dpAddedPill}>
-                                <FontAwesome6 name="check" size={10} color={colors.textInverse} />
-                                <Text style={styles.dpAddedText}>Agregado</Text>
-                              </View>
-                            ) : (
-                              <View style={styles.dpAddButton}>
-                                <FontAwesome6 name="plus" size={12} color={colors.primary} />
-                              </View>
-                            )}
-                          </TouchableOpacity>
-                        );
-                      }}
-                    />
-                  ) : hasSearched ? (
-                    <ScrollView
-                      keyboardShouldPersistTaps="handled"
-                      showsVerticalScrollIndicator={false}
-                      contentContainerStyle={styles.dpIdleContent}
-                    >
-                      <View style={styles.dpIdleHero}>
-                        <View style={styles.dpIdleIcon}>
-                          <FontAwesome6 name="magnifying-glass" size={20} color={colors.textMuted} />
-                        </View>
-                        <Text style={styles.dpIdleTitle}>Sin resultados</Text>
-                      </View>
-                      <Text style={styles.dpIdleText}>
-                        No encontramos destinos para "{query}". Probá con otro nombre o revisá la ortografía.
-                      </Text>
-                    </ScrollView>
-                  ) : null}
-                </View>
+                    ) : null}
+                  </View>
                 ) : null}
                 {toast ? (
                   <View style={styles.dpToast}>
@@ -868,16 +887,16 @@ function DestinationPickerModal({
 
               {/* PIE: botón principal siempre a la vista; sube junto con el teclado */}
               {!keyboardVisible ? (
-              <View style={styles.dpFooter}>
-                <PrimaryButton
-                  label={
-                    count > 0
-                      ? `Listo · ${count} ${count === 1 ? "destino" : "destinos"}`
-                      : "Cerrar"
-                  }
-                  onPress={onClose}
-                />
-              </View>
+                <View style={styles.dpFooter}>
+                  <PrimaryButton
+                    label={
+                      count > 0
+                        ? `Listo · ${count} ${count === 1 ? "destino" : "destinos"}`
+                        : "Cerrar"
+                    }
+                    onPress={onClose}
+                  />
+                </View>
               ) : null}
             </View>
           </TouchableWithoutFeedback>
@@ -975,14 +994,13 @@ export default function CreateTripScreen({ navigation }) {
       mimeType: asset.mimeType || (extension === "png" ? "image/png" : "image/jpeg"),
       file: asset.file,
     });
-    setAiCover(null); 
+    setAiCover(null);
   }
 
   function handleRemoveCoverImage() {
     setCoverImage(null);
     setCoverError("");
   }
-
 
   function handleGenerateAiCover(prompt) {
     return generateCoverPreviewAI({
@@ -1009,7 +1027,6 @@ export default function CreateTripScreen({ navigation }) {
     setCoverError("");
     setShowAiGenerator(false);
   }
-
 
   function handleToggleAiGenerator() {
     const willShow = !showAiGenerator;
@@ -1170,7 +1187,6 @@ export default function CreateTripScreen({ navigation }) {
     }
   }
 
-
   function handleDateChange(name, value) {
     setForm((current) => {
       const next = { ...current, [name]: value };
@@ -1303,6 +1319,7 @@ export default function CreateTripScreen({ navigation }) {
     }
     if (!form.currency.trim()) localErrors.currency = "La moneda es obligatoria.";
 
+    // Comparación de strings "YYYY-MM-DD": getTodayIso() tiene que devolver la fecha LOCAL (ver utils/dates).
     if (form.startDate && form.startDate < getTodayIso()) {
       localErrors.startDate = "La fecha de inicio no puede ser anterior a la fecha actual.";
     }
@@ -1477,407 +1494,408 @@ export default function CreateTripScreen({ navigation }) {
 
   return (
     <ScreenContainer fullWidth padded={false}>
-        <KeyboardAvoidingView
-          behavior={Platform.OS === "ios" ? "padding" : "height"}
-          style={styles.flex}
-          keyboardVerticalOffset={Platform.OS === "ios" ? 64 : 0}
+      <KeyboardAvoidingView
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
+        style={styles.flex}
+        keyboardVerticalOffset={Platform.OS === "ios" ? 64 : 0}
+        enabled={Platform.OS !== "web"}
+      >
+        <View style={styles.hero}>
+          <View style={styles.heroTopRow}>
+            <IconCircleButton icon="arrow-left" onPress={handleBack} tone="light" />
+            <View style={styles.heroTitleWrap} pointerEvents="none">
+              <Text style={styles.heroTitle}>Nuevo viaje</Text>
+            </View>
+          </View>
+          {!tecladoVisible ? <Stepper step={step} /> : null}
+        </View>
+
+        <ScrollView
+          ref={formScroll.ref}
+          {...formScroll.scrollProps}
+          style={styles.scroll}
+          contentContainerStyle={styles.scrollContent}
+          showsVerticalScrollIndicator={false}
+          bounces={false}
+          overScrollMode="never"
+          onContentSizeChange={(_w, h) => {
+            const grew = h > lastContentHeightRef.current;
+            lastContentHeightRef.current = h;
+            if (grew && showAiGenerator && step === 2) {
+              formScroll.ref.current?.scrollToEnd?.({ animated: true });
+            }
+          }}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
         >
-          <View style={styles.hero}>
-            <View style={styles.heroTopRow}>
-              <IconCircleButton icon="arrow-left" onPress={handleBack} tone="light" />
-              <View style={styles.heroTitleWrap} pointerEvents="none">
-                <Text style={styles.heroTitle}>Nuevo viaje</Text>
+          {/* PASO 1: DATOS BÁSICOS Y FECHAS */}
+          {step === 1 && (
+            <View style={styles.card} onLayout={formScroll.registrarBase}>
+              <CardHeader
+                icon="suitcase-rolling"
+                title="Información Básica"
+                subtitle="Contanos lo esencial para empezar a planificar."
+              />
+
+              <Field
+                ref={titleInputRef}
+                error={errors.title}
+                icon="pen"
+                label="Título del viaje"
+                required
+                name="title"
+                onChange={handleInputChange}
+                onFocus={() => formScroll.enfocar("title")}
+                onLayout={formScroll.registrar("title")}
+                placeholder="Escapada a Bariloche"
+                returnKeyType="next"
+                onSubmitEditing={() => descriptionInputRef.current?.focus()}
+                value={form.title}
+              />
+
+              <Field
+                ref={descriptionInputRef}
+                error={errors.description}
+                icon="align-left"
+                label="Descripción"
+                optional
+                multiline
+                name="description"
+                onChange={handleInputChange}
+                onFocus={() => formScroll.enfocar("description")}
+                onLayout={formScroll.registrar("description")}
+                placeholder="Notas, idea general o resumen para los participantes..."
+                value={form.description}
+              />
+
+              <View style={styles.sectionBlock}>
+                <View style={styles.labelRow}>
+                  <Text style={styles.fieldLabel}>Fechas del viaje</Text>
+                  <Text style={styles.requiredMark}>*</Text>
+                </View>
+
+                <View style={[styles.row, isTablet && styles.rowTablet]}>
+                  {/* Fecha de ida: desde hoy (inclusive) en adelante */}
+                  <DateField
+                    error={errors.startDate}
+                    icon="plane-departure"
+                    label="Fecha de ida"
+                    minDate={parseYMD(getTodayIso(), 0)}
+                    onChange={handleDateChange}
+                    onOpenPicker={() => {
+                      dismissAllInputs();
+                      setShowStartPicker(true);
+                    }}
+                    pickerVisible={showStartPicker}
+                    pickerValue={form.startDate}
+                    fieldName="startDate"
+                    setPickerVisible={setShowStartPicker}
+                  />
+
+                  {/* Fecha de vuelta: requiere fecha de ida, y desde ese mismo día (inclusive) en adelante */}
+                  <DateField
+                    error={errors.endDate}
+                    icon="plane-arrival"
+                    label="Fecha de vuelta"
+                    disabled={!form.startDate}
+                    disabledText="Elegí primero la fecha de ida"
+                    minDate={form.startDate ? parseYMD(form.startDate, 0) : undefined}
+                    onChange={handleDateChange}
+                    onOpenPicker={() => {
+                      dismissAllInputs();
+                      if (!form.startDate) {
+                        setErrors((current) => ({
+                          ...current,
+                          endDate: "Primero elegí la fecha de ida.",
+                        }));
+                        return;
+                      }
+                      setShowEndPicker(true);
+                    }}
+                    pickerVisible={showEndPicker}
+                    pickerValue={form.endDate}
+                    fieldName="endDate"
+                    setPickerVisible={setShowEndPicker}
+                  />
+                </View>
+
+                {tripDuration ? (
+                  <View style={styles.durationChip}>
+                    <FontAwesome6 name="moon" size={12} color={colors.primary} />
+                    <Text style={styles.durationChipText}>{tripDuration}</Text>
+                  </View>
+                ) : null}
+              </View>
+
+              <View style={styles.sectionBlock}>
+                <CurrencySelector
+                  currencies={currencies}
+                  selectedCurrency={form.currency}
+                  onSelectCurrency={(code) => handleInputChange("currency", code)}
+                  error={errors.currency}
+                  onOpen={dismissAllInputs}
+                />
+                <Text style={styles.fieldHint}>
+                  Es la moneda base para registrar y dividir los gastos del viaje.
+                </Text>
               </View>
             </View>
-            {!tecladoVisible ? <Stepper step={step} /> : null}
-          </View>
+          )}
 
-          <ScrollView
-            ref={formScroll.ref}
-            {...formScroll.scrollProps}
-            style={styles.scroll}
-            contentContainerStyle={styles.scrollContent}
-            showsVerticalScrollIndicator={false}
-            bounces={false}
-            overScrollMode="never"
-            onContentSizeChange={(_w, h) => {
-              const grew = h > lastContentHeightRef.current;
-              lastContentHeightRef.current = h;
-              if (grew && showAiGenerator && step === 2) {
-                formScroll.ref.current?.scrollToEnd?.({ animated: true });
-              }
-            }}
-            keyboardShouldPersistTaps="handled"
-            keyboardDismissMode="on-drag"
-          >
-            {/* PASO 1: DATOS BÁSICOS Y FECHAS */}
-            {step === 1 && (
-              <View style={styles.card} onLayout={formScroll.registrarBase}>
-                <CardHeader
-                  icon="suitcase-rolling"
-                  title="Información Básica"
-                  subtitle="Contanos lo esencial para empezar a planificar."
-                />
+          {/* PASO 2: DESTINOS Y PORTADA */}
+          {step === 2 && (
+            <View style={styles.card}>
+              <CardHeader
+                icon="location-dot"
+                title="Destinos y Portada"
+                subtitle="Elegí a dónde van y cómo se va a ver tu viaje."
+              />
 
-                <Field
-                  ref={titleInputRef}
-                  error={errors.title}
-                  icon="pen"
-                  label="Título del viaje"
-                  required
-                  name="title"
-                  onChange={handleInputChange}
-                  onFocus={() => formScroll.enfocar("title")}
-                  onLayout={formScroll.registrar("title")}
-                  placeholder="Escapada a Bariloche"
-                  returnKeyType="next"
-                  onSubmitEditing={() => descriptionInputRef.current?.focus()}
-                  value={form.title}
-                />
-
-                <Field
-                  ref={descriptionInputRef}
-                  error={errors.description}
-                  icon="align-left"
-                  label="Descripción"
-                  optional
-                  multiline
-                  name="description"
-                  onChange={handleInputChange}
-                  onFocus={() => formScroll.enfocar("description")}
-                  onLayout={formScroll.registrar("description")}
-                  placeholder="Notas, idea general o resumen para los participantes..."
-                  value={form.description}
-                />
-
-                <View style={styles.sectionBlock}>
-                  <View style={styles.labelRow}>
-                    <Text style={styles.fieldLabel}>Fechas del viaje</Text>
-                    <Text style={styles.requiredMark}>*</Text>
-                  </View>
-
-                  <View style={[styles.row, isTablet && styles.rowTablet]}>
-                    {/* Fecha de ida: desde hoy (inclusive) en adelante */}
-                    <DateField
-                      error={errors.startDate}
-                      icon="plane-departure"
-                      label="Fecha de ida"
-                      minDate={parseYMD(getTodayIso(), 0)}
-                      onChange={handleDateChange}
-                      onOpenPicker={() => {
-                        dismissAllInputs();
-                        setShowStartPicker(true);
-                      }}
-                      pickerVisible={showStartPicker}
-                      pickerValue={form.startDate}
-                      fieldName="startDate"
-                      setPickerVisible={setShowStartPicker}
-                    />
-
-                    {/* Fecha de vuelta: requiere fecha de ida, y desde ese mismo día (inclusive) en adelante */}
-                    <DateField
-                      error={errors.endDate}
-                      icon="plane-arrival"
-                      label="Fecha de vuelta"
-                      disabled={!form.startDate}
-                      disabledText="Elegí primero la fecha de ida"
-                      minDate={form.startDate ? parseYMD(form.startDate, 0) : undefined}
-                      onChange={handleDateChange}
-                      onOpenPicker={() => {
-                        dismissAllInputs();
-                        if (!form.startDate) {
-                          setErrors((current) => ({
-                            ...current,
-                            endDate: "Primero elegí la fecha de ida.",
-                          }));
-                          return;
-                        }
-                        setShowEndPicker(true);
-                      }}
-                      pickerVisible={showEndPicker}
-                      pickerValue={form.endDate}
-                      fieldName="endDate"
-                      setPickerVisible={setShowEndPicker}
-                    />
-                  </View>
-
-                  {tripDuration ? (
-                    <View style={styles.durationChip}>
-                      <FontAwesome6 name="moon" size={12} color={colors.primary} />
-                      <Text style={styles.durationChipText}>{tripDuration}</Text>
-                    </View>
-                  ) : null}
+              <View style={styles.sectionBlock}>
+                <View style={styles.labelRow}>
+                  <Text style={styles.fieldLabel}>Destino</Text>
+                  <Text style={styles.requiredMark}>*</Text>
                 </View>
 
-                <View style={styles.sectionBlock}>
-                  <CurrencySelector
-                    currencies={currencies}
-                    selectedCurrency={form.currency}
-                    onSelectCurrency={(code) => handleInputChange("currency", code)}
-                    error={errors.currency}
-                    onOpen={dismissAllInputs}
-                  />
-                  <Text style={styles.fieldHint}>
-                    Es la moneda base para registrar y dividir los gastos del viaje.
-                  </Text>
-                </View>
-              </View>
-            )}
-
-            {/* PASO 2: DESTINOS Y PORTADA */}
-            {step === 2 && (
-              <View style={styles.card}>
-                <CardHeader
-                  icon="location-dot"
-                  title="Destinos y Portada"
-                  subtitle="Elegí a dónde van y cómo se va a ver tu viaje."
-                />
-
-                <View style={styles.sectionBlock}>
-                  <View style={styles.labelRow}>
-                    <Text style={styles.fieldLabel}>Destino</Text>
-                    <Text style={styles.requiredMark}>*</Text>
-                  </View>
-
-                  {form.destinations.length === 0 ? (
-                    <>
-                      <TouchableOpacity
-                        style={[styles.searchBar, errors.destinations && styles.inputError]}
-                        onPress={openDestinationPicker}
-                        activeOpacity={0.8}
-                        accessibilityRole="button"
-                        accessibilityLabel="Buscar destino"
-                      >
-                        <FontAwesome6 name="magnifying-glass" size={15} color={colors.primary} />
-                        <Text style={styles.searchBarText} numberOfLines={1}>Buscar ciudad o país...</Text>
-                        <View style={styles.searchBarAction}>
-                          <FontAwesome6 name="plus" size={13} color={colors.textInverse} />
-                        </View>
-                      </TouchableOpacity>
-                      <Text style={styles.fieldHint}>Podés agregar más de un destino.</Text>
-                    </>
-                  ) : (
-                    <View>
-                      {form.destinations.map((d, index) => (
-                        <View key={`${d.name}-${d.country}-${index}`} style={styles.routeRow}>
-                          <RouteRail showTop={index > 0}>
-                            <View style={styles.routeDot}>
-                              <Text style={styles.routeDotText}>{index + 1}</Text>
-                            </View>
-                          </RouteRail>
-                          <View style={styles.routeContent}>
-                            <View style={styles.destinationCard}>
-                              {d.imageUrl ? (
-                                <Image source={{ uri: d.imageUrl }} style={styles.destinationThumb} />
-                              ) : (
-                                <View style={[styles.destinationThumb, styles.destinationThumbEmpty]}>
-                                  <FontAwesome6 name="location-dot" size={16} color={colors.primary} />
-                                </View>
-                              )}
-                              <View style={styles.flex}>
-                                <Text style={styles.destinationChipText} numberOfLines={1}>{d.name}</Text>
-                                <Text style={styles.destinationCountry} numberOfLines={1}>
-                                  {[d.provinceState, d.country].filter(Boolean).join(", ")}
-                                </Text>
-                              </View>
-                              <Pressable
-                                onPress={() => removeDestination(d)}
-                                hitSlop={12}
-                                style={styles.destinationRemoveButton}
-                                accessibilityLabel={`Quitar ${d.name}`}
-                              >
-                                <FontAwesome6 name="xmark" size={12} color={COLOR_DANGER} />
-                              </Pressable>
-                            </View>
-                          </View>
-                        </View>
-                      ))}
-
-                      <View style={styles.routeRow}>
-                        <RouteRail topHeight={9} showBottom={false}>
-                          <View style={[styles.routeDot, styles.routeDotAdd]}>
-                            <FontAwesome6 name="plus" size={11} color={colors.primary} />
+                {form.destinations.length === 0 ? (
+                  <>
+                    <TouchableOpacity
+                      style={[styles.searchBar, errors.destinations && styles.inputError]}
+                      onPress={openDestinationPicker}
+                      activeOpacity={0.8}
+                      accessibilityRole="button"
+                      accessibilityLabel="Buscar destino"
+                    >
+                      <FontAwesome6 name="magnifying-glass" size={15} color={colors.primary} />
+                      <Text style={styles.searchBarText} numberOfLines={1}>Buscar ciudad o país...</Text>
+                      <View style={styles.searchBarAction}>
+                        <FontAwesome6 name="plus" size={13} color={colors.textInverse} />
+                      </View>
+                    </TouchableOpacity>
+                    <Text style={styles.fieldHint}>Podés agregar más de un destino.</Text>
+                  </>
+                ) : (
+                  <View>
+                    {form.destinations.map((d, index) => (
+                      <View key={`${d.name}-${d.country}-${index}`} style={styles.routeRow}>
+                        <RouteRail showTop={index > 0}>
+                          <View style={styles.routeDot}>
+                            <Text style={styles.routeDotText}>{index + 1}</Text>
                           </View>
                         </RouteRail>
                         <View style={styles.routeContent}>
-                          <TouchableOpacity style={styles.addAnotherButton} onPress={openDestinationPicker} activeOpacity={0.8}>
-                            <Text style={styles.addAnotherText}>Agregar otro destino</Text>
-                          </TouchableOpacity>
+                          <View style={styles.destinationCard}>
+                            {d.imageUrl ? (
+                              <Image source={{ uri: d.imageUrl }} style={styles.destinationThumb} />
+                            ) : (
+                              <View style={[styles.destinationThumb, styles.destinationThumbEmpty]}>
+                                <FontAwesome6 name="location-dot" size={16} color={colors.primary} />
+                              </View>
+                            )}
+                            <View style={styles.flex}>
+                              <Text style={styles.destinationChipText} numberOfLines={1}>{d.name}</Text>
+                              <Text style={styles.destinationCountry} numberOfLines={1}>
+                                {[d.provinceState, d.country].filter(Boolean).join(", ")}
+                              </Text>
+                            </View>
+                            <Pressable
+                              onPress={() => removeDestination(d)}
+                              hitSlop={12}
+                              style={styles.destinationRemoveButton}
+                              accessibilityLabel={`Quitar ${d.name}`}
+                            >
+                              <FontAwesome6 name="xmark" size={12} color={COLOR_DANGER} />
+                            </Pressable>
+                          </View>
                         </View>
                       </View>
-                    </View>
-                  )}
+                    ))}
 
-                  {/* Con el buscador abierto, el error se muestra dentro del buscador para que el usuario lo vea */}
-                  {errors.destinations && !showDestinationPicker ? (
-                    <View style={styles.errorRow}>
-                      <FontAwesome6 name="circle-exclamation" size={12} color={COLOR_DANGER} />
-                      <Text style={styles.fieldError}>{errors.destinations}</Text>
+                    <View style={styles.routeRow}>
+                      <RouteRail topHeight={9} showBottom={false}>
+                        <View style={[styles.routeDot, styles.routeDotAdd]}>
+                          <FontAwesome6 name="plus" size={11} color={colors.primary} />
+                        </View>
+                      </RouteRail>
+                      <View style={styles.routeContent}>
+                        <TouchableOpacity style={styles.addAnotherButton} onPress={openDestinationPicker} activeOpacity={0.8}>
+                          <Text style={styles.addAnotherText}>Agregar otro destino</Text>
+                        </TouchableOpacity>
+                      </View>
                     </View>
-                  ) : null}
+                  </View>
+                )}
+
+                {/* Con el buscador abierto, el error se muestra dentro del buscador para que el usuario lo vea */}
+                {errors.destinations && !showDestinationPicker ? (
+                  <View style={styles.errorRow}>
+                    <FontAwesome6 name="circle-exclamation" size={12} color={COLOR_DANGER} />
+                    <Text style={styles.fieldError}>{errors.destinations}</Text>
+                  </View>
+                ) : null}
+              </View>
+
+              {/* PORTADA DEL VIAJE */}
+              <View style={styles.sectionBlock}>
+                <View style={styles.labelRow}>
+                  <Text style={styles.fieldLabel}>Portada del viaje</Text>
+                  <Text style={styles.optionalTag}>Opcional</Text>
                 </View>
 
-                {/* PORTADA DEL VIAJE */}
-                <View style={styles.sectionBlock}>
-                  <View style={styles.labelRow}>
-                    <Text style={styles.fieldLabel}>Portada del viaje</Text>
-                    <Text style={styles.optionalTag}>Opcional</Text>
+                {renderCoverPreview()}
+
+                <View style={styles.coverOptionsRow}>
+                  <CoverOption
+                    icon="location-dot"
+                    label="Destino"
+                    sub="Automática"
+                    active={coverMode === "destination"}
+                    onPress={handleUseDestinationCover}
+                  />
+                  <CoverOption
+                    icon="image"
+                    label="Galería"
+                    sub={coverImage ? "Cambiar" : "Elegir foto"}
+                    active={coverMode === "gallery"}
+                    onPress={handleChooseGallery}
+                  />
+                  <CoverOption
+                    icon="wand-magic-sparkles"
+                    label="Con IA"
+                    sub={aiCover ? "Lista" : "Generar"}
+                    active={coverMode === "ai" || showAiGenerator}
+                    onPress={handleToggleAiGenerator}
+                  />
+                </View>
+
+                <Text style={styles.fieldHint}>
+                  {coverMode === "gallery"
+                    ? "Formatos permitidos: JPG y PNG."
+                    : coverMode === "ai"
+                      ? "La portada generada se aplica al crear el viaje."
+                      : primaryDestination?.imageUrl
+                        ? `Usamos la foto de ${primaryDestination.name}.`
+                        : "Si no elegís una imagen, usamos una portada predeterminada."}
+                </Text>
+
+                {coverError ? (
+                  <View style={styles.errorRow}>
+                    <FontAwesome6 name="circle-exclamation" size={12} color={COLOR_DANGER} />
+                    <Text style={styles.fieldError}>{coverError}</Text>
                   </View>
+                ) : null}
 
-                  {renderCoverPreview()}
+                {/* Siempre montado (solo oculto) para no perder lo que el usuario ya escribió o generó */}
+                <View style={!showAiGenerator && styles.hidden}>
+                  <AICoverGenerator
+                    generate={handleGenerateAiCover}
+                    onAccept={handleAcceptAiCover}
+                  />
+                </View>
+              </View>
+            </View>
+          )}
 
-                  <View style={styles.coverOptionsRow}>
-                    <CoverOption
-                      icon="location-dot"
-                      label="Destino"
-                      sub="Automática"
-                      active={coverMode === "destination"}
-                      onPress={handleUseDestinationCover}
-                    />
-                    <CoverOption
-                      icon="image"
-                      label="Galería"
-                      sub={coverImage ? "Cambiar" : "Elegir foto"}
-                      active={coverMode === "gallery"}
-                      onPress={handleChooseGallery}
-                    />
-                    <CoverOption
-                      icon="wand-magic-sparkles"
-                      label="Con IA"
-                      sub={aiCover ? "Lista" : "Generar"}
-                      active={coverMode === "ai" || showAiGenerator}
-                      onPress={handleToggleAiGenerator}
-                    />
+          {/* PASO 3: PARTICIPANTES Y CONFIRMACIÓN */}
+          {step === 3 && (
+            <>
+              <View style={styles.card}>
+                <CardHeader
+                  icon="user-plus"
+                  title="Invitar participantes (Opcional)"
+                  subtitle="Buscá por nombre, usuario o correo. Si no tiene cuenta, escribí su correo para invitarlo."
+                />
+
+                <ParticipantSearch
+                  canInviteExternal={canInviteExternal}
+                  message={inviteMessage}
+                  onInviteExternal={addExternalInvite}
+                  onSearchChange={handleParticipantSearchChange}
+                  onSelectUser={addParticipant}
+                  search={participantSearch}
+                  suggestions={selectableUsers}
+                />
+
+                <ParticipantList onRemove={removeParticipant} participants={participantItems} />
+
+                <View style={styles.ownerCard}>
+                  <View style={styles.ownerAvatar}>
+                    <Text style={styles.ownerAvatarText}>{getInitials(currentUser?.nombreCompleto)}</Text>
                   </View>
-
-                  <Text style={styles.fieldHint}>
-                    {coverMode === "gallery"
-                      ? "Formatos permitidos: JPG y PNG."
-                      : coverMode === "ai"
-                        ? "La portada generada se aplica al crear el viaje."
-                        : primaryDestination?.imageUrl
-                          ? `Usamos la foto de ${primaryDestination.name}.`
-                          : "Si no elegís una imagen, usamos una portada predeterminada."}
-                  </Text>
-
-                  {coverError ? (
-                    <View style={styles.errorRow}>
-                      <FontAwesome6 name="circle-exclamation" size={12} color={COLOR_DANGER} />
-                      <Text style={styles.fieldError}>{coverError}</Text>
-                    </View>
-                  ) : null}
-
-                  {/* Siempre montado (solo oculto) para no perder lo que el usuario ya escribió o generó */}
-                  <View style={!showAiGenerator && styles.hidden}>
-                    <AICoverGenerator
-                      generate={handleGenerateAiCover}
-                      onAccept={handleAcceptAiCover}
-                    />
+                  <View style={styles.flex}>
+                    <Text style={styles.ownerLabel}>Administrador del viaje</Text>
+                    {currentUser ? (
+                      <>
+                        <Text style={styles.ownerName}>{currentUser.nombreCompleto}</Text>
+                        <Text style={styles.ownerMeta}>@{currentUser.nombreUsuario} · {currentUser.email}</Text>
+                      </>
+                    ) : (
+                      <Text style={styles.ownerMeta}>Cargando usuario...</Text>
+                    )}
                   </View>
                 </View>
               </View>
-            )}
 
-            {/* PASO 3: PARTICIPANTES Y CONFIRMACIÓN */}
-            {step === 3 && (
-              <>
-                <View style={styles.card}>
-                  <CardHeader
-                    icon="user-plus"
-                    title="Invitar participantes (Opcional)"
-                    subtitle="Buscá por nombre, usuario o correo. Si no tiene cuenta, escribí su correo para invitarlo."
-                  />
-
-                  <ParticipantSearch
-                    canInviteExternal={canInviteExternal}
-                    message={inviteMessage}
-                    onInviteExternal={addExternalInvite}
-                    onSearchChange={handleParticipantSearchChange}
-                    onSelectUser={addParticipant}
-                    search={participantSearch}
-                    suggestions={selectableUsers}
-                  />
-
-                  <ParticipantList onRemove={removeParticipant} participants={participantItems} />
-
-                  <View style={styles.ownerCard}>
-                    <View style={styles.ownerAvatar}>
-                      <Text style={styles.ownerAvatarText}>{getInitials(currentUser?.nombreCompleto)}</Text>
-                    </View>
-                    <View style={styles.flex}>
-                      <Text style={styles.ownerLabel}>Administrador del viaje</Text>
-                      {currentUser ? (
-                        <>
-                          <Text style={styles.ownerName}>{currentUser.nombreCompleto}</Text>
-                          <Text style={styles.ownerMeta}>@{currentUser.nombreUsuario} · {currentUser.email}</Text>
-                        </>
-                      ) : (
-                        <Text style={styles.ownerMeta}>Cargando usuario...</Text>
-                      )}
-                    </View>
-                  </View>
-                </View>
-
-                {/* Resumen final: el usuario revisa todo antes de crear el viaje */}
-                <View style={[styles.card, styles.summaryCard]}>
-                  <Text style={styles.summaryTitle}>Resumen del viaje</Text>
-                  <SummaryItem icon="suitcase-rolling" label="Viaje" value={form.title} />
-                  <SummaryItem
-                    icon="calendar-days"
-                    label="Fechas"
-                    value={`${formatDateDisplay(form.startDate)} al ${formatDateDisplay(form.endDate)}${
-                      tripDuration ? ` (${tripDuration})` : ""
-                    }`}
-                  />
-                  <SummaryItem
-                    icon="location-dot"
-                    label={form.destinations.length > 1 ? "Destinos" : "Destino"}
-                    value={form.destinations.map((d) => d.name).join(", ")}
-                  />
-                  <SummaryItem icon="coins" label="Moneda" value={form.currency} />
-                </View>
-              </>
-            )}
-          </ScrollView>
-
-          {/* Mensaje de resultado visible junto a los botones */}
-          {submitMessage ? (
-            <View style={[styles.banner, submitStatus === "error" ? styles.bannerError : styles.bannerSuccess]}>
-              <FontAwesome6
-                name={submitStatus === "error" ? "circle-exclamation" : "circle-check"}
-                size={14}
-                color={submitStatus === "error" ? COLOR_DANGER : colors.success}
-              />
-              <Text style={[styles.bannerText, submitStatus === "error" ? styles.submitError : styles.submitSuccess]}>
-                {submitMessage}
-              </Text>
-            </View>
-          ) : null}
-
-          {/* Barra de acciones: no se muestra mientras el teclado está abierto */}
-          {!tecladoVisible && (
-            <View style={styles.actionBar}>
-              <PrimaryButton
-                label={step === 1 ? "Cancelar" : "Anterior"}
-                onPress={handleBack}
-                variant="secondary"
-                disabled={submitting}
-                style={styles.actionSecondary}
-              />
-              {step < 3 ? (
-                <PrimaryButton label="Siguiente" onPress={handleNext} style={styles.actionPrimary} />
-              ) : (
-                <PrimaryButton
-                  disabled={!currentUser}
-                  label={submitting ? "Creando..." : "Crear viaje"}
-                  loading={submitting}
-                  onPress={handleSubmit}
-                  style={styles.actionPrimary}
+              {/* Resumen final: el usuario revisa todo antes de crear el viaje */}
+              <View style={[styles.card, styles.summaryCard]}>
+                <Text style={styles.summaryTitle}>Resumen del viaje</Text>
+                <SummaryItem icon="suitcase-rolling" label="Viaje" value={form.title} />
+                <SummaryItem
+                  icon="calendar-days"
+                  label="Fechas"
+                  value={`${formatDateDisplay(form.startDate)} al ${formatDateDisplay(form.endDate)}${
+                    tripDuration ? ` (${tripDuration})` : ""
+                  }`}
                 />
-              )}
-            </View>
+                <SummaryItem
+                  icon="location-dot"
+                  label={form.destinations.length > 1 ? "Destinos" : "Destino"}
+                  value={form.destinations.map((d) => d.name).join(", ")}
+                />
+                <SummaryItem icon="coins" label="Moneda" value={form.currency} />
+              </View>
+            </>
           )}
-        </KeyboardAvoidingView>
+        </ScrollView>
+
+        {/* Mensaje de resultado visible junto a los botones */}
+        {submitMessage ? (
+          <View style={[styles.banner, submitStatus === "error" ? styles.bannerError : styles.bannerSuccess]}>
+            <FontAwesome6
+              name={submitStatus === "error" ? "circle-exclamation" : "circle-check"}
+              size={14}
+              color={submitStatus === "error" ? COLOR_DANGER : colors.success}
+            />
+            <Text style={[styles.bannerText, submitStatus === "error" ? styles.submitError : styles.submitSuccess]}>
+              {submitMessage}
+            </Text>
+          </View>
+        ) : null}
+
+        {/* Barra de acciones: no se muestra mientras el teclado está abierto */}
+        {!tecladoVisible && (
+          <View style={styles.actionBar}>
+            <PrimaryButton
+              label={step === 1 ? "Cancelar" : "Anterior"}
+              onPress={handleBack}
+              variant="secondary"
+              disabled={submitting}
+              style={styles.actionSecondary}
+            />
+            {step < 3 ? (
+              <PrimaryButton label="Siguiente" onPress={handleNext} style={styles.actionPrimary} />
+            ) : (
+              <PrimaryButton
+                disabled={!currentUser}
+                label={submitting ? "Creando..." : "Crear viaje"}
+                loading={submitting}
+                onPress={handleSubmit}
+                style={styles.actionPrimary}
+              />
+            )}
+          </View>
+        )}
+      </KeyboardAvoidingView>
 
       <DestinationPickerModal
         visible={showDestinationPicker}
@@ -2112,6 +2130,7 @@ const styles = StyleSheet.create({
     gap: spacing.xs,
   },
   dateTile: {
+    position: "relative",
     minHeight: 62,
     borderWidth: 1,
     borderColor: colors.border,
@@ -2122,6 +2141,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
+    overflow: "hidden",
   },
   dateTileFilled: {
     borderColor: colors.primary,

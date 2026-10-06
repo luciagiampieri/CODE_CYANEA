@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { FontAwesome6 } from "@expo/vector-icons";
 import {
   KeyboardAvoidingView,
@@ -19,6 +19,13 @@ import { colors, radii, shadows, spacing, textStyles } from "../../theme/tokens"
 // Monedas que más se usan en viajes desde Argentina: aparecen primero en la
 // lista cuando no hay búsqueda, el resto sigue en el orden que trae el backend.
 const MONEDAS_FRECUENTES = ["ARS", "USD", "EUR", "BRL", "CLP", "UYU"];
+
+// Web en un dispositivo táctil (celu/tablet desde el navegador).
+const IS_TOUCH_WEB =
+  Platform.OS === "web" &&
+  typeof window !== "undefined" &&
+  typeof window.matchMedia === "function" &&
+  window.matchMedia("(pointer: coarse)").matches;
 
 // Símbolos de las monedas más comunes; el resto muestra su código
 const SIMBOLOS = {
@@ -42,6 +49,36 @@ const SIMBOLOS = {
   PYG: "₲",
   BOB: "Bs",
 };
+
+/**
+ * Solo web: devuelve la zona realmente visible de la pantalla (sin el teclado).
+ * En el navegador del celu el teclado no achica la página, así que un Modal
+ * "pegado abajo" queda debajo del teclado. Con esto el popup se ubica en el
+ * área visible. En nativo devuelve null y no cambia nada.
+ */
+function useWebVisualViewport(active) {
+  const [viewport, setViewport] = useState(null);
+
+  useEffect(() => {
+    if (Platform.OS !== "web" || !active || typeof window === "undefined" || !window.visualViewport) {
+      setViewport(null);
+      return undefined;
+    }
+
+    const vv = window.visualViewport;
+    const update = () => setViewport({ top: vv.offsetTop, height: vv.height });
+
+    update();
+    vv.addEventListener("resize", update);
+    vv.addEventListener("scroll", update);
+    return () => {
+      vv.removeEventListener("resize", update);
+      vv.removeEventListener("scroll", update);
+    };
+  }, [active]);
+
+  return viewport;
+}
 
 function CurrencyBadge({ code, active, size = 40 }) {
   const simbolo = SIMBOLOS[code];
@@ -80,6 +117,7 @@ export default function CurrencySelector({
   const [search, setSearch] = useState("");
   const [open, setOpen] = useState(false);
   const { isTablet } = useResponsive();
+  const webViewport = useWebVisualViewport(open);
 
   const filtered = useMemo(() => {
     const value = search.trim().toLowerCase();
@@ -149,131 +187,142 @@ export default function CurrencySelector({
       {error ? <Text style={styles.error}>{error}</Text> : null}
 
       <Modal visible={open} animationType="fade" onRequestClose={closeModal} transparent>
-        <KeyboardAvoidingView
-          style={styles.flex}
-          behavior={Platform.OS === "ios" ? "padding" : undefined}
+        {/* En web el contenedor ocupa solo la zona visible (arriba del teclado) */}
+        <View
+          style={
+            webViewport
+              ? [styles.webViewportBox, { top: webViewport.top, height: webViewport.height }]
+              : styles.flex
+          }
         >
-          <Pressable
-            style={[styles.overlay, isTablet ? styles.overlayCentered : styles.overlayBottom]}
-            onPress={closeModal}
+          <KeyboardAvoidingView
+            style={styles.flex}
+            behavior={Platform.OS === "ios" ? "padding" : undefined}
+            enabled={Platform.OS !== "web"}
           >
-            {/* stopPropagation: tocar dentro del popup no lo cierra */}
             <Pressable
-              style={[styles.sheet, isTablet ? styles.sheetCentered : styles.sheetBottom]}
-              onPress={(e) => e.stopPropagation()}
-              accessible={false}
+              style={[styles.overlay, isTablet ? styles.overlayCentered : styles.overlayBottom]}
+              onPress={closeModal}
             >
-              {!isTablet && <View style={styles.grabber} />}
+              {/* stopPropagation: tocar dentro del popup no lo cierra */}
+              <Pressable
+                style={[styles.sheet, isTablet ? styles.sheetCentered : styles.sheetBottom]}
+                onPress={(e) => e.stopPropagation()}
+                accessible={false}
+              >
+                {!isTablet && <View style={styles.grabber} />}
 
-              {/* Encabezado */}
-              <View style={styles.pickerHeader}>
-                <View style={styles.headerTitleWrap}>
-                  <Text style={styles.pickerTitle}>Moneda</Text>
-                  <Text style={styles.pickerSubtitle}>
-                    {currencies.length} {currencies.length === 1 ? "disponible" : "disponibles"}
-                  </Text>
+                {/* Encabezado */}
+                <View style={styles.pickerHeader}>
+                  <View style={styles.headerTitleWrap}>
+                    <Text style={styles.pickerTitle}>Moneda</Text>
+                    <Text style={styles.pickerSubtitle}>
+                      {currencies.length} {currencies.length === 1 ? "disponible" : "disponibles"}
+                    </Text>
+                  </View>
+
+                  <TouchableOpacity
+                    onPress={closeModal}
+                    hitSlop={10}
+                    style={styles.roundButton}
+                    activeOpacity={0.7}
+                    accessibilityLabel="Cerrar selector de moneda"
+                  >
+                    <FontAwesome6 name="xmark" size={15} color={colors.primary} />
+                  </TouchableOpacity>
                 </View>
 
-                <TouchableOpacity
-                  onPress={closeModal}
-                  hitSlop={10}
-                  style={styles.roundButton}
-                  activeOpacity={0.7}
-                  accessibilityLabel="Cerrar selector de moneda"
-                >
-                  <FontAwesome6 name="xmark" size={15} color={colors.primary} />
-                </TouchableOpacity>
-              </View>
-
-              {/* Buscador */}
-              <View style={styles.searchWrapper}>
-                <View style={styles.pickerSearchBox}>
-                  <FontAwesome6 name="magnifying-glass" size={14} color={colors.textMuted} />
-                  <TextInput
-                    value={search}
-                    onChangeText={setSearch}
-                    placeholder="Buscá por nombre o código"
-                    placeholderTextColor={colors.textMuted}
-                    style={styles.pickerSearchInput}
-                    // En mobile no abrimos el teclado de entrada: taparía la lista
-                    autoFocus={Platform.OS === "web"}
-                    autoCorrect={false}
-                    autoCapitalize="none"
-                  />
-                  {search.length > 0 && (
-                    <TouchableOpacity onPress={() => setSearch("")} hitSlop={8}>
-                      <FontAwesome6 name="circle-xmark" size={15} color={colors.textMuted} />
-                    </TouchableOpacity>
-                  )}
+                {/* Buscador */}
+                <View style={styles.searchWrapper}>
+                  <View style={styles.pickerSearchBox}>
+                    <FontAwesome6 name="magnifying-glass" size={14} color={colors.textMuted} />
+                    <TextInput
+                      value={search}
+                      onChangeText={setSearch}
+                      placeholder="Buscá por nombre o código"
+                      placeholderTextColor={colors.textMuted}
+                      style={styles.pickerSearchInput}
+                      // Solo en compu abrimos el buscador con foco: en celulares (app o navegador)
+                      // el teclado taparía la lista apenas se abre el selector.
+                      autoFocus={Platform.OS === "web" && !IS_TOUCH_WEB}
+                      autoCorrect={false}
+                      autoCapitalize="none"
+                    />
+                    {search.length > 0 && (
+                      <TouchableOpacity onPress={() => setSearch("")} hitSlop={8}>
+                        <FontAwesome6 name="circle-xmark" size={15} color={colors.textMuted} />
+                      </TouchableOpacity>
+                    )}
+                  </View>
                 </View>
-              </View>
 
-              {/* Lista */}
-              <FlatList
-                style={styles.list}
-                data={filtered}
-                keyExtractor={(item) => item.Codigo}
-                keyboardShouldPersistTaps="handled"
-                contentContainerStyle={styles.listContent}
-                showsVerticalScrollIndicator={false}
-                initialNumToRender={12}
-                renderItem={({ item }) => {
-                  const isActive = item.Codigo === selectedCurrency;
-                  return (
-                    <TouchableOpacity
-                      style={[styles.item, isActive && styles.itemActive]}
-                      onPress={() => {
-                        onSelectCurrency(item.Codigo);
-                        closeModal();
-                      }}
-                      activeOpacity={0.75}
-                    >
-                      <View style={styles.itemLeft}>
-                        <CurrencyBadge code={item.Codigo} active={isActive} size={36} />
-                        <View style={styles.itemTextWrap}>
-                          <Text
-                            style={[styles.itemTitle, isActive && styles.itemTitleActive]}
-                            numberOfLines={1}
-                          >
-                            {item.Nombre}
-                          </Text>
-                          <Text style={styles.itemCode}>{item.Codigo}</Text>
+                {/* Lista */}
+                <FlatList
+                  style={styles.list}
+                  data={filtered}
+                  keyExtractor={(item) => item.Codigo}
+                  keyboardShouldPersistTaps="handled"
+                  contentContainerStyle={styles.listContent}
+                  showsVerticalScrollIndicator={false}
+                  initialNumToRender={12}
+                  renderItem={({ item }) => {
+                    const isActive = item.Codigo === selectedCurrency;
+                    return (
+                      <TouchableOpacity
+                        style={[styles.item, isActive && styles.itemActive]}
+                        onPress={() => {
+                          onSelectCurrency(item.Codigo);
+                          closeModal();
+                        }}
+                        activeOpacity={0.75}
+                      >
+                        <View style={styles.itemLeft}>
+                          <CurrencyBadge code={item.Codigo} active={isActive} size={36} />
+                          <View style={styles.itemTextWrap}>
+                            <Text
+                              style={[styles.itemTitle, isActive && styles.itemTitleActive]}
+                              numberOfLines={1}
+                            >
+                              {item.Nombre}
+                            </Text>
+                            <Text style={styles.itemCode}>{item.Codigo}</Text>
+                          </View>
                         </View>
-                      </View>
 
-                      {isActive && (
-                        <FontAwesome6 name="check" size={14} color={colors.primary} />
-                      )}
-                    </TouchableOpacity>
-                  );
-                }}
-                ListEmptyComponent={
-                  currencies.length === 0 ? (
-                    <View style={styles.empty}>
-                      <View style={styles.emptyIconWrap}>
-                        <FontAwesome6 name="wifi" size={18} color={colors.textMuted} />
+                        {isActive && (
+                          <FontAwesome6 name="check" size={14} color={colors.primary} />
+                        )}
+                      </TouchableOpacity>
+                    );
+                  }}
+                  ListEmptyComponent={
+                    currencies.length === 0 ? (
+                      <View style={styles.empty}>
+                        <View style={styles.emptyIconWrap}>
+                          <FontAwesome6 name="wifi" size={18} color={colors.textMuted} />
+                        </View>
+                        <Text style={styles.emptyTitle}>No pudimos cargar las monedas</Text>
+                        <Text style={styles.emptyText}>
+                          Revisá tu conexión y volvé a abrir el selector.
+                        </Text>
                       </View>
-                      <Text style={styles.emptyTitle}>No pudimos cargar las monedas</Text>
-                      <Text style={styles.emptyText}>
-                        Revisá tu conexión y volvé a abrir el selector.
-                      </Text>
-                    </View>
-                  ) : (
-                    <View style={styles.empty}>
-                      <View style={styles.emptyIconWrap}>
-                        <FontAwesome6 name="magnifying-glass" size={20} color={colors.textMuted} />
+                    ) : (
+                      <View style={styles.empty}>
+                        <View style={styles.emptyIconWrap}>
+                          <FontAwesome6 name="magnifying-glass" size={20} color={colors.textMuted} />
+                        </View>
+                        <Text style={styles.emptyTitle}>Sin resultados</Text>
+                        <Text style={styles.emptyText}>
+                          No encontramos ninguna moneda que coincida con tu búsqueda.
+                        </Text>
                       </View>
-                      <Text style={styles.emptyTitle}>Sin resultados</Text>
-                      <Text style={styles.emptyText}>
-                        No encontramos ninguna moneda que coincida con tu búsqueda.
-                      </Text>
-                    </View>
-                  )
-                }
-              />
+                    )
+                  }
+                />
+              </Pressable>
             </Pressable>
-          </Pressable>
-        </KeyboardAvoidingView>
+          </KeyboardAvoidingView>
+        </View>
       </Modal>
     </View>
   );
@@ -282,6 +331,11 @@ export default function CurrencySelector({
 const styles = StyleSheet.create({
   flex: {
     flex: 1,
+  },
+  webViewportBox: {
+    position: "absolute",
+    left: 0,
+    right: 0,
   },
   container: {
     gap: spacing.xs,
@@ -467,6 +521,7 @@ const styles = StyleSheet.create({
   // --- Lista ---
   list: {
     flexGrow: 0,
+    flexShrink: 1, // si el popup se achica (teclado abierto), la lista se achica y scrollea
   },
   listContent: {
     paddingHorizontal: spacing.sm,
