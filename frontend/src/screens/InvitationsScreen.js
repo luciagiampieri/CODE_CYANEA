@@ -276,7 +276,7 @@ export default function InvitationsScreen({ navigation }) {
     return (
       <View key={item.idUnico} style={[styles.noteCard, !leida ? styles.noteCardUnread : styles.noteCardRead]}>
         <View style={[styles.noteIcon, !leida ? styles.noteIconUnread : styles.noteIconRead]}>
-          <FontAwesome6 name="bell" size={13} color={!leida ? colors.textInverse : colors.textMuted} />
+          <FontAwesome6 name="bell" size={13} color={!leida ? colors.textInverse : colors.primary} />
         </View>
 
         <View style={styles.flex}>
@@ -605,15 +605,15 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.md - 2,
     borderRadius: radii.md,
     borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.surface,
+    borderColor: colors.primary,
+    backgroundColor: colors.background,
   },
   noteCardUnread: {
     borderColor: colors.primary,
-    backgroundColor: COLOR_SOFT,
+    backgroundColor: colors.surface || "#eef2ff",
   },
   noteCardRead: {
-    opacity: 0.9,
+    opacity: 1,
   },
   noteIcon: {
     width: 30,
@@ -628,6 +628,8 @@ const styles = StyleSheet.create({
   },
   noteIconRead: {
     backgroundColor: colors.surfaceMuted || "#eef0f3",
+    borderWidth: 1,
+    borderColor: colors.primary,
   },
   noteTitleRow: {
     flexDirection: "row",

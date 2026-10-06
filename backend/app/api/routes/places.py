@@ -92,8 +92,10 @@ async def _sincronizar_y_notificar_ruta(db: Session, dia: DiaCronograma, trip_id
 
 def _parse_time(value: str, field_name: str) -> time:
     try:
-        hour, minute = value.split(":")
-        return time(hour=int(hour), minute=int(minute))
+        parts = value.split(":")
+        if len(parts) not in (2, 3):
+            raise ValueError("formato inválido")
+        return time(hour=int(parts[0]), minute=int(parts[1]))
     except Exception as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
