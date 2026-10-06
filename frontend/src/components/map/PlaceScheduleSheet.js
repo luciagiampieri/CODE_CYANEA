@@ -58,6 +58,14 @@ function isValidTime(value) {
   return /^([01]\d|2[0-3]):([0-5]\d)$/.test(value);
 }
 
+// Deja la hora como "HH:MM" aunque venga con segundos ("10:00:00") o espacios:
+// el backend espera exactamente ese formato.
+function toHHMM(value) {
+  const match = String(value ?? "").trim().match(/^(\d{1,2}):(\d{2})/);
+  if (!match) return "";
+  return `${match[1].padStart(2, "0")}:${match[2]}`;
+}
+
 export default function PlaceScheduleSheet({ days = [], onClose, onSubmit, place, visible }) {
   const [dayId, setDayId] = useState(null);
   const [nombre, setNombre] = useState("");
@@ -176,9 +184,10 @@ export default function PlaceScheduleSheet({ days = [], onClose, onSubmit, place
   // Web: el <input type="time"> del navegador devuelve "HH:MM". Se guarda tal cual y
   // las reglas (fin posterior al inicio, 00:00, etc.) se validan al guardar, como antes.
   function handleWebTimeChange(type, value) {
-    if (!value || !isValidTime(value)) return;
-    if (type === "inicio") setHoraInicio(value);
-    else setHoraFin(value);
+    const hora = toHHMM(value);
+    if (!isValidTime(hora)) return;
+    if (type === "inicio") setHoraInicio(hora);
+    else setHoraFin(hora);
     setError("");
   }
 
@@ -210,11 +219,13 @@ export default function PlaceScheduleSheet({ days = [], onClose, onSubmit, place
       setError("El nombre de la actividad es obligatorio.");
       return;
     }
-    if (!horaInicio.trim() || !horaFin.trim() || !isValidTime(horaInicio) || !isValidTime(horaFin)) {
+    const inicio = toHHMM(horaInicio);
+    const fin = toHHMM(horaFin);
+    if (!isValidTime(inicio) || !isValidTime(fin)) {
       setError("Completa hora de inicio y hora de fin válidas en formato HH:MM.");
       return;
     }
-    if (horaFin <= horaInicio) {
+    if (fin <= inicio) {
       setError("La hora de fin debe ser posterior a la hora de inicio.");
       return;
     }
@@ -227,8 +238,10 @@ export default function PlaceScheduleSheet({ days = [], onClose, onSubmit, place
         dayIndex: dayOptions.find((day) => day.id === dayId)?.index ?? null,
         nombre: nombre.trim(),
         descripcion: descripcion.trim() || null,
-        horaInicio: `${horaInicio}:00`,
-        horaFin: `${horaFin}:00`,
+        // Antes se mandaba `${hora}:00`: si la hora ya traía segundos quedaba
+        // "10:00:00:00" y el backend respondía "horaInicio debe tener formato HH:MM".
+        horaInicio: inicio,
+        horaFin: fin,
         icono,
       });
       onClose();

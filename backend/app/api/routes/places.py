@@ -1,3 +1,4 @@
+import re
 from datetime import time, timedelta
 import logging
 
@@ -90,13 +91,17 @@ async def _sincronizar_y_notificar_ruta(db: Session, dia: DiaCronograma, trip_id
         })
 
 
+# Acepta "9:00", "09:00", "09:00:00" y "09:00:00.000" (los segundos se ignoran).
+_HORA_RE = re.compile(r"^(\d{1,2}):(\d{2})(?::\d{2}(?:\.\d+)?)?$")
+
+
 def _parse_time(value: str, field_name: str) -> time:
+    match = _HORA_RE.match((value or "").strip())
     try:
-        parts = value.split(":")
-        if len(parts) not in (2, 3):
+        if match is None:
             raise ValueError("formato inválido")
-        return time(hour=int(parts[0]), minute=int(parts[1]))
-    except Exception as exc:
+        return time(hour=int(match.group(1)), minute=int(match.group(2)))
+    except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=f"{field_name} debe tener formato HH:MM",

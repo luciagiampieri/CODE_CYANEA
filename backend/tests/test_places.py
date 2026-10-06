@@ -736,3 +736,44 @@ def test_popular_places_error_servicio_externo(
 
     assert response.status_code == 200
     assert response.json() == {"contextLabel": None, "items": []}
+
+
+@pytest.mark.parametrize(
+    "hora_inicio,hora_fin",
+    [("09:00", "10:30"), ("9:00", "10:30"), ("09:00:00", "10:30:00"), (" 09:00 ", "10:30:00.000")],
+)
+def test_schedule_trip_place_acepta_horas_con_o_sin_segundos(
+    client, db_session, auth_headers, usuario_activo, viaje_con_admin, monkeypatch, hora_inicio, hora_fin
+):
+    viaje, _ = viaje_con_admin
+    _, lugar_viaje = _crear_lugar_guardado(db_session, viaje, usuario_activo)
+    monkeypatch.setattr(places_module.manager, "broadcast", _broadcast_noop)
+
+    response = client.post(
+        f"/api/v1/trips/{viaje.IdViaje}/places/{lugar_viaje.IdLugarInteresViaje}/schedule",
+        json={"dayIndex": 1, "nombre": "Museo", "horaInicio": hora_inicio, "horaFin": hora_fin},
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 201, response.text
+    actividad = db_session.query(ActividadItinerario).filter_by(Nombre="Museo").first()
+    assert actividad.HoraInicio.strftime("%H:%M") == "09:00"
+    assert actividad.HoraFin.strftime("%H:%M") == "10:30"
+
+
+@pytest.mark.parametrize("hora_inicio", ["09:00:00:00", "25:00", "9", "nueve", ""])
+def test_schedule_trip_place_rechaza_formatos_de_hora_invalidos(
+    client, db_session, auth_headers, usuario_activo, viaje_con_admin, monkeypatch, hora_inicio
+):
+    viaje, _ = viaje_con_admin
+    _, lugar_viaje = _crear_lugar_guardado(db_session, viaje, usuario_activo)
+    monkeypatch.setattr(places_module.manager, "broadcast", _broadcast_noop)
+
+    response = client.post(
+        f"/api/v1/trips/{viaje.IdViaje}/places/{lugar_viaje.IdLugarInteresViaje}/schedule",
+        json={"dayIndex": 1, "nombre": "Museo", "horaInicio": hora_inicio, "horaFin": "23:00"},
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 422
+    assert response.json()["detail"] == "horaInicio debe tener formato HH:MM"
