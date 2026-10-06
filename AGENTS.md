@@ -196,6 +196,7 @@ Notas del frontend Expo:
 - El proyecto EAS activo del frontend es `@lcorrea87s-team/cyanea` con `extra.eas.projectId=0dddd612-ef66-4470-9a77-ce206f823efd`; `frontend/eas.json` define perfiles `development` y `production`
 - Los builds EAS deben excluir `logs/` y temporales locales mediante `.easignore`, y las carpetas locales `eas-tmp/`, `eas-tmp-build/` y `eas-tmp-clean/` deben estar ignoradas por Git; en repos dentro de OneDrive, usar `TEMP`/`TMP` fuera de `C:` cuando falte espacio o Windows bloquee carpetas temporales
 - Para evitar errores `EPERM` de empaquetado local en Windows al subir builds EAS, el frontend incluye el workflow `frontend/.eas/workflows/create-production-builds.yml`; puede dispararse desde `frontend/` con `eas workflow:run .eas/workflows/create-production-builds.yml --ref main`
+- El login con Google en Android requiere `EXPO_PUBLIC_GOOGLE_AUTH_ENABLED=true`, `EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID` en el build Expo/EAS y `GOOGLE_ANDROID_CLIENT_ID` en el backend; el client id Android vigente es `564342960055-g2p6m77qh93siqh7ljta8ffc4qhdl6gd.apps.googleusercontent.com` para el package `com.ticigaticasteam.cyanea`. El OAuth Client de Google Cloud debe tener registrados los SHA-1/SHA-256 de la firma usada por EAS/Play; si falta esa huella Google responde `Error 400: invalid_request`.
 
 ### 4. Base de datos
 
