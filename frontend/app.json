@@ -2,7 +2,10 @@
   "expo": {
     "name": "Cyanea",
     "slug": "cyanea",
-    "scheme": "cyanea",
+    "scheme": [
+      "cyanea",
+      "com.googleusercontent.apps.564342960055-g2p6m77qh93siqh7ljta8ffc4qhdl6gd"
+    ],
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/cyanea_Logo.png",
@@ -49,7 +52,6 @@
         "projectId": "0dddd612-ef66-4470-9a77-ce206f823efd"
       }
     },
-    "scheme": "cyanea",
     "owner": "lcorrea87s-team"
   }
 }

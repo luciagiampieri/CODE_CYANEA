@@ -41,6 +41,15 @@ const disabledGoogleClientIds = {
   iosClientId: "disabled-google-ios-client-id",
 };
 
+function googleAndroidRedirectUri(androidClientId) {
+  const clientGuid = androidClientId?.replace(/\.apps\.googleusercontent\.com$/, "");
+  if (!clientGuid) return undefined;
+
+  return AuthSession.makeRedirectUri({
+    native: `com.googleusercontent.apps.${clientGuid}:/oauth2redirect`,
+  });
+}
+
 export default function LoginScreen({ navigation }) {
   const { login } = useAuth();
   const handledGoogleResponse = useRef(null);
@@ -66,8 +75,14 @@ export default function LoginScreen({ navigation }) {
   const googleAuthAvailable =
     process.env.EXPO_PUBLIC_GOOGLE_AUTH_ENABLED !== "false" &&
     Boolean(googleClientIdForPlatform);
+  const googleRedirectUri =
+    Platform.OS === "android"
+      ? googleAndroidRedirectUri(googleClientIds.androidClientId)
+      : undefined;
   const [request, response, promptAsync] = Google.useIdTokenAuthRequest(
-    googleAuthAvailable ? googleClientIds : disabledGoogleClientIds
+    googleAuthAvailable
+      ? { ...googleClientIds, ...(googleRedirectUri ? { redirectUri: googleRedirectUri } : {}) }
+      : disabledGoogleClientIds
   );
   const [fbRequest, fbResponse, promptFbAsync] = AuthSession.useAuthRequest(
     {
