@@ -6,6 +6,7 @@ from app.models.estado_viaje import EstadoViaje
 from app.models.invitacion_viaje import InvitacionViaje
 from app.models.participante_viaje import ParticipanteViaje
 from app.models.rol_participante import RolParticipante
+from app.models.rol_sistema import RolSistema
 from app.models.usuario import Usuario
 from app.models.viaje import Viaje
 from app.models.destino import Destino
@@ -36,6 +37,8 @@ from app.models.ritmo_viaje import RitmoViaje
 from app.models.preferencia_planificacion import PreferenciaPlanificacion
 from app.models.accion_asistente_viaje import AccionAsistenteViaje
 from app.models.voto import Voto
+from app.models.auditoria_acceso_backoffice import AuditoriaAccesoBackoffice
+from app.models.sesion_backoffice import SesionBackoffice
 __all__ = [
     "EstadoInvitacion",
     "EstadoParticipacion",
@@ -43,6 +46,7 @@ __all__ = [
     "InvitacionViaje",
     "ParticipanteViaje",
     "RolParticipante",
+    "RolSistema",
     "Usuario",
     "Viaje",
     "Destino",
@@ -74,4 +78,6 @@ __all__ = [
     "PreferenciaPlanificacion",
     "AccionAsistenteViaje",
     "Voto",
+    "AuditoriaAccesoBackoffice",
+    "SesionBackoffice",
 ]

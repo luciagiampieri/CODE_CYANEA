@@ -1,9 +1,10 @@
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, String, func
+from sqlalchemy import Boolean, DateTime, ForeignKey, String, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.session import Base
+from app.models.rol_sistema import ROL_VIAJERO
 
 
 class Usuario(Base):
@@ -29,6 +30,12 @@ class Usuario(Base):
     FechaBaja: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     Activo: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=True, server_default="true"
+    )
+    IdRolSistema: Mapped[int] = mapped_column(
+        ForeignKey("RolesSistema.IdRolSistema"),
+        nullable=False,
+        default=ROL_VIAJERO,
+        server_default=str(ROL_VIAJERO),
     )
     ConsienteNotificacionesEmail: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default="false"

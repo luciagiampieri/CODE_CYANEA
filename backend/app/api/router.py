@@ -2,6 +2,7 @@ from fastapi import APIRouter
 from app.api.routes import (
     assistant,
     auth, 
+    backoffice,
     documentos, 
     gastos,
     legal,
@@ -21,6 +22,8 @@ from app.api.routes import (
 api_router = APIRouter()
 api_router.include_router(root.router, tags=["root"])
 api_router.include_router(auth.router, prefix="/auth", tags=["auth"])
+api_router.include_router(backoffice.router_publico, prefix="/backoffice", tags=["backoffice"])
+api_router.include_router(backoffice.router, prefix="/backoffice", tags=["backoffice"])
 api_router.include_router(legal.router, prefix="/legal", tags=["legal"])
 api_router.include_router(trips.router, prefix="/trips", tags=["trips"])
 api_router.include_router(assistant.router, prefix="/trips", tags=["assistant"])
