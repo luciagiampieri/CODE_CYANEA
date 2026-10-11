@@ -70,6 +70,15 @@ class Gasto(Base):
         nullable=True,
     )
 
+    IdParticipanteCreador: Mapped[int | None] = mapped_column(
+        BigInteger,
+        ForeignKey(
+            "ParticipantesViajes.IdParticipanteViaje",
+            name="FK_Gastos_ParticipantesViajes_IdParticipanteCreador",
+        ),
+        nullable=True,
+    )
+
     # Restricciones (Check Constraints espejo de la migración)
     __table_args__ = (
         CheckConstraint('"Monto" > 0', name="CK_Gastos_Monto"),
@@ -79,6 +88,7 @@ class Gasto(Base):
     # Relaciones directas
     Viaje = relationship("Viaje", back_populates="Gastos", foreign_keys=[IdViaje])
     Pagador = relationship("ParticipanteViaje", back_populates="GastosPagados", foreign_keys=[IdPagador])
+    ParticipanteCreador = relationship("ParticipanteViaje", foreign_keys=[IdParticipanteCreador])
     Categoria = relationship("CategoriasGastos", back_populates="Gastos", foreign_keys=[IdCategoria])
     Comprobante = relationship("DocumentoViaje", foreign_keys=[IdDocumentoComprobante])
 

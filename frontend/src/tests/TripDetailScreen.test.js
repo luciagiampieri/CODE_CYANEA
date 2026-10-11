@@ -1,4 +1,4 @@
-import { render, waitFor, fireEvent } from "@testing-library/react-native";
+import { act, render, waitFor, fireEvent } from "@testing-library/react-native";
 import { Alert } from "react-native";
 import TripDetailScreen from "../screens/TripDetailScreen";
 import {
@@ -19,6 +19,8 @@ import {
   getExpenseCategories,
   sendTripAssistantMessage,
   updateAssistantConsent,
+  getExpenseDetail,
+  getItinerarySocketUrl,
 } from "../services/api";
 
 jest.mock("react-native-maps", () => {
@@ -79,6 +81,8 @@ jest.mock("../services/api", () => ({
   sendTripAssistantMessage: jest.fn(),
   updateAssistantConsent: jest.fn(),
   onTripFinishedError: jest.fn(),
+  getExpenseDetail: jest.fn(),
+  getItinerarySocketUrl: jest.fn(),
 }));
 
 jest.mock("../hooks/useItinerarioViewPreference", () => ({
@@ -126,6 +130,8 @@ function setupDefaultMocks() {
   });
   getTripSettlement.mockResolvedValue({});
   onTripFinishedError.mockImplementation(() => jest.fn());
+  // Sin URL el WebSocket del viaje no se conecta (como antes de mockearlo).
+  getItinerarySocketUrl.mockRejectedValue(new Error("sin websocket en tests"));
 }
 
 function makeNavigation() {
@@ -418,6 +424,14 @@ describe("US 68 - Abandonar un viaje (Suite completa de tests frontend)", () => 
   });
 
   describe("US 77 - Visualizar resumen de viaje", () => {
+    // Fechas relativas a hoy: el viaje siempre empieza en el futuro y el
+    // resumen muestra "Faltan", sin importar cuándo se corran los tests.
+    const enDias = (dias) => {
+      const fecha = new Date();
+      fecha.setDate(fecha.getDate() + dias);
+      const pad = (n) => String(n).padStart(2, "0");
+      return `${fecha.getFullYear()}-${pad(fecha.getMonth() + 1)}-${pad(fecha.getDate())}`;
+    };
     const tripSummary = {
       id: 99,
       title: "Viaje a Ushuaia",
@@ -425,8 +439,8 @@ describe("US 68 - Abandonar un viaje (Suite completa de tests frontend)", () => 
       status: "activo",
       hasLeft: false,
       currency: "USD",
-      startDate: "2026-10-10",
-      endDate: "2026-10-15",
+      startDate: enDias(10),
+      endDate: enDias(15),
       admin: { id: 2, nombreCompleto: "Admin Test", email: "admin@test.com" },
       participants: [
         { id: 1, nombreCompleto: "Juan Pérez", role: "participante", status: "aceptado" },
@@ -1173,5 +1187,180 @@ describe("Tab Itinerario: agenda por día", () => {
 
     expect(await findByText("Día 1 · Sin actividades")).toBeTruthy();
     expect(await findByText("Todavía no hay planes para este día")).toBeTruthy();
+  });
+});
+
+
+describe("US 79 - Editar gasto desde la solapa Gastos", () => {
+  const navigation = {
+    goBack: jest.fn(),
+    navigate: jest.fn(),
+    setParams: jest.fn(),
+    addListener: jest.fn(() => jest.fn()),
+  };
+  const trip = {
+    id: 9,
+    title: "Viaje a Córdoba",
+    status: "activo",
+    hasLeft: false,
+    currency: "ARS",
+    startDate: "2099-12-01",
+    endDate: "2099-12-10",
+    admin: { id: 1, nombreCompleto: "Lucia Giampieri", email: "lucia@test.com" },
+    participants: [
+      { id: 1, nombreCompleto: "Lucia Giampieri", role: "administrador", status: "aceptado" },
+      { id: 2, nombreCompleto: "Daniela F", role: "participante", status: "aceptado" },
+    ],
+    cronograma: [],
+  };
+  const gastoDeLista = {
+    IdGasto: 30,
+    Nombre: "Cena",
+    Monto: 100,
+    FechaGasto: "2099-09-02",
+    IdCategoria: 1,
+    NombreCategoria: "Comida y Bebida",
+    IdPagador: 20,
+    IdUsuarioPagador: 2,
+    NombrePagador: "Daniela F",
+  };
+  const detalle = (overrides = {}) => ({
+    ...gastoDeLista,
+    IdViaje: 9,
+    MontoOriginal: 100,
+    MonedaOriginal: "ARS",
+    MonedaViaje: "ARS",
+    TipoCambio: 1,
+    NombreCreador: "Daniela F",
+    EsCompartido: false,
+    TipoDivision: null,
+    DividirEntreTodos: false,
+    Participantes: [],
+    PuedeEditar: false,
+    CodigoNoEditable: "EXPENSE_EDIT_FORBIDDEN",
+    MotivoNoEditable: "Solo el creador del gasto o su pagador actual pueden editarlo.",
+    IdUsuarioEditando: null,
+    NombreUsuarioEditando: null,
+    ...overrides,
+  });
+
+  let alertSpy;
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    setupDefaultMocks();
+    getCurrentUser.mockResolvedValue({ id: 1, nombre: "Lucia", apellido: "Giampieri" });
+    getTripDetail.mockResolvedValue(trip);
+    getExpenseCategories.mockResolvedValue([{ IdCategoria: 1, Nombre: "Comida y Bebida" }]);
+    getTripExpenses.mockResolvedValue([gastoDeLista]);
+    getExpenseDetail.mockResolvedValue(detalle());
+    alertSpy = jest.spyOn(Alert, "alert").mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    alertSpy.mockRestore();
+  });
+
+  async function abrirGastos() {
+    const utils = await render(<TripDetailScreen navigation={navigation} route={{ params: { trip } }} />);
+    await fireEvent.press(await utils.findByText("Gastos"));
+    // Con una sola categoría la sección ya viene abierta.
+    await utils.findByTestId("expense-30");
+    return utils;
+  }
+
+  test("tocar un gasto abre su detalle; sin permiso muestra el motivo y permite eliminar", async () => {
+    const { findByTestId, queryByTestId } = await abrirGastos();
+
+    await fireEvent.press(await findByTestId("expense-30"));
+
+    expect(getExpenseDetail).toHaveBeenCalledWith(30);
+    expect(await findByTestId("expense-detail-motivo")).toBeTruthy();
+    expect(queryByTestId("expense-detail-edit")).toBeNull();
+    expect(await findByTestId("expense-detail-delete")).toBeTruthy();
+  });
+
+  test("con permiso, Editar del detalle abre el formulario en modo edición", async () => {
+    getExpenseDetail.mockResolvedValue(detalle({ PuedeEditar: true, CodigoNoEditable: null, MotivoNoEditable: null }));
+    const { findByTestId, findByText } = await abrirGastos();
+
+    await fireEvent.press(await findByTestId("expense-30"));
+    await fireEvent.press(await findByTestId("expense-detail-edit"));
+
+    expect(await findByText("Editar gasto")).toBeTruthy();
+  });
+
+  test("el lápiz de la lista sin permiso muestra el motivo y no abre el formulario", async () => {
+    const { findByTestId, queryByText } = await abrirGastos();
+
+    await fireEvent.press(await findByTestId("expense-edit-30"));
+
+    await waitFor(() =>
+      expect(alertSpy).toHaveBeenCalledWith(
+        "No podés editar este gasto",
+        "Solo el creador del gasto o su pagador actual pueden editarlo."
+      )
+    );
+    expect(queryByText("Editar gasto")).toBeNull();
+  });
+
+  test("el lápiz de la lista con permiso abre directamente el formulario de edición", async () => {
+    getExpenseDetail.mockResolvedValue(detalle({ PuedeEditar: true, CodigoNoEditable: null, MotivoNoEditable: null }));
+    const { findByTestId, findByText } = await abrirGastos();
+
+    await fireEvent.press(await findByTestId("expense-edit-30"));
+
+    expect(await findByText("Editar gasto")).toBeTruthy();
+  });
+
+  describe("tiempo real", () => {
+    const WebSocketOriginal = global.WebSocket;
+    let sockets;
+
+    class FakeWebSocket {
+      static OPEN = 1;
+      constructor(url) {
+        this.url = url;
+        this.readyState = 1;
+        sockets.push(this);
+      }
+      send() {}
+      close() {
+        this.readyState = 3;
+      }
+    }
+
+    beforeEach(() => {
+      sockets = [];
+      global.WebSocket = FakeWebSocket;
+      getItinerarySocketUrl.mockResolvedValue("ws://test/ws/trips/9/itinerary?token=t");
+    });
+
+    afterEach(() => {
+      global.WebSocket = WebSocketOriginal;
+    });
+
+    test("cuando otro participante edita un gasto, se recargan gastos y liquidación sin recargar la pantalla", async () => {
+      const { findByText } = await render(
+        <TripDetailScreen navigation={navigation} route={{ params: { trip } }} />
+      );
+      await fireEvent.press(await findByText("Gastos"));
+      await waitFor(() => expect(sockets.length).toBeGreaterThan(0));
+      await waitFor(() => expect(getTripExpenses).toHaveBeenCalled());
+
+      const gastosAntes = getTripExpenses.mock.calls.length;
+      const liquidacionAntes = getTripSettlement.mock.calls.length;
+      const detalleViajeAntes = getTripDetail.mock.calls.length;
+
+      const socketViaje = sockets.find((s) => s.url.includes("/itinerary"));
+      await act(async () => {
+        socketViaje.onmessage({ data: JSON.stringify({ tipo: "gasto_actualizado", idGasto: 30 }) });
+      });
+
+      await waitFor(() => expect(getTripExpenses.mock.calls.length).toBe(gastosAntes + 1));
+      expect(getTripSettlement.mock.calls.length).toBe(liquidacionAntes + 1);
+      // No recarga todo el viaje.
+      expect(getTripDetail.mock.calls.length).toBe(detalleViajeAntes);
+    });
   });
 });

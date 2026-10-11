@@ -1,6 +1,6 @@
 from pydantic import BaseModel, Field
 from decimal import Decimal
-from datetime import date
+from datetime import date, datetime
 from typing import Optional
 
 from app.models.gasto import TipoDivisionEnum
@@ -50,6 +50,24 @@ class GastoCreate(BaseModel):
     # Confirmación de un gasto precargado desde un comprobante (US 94).
     # Si la moneda del comprobante no es ARS, el usuario debe ingresar el
     # monto convertido a pesos argentinos (RN-39).
+    DesdeComprobante: bool = False
+    MontoConvertidoARS: Optional[Decimal] = None
+
+
+class GastoUpdate(BaseModel):
+
+    Nombre: str
+    MontoOriginal: Decimal
+    MonedaOriginal: str
+    IdCategoria: Optional[int] = None
+    IdPagador: Optional[int] = None
+    FechaGasto: date
+    EsCompartido: bool = True
+    DividirEntreTodos: bool = True
+    TipoDivision: Optional[TipoDivisionEnum] = None
+    IdParticipantes: Optional[list[int]] = []
+    DetalleMontosPersonalizados: Optional[list[ParticipanteDivisionCreate]] = []
+    # Usados por la conversión de moneda compartida con el alta (US 94).
     DesdeComprobante: bool = False
     MontoConvertidoARS: Optional[Decimal] = None
 
@@ -113,3 +131,50 @@ class EscaneoComprobanteRead(BaseModel):
     FechaGasto: Optional[date] = None
     IdCategoria: Optional[int] = None
     CamposBajaConfianza: list[str] = Field(default_factory=list)
+
+class ParticipanteDivisionRead(BaseModel):
+    """Participante incluido en la división de un gasto (US 79)."""
+
+    IdParticipanteViaje: int
+    IdUsuario: int
+    Nombre: str
+    Apellido: str
+    NombreUsuario: str
+    MontoAsignado: Decimal
+
+
+class GastoDetalleRead(BaseModel):
+    """Detalle de un gasto para consultarlo o precargar su edición (US 79).
+
+    Lo ve cualquier usuario con acceso al viaje. `PuedeEditar` indica si el
+    usuario actual puede abrir la edición; si no, `CodigoNoEditable` y
+    `MotivoNoEditable` explican por qué. `IdUsuarioEditando` y
+    `NombreUsuarioEditando` informan si otro usuario lo está editando ahora.
+    """
+
+    IdGasto: int
+    IdViaje: int
+    Nombre: str
+    Monto: Decimal
+    MontoOriginal: Decimal
+    MonedaOriginal: str
+    MonedaViaje: str
+    TipoCambio: Decimal
+    FechaGasto: date
+    IdCategoria: int
+    NombreCategoria: str
+    IdPagador: int
+    IdUsuarioPagador: int
+    NombrePagador: str
+    IdParticipanteCreador: Optional[int] = None
+    NombreCreador: Optional[str] = None
+    EsCompartido: bool
+    TipoDivision: Optional[TipoDivisionEnum] = None
+    DividirEntreTodos: bool
+    Participantes: list[ParticipanteDivisionRead]
+    FechaActualizacion: Optional[datetime] = None
+    PuedeEditar: bool
+    CodigoNoEditable: Optional[str] = None
+    MotivoNoEditable: Optional[str] = None
+    IdUsuarioEditando: Optional[int] = None
+    NombreUsuarioEditando: Optional[str] = None

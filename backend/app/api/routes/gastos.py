@@ -1,15 +1,26 @@
 import asyncio
 import logging
 from datetime import date
-from decimal import Decimal
+from decimal import Decimal, ROUND_HALF_UP
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    HTTPException,
+    Query,
+    UploadFile,
+    WebSocket,
+    WebSocketDisconnect,
+    status,
+)
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
 from app.api.deps import get_current_user
-from app.db.session import get_db
+from app.api.routes.itinerary import _autenticar_ws
+from app.db.session import get_db, SessionLocal
 
 from app.models import (
     CategoriasGastos,
@@ -31,11 +42,14 @@ from app.schemas.gasto import (
     GastoRead,
     GastoListItemRead,
     EscaneoComprobanteRead,
+    GastoUpdate,
+    GastoDetalleRead,
+    ParticipanteDivisionRead,
 )
 from app.models.gasto import TipoDivisionEnum
 from app.models.viaje import Viaje
 from app.services.liquidacion_service import rebuild_settlement_plan
-from app.services.notifications import NotificationType, TripNotificationEvent, dispatch_trip_notification
+from app.services.notifications import NotificationType, TripNotificationEvent, dispatch_trip_notification, dispatch_user_notification
 from app.services.trip_access import (
     TRIP_FINISHED_CODE,
     get_trip_with_relations,
@@ -204,15 +218,9 @@ def _viaje_tiene_transferencias_realizadas(db: Session, viaje_id: int) -> bool:
         is not None
     )
 
-
-@router.post("")
-async def create_gasto(data: GastoCreate, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)):
-
-    viaje = require_trip_edit_access(
-        get_trip_with_relations(db, data.IdViaje),
-        current_user,
-    )
-
+def _validar_datos_gasto(db: Session, data: GastoCreate | GastoUpdate, viaje_id: int) -> date:
+    """Validaciones de los datos de un gasto, compartidas por el alta y la
+    edición (US 79). Devuelve la fecha del gasto ya normalizada."""
     fecha_str = str(data.FechaGasto)
     fecha_limpia = fecha_str.split("T")[0]
     fecha_gasto_dt = date.fromisoformat(fecha_limpia)
@@ -230,6 +238,11 @@ async def create_gasto(data: GastoCreate, db: Session = Depends(get_db), current
             detail="El monto del gasto debe ser mayor a cero.",
         )
 
+    # Categoría obligatoria. En el alta el schema ya la exige; en la edición
+    # puede llegar vacía y se responde 400 con un mensaje claro.
+    if data.IdCategoria is None:
+        raise HTTPException(status_code=400, detail="Debés seleccionar una categoría.")
+
     # RN-19: en un gasto compartido el pagador es obligatorio y debe ser un
     # participante activo del viaje. En un gasto personal paga el usuario actual.
     if data.EsCompartido:
@@ -238,40 +251,78 @@ async def create_gasto(data: GastoCreate, db: Session = Depends(get_db), current
                 status_code=400,
                 detail="Debés indicar quién pagó el gasto.",
             )
-        _validar_participantes_activos(db, data.IdViaje, [data.IdPagador])
+        _validar_participantes_activos(db, viaje_id, [data.IdPagador])
 
-    moneda_base = (getattr(viaje, "Moneda", None) or "USD").upper()
-    moneda_gasto = (data.MonedaOriginal or moneda_base).upper()
+    return fecha_gasto_dt
 
-    monto_convertido, tipo_cambio = _resolver_conversion(data, moneda_gasto, moneda_base, fecha_gasto_dt)
+def _total_division_personalizada(db: Session, data, viaje_id: int) -> Decimal:
+    """Monto sobre el que se reparte una división personalizada (US 79).
 
+    Es el monto original del gasto, salvo en un comprobante en otra moneda
+    confirmado en un viaje en ARS (US 94): ahí el formulario divide el monto
+    en pesos que ingresó el usuario (`MontoConvertidoARS`).
+    """
+    moneda_gasto = (data.MonedaOriginal or "").upper()
+    if data.MontoConvertidoARS is not None and moneda_gasto != MONEDA_PESOS_ARGENTINOS:
+        viaje = db.get(Viaje, viaje_id)
+        moneda_base = ((viaje.Moneda if viaje else None) or "USD").upper()
+        if moneda_base == MONEDA_PESOS_ARGENTINOS:
+            return Decimal(str(data.MontoConvertidoARS))
+    return Decimal(str(data.MontoOriginal))
+
+
+def _convertir_division(
+    montos: dict[int, Decimal],
+    total_ingresado: Decimal,
+    monto_convertido: Decimal,
+) -> dict[int, Decimal]:
+    """Lleva cada parte de la división a la moneda base del viaje (US 79).
+
+    Usa la misma proporción que el total (monto convertido / monto ingresado)
+    y ajusta la diferencia de redondeo en la última parte, así la suma da
+    exactamente el monto convertido del gasto.
+    """
+    centavo = Decimal("0.01")
+    objetivo = Decimal(monto_convertido).quantize(centavo, rounding=ROUND_HALF_UP)
+    if total_ingresado == objetivo:
+        return dict(montos)
+
+    factor = Decimal(monto_convertido) / total_ingresado
+    convertidos = {
+        id_part: (monto * factor).quantize(centavo, rounding=ROUND_HALF_UP)
+        for id_part, monto in montos.items()
+    }
+    diferencia = objetivo - sum(convertidos.values(), Decimal("0"))
+    if diferencia and convertidos:
+        ultimo = list(convertidos)[-1]
+        convertidos[ultimo] += diferencia
+    return convertidos
+
+
+def _resolver_division(
+    db: Session,
+    data: GastoCreate | GastoUpdate,
+    viaje_id: int,
+    monto_convertido: Decimal,
+    id_pagador_personal: int,
+) -> tuple[int, TipoDivisionEnum | None, list[int], dict]:
+    """Calcula pagador, tipo de división, participantes y monto de cada uno.
+    Compartida por el alta y la edición (US 79).
+
+    `id_pagador_personal` es quien paga si el gasto no es compartido.
+    """
     monto_por_participante = {}
     participantes_ids = []
     tipo_division_final = None
 
     if not data.EsCompartido:
-        participante = (
-            db.query(ParticipanteViaje)
-            .filter(
-                ParticipanteViaje.IdViaje == data.IdViaje,
-                ParticipanteViaje.IdUsuario == current_user.IdUsuario,
-            )
-            .first()
-        )
+        participantes_ids = [id_pagador_personal]
+        monto_por_participante[id_pagador_personal] = monto_convertido
+        return id_pagador_personal, None, participantes_ids, monto_por_participante
 
-        if not participante:
-            raise HTTPException(
-                status_code=400,
-                detail="No se encontró al participante del viaje para el usuario actual."
-            )
-        id_pagador = participante.IdParticipanteViaje
-        tipo_division_final = None
-        participantes_ids = [id_pagador]
-        monto_por_participante[id_pagador] = monto_convertido
-
-    elif data.TipoDivision == TipoDivisionEnum.igualitaria:
+    if data.TipoDivision == TipoDivisionEnum.igualitaria:
         tipo_division_final = TipoDivisionEnum.igualitaria
-        
+
         if data.DividirEntreTodos:
             estado_aceptado = (
                 db.query(EstadoParticipacion)
@@ -292,7 +343,7 @@ async def create_gasto(data: GastoCreate, db: Session = Depends(get_db), current
                     Usuario.IdUsuario == ParticipanteViaje.IdUsuario
                 )
                 .filter(
-                    ParticipanteViaje.IdViaje == data.IdViaje,
+                    ParticipanteViaje.IdViaje == viaje_id,
                     ParticipanteViaje.IdEstadoParticipacion == estado_aceptado.IdEstadoParticipacion,
                     Usuario.Activo.is_(True)
                 )
@@ -301,14 +352,14 @@ async def create_gasto(data: GastoCreate, db: Session = Depends(get_db), current
             participantes_ids = [p.IdParticipanteViaje for p in participantes]
         else:
             participantes_ids = data.IdParticipantes
-            _validar_participantes_activos(db, data.IdViaje, participantes_ids)
-            
+            _validar_participantes_activos(db, viaje_id, participantes_ids)
+
             if len(participantes_ids) < 2:
                 raise HTTPException(
                     status_code=400,
                     detail="Para dividir entre ciertos participantes, debés seleccionar al menos 2."
                 )
-        
+
         if len(participantes_ids) == 0:
             raise HTTPException(
                 status_code=400,
@@ -317,7 +368,7 @@ async def create_gasto(data: GastoCreate, db: Session = Depends(get_db), current
 
         monto_individual = monto_convertido / len(participantes_ids)
         monto_por_participante = {id_part: monto_individual for id_part in participantes_ids}
-    
+
     elif data.TipoDivision == TipoDivisionEnum.personalizada:
         tipo_division_final = TipoDivisionEnum.personalizada
         detalles = data.DetalleMontosPersonalizados
@@ -326,35 +377,68 @@ async def create_gasto(data: GastoCreate, db: Session = Depends(get_db), current
             raise HTTPException(
                 status_code=400,
                 detail="Debe proporcionar detalles de montos personalizados para cada participante."
-            ) 
-        
+            )
+
         total_asignado = Decimal("0")
-        participantes_ids = []
-        monto_por_participante = {}
+        montos_ingresados: dict[int, Decimal] = {}
 
         for item in detalles:
-            monto_asignado = Decimal(str(item.MontoAsignado)) 
-    
+            monto_asignado = Decimal(str(item.MontoAsignado))
+
             if monto_asignado <= 0:
                 raise HTTPException(
                     status_code=400,
-                    detail=f"El monto asignado debe ser mayor a cero."
+                    detail="El monto asignado debe ser mayor a cero."
                 )
 
             participantes_ids.append(item.IdParticipanteViaje)
-            monto_por_participante[item.IdParticipanteViaje] = monto_asignado
+            montos_ingresados[item.IdParticipanteViaje] = monto_asignado
             total_asignado += monto_asignado
 
-        _validar_participantes_activos(db, data.IdViaje, participantes_ids)
-        
-        if abs(total_asignado - monto_convertido) > Decimal("0.01"):
+        _validar_participantes_activos(db, viaje_id, participantes_ids)
+
+
+        total_referencia = _total_division_personalizada(db, data, viaje_id)
+
+        if abs(total_asignado - total_referencia) > Decimal("0.01"):
             raise HTTPException(
                 status_code=400,
-                detail=f"La suma de los montos asignados ({total_asignado}) no coincide con el monto total convertido del gasto ({monto_convertido})."
+                detail=f"La suma de los montos asignados ({total_asignado}) no coincide con el monto total del gasto ({total_referencia})."
             )
-        
+
+        monto_por_participante = _convertir_division(
+            montos_ingresados, total_referencia, monto_convertido
+        )
+
+    return data.IdPagador, tipo_division_final, participantes_ids, monto_por_participante
+
+
+@router.post("")
+async def create_gasto(data: GastoCreate, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)):
+
+    viaje = require_trip_edit_access(
+        get_trip_with_relations(db, data.IdViaje),
+        current_user,
+    )
+
+    participante_actual = next(
+        p for p in viaje.Participantes if p.IdUsuario == current_user.IdUsuario
+    )
+
+    fecha_gasto_dt = _validar_datos_gasto(db, data, viaje.IdViaje)
+
+    moneda_base = (getattr(viaje, "Moneda", None) or "USD").upper()
+    moneda_gasto = (data.MonedaOriginal or moneda_base).upper()
+
+    monto_convertido, tipo_cambio = _resolver_conversion(data, moneda_gasto, moneda_base, fecha_gasto_dt)
+
+    # En un gasto personal paga quien lo registra.
+    id_pagador, tipo_division_final, participantes_ids, monto_por_participante = _resolver_division(
+        db, data, data.IdViaje, monto_convertido, participante_actual.IdParticipanteViaje
+    )
+
     print(f"DEBUG: Guardando gasto: {data.Nombre}, Monto Original: {data.MontoOriginal} {moneda_gasto}, Monto Convertido: {monto_convertido}")
-        
+      
     gasto = Gasto(
         IdViaje=data.IdViaje,
         Nombre=data.Nombre,
@@ -363,10 +447,11 @@ async def create_gasto(data: GastoCreate, db: Session = Depends(get_db), current
         MonedaOriginal=moneda_gasto,       # Moneda seleccionada
         TipoCambio=tipo_cambio,            # Tasa aplicada
         IdCategoria=data.IdCategoria,
-        IdPagador=id_pagador if not data.EsCompartido else data.IdPagador,
+        IdPagador=id_pagador,
         FechaGasto=fecha_gasto_dt,
         DividirEntreTodos=data.DividirEntreTodos,
         TipoDivision=tipo_division_final,
+        IdParticipanteCreador=participante_actual.IdParticipanteViaje
     )
 
     db.add(gasto)
@@ -779,3 +864,401 @@ def get_trip_participants(
         )
         for p in participantes
     ]
+
+
+TRIP_CANCELLED_CODE = "TRIP_CANCELLED"
+EXPENSE_EDIT_FORBIDDEN_CODE = "EXPENSE_EDIT_FORBIDDEN"
+EXPENSE_EDIT_LOCKED_CODE = "EXPENSE_EDIT_LOCKED_BY_PAID_SETTLEMENT"
+EXPENSE_BEING_EDITED_CODE = "EXPENSE_BEING_EDITED"
+
+
+
+def _participacion_aceptada(viaje: Viaje, usuario: Usuario) -> ParticipanteViaje | None:
+    return next(
+        (
+            p
+            for p in viaje.Participantes
+            if p.IdUsuario == usuario.IdUsuario
+            and p.EstadoParticipacion is not None
+            and p.EstadoParticipacion.Nombre == "aceptado"
+        ),
+        None,
+    )
+
+
+def validar_permiso_edicion_gasto(db: Session, viaje: Viaje, gasto: Gasto, usuario: Usuario) -> None:
+    """Reglas de la US 79 para poder editar un gasto. Lanza HTTPException si no se puede."""
+    estado = viaje.EstadoViaje.Nombre if viaje.EstadoViaje is not None else None
+    if estado == "cancelado":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="No se pueden editar gastos de un viaje cancelado.",
+            headers={"X-Error-Code": TRIP_CANCELLED_CODE},
+        )
+
+    if is_trip_finished(viaje):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="El viaje ya finalizó: los gastos no se pueden editar.",
+            headers={"X-Error-Code": TRIP_FINISHED_CODE},
+        )
+
+    # Solo el creador original o el pagador actual. Ser parte de la división o
+    # administrador del viaje no alcanza. Como se compara contra el pagador
+    # actual, al cambiar el pagador el permiso pasa al nuevo automáticamente.
+    participacion = _participacion_aceptada(viaje, usuario)
+    if participacion is None or participacion.IdParticipanteViaje not in {
+        gasto.IdParticipanteCreador,
+        gasto.IdPagador,
+    }:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Solo el creador del gasto o su pagador actual pueden editarlo.",
+            headers={"X-Error-Code": EXPENSE_EDIT_FORBIDDEN_CODE},
+        )
+
+    if _viaje_tiene_transferencias_realizadas(db, viaje.IdViaje):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "No se puede editar el gasto porque el viaje ya tiene pagos "
+                "registrados en una liquidación."
+            ),
+            headers={"X-Error-Code": EXPENSE_EDIT_LOCKED_CODE},
+        )
+
+
+def _requiere_reconversion(gasto: Gasto, data: GastoUpdate, moneda_gasto: str, fecha: date) -> bool:
+    """La conversión se recalcula si cambia la moneda, el monto o la fecha
+    (la cotización depende de la fecha), o si se informa un monto en ARS."""
+    return (
+        moneda_gasto != gasto.MonedaOriginal.upper()
+        or data.MontoOriginal != gasto.MontoOriginal
+        or fecha != gasto.FechaGasto
+        or data.MontoConvertidoARS is not None
+    )
+
+def mensaje_gasto_en_edicion(db: Session, id_usuario_editor: int) -> str:
+    editor = db.get(Usuario, id_usuario_editor)
+    quien = f" ({_actor_display_name(editor)})" if editor is not None else ""
+    return f"El gasto está siendo editado por otro usuario{quien}. Intentá nuevamente cuando termine."
+
+def _destinatarios_modificacion(gasto: Gasto, id_usuario_actor: int) -> set[int]:
+    
+    destinatarios = {
+        asignacion.ParticipanteViaje.IdUsuario
+        for asignacion in gasto.ParticipantesAsociados
+    }
+    if gasto.ParticipanteCreador is not None:
+        destinatarios.add(gasto.ParticipanteCreador.IdUsuario)
+    destinatarios.add(gasto.Pagador.IdUsuario)
+    destinatarios.discard(id_usuario_actor)
+    return destinatarios
+
+@router.put("/{gasto_id}")
+async def update_gasto(
+    gasto_id: int,
+    data: GastoUpdate,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+):
+    """Guarda la edición de un gasto (US 79)."""
+    gasto = db.get(Gasto, gasto_id)
+    if gasto is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Gasto no encontrado.")
+
+    viaje = require_trip_access(get_trip_with_relations(db, gasto.IdViaje), current_user)
+    validar_permiso_edicion_gasto(db, viaje, gasto, current_user)
+
+    # Edición concurrente: si otro usuario tiene la edición activa, no se guarda.
+    id_editor = manager.obtener_editor_gasto(gasto_id)
+    if id_editor is not None and id_editor != current_user.IdUsuario:
+        raise HTTPException(
+            status_code=status.HTTP_423_LOCKED,
+            detail=mensaje_gasto_en_edicion(db, id_editor),
+            headers={"X-Error-Code": EXPENSE_BEING_EDITED_CODE},
+        )
+
+    viaje_id = gasto.IdViaje
+    fecha_gasto_dt = _validar_datos_gasto(db, data, viaje_id)
+
+    moneda_base = (viaje.Moneda or "USD").upper()
+    moneda_gasto = (data.MonedaOriginal or moneda_base).upper()
+
+    if _requiere_reconversion(gasto, data, moneda_gasto, fecha_gasto_dt):
+        monto_convertido, tipo_cambio = _resolver_conversion(
+            data, moneda_gasto, moneda_base, fecha_gasto_dt
+        )
+    else:
+        monto_convertido, tipo_cambio = gasto.Monto, gasto.TipoCambio
+
+    # En un gasto personal se conserva el pagador actual, salvo que se indique
+    # otro: quien edita puede ser el creador y no el pagador.
+    id_pagador_personal = gasto.IdPagador
+    if not data.EsCompartido and data.IdPagador is not None:
+        _validar_participantes_activos(db, viaje_id, [data.IdPagador])
+        id_pagador_personal = data.IdPagador
+
+    # En la edición un gasto compartido tiene que indicar cómo se divide: si
+    # no, se perdería la división anterior sin reemplazarla.
+    if data.EsCompartido and data.TipoDivision is None:
+        raise HTTPException(status_code=400, detail="Debés indicar el tipo de división del gasto.")
+
+    id_pagador, tipo_division, participantes_ids, monto_por_participante = _resolver_division(
+        db, data, viaje_id, monto_convertido, id_pagador_personal
+    )
+
+    nombre_anterior = gasto.Nombre
+
+    try:
+        gasto.Nombre = data.Nombre
+        gasto.Monto = monto_convertido
+        gasto.MontoOriginal = data.MontoOriginal
+        gasto.MonedaOriginal = moneda_gasto
+        gasto.TipoCambio = tipo_cambio
+        gasto.IdCategoria = data.IdCategoria
+        gasto.IdPagador = id_pagador
+        gasto.FechaGasto = fecha_gasto_dt
+        gasto.DividirEntreTodos = data.DividirEntreTodos
+        gasto.TipoDivision = tipo_division
+
+        # Se borra la división anterior y se hace flush antes de insertar la
+        # nueva: si no, SQLAlchemy inserta primero y choca con la UNIQUE
+        # (IdGasto, IdParticipanteViaje).
+        gasto.ParticipantesAsociados.clear()
+        db.flush()
+        for id_part in participantes_ids:
+            gasto.ParticipantesAsociados.append(
+                ParticipantesGastos(
+                    IdParticipanteViaje=id_part,
+                    MontoAsignado=monto_por_participante[id_part],
+                )
+            )
+        db.flush()
+
+        # Regenera la liquidación activa y confirma todo junto (hace commit).
+        rebuild_settlement_plan(db, viaje_id)
+    except Exception:
+        db.rollback()
+        raise
+
+    # Los cambios se reflejan para todos sin recargar la pantalla.
+    await manager.broadcast_to_trip(
+        viaje_id,
+        {"tipo": "gasto_actualizado", "idGasto": gasto_id},
+    )
+
+    # Guardar libera la edición para que otro usuario autorizado pueda editar.
+    if await manager.finalizar_edicion_gasto(gasto_id, current_user.IdUsuario):
+        await manager.broadcast_to_trip(
+            viaje_id,
+            {"tipo": "edicion_gasto_liberada", "idGasto": gasto_id},
+        )
+
+    # Notificaciones: solo se llega hasta acá si los cambios se guardaron.
+    db.refresh(gasto)
+    destinatarios_ids = _destinatarios_modificacion(gasto, current_user.IdUsuario)
+    if destinatarios_ids:
+        destinatarios = db.scalars(
+            select(Usuario).where(Usuario.IdUsuario.in_(destinatarios_ids))
+        ).all()
+        nombre_gasto = (
+            f'"{gasto.Nombre}"'
+            if gasto.Nombre == nombre_anterior
+            else f'"{gasto.Nombre}" (antes "{nombre_anterior}")'
+        )
+        await dispatch_user_notification(
+            db,
+            TripNotificationEvent(
+                notification_type=NotificationType.GASTO_MODIFICADO,
+                tipo="gasto_modificado",
+                titulo=f"Gasto modificado en {viaje.Titulo}",
+                mensaje=f"{_actor_display_name(current_user)} modificó el gasto {nombre_gasto}.",
+                id_viaje=viaje_id,
+                id_usuario_actor=current_user.IdUsuario,
+                data={
+                    "eventType": "expense_updated",
+                    "expenseId": gasto_id,
+                },
+            ),
+            list(destinatarios),
+        )
+
+    return {
+        "message": "Los cambios del gasto se guardaron correctamente.",
+        "IdGasto": gasto_id,
+    }
+
+# Cada cuántos segundos el cliente debe renovar la edición mientras el
+# formulario está abierto.
+SEGUNDOS_RENOVACION_EDICION_GASTO = 30
+
+
+@router.websocket("/ws/{gasto_id}")
+async def edicion_gasto_ws(websocket: WebSocket, gasto_id: int, token: str = Query(...)):
+    """Edición activa de un gasto (US 79).
+
+    El formulario de edición se conecta al abrirse y se desconecta al cerrarse:
+    - al conectar se valida el permiso y se toma la edición; si no se puede,
+      se envía `edicion_gasto_rechazada` con el motivo y se cierra;
+    - mientras está abierto, el cliente envía `renovar` cada
+      SEGUNDOS_RENOVACION_EDICION_GASTO segundos;
+    - al desconectarse (cancelar, salir de la pantalla, cerrar la app) se
+      libera la edición. Si la desconexión no llega al servidor, la edición
+      vence sola por inactividad.
+    """
+    db = SessionLocal()
+    concedida = False
+    viaje_id = None
+    try:
+        await websocket.accept()
+
+        current_user = _autenticar_ws(token, db)
+        if current_user is None:
+            await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+            return
+
+        async def rechazar(codigo: str, mensaje: str) -> None:
+            await websocket.send_json({
+                "tipo": "edicion_gasto_rechazada",
+                "idGasto": gasto_id,
+                "codigo": codigo,
+                "mensaje": mensaje,
+            })
+            await websocket.close()
+
+        gasto = db.get(Gasto, gasto_id)
+        if gasto is None:
+            await rechazar("EXPENSE_NOT_FOUND", "Gasto no encontrado.")
+            return
+        viaje_id = gasto.IdViaje
+
+        # Mismas reglas que el PUT: estado del viaje, permiso y liquidación.
+        try:
+            viaje = require_trip_access(get_trip_with_relations(db, viaje_id), current_user)
+            validar_permiso_edicion_gasto(db, viaje, gasto, current_user)
+        except HTTPException as error:
+            codigo = (error.headers or {}).get("X-Error-Code", "FORBIDDEN")
+            await rechazar(codigo, error.detail)
+            return
+
+        if not await manager.iniciar_edicion_gasto(gasto_id, current_user.IdUsuario):
+            id_editor = manager.obtener_editor_gasto(gasto_id)
+            await rechazar(EXPENSE_BEING_EDITED_CODE, mensaje_gasto_en_edicion(db, id_editor))
+            return
+
+        concedida = True
+        await websocket.send_json({
+            "tipo": "edicion_gasto_concedida",
+            "idGasto": gasto_id,
+            "segundosRenovacion": SEGUNDOS_RENOVACION_EDICION_GASTO,
+        })
+        await manager.broadcast_to_trip(
+            viaje_id,
+            {"tipo": "edicion_gasto_iniciada", "idGasto": gasto_id, "idUsuario": current_user.IdUsuario},
+        )
+
+        while True:
+            mensaje = await websocket.receive_json()
+            if mensaje.get("tipo") == "renovar":
+                if not await manager.renovar_edicion_gasto(gasto_id, current_user.IdUsuario):
+                    # Venció por inactividad y la tomó otro: hay que salir.
+                    await websocket.send_json({"tipo": "edicion_gasto_perdida", "idGasto": gasto_id})
+                    await websocket.close()
+                    return
+    except WebSocketDisconnect:
+        pass
+    finally:
+        if concedida and await manager.finalizar_edicion_gasto(gasto_id, current_user.IdUsuario):
+            await manager.broadcast_to_trip(
+                viaje_id,
+                {"tipo": "edicion_gasto_liberada", "idGasto": gasto_id},
+            )
+        db.close()
+
+
+@router.get("/{gasto_id}", response_model=GastoDetalleRead)
+def get_gasto(
+    gasto_id: int,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> GastoDetalleRead:
+    """Detalle de un gasto para consultarlo o precargar el formulario de edición.
+
+    Lo puede ver cualquier usuario con acceso al viaje, aunque no pueda
+    editarlo (US 79): en ese caso `PuedeEditar` es false y `MotivoNoEditable`
+    trae el mensaje para mostrar.
+    """
+    gasto = db.scalar(
+        select(Gasto)
+        .options(
+            selectinload(Gasto.Categoria),
+            selectinload(Gasto.Pagador).selectinload(ParticipanteViaje.Usuario),
+            selectinload(Gasto.ParticipanteCreador).selectinload(ParticipanteViaje.Usuario),
+            selectinload(Gasto.ParticipantesAsociados)
+            .selectinload(ParticipantesGastos.ParticipanteViaje)
+            .selectinload(ParticipanteViaje.Usuario),
+        )
+        .where(Gasto.IdGasto == gasto_id)
+    )
+    if gasto is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Gasto no encontrado.")
+
+    viaje = require_trip_access(get_trip_with_relations(db, gasto.IdViaje), current_user)
+
+    # Mismas reglas que el PUT y el WebSocket, pero informadas en vez de lanzadas.
+    codigo_no_editable = None
+    motivo_no_editable = None
+    try:
+        validar_permiso_edicion_gasto(db, viaje, gasto, current_user)
+    except HTTPException as error:
+        codigo_no_editable = (error.headers or {}).get("X-Error-Code")
+        motivo_no_editable = error.detail
+
+    # Si otro usuario tiene la edición activa, se informa quién.
+    id_editor = manager.obtener_editor_gasto(gasto_id)
+    nombre_editor = None
+    if id_editor is not None:
+        editor = db.get(Usuario, id_editor)
+        nombre_editor = _actor_display_name(editor) if editor is not None else None
+
+    creador = gasto.ParticipanteCreador
+
+    return GastoDetalleRead(
+        IdGasto=gasto.IdGasto,
+        IdViaje=gasto.IdViaje,
+        Nombre=gasto.Nombre,
+        Monto=gasto.Monto,
+        MontoOriginal=gasto.MontoOriginal,
+        MonedaOriginal=gasto.MonedaOriginal,
+        MonedaViaje=(viaje.Moneda or "USD").upper(),
+        TipoCambio=gasto.TipoCambio,
+        FechaGasto=gasto.FechaGasto,
+        IdCategoria=gasto.IdCategoria,
+        NombreCategoria=gasto.Categoria.Nombre,
+        IdPagador=gasto.IdPagador,
+        IdUsuarioPagador=gasto.Pagador.IdUsuario,
+        NombrePagador=_actor_display_name(gasto.Pagador.Usuario),
+        IdParticipanteCreador=gasto.IdParticipanteCreador,
+        NombreCreador=_actor_display_name(creador.Usuario) if creador is not None else None,
+        EsCompartido=gasto.TipoDivision is not None,
+        TipoDivision=gasto.TipoDivision,
+        DividirEntreTodos=gasto.DividirEntreTodos,
+        Participantes=[
+            ParticipanteDivisionRead(
+                IdParticipanteViaje=asignacion.IdParticipanteViaje,
+                IdUsuario=asignacion.ParticipanteViaje.IdUsuario,
+                Nombre=asignacion.ParticipanteViaje.Usuario.Nombre,
+                Apellido=asignacion.ParticipanteViaje.Usuario.Apellido,
+                NombreUsuario=asignacion.ParticipanteViaje.Usuario.NombreUsuario,
+                MontoAsignado=asignacion.MontoAsignado,
+            )
+            for asignacion in gasto.ParticipantesAsociados
+        ],
+        FechaActualizacion=gasto.FechaActualizacion,
+        PuedeEditar=codigo_no_editable is None,
+        CodigoNoEditable=codigo_no_editable,
+        MotivoNoEditable=motivo_no_editable,
+        IdUsuarioEditando=id_editor,
+        NombreUsuarioEditando=nombre_editor,
+    )

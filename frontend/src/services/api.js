@@ -78,6 +78,12 @@ export async function getItinerarySocketUrl(tripId) {
   return `${wsBase}/ws/trips/${tripId}/itinerary?token=${encodeURIComponent(token ?? "")}`;
 }
 
+export async function getExpenseEditSocketUrl(expenseId) {
+  const token = await getStoredToken();
+  const wsBase = resolveWsBaseUrl();
+  return `${wsBase}/api/v1/gastos/ws/${expenseId}?token=${encodeURIComponent(token ?? "")}`;
+}
+
 export async function getNotificationsSocketUrl() {
   const token = await getStoredToken();
   const wsBase = resolveWsBaseUrl();
@@ -724,6 +730,26 @@ export async function deleteExpense(expenseId, { eliminarComprobante = false } =
     response,
     "No se pudo eliminar el gasto"
   );
+}
+
+export async function getExpenseDetail(expenseId) {
+  const response = await fetch(`${API_BASE_URL}/gastos/${expenseId}`, {
+    headers: await authHeaders(),
+  });
+  return parseResponse(response, "No se pudo cargar el gasto");
+}
+
+// US 79: guarda la edición de un gasto.
+export async function updateExpense(expenseId, payload) {
+  const response = await fetch(`${API_BASE_URL}/gastos/${expenseId}`, {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+      ...(await authHeaders()),
+    },
+    body: JSON.stringify(payload),
+  });
+  return parseResponse(response, "No se pudo guardar el gasto");
 }
 
 // Otorga o revoca el consentimiento para procesar imágenes con un servicio externo de IA.

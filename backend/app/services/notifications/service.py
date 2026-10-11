@@ -22,6 +22,7 @@ class NotificationType(StrEnum):
     RECORDATORIO_RESERVA = "recordatorio_reserva"
     PARTICIPANTE_EXPULSADO = "participante_expulsado"
     INVITACION_CANCELADA = "invitacion_cancelada"
+    GASTO_MODIFICADO = "gasto_modificado"
 
 
 @dataclass(slots=True)
@@ -50,6 +51,7 @@ class NotificationService:
         NotificationType.NUEVA_VOTACION: "RecibeEmailsNuevaVotacion",
         NotificationType.CAMBIO_VIAJE: "RecibeEmailsCambiosViaje",
         NotificationType.NUEVO_GASTO: "RecibeEmailsNuevosGastos",
+        NotificationType.GASTO_MODIFICADO: "RecibeEmailsNuevosGastos",
         NotificationType.RECORDATORIO_DEUDA: "RecibeEmailsRecordatoriosDeuda",
         NotificationType.RECORDATORIO_ACTIVIDAD: "RecibeEmailsRecordatoriosActividad",
         NotificationType.RECORDATORIO_RESERVA: "RecibeEmailsRecordatoriosReserva",
@@ -61,6 +63,7 @@ class NotificationService:
         NotificationType.NUEVA_VOTACION: "RecibePushNuevaVotacion",
         NotificationType.CAMBIO_VIAJE: "RecibePushCambiosViaje",
         NotificationType.NUEVO_GASTO: "RecibePushNuevosGastos",
+        NotificationType.GASTO_MODIFICADO: "RecibePushNuevosGastos",
         NotificationType.RECORDATORIO_DEUDA: "RecibePushRecordatoriosDeuda",
         NotificationType.RECORDATORIO_ACTIVIDAD: "RecibePushRecordatoriosActividad",
         NotificationType.RECORDATORIO_RESERVA: "RecibePushRecordatoriosReserva",
@@ -184,4 +187,4 @@ class NotificationService:
 
 @lru_cache
 def get_notification_service() -> NotificationService:
-    return NotificationService(mail_service=get_mail_service())
+    return NotificationService(mail_service=get_mail_service())

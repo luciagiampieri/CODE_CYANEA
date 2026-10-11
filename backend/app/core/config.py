@@ -90,6 +90,8 @@ class Settings(BaseSettings):
     ai_assistant_fallback_model: str | None = None
     ai_assistant_timeout_seconds: float = 20.0
 
+    expense_edit_lock_ttl_seconds: int = 120
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",

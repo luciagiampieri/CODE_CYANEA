@@ -169,6 +169,10 @@ export default function ExpenseList({
   canDelete = false,
   deletingExpenseId = null,
   onDeleteExpense,
+  // US 79: tocar un gasto abre su detalle; el lápiz abre directamente la edición.
+  canEdit = false,
+  onOpenExpense,
+  onEditExpense,
   onRetry,
   scrollRef,
   cardRef,
@@ -803,9 +807,17 @@ export default function ExpenseList({
                   const deleting = String(deletingExpenseId ?? "") === String(expense.IdGasto);
 
                   return (
-                    <View
+                    <Pressable
                       key={expense.IdGasto}
-                      style={[styles.row, !isLast && styles.rowDivider]}
+                      accessibilityHint={onOpenExpense ? "Abre el detalle del gasto" : undefined}
+                      accessibilityRole={onOpenExpense ? "button" : undefined}
+                      disabled={!onOpenExpense}
+                      onPress={() => onOpenExpense?.(expense)}
+                      style={({ pressed }) => [
+                        styles.row,
+                        !isLast && styles.rowDivider,
+                        pressed && onOpenExpense ? styles.rowPressed : null,
+                      ]}
                       testID={`expense-${expense.IdGasto}`}
                     >
                       <View style={styles.icon}>
@@ -847,29 +859,44 @@ export default function ExpenseList({
                       </View>
                       <View style={styles.rowActions}>
                         <Text style={styles.amount}>{formatMoney(expense.Monto, currency)}</Text>
-                        {canDelete && onDeleteExpense ? (
-                          <Pressable
-                            accessibilityLabel={`Eliminar gasto ${expense.Nombre}`}
-                            accessibilityRole="button"
-                            disabled={deleting}
-                            hitSlop={8}
-                            onPress={() => onDeleteExpense(expense)}
-                            style={[styles.deleteButton, deleting && styles.deleteButtonDisabled]}
-                            testID={`expense-delete-${expense.IdGasto}`}
-                          >
-                            {deleting ? (
-                              <ActivityIndicator color={colors.danger ?? colors.error ?? colors.primary} size="small" />
-                            ) : (
-                              <FontAwesome6
-                                color={colors.danger ?? colors.error ?? colors.textMuted}
-                                name="trash-can"
-                                size={13}
-                              />
-                            )}
-                          </Pressable>
-                        ) : null}
+                        <View style={styles.rowButtons}>
+                          {canEdit && onEditExpense ? (
+                            <Pressable
+                              accessibilityLabel={`Editar gasto ${expense.Nombre}`}
+                              accessibilityRole="button"
+                              disabled={deleting}
+                              hitSlop={8}
+                              onPress={() => onEditExpense(expense)}
+                              style={styles.editButton}
+                              testID={`expense-edit-${expense.IdGasto}`}
+                            >
+                              <FontAwesome6 color={colors.primary} name="pen" size={12} />
+                            </Pressable>
+                          ) : null}
+                          {canDelete && onDeleteExpense ? (
+                            <Pressable
+                              accessibilityLabel={`Eliminar gasto ${expense.Nombre}`}
+                              accessibilityRole="button"
+                              disabled={deleting}
+                              hitSlop={8}
+                              onPress={() => onDeleteExpense(expense)}
+                              style={[styles.deleteButton, deleting && styles.deleteButtonDisabled]}
+                              testID={`expense-delete-${expense.IdGasto}`}
+                            >
+                              {deleting ? (
+                                <ActivityIndicator color={colors.danger ?? colors.error ?? colors.primary} size="small" />
+                              ) : (
+                                <FontAwesome6
+                                  color={colors.danger ?? colors.error ?? colors.textMuted}
+                                  name="trash-can"
+                                  size={13}
+                                />
+                              )}
+                            </Pressable>
+                          ) : null}
+                        </View>
                       </View>
-                    </View>
+                    </Pressable>
                   );
                 })}
               </ScrollView>
@@ -1488,6 +1515,9 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
     paddingVertical: spacing.sm,
   },
+  rowPressed: {
+    backgroundColor: colors.surfaceMuted,
+  },
   rowDivider: {
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: colors.border,
@@ -1522,6 +1552,19 @@ const styles = StyleSheet.create({
     alignItems: "flex-end",
     gap: spacing.xs,
     flexShrink: 0,
+  },
+  rowButtons: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.xs,
+  },
+  editButton: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.surfaceMuted,
   },
   deleteButton: {
     width: 30,

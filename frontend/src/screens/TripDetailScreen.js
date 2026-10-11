@@ -26,6 +26,7 @@ import ParticipantSearch from "../components/trip/ParticipantSearch";
 import GroupMemberList from "../components/trip/GroupMemberList";
 import ExpenseSummaryCard from "../components/trip/ExpenseSummaryCard";
 import ExpenseList from "../components/trip/ExpenseList";
+import ExpenseDetailModal from "../components/trip/ExpenseDetailModal";
 import SettlementBalances from "../components/trip/SettlementBalances";
 import SettlementTransfers from "../components/trip/SettlementTransfers";
 import SentInvitationsList from "../components/trip/SentInvitationsList";
@@ -62,6 +63,7 @@ import {
   getTripParticipants,
   getExpenseCategories,
   getTripExpenses,
+  getExpenseDetail,
   deleteExpense,
   getTripDocuments,
   downloadTripDocument,
@@ -588,6 +590,10 @@ export default function TripDetailScreen({ navigation, route }) {
   const [expensesLoading, setExpensesLoading] = useState(false);
   const [expensesError, setExpensesError] = useState("");
   const [deletingExpenseId, setDeletingExpenseId] = useState(null);
+  // US 79: detalle del gasto (modo lectura) y gasto abierto en el formulario de edición.
+  const [detalleGasto, setDetalleGasto] = useState(null); // { id, gasto, loading, error }
+  const [gastoEnEdicion, setGastoEnEdicion] = useState(null);
+  const detalleGastoIdRef = useRef(null);
 
   const loadExpenses = useCallback(async () => {
     if (!initialTrip?.id) return;
@@ -638,6 +644,71 @@ async function ejecutarBorradoGasto(gastoId, eliminarComprobante = false) {
     } finally {
       setDeletingExpenseId(null);
     }
+  }
+
+  // US 79: carga el detalle de un gasto. `silencioso` no muestra el spinner
+  // (se usa para refrescarlo cuando llega un evento por WebSocket).
+  const cargarDetalleGasto = useCallback(async (idGasto, { silencioso = false } = {}) => {
+    detalleGastoIdRef.current = idGasto;
+    if (!silencioso) {
+      setDetalleGasto({ id: idGasto, gasto: null, loading: true, error: "" });
+    }
+    try {
+      const gasto = await getExpenseDetail(idGasto);
+      if (detalleGastoIdRef.current !== idGasto) return null;
+      setDetalleGasto({ id: idGasto, gasto, loading: false, error: "" });
+      return gasto;
+    } catch (error) {
+      if (detalleGastoIdRef.current !== idGasto) return null;
+      if (!silencioso) {
+        setDetalleGasto({
+          id: idGasto,
+          gasto: null,
+          loading: false,
+          error: error.message || "No se pudo cargar el gasto.",
+        });
+      }
+      return null;
+    }
+  }, []);
+
+  function cerrarDetalleGasto() {
+    detalleGastoIdRef.current = null;
+    setDetalleGasto(null);
+  }
+
+  function abrirDetalleGasto(gasto) {
+    cargarDetalleGasto(gasto.IdGasto);
+  }
+
+  // Abre el formulario de edición. Si el usuario no puede editar el gasto,
+  // muestra el motivo que informa el backend (US 79).
+  async function editarGasto(gastoOdetalle) {
+    let detalle = gastoOdetalle;
+    if (detalle?.PuedeEditar === undefined) {
+      try {
+        detalle = await getExpenseDetail(gastoOdetalle.IdGasto);
+      } catch (error) {
+        avisar("No se pudo abrir el gasto", error.message || "Intentá nuevamente.");
+        return;
+      }
+    }
+    if (!detalle.PuedeEditar) {
+      avisar(
+        "No podés editar este gasto",
+        detalle.MotivoNoEditable || "Solo el creador del gasto o su pagador actual pueden editarlo."
+      );
+      return;
+    }
+    cerrarDetalleGasto();
+    setGastoEnEdicion(detalle);
+  }
+
+  // Desde el detalle se elimina con el mismo flujo que el tacho de la lista.
+  function eliminarGastoDesdeDetalle(detalle) {
+    const gastoDeLaLista = expenses.find((item) => item.IdGasto === detalle.IdGasto);
+    cerrarDetalleGasto();
+    eliminarGasto(gastoDeLaLista ?? detalle);
   }
 
   async function eliminarGasto(gasto) {
@@ -934,6 +1005,25 @@ async function ejecutarBorradoGasto(gastoId, eliminarComprobante = false) {
 
             if (mensaje.tipo === "documento_actualizado") {
               loadDocumentos();
+              return;
+            }
+
+            // US 79: otro participante editó un gasto. Se refrescan la lista y
+            // la liquidación (y el detalle, si está abierto) sin recargar la pantalla.
+            if (mensaje.tipo === "gasto_actualizado") {
+              loadExpenses();
+              loadSettlement();
+              if (detalleGastoIdRef.current === mensaje.idGasto) {
+                cargarDetalleGasto(mensaje.idGasto, { silencioso: true });
+              }
+              return;
+            }
+            // Alguien empezó o terminó de editar un gasto: si su detalle está
+            // abierto, se actualiza el aviso "X está editando este gasto".
+            if (mensaje.tipo === "edicion_gasto_iniciada" || mensaje.tipo === "edicion_gasto_liberada") {
+              if (detalleGastoIdRef.current === mensaje.idGasto) {
+                cargarDetalleGasto(mensaje.idGasto, { silencioso: true });
+              }
               return;
             }
 
@@ -2454,6 +2544,9 @@ async function ejecutarBorradoGasto(gastoId, eliminarComprobante = false) {
                     canDelete={lock.canEdit("gastos")}
                     deletingExpenseId={deletingExpenseId}
                     onDeleteExpense={eliminarGasto}
+                    canEdit={lock.canEdit("gastos") && !lock.isFinished}
+                    onOpenExpense={abrirDetalleGasto}
+                    onEditExpense={editarGasto}
                     onRetry={loadExpenses}
                     scrollRef={scrollRef}
                     cardRef={gastosCardRef}
@@ -3180,17 +3273,34 @@ async function ejecutarBorradoGasto(gastoId, eliminarComprobante = false) {
         }}
       />
       <AddGastoScreen
-        visible={showAddGastoModal}
+        visible={showAddGastoModal || !!gastoEnEdicion}
+        gastoAEditar={gastoEnEdicion}
         IdViaje={trip?.id}
         Moneda={trip?.currency}
         FechaInicioViaje={trip?.startDate}
         FechaFinViaje={trip?.endDate}
         puedeEscanear={!lock.isFinished}
-        onClose={() => setShowAddGastoModal(false)}
+        onClose={() => {
+          setShowAddGastoModal(false);
+          setGastoEnEdicion(null);
+        }}
         onGastoCreado={() => {
           loadSettlement();
           loadExpenses();
         }}
+      />
+      <ExpenseDetailModal
+        visible={!!detalleGasto}
+        gasto={detalleGasto?.gasto}
+        loading={detalleGasto?.loading}
+        error={detalleGasto?.error}
+        currentUserId={currentUser?.id}
+        onClose={cerrarDetalleGasto}
+        onRetry={() => detalleGasto && cargarDetalleGasto(detalleGasto.id)}
+        onEdit={editarGasto}
+        canDelete={lock.canEdit("gastos")}
+        onDelete={eliminarGastoDesdeDetalle}
+        deleting={deletingExpenseId != null && deletingExpenseId === detalleGasto?.id}
       />
       <CrearVotacionScreen
         visible={showCrearVotacionModal}

@@ -152,4 +152,49 @@ describe("iconForCategory", () => {
     expect(iconForCategory("Transporte")).toBe("car");
     expect(iconForCategory("Categoría nueva")).toBe("receipt");
   });
+
+  it("tocar un gasto abre su detalle", async () => {
+    const onOpenExpense = jest.fn();
+    const { getByTestId } = await render(
+      <ExpenseList categories={categorias} currency="ARS" expenses={gastos} onOpenExpense={onOpenExpense} />
+    );
+
+    await fireEvent.press(getByTestId("expense-category-header-1"));
+    await fireEvent.press(getByTestId("expense-1"));
+
+    expect(onOpenExpense).toHaveBeenCalledWith(expect.objectContaining({ IdGasto: 1 }));
+  });
+
+  it("muestra el botón de editar junto al de eliminar y no abre el detalle al tocarlo", async () => {
+    const onEditExpense = jest.fn();
+    const onOpenExpense = jest.fn();
+    const { getByTestId } = await render(
+      <ExpenseList
+        canDelete
+        canEdit
+        categories={categorias}
+        currency="ARS"
+        expenses={gastos}
+        onDeleteExpense={jest.fn()}
+        onEditExpense={onEditExpense}
+        onOpenExpense={onOpenExpense}
+      />
+    );
+
+    await fireEvent.press(getByTestId("expense-category-header-1"));
+    expect(getByTestId("expense-delete-1")).toBeTruthy();
+    await fireEvent.press(getByTestId("expense-edit-1"));
+
+    expect(onEditExpense).toHaveBeenCalledWith(expect.objectContaining({ IdGasto: 1 }));
+    expect(onOpenExpense).not.toHaveBeenCalled();
+  });
+
+  it("no muestra el botón de editar si no se puede editar", async () => {
+    const { getByTestId, queryByTestId } = await render(
+      <ExpenseList categories={categorias} currency="ARS" expenses={gastos} onEditExpense={jest.fn()} />
+    );
+
+    await fireEvent.press(getByTestId("expense-category-header-1"));
+    expect(queryByTestId("expense-edit-1")).toBeNull();
+  });
 });

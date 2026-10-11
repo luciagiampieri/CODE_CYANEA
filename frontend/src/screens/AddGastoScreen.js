@@ -33,6 +33,7 @@ import {
   getExpenseCategories,
   getTripParticipants,
   createExpense,
+  updateExpense,
   getCurrencies,
   getExchangeRate,
   attachReceiptToExpense,
@@ -46,6 +47,7 @@ import {
   requiereConversionARS,
 } from "../utils/comprobanteGasto";
 import { avisar, confirmar } from "../utils/dialogs";
+import { EDICION_GASTO, useEdicionGasto } from "../hooks/useEdicionGasto";
 
 const DEMORA_COTIZACION_MS = 400;
 
@@ -279,6 +281,46 @@ function SummaryRow({ caption, leading, value, placeholder = false, sub, subTone
   );
 }
 
+// US 79: el backend guarda cada parte de la división en la moneda del viaje,
+// pero el formulario la muestra en la moneda del gasto (la misma en que el
+// usuario la cargó). Se convierte con la proporción del gasto y la diferencia
+// de redondeo queda en la última parte, así la suma coincide con el monto.
+export function montosEnMonedaDelGasto(gasto, division) {
+  const montoBase = Number(gasto.Monto);
+  const montoOriginal = Number(gasto.MontoOriginal);
+  const factor = montoBase > 0 && montoOriginal > 0 ? montoOriginal / montoBase : 1;
+
+  const centavos = division.map((p) => Math.round(Number(p.MontoAsignado) * factor * 100));
+  if (factor !== 1 && centavos.length > 0) {
+    const diferencia = Math.round(montoOriginal * 100) - centavos.reduce((a, b) => a + b, 0);
+    centavos[centavos.length - 1] += diferencia;
+  }
+  return Object.fromEntries(
+    division.map((p, i) => [p.IdParticipanteViaje, String(centavos[i] / 100)])
+  );
+}
+
+// US 79: estado de la edición activa del gasto, arriba del formulario.
+function AvisoEdicion({ edicion }) {
+  if (edicion.estado === EDICION_GASTO.CONECTANDO) {
+    return (
+      <View style={[styles.avisoEdicion, styles.avisoEdicionInfo]} testID="aviso-edicion-conectando">
+        <ActivityIndicator size="small" color={colors.primary} />
+        <Text style={styles.avisoEdicionTexto}>Verificando que nadie más esté editando el gasto…</Text>
+      </View>
+    );
+  }
+  if (edicion.estado === EDICION_GASTO.RECHAZADA || edicion.estado === EDICION_GASTO.PERDIDA) {
+    return (
+      <View style={[styles.avisoEdicion, styles.avisoEdicionWarning]} testID="aviso-edicion-bloqueada">
+        <FontAwesome6 name="lock" size={13} color={colors.warning} />
+        <Text style={styles.avisoEdicionTexto}>{edicion.mensaje}</Text>
+      </View>
+    );
+  }
+  return null;
+}
+
 export default function AddGastoScreen({
   visible,
   onClose,
@@ -290,8 +332,13 @@ export default function AddGastoScreen({
   mostrarAlertaExito = true,
   FechaInicioViaje = null,
   FechaFinViaje = null,
+  // US 79: detalle del gasto (GET /gastos/{id}) para abrir el formulario en modo edición.
+  gastoAEditar = null,
 }) {
   const monedaBase = Moneda || "USD";
+  const modoEdicion = Boolean(gastoAEditar);
+  // Edición activa por WebSocket: solo una persona edita el gasto a la vez.
+  const edicion = useEdicionGasto(gastoAEditar?.IdGasto, modoEdicion && visible);
   const tecladoVisible = useKeyboardVisible();
 
   const [loading, setLoading] = useState(true);
@@ -601,6 +648,7 @@ export default function AddGastoScreen({
         if (parts.length <= 1) {
           setEsCompartido(false);
         }
+        if (gastoAEditar) precargarGasto(gastoAEditar);
       } catch (error) {
         const catsLocal = obtenerCategoriasCache();
         const partsLocal = obtenerParticipantesCache(IdViaje);
@@ -611,6 +659,7 @@ export default function AddGastoScreen({
           if (partsLocal.length <= 1) {
             setEsCompartido(false);
           }
+          if (gastoAEditar) precargarGasto(gastoAEditar);
         } else {
           appAlert("Sin conexión", "No hay datos locales guardados para este viaje todavía.");
           onClose();
@@ -621,7 +670,7 @@ export default function AddGastoScreen({
     }
     cargarMonedas();
     cargarDatos();
-  }, [IdViaje, visible, monedaBase]);
+  }, [IdViaje, visible, monedaBase, gastoAEditar]);
 
   useEffect(() => {
     if (esCompartido && idPagador) {
@@ -682,6 +731,26 @@ export default function AddGastoScreen({
     setCamposRevisar(Array.from(revisar));
     setErrores({});
     setEscaneoAplicado(true);
+  }
+
+  // US 79: carga en el formulario los datos actuales del gasto a editar.
+  function precargarGasto(gasto) {
+    setNombre(gasto.Nombre || "");
+    setMonto(montoParaInput(gasto.MontoOriginal));
+    setMonedaSeleccionada(String(gasto.MonedaOriginal || monedaBase).toUpperCase());
+    setIdCategoria(gasto.IdCategoria ?? null);
+    setFechaIso(String(gasto.FechaGasto || "").slice(0, 10));
+    setIdPagador(gasto.IdPagador ?? null);
+
+    const compartido = Boolean(gasto.EsCompartido);
+    setEsCompartido(compartido);
+    if (!compartido) return;
+
+    const division = gasto.Participantes || [];
+    const personalizada = gasto.TipoDivision === "personalizada";
+    setEsDivisionIgualitaria(!personalizada);
+    setIdsParticipantesSeleccionados(division.map((p) => p.IdParticipanteViaje));
+    setMontosPersonalizados(personalizada ? montosEnMonedaDelGasto(gasto, division) : {});
   }
 
   function descartarComprobante() {
@@ -814,6 +883,26 @@ export default function AddGastoScreen({
         MontoConvertidoARS: requiereConversion ? montoARSParseado.valor : null,
       };
 
+      if (modoEdicion) {
+        try {
+          const respuesta = await updateExpense(gastoAEditar.IdGasto, nuevoGasto);
+          avisar(
+            "Cambios guardados",
+            respuesta?.message || "Los cambios del gasto se guardaron correctamente."
+          );
+          onGastoCreado?.();
+          onClose();
+        } catch (apiError) {
+          // En la edición no hay modo offline: los cambios se validan en el
+          // servidor (permisos, edición activa de otro usuario, pagos registrados).
+          appAlert(
+            "No se pudieron guardar los cambios",
+            apiError?.message || "El servidor rechazó los cambios del gasto."
+          );
+        }
+        return;
+      }
+
       try {
         const respuestaGasto = await createExpense(nuevoGasto);
 
@@ -924,7 +1013,7 @@ export default function AddGastoScreen({
             <View style={styles.grabber} />
 
             <View style={styles.headerRow}>
-              <Text style={styles.title}>Nuevo gasto</Text>
+              <Text style={styles.title}>{modoEdicion ? "Editar gasto" : "Nuevo gasto"}</Text>
               <TouchableOpacity onPress={handleCancelar} hitSlop={10} testID="add-gasto-close">
                 <FontAwesome6 name="xmark" size={18} color={colors.overlay} />
               </TouchableOpacity>
@@ -948,7 +1037,11 @@ export default function AddGastoScreen({
                   keyboardDismissMode="on-drag"
                   showsVerticalScrollIndicator={false}
                 >
-                  {puedeEscanear ? (
+                  {modoEdicion ? (
+                    <AvisoEdicion edicion={edicion} />
+                  ) : null}
+
+                  {puedeEscanear && !modoEdicion ? (
                     <ReceiptScanButton tripId={IdViaje} onScanned={aplicarEscaneo} disabled={saving} />
                   ) : null}
 
@@ -1350,10 +1443,17 @@ export default function AddGastoScreen({
                 {!tecladoVisible && (
                   <View style={styles.footer}>
                     <PrimaryButton
-                      label={saving ? "Guardando..." : "Registrar gasto"}
+                      label={
+                        saving
+                          ? "Guardando..."
+                          : modoEdicion
+                          ? "Guardar cambios"
+                          : "Registrar gasto"
+                      }
                       loading={saving}
                       onPress={handleGuardar}
-                      disabled={saving}
+                      disabled={saving || (modoEdicion && !edicion.puedeGuardar)}
+                      testID="add-gasto-guardar"
                     />
                     {desdeComprobante ? (
                       <PrimaryButton
@@ -1937,6 +2037,25 @@ const styles = StyleSheet.create({
     color: colors.warning,
     fontWeight: "600",
     marginTop: 2,
+  },
+  avisoEdicion: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: spacing.xs,
+    borderRadius: radii.sm,
+    padding: spacing.sm,
+    marginTop: spacing.xs,
+  },
+  avisoEdicionInfo: {
+    backgroundColor: COLOR_SUPERFICIE_SUAVE,
+  },
+  avisoEdicionWarning: {
+    backgroundColor: colors.warningSurface,
+  },
+  avisoEdicionTexto: {
+    ...textStyles.meta,
+    color: colors.textPrimary,
+    flex: 1,
   },
   scanInfo: {
     flexDirection: "row",

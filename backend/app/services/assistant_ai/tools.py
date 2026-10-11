@@ -610,6 +610,10 @@ async def execute_assistant_action(
         if rounding_delta:
             assigned_amounts[participant_ids[0]] += rounding_delta
 
+        creador = next(
+            (p for p in accepted if p.IdUsuario == current_user.IdUsuario), None
+        )
+
         gasto = Gasto(
             IdViaje=viaje.IdViaje,
             Nombre=_resolve_expense_name(payload),
@@ -622,6 +626,7 @@ async def execute_assistant_action(
             FechaGasto=expense_date,
             DividirEntreTodos=divide_all,
             TipoDivision=division_type,
+            IdParticipanteCreador=creador.IdParticipanteViaje if creador else None
         )
         db.add(gasto)
         db.flush()

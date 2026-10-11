@@ -22,11 +22,14 @@ export function resolveNotificationTarget(data = {}) {
     ].includes(eventType)
   ) {
     initialTab = "itinerario";
-  } else if (eventType === "expense_created" || notificationType === "nuevo_gasto") {
+  } else if (
+    ["expense_created", "expense_updated"].includes(eventType) ||
+    ["nuevo_gasto", "gasto_modificado"].includes(notificationType)
+  ) {
     initialTab = "gastos";
   } else if (eventType === "voting_created" || notificationType === "nueva_votacion") {
     initialTab = "votar";
-  }
+  } 
 
   return {
     tripId,

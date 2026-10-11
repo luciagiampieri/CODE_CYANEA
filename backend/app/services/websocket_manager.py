@@ -1,6 +1,8 @@
 import asyncio
 import json
 import logging
+import time
+from dataclasses import dataclass
 from collections import defaultdict
 
 from fastapi import WebSocket
@@ -8,12 +10,26 @@ from fastapi import WebSocket
 
 logger = logging.getLogger(__name__)
 
+@dataclass(slots=True)
+class EdicionGasto:
+    """Edición activa de un gasto (US 79)."""
+
+    id_usuario: int
+    ultima_actividad: float
+
+
+def _tiempo_inactividad_edicion_gasto() -> int:
+    # Import diferido para no acoplar el manager a la configuración al importarlo.
+    from app.core.config import settings
+
+    return settings.expense_edit_lock_ttl_seconds
 
 class ConnectionManager:
     def __init__(self) -> None:
         self._conexiones_por_viaje: dict[int, set[WebSocket]] = defaultdict(set)
         self._conexiones_por_usuario: dict[int, set[WebSocket]] = defaultdict(set)
         self._ediciones_activas: dict[tuple[int, int], int] = {}
+        self._ediciones_gastos: dict[int, EdicionGasto] = {}
         self._lock_ediciones = asyncio.Lock()
 
 
@@ -94,6 +110,57 @@ class ConnectionManager:
             for clave in claves_a_liberar:
                 self._ediciones_activas.pop(clave, None)
 
+
+    # Edición de gastos (US 79)
+
+    def _ahora(self) -> float:
+        return time.monotonic()
+
+    def _edicion_gasto_vigente(self, id_gasto: int) -> EdicionGasto | None:
+        edicion = self._ediciones_gastos.get(id_gasto)
+        if edicion is None:
+            return None
+        if self._ahora() - edicion.ultima_actividad > _tiempo_inactividad_edicion_gasto():
+            # Vencida por inactividad: se descarta.
+            self._ediciones_gastos.pop(id_gasto, None)
+            return None
+        return edicion
+
+    async def iniciar_edicion_gasto(self, id_gasto: int, user_id: int) -> bool:
+        """Toma la edición del gasto. Si ya la tiene el mismo usuario, la renueva."""
+        async with self._lock_ediciones:
+            edicion = self._edicion_gasto_vigente(id_gasto)
+            if edicion is not None and edicion.id_usuario != user_id:
+                return False
+            self._ediciones_gastos[id_gasto] = EdicionGasto(
+                id_usuario=user_id,
+                ultima_actividad=self._ahora(),
+            )
+            return True
+
+    async def renovar_edicion_gasto(self, id_gasto: int, user_id: int) -> bool:
+        """Señal periódica del editor. Devuelve False si ya no tiene la edición."""
+        async with self._lock_ediciones:
+            edicion = self._edicion_gasto_vigente(id_gasto)
+            if edicion is None or edicion.id_usuario != user_id:
+                return False
+            edicion.ultima_actividad = self._ahora()
+            return True
+
+    async def finalizar_edicion_gasto(self, id_gasto: int, user_id: int) -> bool:
+        """Libera la edición si la tiene `user_id` (guardar, cancelar o salir)."""
+        async with self._lock_ediciones:
+            edicion = self._ediciones_gastos.get(id_gasto)
+            if edicion is None or edicion.id_usuario != user_id:
+                return False
+            self._ediciones_gastos.pop(id_gasto, None)
+            return True
+
+    def obtener_editor_gasto(self, id_gasto: int) -> int | None:
+        """Usuario con la edición activa del gasto, o None si está libre."""
+        edicion = self._edicion_gasto_vigente(id_gasto)
+        return edicion.id_usuario if edicion is not None else None
+    
     async def broadcast_to_trip(self, trip_id: int, evento: dict) -> None:
         
         conexiones = list(self._conexiones_por_viaje.get(trip_id, ()))

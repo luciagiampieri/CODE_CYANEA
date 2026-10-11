@@ -26,6 +26,17 @@ describe("notificationNavigation", () => {
     );
   });
 
+    it("resuelve gastos modificados al tab de gastos (US 79)", () => {
+    expect(
+      resolveNotificationTarget({ tripId: 12, eventType: "expense_updated", expenseId: 15 })
+    ).toEqual(
+      expect.objectContaining({ tripId: 12, initialTab: "gastos", expenseId: 15 })
+    );
+    expect(
+      resolveNotificationTarget({ tripId: 12, notificationType: "gasto_modificado", expenseId: 15 })
+    ).toEqual(expect.objectContaining({ initialTab: "gastos" }));
+  });
+
   it("resuelve votaciones al tab votar", () => {
     expect(
       resolveNotificationTarget({ tripId: 12, eventType: "voting_created", votingId: 3 })

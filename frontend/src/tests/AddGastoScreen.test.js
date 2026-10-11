@@ -2,52 +2,45 @@ import React from "react";
 import { Alert } from "react-native";
 import { act, fireEvent, render, waitFor } from "@testing-library/react-native";
 
-import AddGastoScreen from "../screens/AddGastoScreen";
-import { formatDateDisplay, toYMD } from "../utils/dates";
-
+import AddGastoScreen, { montosEnMonedaDelGasto } from "../screens/AddGastoScreen";
+import { EDICION_GASTO, useEdicionGasto } from "../hooks/useEdicionGasto";
 import {
+  createExpense,
+  getCurrencies,
   getExpenseCategories,
   getTripParticipants,
-  getCurrencies,
-  createExpense,
+  updateExpense,
 } from "../services/api";
-
-import {
-  guardarGastoOffline,
-  obtenerCategoriasCache,
-  obtenerParticipantesCache,
-} from "../database/gastosLocal";
 
 jest.mock("../services/api", () => ({
   getExpenseCategories: jest.fn(),
   getTripParticipants: jest.fn(),
   getCurrencies: jest.fn(),
   createExpense: jest.fn(),
+  updateExpense: jest.fn(),
 }));
 
 jest.mock("../database/gastosLocal", () => ({
   guardarGastoOffline: jest.fn(),
   guardarCategoriasEnCache: jest.fn(),
-  obtenerCategoriasCache: jest.fn(),
+  obtenerCategoriasCache: jest.fn(() => []),
   guardarParticipantesEnCache: jest.fn(),
-  obtenerParticipantesCache: jest.fn(),
+  obtenerParticipantesCache: jest.fn(() => []),
 }));
 
-// Atajo para poner una fecha pasada en el formulario sin manejar el calendario: un botón falso
-// que entrega datos ya "escaneados". El flujo real del botón se prueba en ReceiptScanButton.test.js.
-let mockDatosEscaneo = null;
-jest.mock("../components/trip/ReceiptScanButton", () => {
-  const { Text: MockText, TouchableOpacity: MockTouchable } = require("react-native");
-  return function MockReceiptScanButton({ onScanned }) {
-    return (
-      <MockTouchable onPress={() => onScanned(mockDatosEscaneo)}>
-        <MockText>Simular escaneo</MockText>
-      </MockTouchable>
-    );
-  };
+// El WebSocket de la edición se prueba en useEdicionGasto.test.js: acá se
+// controla directamente el estado que devuelve el hook.
+jest.mock("../hooks/useEdicionGasto", () => {
+  const real = jest.requireActual("../hooks/useEdicionGasto");
+  return { ...real, useEdicionGasto: jest.fn() };
 });
 
-const mockOnClose = jest.fn();
+jest.mock("../components/trip/ReceiptScanButton", () => {
+  const { Text: MockText } = require("react-native");
+  return function MockReceiptScanButton() {
+    return <MockText>Escanear comprobante</MockText>;
+  };
+});
 
 const categorias = [
   { IdCategoria: 1, Nombre: "Comida y Bebida" },
@@ -55,717 +48,293 @@ const categorias = [
 ];
 
 const participantes = [
-  { IdParticipanteViaje: 1, Nombre: "Juan", Apellido: "Pérez", NombreUsuario: "jperez" },
-  { IdParticipanteViaje: 2, Nombre: "Ana", Apellido: "Gómez", NombreUsuario: "agomez" },
+  { IdParticipanteViaje: 6, Nombre: "Ana", Apellido: "Test", NombreUsuario: "ana", EsUsuarioActual: false },
+  { IdParticipanteViaje: 8, Nombre: "Carla", Apellido: "Test", NombreUsuario: "carla", EsUsuarioActual: true },
+  { IdParticipanteViaje: 9, Nombre: "Dario", Apellido: "Test", NombreUsuario: "dario", EsUsuarioActual: false },
 ];
 
-// La moneda base del viaje en estos tests es USD
-const monedas = [
-  { Codigo: "USD", Nombre: "Dólar estadounidense" },
-  { Codigo: "EUR", Nombre: "Euro" },
-  { Codigo: "ARS", Nombre: "Peso argentino" },
-];
-
-const NOMBRE_MONEDA_BASE = "Dólar estadounidense";
-const AVISO_CONVERSION = /se convertirá automáticamente/;
-
-const MENSAJE_OFFLINE =
-  "El gasto quedó guardado localmente con su moneda original. Se convertirá y sincronizará cuando vuelva la conexión.";
-
-const HOY = toYMD(new Date());
-const HACE_5_DIAS = (() => {
+const AYER = (() => {
   const fecha = new Date();
-  fecha.setDate(fecha.getDate() - 5);
-  return toYMD(fecha);
+  fecha.setDate(fecha.getDate() - 1);
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${fecha.getFullYear()}-${pad(fecha.getMonth() + 1)}-${pad(fecha.getDate())}`;
 })();
 
-// Gasto en euros (la base es USD) fechado 5 días atrás
-const GASTO_EN_EUR_PASADO = {
-  Nombre: "Museo del Louvre",
-  MontoOriginal: "100",
-  MonedaOriginal: "EUR",
-  FechaGasto: HACE_5_DIAS,
-  IdCategoria: 1,
-  CamposBajaConfianza: [],
-};
-
-// Gasto que el análisis de un documento detectó con todos sus datos (US 84).
-// En ARS para no activar las reglas de conversión del comprobante (US 94), ya cubiertas aparte.
-const GASTO_DETECTADO_EN_DOCUMENTO = {
-  Nombre: "Pasaje de micro Córdoba - Mendoza",
-  MontoOriginal: "45000",
-  MonedaOriginal: "ARS",
-  FechaGasto: HACE_5_DIAS,
-  IdCategoria: 2,
-  CamposBajaConfianza: [],
-};
-
-async function press(getters, texto) {
-  await act(async () => {
-    fireEvent.press(getters.getByText(texto));
-  });
+function detalle(overrides = {}) {
+  return {
+    IdGasto: 15,
+    IdViaje: 10,
+    Nombre: "Cena",
+    Monto: "900.00",
+    MontoOriginal: "900.00",
+    MonedaOriginal: "ARS",
+    MonedaViaje: "ARS",
+    FechaGasto: AYER,
+    IdCategoria: 1,
+    NombreCategoria: "Comida y Bebida",
+    IdPagador: 8,
+    EsCompartido: true,
+    TipoDivision: "igualitaria",
+    DividirEntreTodos: true,
+    Participantes: [
+      { IdParticipanteViaje: 6, MontoAsignado: "300.00" },
+      { IdParticipanteViaje: 8, MontoAsignado: "300.00" },
+      { IdParticipanteViaje: 9, MontoAsignado: "300.00" },
+    ],
+    PuedeEditar: true,
+    ...overrides,
+  };
 }
 
-async function escribir(getters, placeholder, texto) {
-  await act(async () => {
-    fireEvent.changeText(getters.getByPlaceholderText(placeholder), texto);
-  });
+function estadoEdicion(estado, extra = {}) {
+  return {
+    estado,
+    mensaje: null,
+    codigo: null,
+    puedeGuardar: estado === EDICION_GASTO.CONCEDIDA || estado === EDICION_GASTO.DESCONECTADA,
+    liberar: jest.fn(),
+    ...extra,
+  };
 }
 
-// Espera a que termine de cargar el formulario y, salvo que se indique lo contrario,
-// también la lista de monedas (se carga en paralelo, de forma independiente).
-async function renderPantallaCargada({ esperarMonedas = true, props = {} } = {}) {
+const onClose = jest.fn();
+const onGastoCreado = jest.fn();
+
+async function renderEdicion(gasto = detalle()) {
   const utils = await render(
-    <AddGastoScreen visible={true} IdViaje={10} Moneda="USD" onClose={mockOnClose} {...props} />
+    <AddGastoScreen
+      visible
+      IdViaje={10}
+      Moneda="ARS"
+      gastoAEditar={gasto}
+      onClose={onClose}
+      onGastoCreado={onGastoCreado}
+    />
   );
-  await waitFor(() => expect(utils.getByText("Nuevo gasto")).toBeTruthy());
-
-  if (esperarMonedas) {
-    await waitFor(() => expect(utils.getByText(NOMBRE_MONEDA_BASE)).toBeTruthy());
-  }
+  await waitFor(() => expect(utils.getByText("Editar gasto")).toBeTruthy());
+  await waitFor(() => expect(utils.getByDisplayValue("Cena")).toBeTruthy());
   return utils;
 }
 
-async function completarNombreYMonto(utils, nombre, monto) {
-  await escribir(utils, "Cena", nombre);
-  await escribir(utils, "0", monto);
-}
-
-async function seleccionarCategoria(utils, nombreCategoria) {
-  await press(utils, "Elegir");
-  await press(utils, nombreCategoria);
-}
-
-// Abre el selector de moneda (el botón muestra la moneda base) y elige otra.
-async function seleccionarMoneda(utils, nombreMoneda) {
-  await press(utils, NOMBRE_MONEDA_BASE);
-  await press(utils, nombreMoneda);
-}
-
-async function registrarGastoPersonal(utils, { nombre = "Almuerzo", monto = "1500" } = {}) {
-  await completarNombreYMonto(utils, nombre, monto);
-  await seleccionarCategoria(utils, "Comida y Bebida");
-  await press(utils, "Registrar gasto");
-}
-
-function errorDelServidor(status, message) {
-  return Object.assign(new Error(message), { status });
-}
-
-// Completa el formulario con un gasto en euros de hace 5 días y lo registra.
-async function registrarGastoEnEurosConFechaPasada(utils) {
-  mockDatosEscaneo = GASTO_EN_EUR_PASADO;
-  await press(utils, "Simular escaneo");
-  // US 94 (RN-39): un comprobante en otra moneda exige el monto convertido a ARS.
+async function guardar(utils) {
   await act(async () => {
-    fireEvent.changeText(utils.getByTestId("monto-ars-input"), "180000");
+    fireEvent.press(utils.getByTestId("add-gasto-guardar"));
   });
-  await press(utils, "Registrar gasto");
 }
 
-describe("US - Registrar gasto (AddGastoScreen)", () => {
+describe("US 79 - Editar gasto (AddGastoScreen en modo edición)", () => {
   let alertSpy;
-  let logSpy;
 
   beforeEach(() => {
     jest.clearAllMocks();
-
-    getExpenseCategories.mockResolvedValue(categorias);
+    getExpenseCategories.mockResolvedValue([...categorias]);
     getTripParticipants.mockResolvedValue(participantes);
-    getCurrencies.mockResolvedValue(monedas);
-    createExpense.mockResolvedValue({ IdGasto: 1 });
-    guardarGastoOffline.mockReturnValue(true);
-    obtenerCategoriasCache.mockReturnValue([]);
-    obtenerParticipantesCache.mockReturnValue([]);
-
+    getCurrencies.mockResolvedValue([
+      { Codigo: "ARS", Nombre: "Peso argentino" },
+      { Codigo: "USD", Nombre: "Dólar estadounidense" },
+    ]);
+    updateExpense.mockResolvedValue({
+      message: "Los cambios del gasto se guardaron correctamente.",
+      IdGasto: 15,
+    });
+    useEdicionGasto.mockReturnValue(estadoEdicion(EDICION_GASTO.CONCEDIDA));
     alertSpy = jest.spyOn(Alert, "alert").mockImplementation(() => {});
-    // El componente loguea errores a propósito; evitamos ensuciar la salida de los tests
-    logSpy = jest.spyOn(console, "log").mockImplementation(() => {});
   });
 
   afterEach(() => {
     alertSpy.mockRestore();
-    logSpy.mockRestore();
   });
 
-  // ---------------------------------------------------------------------------
-  // Carga inicial
-  // ---------------------------------------------------------------------------
-  describe("carga inicial", () => {
-    it("carga categorías, participantes y monedas del viaje al montar la pantalla", async () => {
-      await renderPantallaCargada();
+  it("muestra el título de edición, precarga los datos y oculta el escaneo", async () => {
+    const utils = await renderEdicion();
 
-      expect(getExpenseCategories).toHaveBeenCalledTimes(1);
-      expect(getTripParticipants).toHaveBeenCalledWith(10);
-      expect(getCurrencies).toHaveBeenCalledTimes(1);
-    });
-
-    it("si no hay conexión al cargar y tampoco hay caché local, avisa y cierra el modal", async () => {
-      getExpenseCategories.mockRejectedValue(new Error("Network Error"));
-      getTripParticipants.mockRejectedValue(new Error("Network Error"));
-
-      await render(
-        <AddGastoScreen visible={true} IdViaje={10} Moneda="USD" onClose={mockOnClose} />
-      );
-
-      await waitFor(() => {
-        expect(alertSpy).toHaveBeenCalledWith(
-          "Sin conexión",
-          "No hay datos locales guardados para este viaje todavía."
-        );
-      });
-      expect(mockOnClose).toHaveBeenCalledTimes(1);
-    });
-
-    it("si no hay conexión pero hay caché local, carga el formulario con esos datos", async () => {
-      getExpenseCategories.mockRejectedValue(new Error("Network Error"));
-      getTripParticipants.mockRejectedValue(new Error("Network Error"));
-      getCurrencies.mockRejectedValue(new Error("Network Error"));
-      obtenerCategoriasCache.mockReturnValue(categorias);
-      obtenerParticipantesCache.mockReturnValue(participantes);
-
-      const utils = await renderPantallaCargada({ esperarMonedas: false });
-
-      expect(mockOnClose).not.toHaveBeenCalled();
-      await press(utils, "Elegir");
-      expect(utils.getByText("Comida y Bebida")).toBeTruthy();
-    });
+    expect(utils.getByDisplayValue("Cena")).toBeTruthy();
+    expect(utils.getByDisplayValue("900")).toBeTruthy();
+    expect(utils.getByText("Comida y Bebida")).toBeTruthy();
+    expect(utils.getByText("Guardar cambios")).toBeTruthy();
+    expect(utils.queryByText("Escanear comprobante")).toBeNull();
+    expect(utils.queryByText("Nuevo gasto")).toBeNull();
   });
 
-  // ---------------------------------------------------------------------------
-  // Monedas
-  // ---------------------------------------------------------------------------
-  describe("selector de moneda", () => {
-    it("muestra la moneda base del viaje seleccionada por defecto", async () => {
-      const utils = await renderPantallaCargada();
+  it("pide la edición activa del gasto mientras el formulario está abierto", async () => {
+    await renderEdicion();
 
-      expect(utils.getByText("Monto (USD)")).toBeTruthy();
-      expect(utils.queryByText(AVISO_CONVERSION)).toBeNull();
-    });
-
-    it("permite elegir otra moneda de la lista y avisa que se convertirá a la moneda base", async () => {
-      const utils = await renderPantallaCargada();
-
-      await seleccionarMoneda(utils, "Euro");
-
-      expect(utils.getByText("Monto (EUR)")).toBeTruthy();
-      expect(utils.getByText(AVISO_CONVERSION)).toBeTruthy();
-    });
-
-    it("deja de mostrar el aviso de conversión al volver a la moneda base", async () => {
-      const utils = await renderPantallaCargada();
-
-      await seleccionarMoneda(utils, "Euro");
-      expect(utils.getByText(AVISO_CONVERSION)).toBeTruthy();
-
-      // Ahora el botón muestra "Euro"; elegimos nuevamente el dólar
-      await press(utils, "Euro");
-      await press(utils, NOMBRE_MONEDA_BASE);
-
-      expect(utils.getByText("Monto (USD)")).toBeTruthy();
-      expect(utils.queryByText(AVISO_CONVERSION)).toBeNull();
-    });
-
-    it("si falla la carga de monedas, el formulario sigue disponible con la moneda base", async () => {
-      getCurrencies.mockRejectedValue(new Error("Fallo al traer monedas"));
-
-      const utils = await renderPantallaCargada({ esperarMonedas: false });
-
-      // No cierra el modal ni avisa "Sin conexión": categorías y participantes cargaron bien
-      expect(mockOnClose).not.toHaveBeenCalled();
-      expect(alertSpy).not.toHaveBeenCalled();
-      await waitFor(() => expect(utils.getByText("Moneda base")).toBeTruthy());
-      expect(utils.getByText("Monto (USD)")).toBeTruthy();
-
-      await registrarGastoPersonal(utils);
-
-      await waitFor(() => expect(createExpense).toHaveBeenCalledTimes(1));
-      expect(createExpense).toHaveBeenCalledWith(
-        expect.objectContaining({ MonedaOriginal: "USD" })
-      );
-    });
-
-    it("si la API devuelve una lista vacía de monedas, usa solo la moneda base", async () => {
-      getCurrencies.mockResolvedValue([]);
-
-      const utils = await renderPantallaCargada({ esperarMonedas: false });
-
-      await waitFor(() => expect(utils.getByText("Moneda base")).toBeTruthy());
-      expect(utils.getByText("Monto (USD)")).toBeTruthy();
-    });
+    expect(useEdicionGasto).toHaveBeenCalledWith(15, true);
   });
 
-  // ---------------------------------------------------------------------------
-  // Validaciones
-  // ---------------------------------------------------------------------------
-  describe("validaciones", () => {
-    it("muestra errores de validación si se intenta guardar sin completar los campos obligatorios", async () => {
-      const utils = await renderPantallaCargada();
+  it("guarda los cambios con updateExpense, confirma y cierra", async () => {
+    const utils = await renderEdicion();
 
-      await press(utils, "Registrar gasto");
-
-      expect(utils.getByText("El concepto es obligatorio")).toBeTruthy();
-      expect(utils.getByText("El monto es obligatorio")).toBeTruthy();
-      // Mensaje de error de categoría + el selector sigue sin categoría ("Elegir")
-      expect(utils.getByText("Seleccioná una categoría")).toBeTruthy();
-      expect(utils.getByText("Elegir")).toBeTruthy();
-      expect(createExpense).not.toHaveBeenCalled();
+    await act(async () => {
+      fireEvent.changeText(utils.getByDisplayValue("900"), "1200");
     });
+    await guardar(utils);
 
-    it("rechaza un monto menor o igual a cero", async () => {
-      const utils = await renderPantallaCargada();
-
-      await completarNombreYMonto(utils, "Almuerzo", "0");
-      await press(utils, "Registrar gasto");
-
-      expect(utils.getByText("El monto debe ser mayor a cero")).toBeTruthy();
-      expect(createExpense).not.toHaveBeenCalled();
-    });
+    expect(createExpense).not.toHaveBeenCalled();
+    expect(updateExpense).toHaveBeenCalledWith(
+      15,
+      expect.objectContaining({
+        Nombre: "Cena",
+        MontoOriginal: 1200,
+        MonedaOriginal: "ARS",
+        IdCategoria: 1,
+        IdPagador: 8,
+        FechaGasto: AYER,
+        EsCompartido: true,
+        TipoDivision: "igualitaria",
+        IdParticipantes: [6, 8, 9],
+      })
+    );
+    expect(alertSpy).toHaveBeenCalledWith(
+      "Cambios guardados",
+      "Los cambios del gasto se guardaron correctamente."
+    );
+    expect(onGastoCreado).toHaveBeenCalled();
+    expect(onClose).toHaveBeenCalled();
   });
 
-  // ---------------------------------------------------------------------------
-  // Registro online
-  // ---------------------------------------------------------------------------
-  describe("registro online", () => {
-    it("registra un gasto personal exitosamente y cierra el modal", async () => {
-      const utils = await renderPantallaCargada();
-
-      await registrarGastoPersonal(utils);
-
-      await waitFor(() => expect(createExpense).toHaveBeenCalledTimes(1));
-
-      expect(createExpense).toHaveBeenCalledWith(
-        expect.objectContaining({
-          IdViaje: 10,
-          Nombre: "Almuerzo",
-          Monto: 1500,
-          MontoOriginal: 1500,
-          MonedaOriginal: "USD",
-          IdCategoria: 1,
-          EsCompartido: false,
-          IdPagador: null,
-        })
-      );
-
-      await waitFor(() => {
-        expect(alertSpy).toHaveBeenCalledWith(
-          "Éxito",
-          "Gasto registrado correctamente en el servidor."
-        );
-      });
-      expect(guardarGastoOffline).not.toHaveBeenCalled();
-      expect(mockOnClose).toHaveBeenCalledTimes(1);
-    });
-
-    it("registra el gasto con la moneda original elegida cuando es distinta a la base", async () => {
-      const utils = await renderPantallaCargada();
-
-      await seleccionarMoneda(utils, "Euro");
-      await registrarGastoPersonal(utils, { nombre: "Museo", monto: "100" });
-
-      await waitFor(() => expect(createExpense).toHaveBeenCalledTimes(1));
-
-      expect(createExpense).toHaveBeenCalledWith(
-        expect.objectContaining({
-          IdViaje: 10,
-          Nombre: "Museo",
-          MontoOriginal: 100,
-          MonedaOriginal: "EUR",
-        })
-      );
-      expect(mockOnClose).toHaveBeenCalledTimes(1);
-    });
-
-    it("envía la fecha del gasto (no la de hoy) junto con el importe y la moneda originales", async () => {
-      const utils = await renderPantallaCargada();
-
-      await registrarGastoEnEurosConFechaPasada(utils);
-
-      await waitFor(() => expect(createExpense).toHaveBeenCalledTimes(1));
-      const enviado = createExpense.mock.calls[0][0];
-      expect(enviado).toEqual(
-        expect.objectContaining({ MontoOriginal: 100, MonedaOriginal: "EUR", FechaGasto: HACE_5_DIAS })
-      );
-      expect(enviado.FechaGasto).not.toBe(HOY);
-    });
-  });
-
-  // ---------------------------------------------------------------------------
-  // Registro offline y errores del servidor
-  // ---------------------------------------------------------------------------
-  describe("registro offline y errores del servidor", () => {
-    it.each([
-      ["TypeError (fetch en React Native)", new TypeError("Network request failed")],
-      ["Failed to fetch", new Error("Failed to fetch")],
-      ["Network Error (axios)", new Error("Network Error")],
-      ["timeout", new Error("timeout of 10000ms exceeded")],
-    ])(
-      "si falla por conexión (%s), lo guarda offline y avisa al usuario",
-      async (_descripcion, errorDeRed) => {
-        createExpense.mockRejectedValue(errorDeRed);
-        alertSpy.mockImplementation((title, message, buttons) => {
-          const entendido = buttons?.find((b) => b.text === "Entendido");
-          entendido?.onPress?.();
-        });
-
-        const utils = await renderPantallaCargada();
-
-        await registrarGastoPersonal(utils);
-
-        await waitFor(() => expect(guardarGastoOffline).toHaveBeenCalledTimes(1));
-
-        expect(alertSpy).toHaveBeenCalledWith(
-          "Modo Offline",
-          MENSAJE_OFFLINE,
-          expect.arrayContaining([expect.objectContaining({ text: "Entendido" })])
-        );
-        expect(mockOnClose).toHaveBeenCalledTimes(1);
-      }
+  it("precarga una división personalizada con los montos de cada participante", async () => {
+    const utils = await renderEdicion(
+      detalle({
+        TipoDivision: "personalizada",
+        DividirEntreTodos: false,
+        Participantes: [
+          { IdParticipanteViaje: 6, MontoAsignado: "500.00" },
+          { IdParticipanteViaje: 8, MontoAsignado: "400.00" },
+        ],
+      })
     );
 
-    it("al guardar offline conserva el monto y la moneda original elegidos", async () => {
-      createExpense.mockRejectedValue(new TypeError("Network request failed"));
+    await guardar(utils);
 
-      const utils = await renderPantallaCargada();
-
-      await seleccionarMoneda(utils, "Euro");
-      await registrarGastoPersonal(utils, { nombre: "Museo", monto: "100" });
-
-      await waitFor(() => expect(guardarGastoOffline).toHaveBeenCalledTimes(1));
-
-      expect(guardarGastoOffline).toHaveBeenCalledWith(
-        expect.objectContaining({
-          IdViaje: 10,
-          Nombre: "Museo",
-          MontoOriginal: 100,
-          MonedaOriginal: "EUR",
-        })
-      );
-    });
-
-    it("si el servidor rechaza el gasto (error con status), muestra el motivo y NO lo guarda offline", async () => {
-      createExpense.mockRejectedValue(errorDelServidor(400, "La moneda no está soportada"));
-
-      const utils = await renderPantallaCargada();
-
-      await registrarGastoPersonal(utils);
-
-      await waitFor(() => {
-        expect(alertSpy).toHaveBeenCalledWith(
-          "No se pudo registrar el gasto",
-          "La moneda no está soportada"
-        );
-      });
-      expect(guardarGastoOffline).not.toHaveBeenCalled();
-      expect(mockOnClose).not.toHaveBeenCalled();
-    });
-
-    it("si el servidor rechaza el gasto sin mensaje, muestra un texto genérico", async () => {
-      createExpense.mockRejectedValue(errorDelServidor(500, ""));
-
-      const utils = await renderPantallaCargada();
-
-      await registrarGastoPersonal(utils);
-
-      await waitFor(() => {
-        expect(alertSpy).toHaveBeenCalledWith(
-          "No se pudo registrar el gasto",
-          "El servidor rechazó el gasto."
-        );
-      });
-      expect(guardarGastoOffline).not.toHaveBeenCalled();
-    });
-
-    it("un error desconocido que no es de red tampoco se guarda offline", async () => {
-      createExpense.mockRejectedValue(new Error("Algo inesperado"));
-
-      const utils = await renderPantallaCargada();
-
-      await registrarGastoPersonal(utils);
-
-      await waitFor(() => {
-        expect(alertSpy).toHaveBeenCalledWith(
-          "No se pudo registrar el gasto",
-          "Algo inesperado"
-        );
-      });
-      expect(guardarGastoOffline).not.toHaveBeenCalled();
-      expect(mockOnClose).not.toHaveBeenCalled();
-    });
-
-    it("si el servicio de cotización no está disponible (503), lo guarda offline y avisa al usuario", async () => {
-      createExpense.mockRejectedValue(errorDelServidor(503, "Service Unavailable"));
-      alertSpy.mockImplementation((title, message, buttons) => {
-        const entendido = buttons?.find((b) => b.text === "Entendido");
-        entendido?.onPress?.();
-      });
-
-      const utils = await renderPantallaCargada();
-
-      await seleccionarMoneda(utils, "Euro");
-      await registrarGastoPersonal(utils, { monto: "100" });
-
-      await waitFor(() => expect(guardarGastoOffline).toHaveBeenCalledTimes(1));
-
-      expect(alertSpy).toHaveBeenCalledWith(
-        "Servicio no disponible",
-        "El servicio de cotización no se encuentra disponible en este momento.",
-        expect.arrayContaining([expect.objectContaining({ text: "Entendido" })])
-      );
-      expect(mockOnClose).toHaveBeenCalledTimes(1);
-    });
-
-    it("si el error menciona la cotización, también lo guarda offline y avisa al usuario", async () => {
-      createExpense.mockRejectedValue(new Error("Error al obtener la cotización"));
-      alertSpy.mockImplementation((title, message, buttons) => {
-        const entendido = buttons?.find((b) => b.text === "Entendido");
-        entendido?.onPress?.();
-      });
-
-      const utils = await renderPantallaCargada();
-
-      await registrarGastoPersonal(utils);
-
-      await waitFor(() => expect(guardarGastoOffline).toHaveBeenCalledTimes(1));
-
-      expect(alertSpy).toHaveBeenCalledWith(
-        "Servicio no disponible",
-        "El servicio de cotización no se encuentra disponible en este momento.",
-        expect.arrayContaining([expect.objectContaining({ text: "Entendido" })])
-      );
-      expect(mockOnClose).toHaveBeenCalledTimes(1);
-    });
-
-    it("si falla la conexión y tampoco se puede guardar offline, muestra el error", async () => {
-      createExpense.mockRejectedValue(new TypeError("Network request failed"));
-      guardarGastoOffline.mockReturnValue(false);
-
-      const utils = await renderPantallaCargada();
-
-      await registrarGastoPersonal(utils);
-
-      await waitFor(() => {
-        expect(alertSpy).toHaveBeenCalledWith("Error", "No se pudo guardar el gasto offline");
-      });
-      expect(mockOnClose).not.toHaveBeenCalled();
-    });
-
-    it("al guardar offline conserva también la fecha del gasto y no guarda ninguna conversión", async () => {
-      createExpense.mockRejectedValue(new TypeError("Network request failed"));
-      alertSpy.mockImplementation((titulo, mensaje, botones) => {
-        botones?.find((b) => b.text === "Entendido")?.onPress?.();
-      });
-
-      const utils = await renderPantallaCargada();
-
-      await registrarGastoEnEurosConFechaPasada(utils);
-
-      await waitFor(() => expect(guardarGastoOffline).toHaveBeenCalledTimes(1));
-      const guardado = guardarGastoOffline.mock.calls[0][0];
-      expect(guardado).toEqual(
-        expect.objectContaining({
-          IdViaje: 10,
-          Nombre: "Museo del Louvre",
-          MontoOriginal: 100,
-          MonedaOriginal: "EUR",
-          FechaGasto: HACE_5_DIAS,
-        })
-      );
-      // La conversión se hace al sincronizar, con la cotización de FechaGasto.
-      expect(guardado).not.toHaveProperty("TipoCambio");
-      expect(mockOnClose).toHaveBeenCalledTimes(1);
-    });
-
-    // Servicio de cotización caído: el gasto debe quedar pendiente, sin perder sus datos originales.
-    // NOTA: estos tests fallan hoy: ante un 503 la pantalla solo muestra un alert y descarta el gasto.
-    describe("servicio de cotización no disponible (503): el gasto queda pendiente", () => {
-      it("lo deja guardado localmente con su importe, moneda y fecha originales", async () => {
-        createExpense.mockRejectedValue(errorDelServidor(503, "Service Unavailable"));
-
-        const utils = await renderPantallaCargada();
-
-        await registrarGastoEnEurosConFechaPasada(utils);
-
-        await waitFor(() => expect(guardarGastoOffline).toHaveBeenCalledTimes(1));
-        expect(guardarGastoOffline).toHaveBeenCalledWith(
-          expect.objectContaining({
-            IdViaje: 10,
-            Nombre: "Museo del Louvre",
-            MontoOriginal: 100,
-            MonedaOriginal: "EUR",
-            FechaGasto: HACE_5_DIAS,
-            IdCategoria: 1,
-          })
-        );
-      });
-
-      it("no informa un registro exitoso en el servidor", async () => {
-        createExpense.mockRejectedValue(errorDelServidor(503, "Service Unavailable"));
-
-        const utils = await renderPantallaCargada();
-
-        await registrarGastoEnEurosConFechaPasada(utils);
-
-        await waitFor(() => expect(guardarGastoOffline).toHaveBeenCalled());
-        expect(alertSpy).not.toHaveBeenCalledWith(
-          "Éxito",
-          "Gasto registrado correctamente en el servidor."
-        );
-      });
-
-      it("si tampoco se puede guardar localmente, avisa y no cierra el formulario para no perder los datos", async () => {
-        createExpense.mockRejectedValue(errorDelServidor(503, "Service Unavailable"));
-        guardarGastoOffline.mockReturnValue(false);
-
-        const utils = await renderPantallaCargada();
-
-        await registrarGastoEnEurosConFechaPasada(utils);
-
-        await waitFor(() => {
-          expect(alertSpy).toHaveBeenCalledWith("Error", "No se pudo guardar el gasto offline");
-        });
-        expect(mockOnClose).not.toHaveBeenCalled();
-        expect(utils.getByDisplayValue("Museo del Louvre")).toBeTruthy();
-      });
-    });
+    expect(updateExpense).toHaveBeenCalledWith(
+      15,
+      expect.objectContaining({
+        TipoDivision: "personalizada",
+        DetalleMontosPersonalizados: [
+          { IdParticipanteViaje: 6, MontoAsignado: 500 },
+          { IdParticipanteViaje: 8, MontoAsignado: 400 },
+        ],
+      })
+    );
   });
 
-  // ---------------------------------------------------------------------------
-  // US 84: gasto sugerido al subir un documento (el padre pasa initialData)
-  // ---------------------------------------------------------------------------
-  describe("US 84 - gasto precargado desde un documento (initialData)", () => {
-    // Mismas props con las que DocumentsScreen abre el formulario al aceptar la sugerencia
-    const propsDesdeDocumento = (datos) => ({
-      initialData: datos,
-      mostrarAlertaExito: false,
-      puedeEscanear: false,
+  it("no guarda si el monto es cero", async () => {
+    const utils = await renderEdicion();
+
+    await act(async () => {
+      fireEvent.changeText(utils.getByDisplayValue("900"), "0");
     });
+    await guardar(utils);
 
-    it("precarga concepto, monto, moneda, fecha y categoría detectados sin registrar nada", async () => {
-      const utils = await renderPantallaCargada({
-        esperarMonedas: false,
-        props: propsDesdeDocumento(GASTO_DETECTADO_EN_DOCUMENTO),
-      });
+    expect(updateExpense).not.toHaveBeenCalled();
+  });
 
-      await waitFor(() =>
-        expect(utils.getByDisplayValue("Pasaje de micro Córdoba - Mendoza")).toBeTruthy()
-      );
-      expect(utils.getByDisplayValue("45000")).toBeTruthy();
-      expect(utils.getByText("Monto (ARS)")).toBeTruthy();
-      expect(utils.getByText(formatDateDisplay(HACE_5_DIAS))).toBeTruthy();
-      expect(utils.getByText("Transporte")).toBeTruthy();
+  it("muestra el error del servidor y no cierra el formulario", async () => {
+    updateExpense.mockRejectedValue(
+      Object.assign(
+        new Error("No se puede editar el gasto porque el viaje ya tiene pagos registrados en una liquidación."),
+        { status: 409, code: "EXPENSE_EDIT_LOCKED_BY_PAID_SETTLEMENT" }
+      )
+    );
+    const utils = await renderEdicion();
 
-      // Precargar no registra: el gasto se crea solo cuando el usuario lo confirma.
-      expect(createExpense).not.toHaveBeenCalled();
-      expect(guardarGastoOffline).not.toHaveBeenCalled();
-      expect(mockOnClose).not.toHaveBeenCalled();
-    });
+    await guardar(utils);
 
-    it("permite modificar los datos precargados y registra los valores modificados", async () => {
-      const utils = await renderPantallaCargada({
-        esperarMonedas: false,
-        props: propsDesdeDocumento(GASTO_DETECTADO_EN_DOCUMENTO),
-      });
-      await waitFor(() =>
-        expect(utils.getByDisplayValue("Pasaje de micro Córdoba - Mendoza")).toBeTruthy()
-      );
+    expect(alertSpy).toHaveBeenCalledWith(
+      "No se pudieron guardar los cambios",
+      "No se puede editar el gasto porque el viaje ya tiene pagos registrados en una liquidación."
+    );
+    expect(onClose).not.toHaveBeenCalled();
+  });
 
-      await completarNombreYMonto(utils, "Pasaje corregido", "52000");
-      await press(utils, "Registrar gasto");
+  it("mientras verifica la edición activa, avisa y no deja guardar", async () => {
+    useEdicionGasto.mockReturnValue(estadoEdicion(EDICION_GASTO.CONECTANDO));
+    const utils = await renderEdicion();
 
-      await waitFor(() => expect(createExpense).toHaveBeenCalledTimes(1));
-      expect(createExpense).toHaveBeenCalledWith(
-        expect.objectContaining({
-          IdViaje: 10,
-          Nombre: "Pasaje corregido",
-          Monto: 52000,
-          MontoOriginal: 52000,
-          // Lo que no se editó conserva lo detectado
-          MonedaOriginal: "ARS",
-          FechaGasto: HACE_5_DIAS,
-          IdCategoria: 2,
-        })
-      );
-      expect(alertSpy).not.toHaveBeenCalledWith("Éxito", expect.anything());
-      expect(mockOnClose).toHaveBeenCalledTimes(1);
-    });
+    expect(utils.getByTestId("aviso-edicion-conectando")).toBeTruthy();
+    await guardar(utils);
+    expect(updateExpense).not.toHaveBeenCalled();
+  });
 
-    it("sin moneda detectada: carga el resto, usa la del viaje y pide revisarla", async () => {
-      const { MonedaOriginal, ...sinMoneda } = GASTO_DETECTADO_EN_DOCUMENTO;
+  it("si otro usuario está editando, muestra el mensaje y no deja guardar", async () => {
+    useEdicionGasto.mockReturnValue(
+      estadoEdicion(EDICION_GASTO.RECHAZADA, {
+        codigo: "EXPENSE_BEING_EDITED",
+        mensaje: "El gasto está siendo editado por otro usuario (Bruno Test).",
+      })
+    );
+    const utils = await renderEdicion();
 
-      const utils = await renderPantallaCargada({ props: propsDesdeDocumento(sinMoneda) });
+    expect(utils.getByText("El gasto está siendo editado por otro usuario (Bruno Test).")).toBeTruthy();
+    await guardar(utils);
+    expect(updateExpense).not.toHaveBeenCalled();
+  });
 
-      await waitFor(() =>
-        expect(utils.getByDisplayValue("Pasaje de micro Córdoba - Mendoza")).toBeTruthy()
-      );
-      expect(utils.getByDisplayValue("45000")).toBeTruthy();
-      expect(utils.getByText("Monto (USD)")).toBeTruthy();
-      expect(utils.getByText("Revisá la moneda del comprobante")).toBeTruthy();
+  it("en el alta no pide la edición activa ni muestra avisos", async () => {
+    const utils = await render(
+      <AddGastoScreen visible IdViaje={10} Moneda="ARS" onClose={onClose} />
+    );
+    await waitFor(() => expect(utils.getByText("Nuevo gasto")).toBeTruthy());
 
-      // US 94 (RN-39): la moneda del viaje (USD) no es ARS, así que se exige el monto convertido.
-      await act(async () => {
-        fireEvent.changeText(utils.getByTestId("monto-ars-input"), "180000");
-      });
-      await press(utils, "Registrar gasto");
+    expect(useEdicionGasto).toHaveBeenCalledWith(undefined, false);
+    expect(utils.getByText("Escanear comprobante")).toBeTruthy();
+    expect(utils.getByText("Registrar gasto")).toBeTruthy();
+  });
 
-      await waitFor(() => expect(createExpense).toHaveBeenCalledTimes(1));
-      expect(createExpense).toHaveBeenCalledWith(
-        expect.objectContaining({ Nombre: "Pasaje de micro Córdoba - Mendoza", MontoOriginal: 45000, MonedaOriginal: "USD" })
-      );
-    });
+  it("precarga la división personalizada de un gasto en otra moneda en esa moneda", async () => {
+    // USD 3 guardado como ARS 3000: Ana 2000 y Dario 1000 → se muestran como 2 y 1 dólares.
+    const utils = await renderEdicion(
+      detalle({
+        Monto: "3000.00",
+        MontoOriginal: "3.00",
+        MonedaOriginal: "USD",
+        TipoCambio: "1000",
+        TipoDivision: "personalizada",
+        DividirEntreTodos: false,
+        IdPagador: 6,
+        Participantes: [
+          { IdParticipanteViaje: 6, MontoAsignado: "2000.00" },
+          { IdParticipanteViaje: 9, MontoAsignado: "1000.00" },
+        ],
+      })
+    );
 
-    it("sin fecha detectada: carga el resto, deja la fecha vacía y exige completarla", async () => {
-      const { FechaGasto, ...sinFecha } = GASTO_DETECTADO_EN_DOCUMENTO;
+    await guardar(utils);
 
-      const utils = await renderPantallaCargada({
-        esperarMonedas: false,
-        props: propsDesdeDocumento(sinFecha),
-      });
+    expect(updateExpense).toHaveBeenCalledWith(
+      15,
+      expect.objectContaining({
+        MonedaOriginal: "USD",
+        MontoOriginal: 3,
+        DetalleMontosPersonalizados: [
+          { IdParticipanteViaje: 6, MontoAsignado: 2 },
+          { IdParticipanteViaje: 9, MontoAsignado: 1 },
+        ],
+      })
+    );
+  });
+});
 
-      await waitFor(() =>
-        expect(utils.getByDisplayValue("Pasaje de micro Córdoba - Mendoza")).toBeTruthy()
-      );
-      expect(utils.getByDisplayValue("45000")).toBeTruthy();
-      // No se asume "hoy": el campo queda vacío para que el usuario lo complete.
-      expect(utils.getByText("Seleccionar")).toBeTruthy();
+describe("montosEnMonedaDelGasto", () => {
+  it("convierte cada parte a la moneda del gasto y cuadra el redondeo", () => {
+    // USD 100 a 1.333333 → ARS 133.33, repartido 44.44 / 44.44 / 44.45
+    const montos = montosEnMonedaDelGasto({ Monto: "133.33", MontoOriginal: "100.00" }, [
+      { IdParticipanteViaje: 1, MontoAsignado: "44.44" },
+      { IdParticipanteViaje: 2, MontoAsignado: "44.44" },
+      { IdParticipanteViaje: 3, MontoAsignado: "44.45" },
+    ]);
 
-      await press(utils, "Registrar gasto");
+    const suma = Object.values(montos).reduce((acc, v) => acc + Number(v), 0);
+    expect(Math.round(suma * 100) / 100).toBe(100);
+  });
 
-      expect(utils.getByText("La fecha es obligatoria")).toBeTruthy();
-      expect(createExpense).not.toHaveBeenCalled();
-    });
-
-    it("sin monto detectado: carga el resto, deja el monto vacío y permite completarlo a mano", async () => {
-      const { MontoOriginal, ...sinMonto } = GASTO_DETECTADO_EN_DOCUMENTO;
-
-      const utils = await renderPantallaCargada({
-        esperarMonedas: false,
-        props: propsDesdeDocumento(sinMonto),
-      });
-
-      await waitFor(() =>
-        expect(utils.getByDisplayValue("Pasaje de micro Córdoba - Mendoza")).toBeTruthy()
-      );
-      expect(utils.getByPlaceholderText("0").props.value).toBe("");
-
-      await press(utils, "Registrar gasto");
-      expect(utils.getByText("El monto es obligatorio")).toBeTruthy();
-      expect(createExpense).not.toHaveBeenCalled();
-
-      await escribir(utils, "0", "30000");
-      await press(utils, "Registrar gasto");
-
-      await waitFor(() => expect(createExpense).toHaveBeenCalledTimes(1));
-      expect(createExpense).toHaveBeenCalledWith(
-        expect.objectContaining({
-          Nombre: "Pasaje de micro Córdoba - Mendoza",
-          Monto: 30000,
-          MontoOriginal: 30000,
-          MonedaOriginal: "ARS",
-          FechaGasto: HACE_5_DIAS,
-          IdCategoria: 2,
-        })
-      );
-    });
+  it("si el gasto está en la moneda del viaje, deja los montos como están", () => {
+    expect(
+      montosEnMonedaDelGasto({ Monto: "900.00", MontoOriginal: "900.00" }, [
+        { IdParticipanteViaje: 6, MontoAsignado: "500.00" },
+        { IdParticipanteViaje: 8, MontoAsignado: "400.00" },
+      ])
+    ).toEqual({ 6: "500", 8: "400" });
   });
 });
