@@ -1,6 +1,6 @@
 import math
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -8,7 +8,14 @@ from app.api.deps_backoffice import require_admin_sistema
 from app.db.session import get_db
 from app.models.usuario import Usuario
 from app.schemas.auth import LoginRequest, TokenResponse
+from app.schemas.backoffice_usuario import (
+    EstadoCuenta,
+    PlanUsuario,
+    UsuarioBackofficeDetalle,
+    UsuarioBackofficePagina,
+)
 from app.services.backoffice import auth_service as bo
+from app.services.backoffice import usuarios_service
 
 router_publico = APIRouter()
 
@@ -66,3 +73,29 @@ def me_backoffice(
 @router.post("/auth/logout", status_code=status.HTTP_204_NO_CONTENT)
 def logout_backoffice(request: Request, db: Session = Depends(get_db)) -> None:
     bo.cerrar_sesion(db, request.state.sesion_backoffice)
+
+
+@router.get("/usuarios", response_model=UsuarioBackofficePagina)
+def listar_usuarios_backoffice(
+    q: str | None = Query(default=None, max_length=100),
+    estado: EstadoCuenta | None = None,
+    plan: PlanUsuario | None = None,
+    metodoRegistro: str | None = Query(default=None, max_length=30),
+    pagina: int = Query(default=1, ge=1),
+    db: Session = Depends(get_db),
+) -> UsuarioBackofficePagina:
+    return usuarios_service.buscar_usuarios(db, q, estado, plan, metodoRegistro, pagina)
+
+
+@router.get("/usuarios/{id_usuario}", response_model=UsuarioBackofficeDetalle)
+def detalle_usuario_backoffice(
+    id_usuario: int,
+    db: Session = Depends(get_db),
+) -> UsuarioBackofficeDetalle:
+    detalle = usuarios_service.obtener_detalle(db, id_usuario)
+    if detalle is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Usuario no encontrado.",
+        )
+    return detalle

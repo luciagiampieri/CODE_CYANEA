@@ -1,9 +1,14 @@
 import { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Platform, StyleSheet, View } from 'react-native';
 
+import BackofficeLayout from '../components/backoffice/BackofficeLayout';
 import { useInactividad } from '../hooks/useInactividad';
 import BackofficeHomeScreen from '../screens/backoffice/BackofficeHomeScreen';
 import BackofficeLoginScreen from '../screens/backoffice/BackofficeLoginScreen';
+import BackofficeUsuarioDetalleScreen from '../screens/backoffice/BackofficeUsuarioDetalleScreen';
+import BackofficeUsuariosScreen, {
+  FILTROS_USUARIOS_INICIALES,
+} from '../screens/backoffice/BackofficeUsuariosScreen';
 import {
   cerrarSesion,
   iniciarSesion,
@@ -13,10 +18,19 @@ import {
 } from '../services/backofficeApi';
 import { backofficeColors as c } from '../theme/backofficeTokens';
 
+const VISTA_INICIO = { nombre: 'inicio' };
+
 export default function BackofficeApp() {
   const [admin, setAdmin] = useState(null);
   const [cargando, setCargando] = useState(true);
   const [aviso, setAviso] = useState('');
+  const [vista, setVista] = useState(VISTA_INICIO);
+  const [filtrosUsuarios, setFiltrosUsuarios] = useState(FILTROS_USUARIOS_INICIALES);
+
+  const reiniciarNavegacion = useCallback(() => {
+    setVista(VISTA_INICIO);
+    setFiltrosUsuarios(FILTROS_USUARIOS_INICIALES);
+  }, []);
 
   useEffect(() => {
     if (Platform.OS === 'web' && typeof document !== 'undefined') {
@@ -25,6 +39,7 @@ export default function BackofficeApp() {
 
     registrarExpiracionSesion(() => {
       setAdmin(null);
+      reiniciarNavegacion();
       setAviso('Tu sesión expiró. Iniciá sesión nuevamente.');
     });
 
@@ -38,7 +53,7 @@ export default function BackofficeApp() {
     }
 
     return () => registrarExpiracionSesion(null);
-  }, []);
+  }, [reiniciarNavegacion]);
 
   const manejarLogin = useCallback(async (email, password) => {
     const datos = await iniciarSesion(email, password);
@@ -49,14 +64,16 @@ export default function BackofficeApp() {
   const manejarLogout = useCallback(async () => {
     await cerrarSesion();
     setAdmin(null);
+    reiniciarNavegacion();
     setAviso('');
-  }, []);
+  }, [reiniciarNavegacion]);
 
   const manejarInactividad = useCallback(async () => {
     await cerrarSesion();
     setAdmin(null);
+    reiniciarNavegacion();
     setAviso('Tu sesión se cerró por 30 minutos de inactividad.');
-  }, []);
+  }, [reiniciarNavegacion]);
 
   useInactividad(Boolean(admin), manejarInactividad);
 
@@ -72,7 +89,42 @@ export default function BackofficeApp() {
     return <BackofficeLoginScreen onLogin={manejarLogin} aviso={aviso} />;
   }
 
-  return <BackofficeHomeScreen admin={admin} onLogout={manejarLogout} />;
+  let pantalla;
+  if (vista.nombre === 'usuarios') {
+    pantalla = (
+      <BackofficeUsuariosScreen
+        filtros={filtrosUsuarios}
+        onCambiarFiltros={setFiltrosUsuarios}
+        onVerUsuario={(idUsuario) => setVista({ nombre: 'detalleUsuario', idUsuario })}
+        onVolver={() => setVista(VISTA_INICIO)}
+      />
+    );
+  } else if (vista.nombre === 'detalleUsuario') {
+    pantalla = (
+      <BackofficeUsuarioDetalleScreen
+        idUsuario={vista.idUsuario}
+        onVolver={() => setVista({ nombre: 'usuarios' })}
+      />
+    );
+  } else {
+    pantalla = (
+      <BackofficeHomeScreen
+        admin={admin}
+        onAbrirUsuarios={() => setVista({ nombre: 'usuarios' })}
+      />
+    );
+  }
+
+  return (
+    <BackofficeLayout
+      admin={admin}
+      claveVista={`${vista.nombre}-${vista.idUsuario ?? ''}`}
+      onIrInicio={() => setVista(VISTA_INICIO)}
+      onLogout={manejarLogout}
+    >
+      {pantalla}
+    </BackofficeLayout>
+  );
 }
 
 const styles = StyleSheet.create({

@@ -87,3 +87,17 @@ export async function cerrarSesion() {
     borrarToken();
   }
 }
+
+export function listarUsuarios({ q, estado, plan, metodoRegistro, pagina = 1 } = {}) {
+  const params = new URLSearchParams();
+  if (q?.trim()) params.set('q', q.trim());
+  if (estado) params.set('estado', estado);
+  if (plan) params.set('plan', plan);
+  if (metodoRegistro) params.set('metodoRegistro', metodoRegistro);
+  params.set('pagina', String(pagina));
+  return solicitar(`/usuarios?${params.toString()}`);
+}
+
+export function obtenerUsuario(idUsuario) {
+  return solicitar(`/usuarios/${idUsuario}`);
+}

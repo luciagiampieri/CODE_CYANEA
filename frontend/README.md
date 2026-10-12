@@ -31,7 +31,6 @@ src/
 ## Reglas
 
 - `frontend/` es el unico frontend activo
-- `frontend-ant/` queda como respaldo de referencia y no debe recibir nuevas funcionalidades
 - no reintroducir CSS global para pantallas Expo; la identidad visual se centraliza en `src/theme/tokens.js`
 - si cambia un criterio estructural o visual, actualizar `../AGENTS.md`
 

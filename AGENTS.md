@@ -24,15 +24,13 @@ Alcance actual del MVP:
 
 Fuera de alcance por ahora:
 
-- Autenticacion real
 - Pagos reales
 - Venta de pasajes o reservas
 - Integraciones externas complejas
 
 ## Stack tecnologico
 
-- Frontend activo: Expo + React Native + React Navigation + Expo Web
-- Frontend de resguardo: `frontend-ant/` con React + Vite, solo referencia historica
+- Frontend activo: Expo (React Native + react-native-web)
 - Backend: FastAPI + SQLAlchemy + Alembic
 - Base de datos: PostgreSQL
 - Entorno local esperado:
@@ -96,11 +94,9 @@ CODE_CYANEA/
 Reglas estructurales vigentes:
 
 - `frontend/` es el unico frontend activo del proyecto
-- `frontend-ant/` queda solo como respaldo y referencia visual/funcional
 - No crear carpetas paralelas tipo `frontend-mobile/`, `frontend-web/` o similares
 - No continuar nuevas funcionalidades en `frontend-ant/`
 - El backend activo es solo `backend/` con FastAPI
-- No reintroducir restos de backend Node/Express
 
 ## Instalacion local
 
@@ -538,6 +534,47 @@ El flujo minimo actual incluye:
 - Invitacion externa por correo desde el mismo flujo
 - Lista unica de participantes agregados, distinguiendo registrados vs invitados pendientes
 
+
+## Backoffice
+
+### Acceso
+
+- el backoffice es exclusivo para administradores del sistema: `Usuarios.IdRolSistema = ROL_ADMIN_SISTEMA`, cuenta activa, email confirmado y proveedor `local`
+- el registro publico nunca crea administradores
+- las rutas viven en `backend/app/api/routes/backoffice.py`:
+  - `router_publico`: solo `POST /backoffice/auth/login`
+  - `router`: todo lo demas, protegido a nivel router con `require_admin_sistema` (`backend/app/api/deps_backoffice.py`)
+- toda ruta nueva del backoffice se agrega en `router`, nunca en `router_publico`
+- los tokens de la app de viajeros son rechazados por el backoffice con 401
+- tras 5 intentos fallidos consecutivos se bloquea el acceso por 15 minutos
+- la sesion se cierra por 30 minutos de inactividad; las sesiones se persisten en `SesionBackoffice` y cada intento de acceso se audita en `AuditoriaAccesoBackoffice`
+- la logica del backoffice vive en `backend/app/services/backoffice/`
+
+### Gestion de usuarios (US 107)
+
+- `GET /backoffice/usuarios`: listado paginado de a 20 con busqueda `q` (nombre completo, nombre de usuario o email, sin distinguir mayusculas) y filtros `estado`, `plan`, `metodoRegistro` y `pagina`
+- `GET /backoffice/usuarios/{id_usuario}`: detalle con datos de cuenta, cantidad de viajes con participacion `aceptado`, plan y estado de suscripcion
+- el detalle nunca expone contenido de los viajes (gastos, documentos, itinerario)
+- los administradores del sistema no aparecen en el listado ni en el detalle
+- el estado de cuenta no se persiste; se deriva en este orden:
+  - `FechaBaja` informada -> `inactiva`
+  - `EmailConfirmado = false` -> `pendiente`
+  - `Activo = false` -> `suspendida`
+  - resto -> `activa`
+- el metodo de registro es `Usuarios.ProveedorAutenticacion`
+- mientras no exista el modelo de planes, todos los usuarios se informan como plan `gratuito`, el filtro `pro` devuelve vacio y `estadoSuscripcion` es `null`; al implementar planes y suscripciones se actualizan `plan_usuario` y el filtro de plan en `usuarios_service.py`
+- los usuarios dados de baja ya estan anonimizados en base (`_anonimizar_usuario`, RN-07); el backoffice no enmascara datos, solo informa `anonimizado` segun `FechaBaja`
+
+### Frontend del backoffice
+
+- punto de entrada: `BackofficeApp`, con navegacion por estado (`inicio`, `usuarios`, `detalleUsuario`); no usa React Navigation
+- `BackofficeLayout` (`frontend/src/components/backoffice/`) concentra la barra superior; las pantallas solo renderizan su contenido
+- los filtros del listado de usuarios se guardan en `BackofficeApp` para conservarse al volver del detalle y se reinician al cerrar sesion
+- pantallas en `frontend/src/screens/backoffice/`, componentes en `frontend/src/components/backoffice/`
+- acceso HTTP exclusivo en `frontend/src/services/backofficeApi.js`; el token se guarda en `sessionStorage`
+- la identidad visual oscura del backoffice se toma de `frontend/src/theme/backofficeTokens.js`, combinada con `spacing`, `radii` y `textStyles` de `tokens.js`
+
+
 ## Estado funcional actual
 
 ### Votaciones
@@ -549,6 +586,11 @@ El flujo minimo actual incluye:
 - El tipo y las propuestas no se pueden modificar después de que exista un
   voto, para conservar la coherencia del histórico de resultados.
 - Eliminar una votación elimina también sus propuestas y votos relacionados.
+
+Backoffice:
+
+- inicio de sesion de administradores con bloqueo por intentos fallidos, auditoria y cierre por inactividad
+- consulta de usuarios de la plataforma con busqueda, filtros, paginacion y detalle
 
 Backend:
 
