@@ -1373,6 +1373,16 @@ export default function AddGastoScreen({
                   {unicoParticipante && (
                     <Text style={styles.fieldHint}>Este viaje tiene un único participante, por lo que la opción compartida está deshabilitada.</Text>
                   )}
+                  {!esCompartido && !unicoParticipante ? (
+                    <View style={styles.advertenciaRow} testID="aviso-gasto-personal">
+                      <FontAwesome6 name="lock" size={12} color={colors.textSecondary} />
+                      <Text style={styles.avisoFechaText}>
+                        {gastoAEditar?.EsCompartido
+                          ? "Si lo pasás a personal, el resto del grupo deja de verlo y no cuenta en los saldos."
+                          : "Solo vos vas a ver este gasto. No cuenta en los saldos del grupo."}
+                      </Text>
+                    </View>
+                  ) : null}
 
                   {desdeComprobante && !esCompartido && participanteActual ? (
                     <Text style={styles.pagadorPersonalText} testID="pagador-personal">

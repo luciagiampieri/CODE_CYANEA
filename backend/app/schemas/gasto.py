@@ -86,6 +86,8 @@ class GastoListItemRead(BaseModel):
     IdPagador: int
     IdUsuarioPagador: int
     NombrePagador: str
+    # False en un gasto personal: solo lo ve su dueño (visibilidad_gastos).
+    EsCompartido: bool = True
     IdDocumentoComprobante: Optional[int] = None
     EsPropioComprobante: bool = False
     UrlComprobante: Optional[str] = None

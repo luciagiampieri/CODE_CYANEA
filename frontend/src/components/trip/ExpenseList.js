@@ -828,9 +828,22 @@ export default function ExpenseList({
                         />
                       </View>
                       <View style={styles.body}>
-                        <Text numberOfLines={1} style={styles.name}>
-                          {expense.Nombre}
-                        </Text>
+                        <View style={styles.nameRow}>
+                          <Text numberOfLines={1} style={[styles.name, styles.nameFlex]}>
+                            {expense.Nombre}
+                          </Text>
+                          {expense.EsCompartido === false ? (
+                            // Gasto personal: el resto del grupo no lo ve.
+                            <View
+                              accessibilityLabel="Gasto personal, solo lo ves vos"
+                              style={styles.personalChip}
+                              testID={`expense-personal-${expense.IdGasto}`}
+                            >
+                              <FontAwesome6 color={colors.textSecondary} name="lock" size={9} />
+                              <Text style={styles.personalChipText}>Solo vos</Text>
+                            </View>
+                          ) : null}
+                        </View>
                         <Text numberOfLines={2} style={styles.meta}>
                           {paidByMe ? "Pagaste vos" : `Pagó ${expense.NombrePagador}`} ·{" "}
                           {formatExpenseDate(expense.FechaGasto)}
@@ -1537,6 +1550,28 @@ const styles = StyleSheet.create({
   name: {
     ...textStyles.bodyStrong,
     color: colors.textPrimary,
+  },
+  nameRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.xs,
+  },
+  nameFlex: {
+    flexShrink: 1,
+  },
+  personalChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: radii.pill,
+    backgroundColor: colors.surfaceMuted,
+  },
+  personalChipText: {
+    ...textStyles.meta,
+    color: colors.textSecondary,
+    fontSize: 11,
   },
   meta: {
     ...textStyles.meta,

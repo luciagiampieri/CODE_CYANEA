@@ -6,7 +6,7 @@ from decimal import Decimal
 from app.core.security import create_access_token, hash_password
 from app.models.categorias_gastos import CategoriasGastos
 from app.models.estado_participacion import EstadoParticipacion
-from app.models.gasto import Gasto
+from app.models.gasto import Gasto, TipoDivisionEnum
 from app.models.participante_viaje import ParticipanteViaje
 from app.models.rol_participante import RolParticipante
 from app.models.usuario import Usuario
@@ -72,10 +72,12 @@ def _gasto(
     monto_original=None,
     moneda_original=None,
     tipo_cambio="1",
+    compartido=True,
 ):
     """
     `monto` es el importe convertido a la moneda base del viaje.
-    Por defecto el gasto se registró en la moneda base (mismo importe, tipo de cambio 1).
+    Por defecto el gasto se registró en la moneda base (mismo importe, tipo de cambio 1)
+    y es compartido: los gastos personales solo los ve su dueño.
     """
     gasto = Gasto(
         IdViaje=viaje.IdViaje,
@@ -87,6 +89,7 @@ def _gasto(
         IdCategoria=categoria.IdCategoria,
         IdPagador=pagador.IdParticipanteViaje,
         FechaGasto=fecha,
+        TipoDivision=TipoDivisionEnum.igualitaria if compartido else None,
     )
     db_session.add(gasto)
     db_session.commit()
@@ -253,3 +256,52 @@ def test_listado_incluye_monto_original_y_moneda_de_gastos_en_moneda_extranjera(
     assert Decimal(item["Monto"]) == Decimal("250.00")
     assert Decimal(item["MontoOriginal"]) == Decimal("100.00")
     assert item["MonedaOriginal"] == moneda
+
+
+# ---------------------------------------------------------------------------
+# Gastos personales: solo los ve su dueño (creador o pagador)
+# ---------------------------------------------------------------------------
+
+def test_un_gasto_personal_no_aparece_en_el_listado_de_otro_participante(
+    client, db_session, auth_headers, viaje_con_admin
+):
+    viaje, participacion_admin = viaje_con_admin
+    comida, _, _ = _escenario(db_session, viaje, participacion_admin)
+    _gasto(
+        db_session, viaje, participacion_admin, comida, "Regalo para mamá", "80.00",
+        date(2026, 9, 4), compartido=False,
+    )
+    carlos = _crear_usuario(db_session, "carlos")
+    _agregar_participante(db_session, viaje, carlos)
+
+    de_carlos = client.get(_url(viaje), headers=_token_de(carlos)).json()
+    de_ana = client.get(_url(viaje), headers=auth_headers).json()
+
+    assert "Regalo para mamá" not in [g["Nombre"] for g in de_carlos]
+    assert len(de_carlos) == 3
+    # Ana, que lo pagó, sí lo ve.
+    assert [g["Nombre"] for g in de_ana][0] == "Regalo para mamá"
+    assert len(de_ana) == 4
+
+
+def test_el_creador_ve_su_gasto_personal_aunque_lo_haya_pagado_otro(
+    client, db_session, viaje_con_admin
+):
+    viaje, participacion_admin = viaje_con_admin
+    comida, _, _ = _categorias(db_session)
+    carlos = _crear_usuario(db_session, "carlos")
+    participacion_carlos = _agregar_participante(db_session, viaje, carlos)
+    dario = _crear_usuario(db_session, "dario")
+    _agregar_participante(db_session, viaje, dario)
+
+    gasto = _gasto(
+        db_session, viaje, participacion_admin, comida, "Souvenir", "30.00",
+        date(2026, 9, 4), compartido=False,
+    )
+    gasto.IdParticipanteCreador = participacion_carlos.IdParticipanteViaje
+    db_session.commit()
+
+    nombres = lambda usuario: [g["Nombre"] for g in client.get(_url(viaje), headers=_token_de(usuario)).json()]
+
+    assert nombres(carlos) == ["Souvenir"]
+    assert nombres(dario) == []

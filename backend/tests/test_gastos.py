@@ -1520,3 +1520,134 @@ def test_eliminar_gasto_avisa_liquidacion_a_quien_le_cambia_a_quien_transferir(c
     assert _mensaje_liquidacion(db_session, personas, "dario") == (
         "Ya no tenés transferencias pendientes."
     )
+
+
+# ===========================================================================
+# Gastos personales: solo los ve su dueño (creador o pagador)
+#
+# Para el resto del grupo un gasto personal ajeno no existe: el detalle, la
+# edición, la eliminación, el WebSocket de edición y la carga de comprobante
+# responden igual que con un gasto inexistente.
+# ===========================================================================
+
+@pytest.fixture
+def gasto_personal_de_bruno(client, db_session, viaje_de_cuatro):
+    viaje, categoria, personas = viaje_de_cuatro
+    _poner_en_curso(db_session, viaje)
+    id_gasto = _registrar(client, viaje, categoria, personas, "bruno", 500, None, personal=True)
+    return viaje, categoria, personas, id_gasto
+
+
+def test_detalle_de_un_gasto_personal_solo_para_su_dueno(client, gasto_personal_de_bruno):
+    _, _, personas, id_gasto = gasto_personal_de_bruno
+
+    de_bruno = client.get(f"/api/v1/gastos/{id_gasto}", headers=_headers_de(personas["bruno"][0]))
+    de_carla = client.get(f"/api/v1/gastos/{id_gasto}", headers=_headers_de(personas["carla"][0]))
+
+    assert de_bruno.status_code == 200
+    assert de_bruno.json()["EsCompartido"] is False
+    assert de_carla.status_code == 404
+    assert de_carla.json()["detail"] == "Gasto no encontrado."
+
+
+def test_ni_el_admin_ve_el_gasto_personal_de_otro(client, gasto_personal_de_bruno):
+    _, _, personas, id_gasto = gasto_personal_de_bruno
+
+    response = client.get(f"/api/v1/gastos/{id_gasto}", headers=_headers_de(personas["ana"][0]))
+
+    assert response.status_code == 404
+
+
+def test_otro_participante_no_puede_editar_un_gasto_personal_ajeno(client, db_session, gasto_personal_de_bruno):
+    viaje, categoria, personas, id_gasto = gasto_personal_de_bruno
+    payload = {
+        "Nombre": "Cambiado",
+        "MontoOriginal": "10",
+        "MonedaOriginal": viaje.Moneda,
+        "IdCategoria": categoria.IdCategoria,
+        "FechaGasto": str(date.today()),
+        "EsCompartido": False,
+    }
+
+    response = client.put(
+        f"/api/v1/gastos/{id_gasto}", json=payload, headers=_headers_de(personas["carla"][0])
+    )
+
+    assert response.status_code == 404
+    db_session.expire_all()
+    assert db_session.get(Gasto, id_gasto).Nombre == "Gasto de bruno"
+
+
+def test_otro_participante_no_puede_eliminar_un_gasto_personal_ajeno(client, db_session, gasto_personal_de_bruno):
+    _, _, personas, id_gasto = gasto_personal_de_bruno
+
+    # Ana es la administradora del viaje: tampoco puede.
+    response = client.delete(f"/api/v1/gastos/{id_gasto}", headers=_headers_de(personas["ana"][0]))
+
+    assert response.status_code == 404
+    db_session.expire_all()
+    assert db_session.get(Gasto, id_gasto) is not None
+
+
+def test_el_dueno_puede_eliminar_su_gasto_personal(client, db_session, gasto_personal_de_bruno):
+    _, _, personas, id_gasto = gasto_personal_de_bruno
+
+    response = client.delete(f"/api/v1/gastos/{id_gasto}", headers=_headers_de(personas["bruno"][0]))
+
+    assert response.status_code == 200
+    db_session.expire_all()
+    assert db_session.get(Gasto, id_gasto) is None
+
+
+def test_websocket_de_edicion_rechaza_un_gasto_personal_ajeno(client, gasto_personal_de_bruno, ws_gastos):
+    _, _, personas, id_gasto = gasto_personal_de_bruno
+    carla = personas["carla"][0]
+    token = create_access_token({"sub": carla.Email, "user_id": carla.IdUsuario})
+
+    with client.websocket_connect(f"{API_GASTOS}/ws/{id_gasto}?token={token}") as ws:
+        mensaje = ws.receive_json()
+
+    assert mensaje["tipo"] == "edicion_gasto_rechazada"
+    assert mensaje["codigo"] == "EXPENSE_NOT_FOUND"
+    assert mensaje["mensaje"] == "Gasto no encontrado."
+
+
+def test_no_se_puede_adjuntar_comprobante_a_un_gasto_personal_ajeno(client, gasto_personal_de_bruno):
+    _, _, personas, id_gasto = gasto_personal_de_bruno
+
+    response = client.post(
+        f"/api/v1/gastos/{id_gasto}/comprobante",
+        files={"archivo": ("ticket.jpg", b"\xff\xd8\xff", "image/jpeg")},
+        headers=_headers_de(personas["carla"][0]),
+    )
+
+    assert response.status_code == 404
+
+
+def test_un_gasto_compartido_lo_ve_tambien_quien_no_participa(client, db_session, viaje_de_cuatro):
+    viaje, categoria, personas = viaje_de_cuatro
+    id_gasto = _registrar(client, viaje, categoria, personas, "ana", 300, "ana", ["ana", "bruno"])
+
+    response = client.get(f"/api/v1/gastos/{id_gasto}", headers=_headers_de(personas["dario"][0]))
+
+    assert response.status_code == 200
+    assert response.json()["EsCompartido"] is True
+
+
+def test_el_asistente_no_ve_los_gastos_personales_de_otros(client, db_session, viaje_de_cuatro):
+    from app.services.assistant_ai.context import build_trip_context
+    from app.services.trip_access import get_trip_with_relations
+
+    viaje, categoria, personas = viaje_de_cuatro
+    _registrar(client, viaje, categoria, personas, "bruno", 500, None, personal=True)
+    _registrar(client, viaje, categoria, personas, "ana", 300, "ana", ["ana", "bruno", "carla"])
+    db_session.expire_all()
+    viaje_completo = get_trip_with_relations(db_session, viaje.IdViaje)
+
+    de_carla = build_trip_context(db_session, viaje_completo, personas["carla"][0])["gastos"]
+    de_bruno = build_trip_context(db_session, viaje_completo, personas["bruno"][0])["gastos"]
+
+    assert [g["nombre"] for g in de_carla["recientes"]] == ["Gasto de ana"]
+    assert sorted(g["nombre"] for g in de_bruno["recientes"]) == ["Gasto de ana", "Gasto de bruno"]
+    assert Decimal(str(de_carla["total"])) == Decimal("300")
+    assert Decimal(str(de_bruno["total"])) == Decimal("800")

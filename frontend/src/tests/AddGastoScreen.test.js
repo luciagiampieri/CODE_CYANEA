@@ -282,6 +282,30 @@ describe("US 79 - Editar gasto (AddGastoScreen en modo edición)", () => {
     expect(utils.getByText("Registrar gasto")).toBeTruthy();
   });
 
+  it("en el alta, un gasto personal avisa que solo lo ve quien lo registra", async () => {
+    const utils = await render(
+      <AddGastoScreen visible IdViaje={10} Moneda="ARS" onClose={onClose} />
+    );
+    await waitFor(() => expect(utils.getByText("Nuevo gasto")).toBeTruthy());
+
+    expect(utils.getByTestId("aviso-gasto-personal")).toHaveTextContent(
+      /Solo vos vas a ver este gasto\. No cuenta en los saldos del grupo\./
+    );
+  });
+
+  it("al pasar un gasto compartido a personal avisa que el grupo deja de verlo", async () => {
+    const utils = await renderEdicion();
+    expect(utils.queryByTestId("aviso-gasto-personal")).toBeNull();
+
+    await act(async () => {
+      await fireEvent.press(utils.getByText("Personal"));
+    });
+
+    expect(utils.getByTestId("aviso-gasto-personal")).toHaveTextContent(
+      /Si lo pasás a personal, el resto del grupo deja de verlo y no cuenta en los saldos\./
+    );
+  });
+
   it("precarga la división personalizada de un gasto en otra moneda en esa moneda", async () => {
     // USD 3 guardado como ARS 3000: Ana 2000 y Dario 1000 → se muestran como 2 y 1 dólares.
     const utils = await renderEdicion(

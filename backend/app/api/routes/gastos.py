@@ -52,6 +52,11 @@ from app.services.liquidacion_service import (
     rebuild_settlement_plan,
     transferencias_pendientes_por_participante,
 )
+from app.services.visibilidad_gastos import (
+    condicion_gasto_visible,
+    exigir_gasto_visible,
+    gasto_visible_para,
+)
 from app.services.notificaciones_gastos import (
     notificar_alta_gasto,
     notificar_liquidacion_actualizada,
@@ -506,11 +511,8 @@ async def delete_gasto(
     current_user: Usuario = Depends(get_current_user),
 ):
     gasto = db.scalar(select(Gasto).where(Gasto.IdGasto == gasto_id))
-    if gasto is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Gasto no encontrado.",
-        )
+    # Un gasto personal ajeno responde igual que uno inexistente.
+    exigir_gasto_visible(gasto, current_user.IdUsuario)
 
     viaje = require_trip_edit_access(
         get_trip_with_relations(db, gasto.IdViaje),
@@ -590,9 +592,7 @@ async def asociar_comprobante_gasto(
 ):
     """Guarda el comprobante escaneado en el repositorio (categoría "Comprobantes")
     y lo asocia al gasto. Solo participantes con permiso de edición (RN-28, RNF-14)."""
-    gasto = db.get(Gasto, gasto_id)
-    if gasto is None:
-        raise HTTPException(status_code=404, detail="Gasto no encontrado.")
+    gasto = exigir_gasto_visible(db.get(Gasto, gasto_id), current_user.IdUsuario)
 
     viaje = require_trip_edit_access(
         get_trip_with_relations(db, gasto.IdViaje),
@@ -782,6 +782,8 @@ def list_trip_gastos(
             selectinload(Gasto.Comprobante),
         )
         .where(Gasto.IdViaje == trip_id)
+        # Los gastos personales solo los ve su dueño (creador o pagador).
+        .where(condicion_gasto_visible(current_user.IdUsuario))
         .order_by(Gasto.FechaGasto.desc(), Gasto.FechaCreacion.desc(), Gasto.IdGasto.desc())
     )
     if categoria is not None:
@@ -814,6 +816,7 @@ def list_trip_gastos(
             IdPagador=gasto.IdPagador,
             IdUsuarioPagador=gasto.Pagador.IdUsuario,
             NombrePagador=_actor_display_name(gasto.Pagador.Usuario),
+            EsCompartido=gasto.TipoDivision is not None,
             IdDocumentoComprobante=(
                 gasto.IdDocumentoComprobante if _comprobante_visible(gasto) else None
             ),
@@ -975,9 +978,7 @@ async def update_gasto(
     current_user: Usuario = Depends(get_current_user),
 ):
     """Guarda la edición de un gasto (US 79)."""
-    gasto = db.get(Gasto, gasto_id)
-    if gasto is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Gasto no encontrado.")
+    gasto = exigir_gasto_visible(db.get(Gasto, gasto_id), current_user.IdUsuario)
 
     viaje = require_trip_access(get_trip_with_relations(db, gasto.IdViaje), current_user)
     validar_permiso_edicion_gasto(db, viaje, gasto, current_user)
@@ -1153,7 +1154,7 @@ async def edicion_gasto_ws(websocket: WebSocket, gasto_id: int, token: str = Que
             await websocket.close()
 
         gasto = db.get(Gasto, gasto_id)
-        if gasto is None:
+        if gasto is None or not gasto_visible_para(gasto, current_user.IdUsuario):
             await rechazar("EXPENSE_NOT_FOUND", "Gasto no encontrado.")
             return
         viaje_id = gasto.IdViaje
@@ -1210,9 +1211,10 @@ def get_gasto(
 ) -> GastoDetalleRead:
     """Detalle de un gasto para consultarlo o precargar el formulario de edición.
 
-    Lo puede ver cualquier usuario con acceso al viaje, aunque no pueda
-    editarlo (US 79): en ese caso `PuedeEditar` es false y `MotivoNoEditable`
-    trae el mensaje para mostrar.
+    Un gasto compartido lo puede ver cualquier usuario con acceso al viaje,
+    aunque no pueda editarlo (US 79): en ese caso `PuedeEditar` es false y
+    `MotivoNoEditable` trae el mensaje para mostrar. Un gasto personal solo lo
+    ve su dueño; para los demás responde 404 (visibilidad_gastos).
     """
     gasto = db.scalar(
         select(Gasto)
@@ -1226,8 +1228,7 @@ def get_gasto(
         )
         .where(Gasto.IdGasto == gasto_id)
     )
-    if gasto is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Gasto no encontrado.")
+    exigir_gasto_visible(gasto, current_user.IdUsuario)
 
     viaje = require_trip_access(get_trip_with_relations(db, gasto.IdViaje), current_user)
 

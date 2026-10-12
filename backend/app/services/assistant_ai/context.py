@@ -11,6 +11,7 @@ from app.models.participante_viaje import ParticipanteViaje
 from app.models.viaje import Viaje
 from app.services.liquidacion_service import calcular_balances_participantes
 from app.services.trip_access import resolve_trip_status
+from app.services.visibilidad_gastos import condicion_gasto_visible
 
 
 def _money(value) -> float:
@@ -53,12 +54,17 @@ def build_trip_context(db: Session, viaje: Viaje, current_user) -> dict:
         for dia in viaje.Cronograma
     ]
 
+    # El asistente solo ve los gastos que ve el usuario: los compartidos y sus
+    # propios gastos personales (visibilidad_gastos).
+    gasto_visible = condicion_gasto_visible(current_user.IdUsuario)
     total_gastos = db.scalar(
-        select(func.coalesce(func.sum(Gasto.Monto), 0)).where(Gasto.IdViaje == viaje.IdViaje)
+        select(func.coalesce(func.sum(Gasto.Monto), 0)).where(
+            Gasto.IdViaje == viaje.IdViaje, gasto_visible
+        )
     )
     gastos_recientes = db.scalars(
         select(Gasto)
-        .where(Gasto.IdViaje == viaje.IdViaje)
+        .where(Gasto.IdViaje == viaje.IdViaje, gasto_visible)
         .order_by(Gasto.FechaGasto.desc(), Gasto.IdGasto.desc())
         .limit(8)
     ).all()

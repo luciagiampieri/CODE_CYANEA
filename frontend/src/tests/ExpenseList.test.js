@@ -48,6 +48,23 @@ describe("ExpenseList", () => {
     expect(getAllByText(/^Pagó Lucia Giampieri/)).toHaveLength(2);
   });
 
+  it("marca los gastos personales con 'Solo vos'", async () => {
+    const { getByTestId, queryByTestId } = await render(
+      <ExpenseList
+        categories={categorias}
+        currency="ARS"
+        currentUserId={1}
+        expenses={[
+          gasto({ IdGasto: 1, Nombre: "Regalo", EsCompartido: false }),
+          gasto({ IdGasto: 2, Nombre: "Cena", EsCompartido: true }),
+        ]}
+      />
+    );
+    // Con una sola categoría la sección ya viene abierta.
+    expect(getByTestId("expense-personal-1")).toHaveTextContent(/Solo vos/);
+    expect(queryByTestId("expense-personal-2")).toBeNull();
+  });
+
   it("muestra el total y la cantidad de todos los gastos", async () => {
     const { getByText } = await render(
       <ExpenseList categories={categorias} currency="ARS" expenses={gastos} />
