@@ -142,6 +142,12 @@ export default function AppNavigator() {
           <Stack.Screen
             name="TripDetail"
             component={TripDetailScreen}
+            // Un viaje distinto abre otra pantalla; el mismo viaje reutiliza la
+            // abierta y solo actualiza los params (p. ej. la pestaña inicial).
+            getId={({ params }) => {
+              const id = params?.trip?.id ?? params?.trip?.IdViaje;
+              return id != null ? String(id) : undefined;
+            }}
             options={{
               headerShown: false,
               gestureEnabled: true,
@@ -239,4 +245,4 @@ export default function AppNavigator() {
       
     </Stack.Navigator>
   );
-}
+}

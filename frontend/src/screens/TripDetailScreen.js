@@ -116,6 +116,12 @@ const tabs = [
   { id: "grupo", label: "Grupo", icon: "users" },
 ];
 
+// Pestaña con la que se abre el viaje (accesos rápidos de "Mis viajes" y
+// notificaciones). Si no es una pestaña válida, se abre el resumen.
+function tabValida(tab) {
+  return tabs.some((t) => t.id === tab) ? tab : "resumen";
+}
+
 function normalizeTrip(raw) {
   if (!raw) return null;
   const destinationNames =
@@ -285,10 +291,25 @@ export default function TripDetailScreen({ navigation, route }) {
   const { width, isTablet } = useResponsive();
   const [trip, setTrip] = useState(initialTrip);
   const lock = useMemo(() => getTripLock(trip), [trip]);
-  const [activeTab, setActiveTab] = useState("resumen");
+  const [activeTab, setActiveTab] = useState(() => tabValida(route.params?.initialTab));
   const [expandedDayId, setExpandedDayId] = useState(
     initialTrip?.cronograma[0]?.IdDiaCronograma ?? initialTrip?.cronograma[0]?.id ?? null
   );
+
+  // Si la pantalla ya estaba abierta y llega una notificación del mismo viaje,
+  // React Navigation solo actualiza los params: se cambia a la pestaña pedida.
+  // `notificationTarget` es un objeto nuevo en cada notificación, así que
+  // tocar dos veces un aviso de gastos vuelve a llevar a Gastos.
+  const initialTabParam = route.params?.initialTab;
+  const notificationTarget = route.params?.notificationTarget;
+  const primerRenderTabRef = useRef(true);
+  useEffect(() => {
+    if (primerRenderTabRef.current) {
+      primerRenderTabRef.current = false;
+      return;
+    }
+    if (initialTabParam) setActiveTab(tabValida(initialTabParam));
+  }, [initialTabParam, notificationTarget]);
   const [votacionesActivas, setVotacionesActivas] = useState([]);
   const [loadingVotaciones, setLoadingVotaciones] = useState(false);
   const [votacionesError, setVotacionesError] = useState("");

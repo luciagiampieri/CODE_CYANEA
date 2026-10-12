@@ -139,7 +139,7 @@ describe("US 67 - Reemplazar documento", () => {
       expect(getByText("Pasaje Mendoza.pdf")).toBeTruthy();
     });
 
-    fireEvent.press(
+    await fireEvent.press(
       getByText("Archivo actual (Tocá para reemplazarlo)")
     );
 
@@ -190,7 +190,7 @@ describe("US 67 - Reemplazar documento", () => {
       expect(getByText("Pasaje Mendoza.pdf")).toBeTruthy();
     });
 
-    fireEvent.press(
+    await fireEvent.press(
       getByText("Archivo actual (Tocá para reemplazarlo)")
     );
 
@@ -198,7 +198,7 @@ describe("US 67 - Reemplazar documento", () => {
       expect(getByText("Nuevo Pasaje.pdf")).toBeTruthy();
     });
 
-    fireEvent.press(getByText("Guardar cambios"));
+    await fireEvent.press(getByText("Guardar cambios"));
 
     await waitFor(() => {
       expect(updateTripDocument).toHaveBeenCalledTimes(1);
@@ -258,7 +258,7 @@ describe("US 67 - Reemplazar documento", () => {
       expect(getByText("Pasaje Mendoza.pdf")).toBeTruthy();
     });
 
-    fireEvent.press(
+    await fireEvent.press(
       getByText("Archivo actual (Tocá para reemplazarlo)")
     );
 
@@ -266,7 +266,7 @@ describe("US 67 - Reemplazar documento", () => {
       expect(getByText("otro-nombre.pdf")).toBeTruthy();
     });
 
-    fireEvent.press(getByText("Guardar cambios"));
+    await fireEvent.press(getByText("Guardar cambios"));
 
     await waitFor(() => {
       expect(updateTripDocument).toHaveBeenCalled();
@@ -304,7 +304,7 @@ describe("US 67 - Reemplazar documento", () => {
       expect(getByText("Pasaje Mendoza.pdf")).toBeTruthy();
     });
 
-    fireEvent.press(getByText("Guardar cambios"));
+    await fireEvent.press(getByText("Guardar cambios"));
 
     await waitFor(() => {
       expect(updateTripDocument).toHaveBeenCalled();
@@ -341,7 +341,7 @@ describe("US 67 - Reemplazar documento", () => {
       expect(getByText("Pasaje Mendoza.pdf")).toBeTruthy();
     });
 
-    fireEvent.press(
+    await fireEvent.press(
       getByText("Archivo actual (Tocá para reemplazarlo)")
     );
 
@@ -386,7 +386,7 @@ describe("US 67 - Reemplazar documento", () => {
         expect(getByText("Pasaje Mendoza.pdf")).toBeTruthy();
     });
 
-    fireEvent.press(
+    await fireEvent.press(
         getByText("Archivo actual (Tocá para reemplazarlo)")
     );
 

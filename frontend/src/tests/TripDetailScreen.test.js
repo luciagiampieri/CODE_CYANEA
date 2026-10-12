@@ -189,7 +189,7 @@ describe("US 68 - Abandonar un viaje (Suite completa de tests frontend)", () => 
       />
     );
 
-    fireEvent.press(await findByText("Grupo"));
+    await fireEvent.press(await findByText("Grupo"));
     const leaveButton = await findByText("Abandonar viaje");
     expect(leaveButton).toBeTruthy();
   });
@@ -202,8 +202,8 @@ describe("US 68 - Abandonar un viaje (Suite completa de tests frontend)", () => 
       />
     );
 
-    fireEvent.press(await findByText("Grupo"));
-    fireEvent.press(await findByText("Abandonar viaje"));
+    await fireEvent.press(await findByText("Grupo"));
+    await fireEvent.press(await findByText("Abandonar viaje"));
 
     expect(Alert.alert).toHaveBeenCalled();
   });
@@ -225,8 +225,8 @@ describe("US 68 - Abandonar un viaje (Suite completa de tests frontend)", () => 
       />
     );
 
-    fireEvent.press(await findByText("Grupo"));
-    fireEvent.press(await findByText("Abandonar viaje"));
+    await fireEvent.press(await findByText("Grupo"));
+    await fireEvent.press(await findByText("Abandonar viaje"));
 
     expect(leaveTrip).not.toHaveBeenCalled();
   });
@@ -243,8 +243,8 @@ describe("US 68 - Abandonar un viaje (Suite completa de tests frontend)", () => 
       />
     );
 
-    fireEvent.press(await findByText("Grupo"));
-    fireEvent.press(await findByText("Abandonar viaje"));
+    await fireEvent.press(await findByText("Grupo"));
+    await fireEvent.press(await findByText("Abandonar viaje"));
 
     await waitFor(() => {
       expect(leaveTrip).toHaveBeenCalledWith(1, {
@@ -267,10 +267,10 @@ describe("US 68 - Abandonar un viaje (Suite completa de tests frontend)", () => 
 
     expect(await findByText("Ya no formás parte de este viaje")).toBeTruthy();
 
-    fireEvent.press(await findByText("Gastos"));
+    await fireEvent.press(await findByText("Gastos"));
     expect(queryByText("Agregar gasto")).toBeNull();
 
-    fireEvent.press(await findByText("Docs"));
+    await fireEvent.press(await findByText("Docs"));
     expect(queryByText("Subir documentos")).toBeNull();
   });
 
@@ -292,8 +292,8 @@ describe("US 68 - Abandonar un viaje (Suite completa de tests frontend)", () => 
       />
     );
 
-    fireEvent.press(await findByText("Grupo"));
-    fireEvent.press(await findByText("Abandonar viaje"));
+    await fireEvent.press(await findByText("Grupo"));
+    await fireEvent.press(await findByText("Abandonar viaje"));
 
     expect(await findByText("Transferir administración")).toBeTruthy();
   });
@@ -316,11 +316,11 @@ describe("US 68 - Abandonar un viaje (Suite completa de tests frontend)", () => 
       />
     );
 
-    fireEvent.press(await findByText("Grupo"));
-    fireEvent.press(await findByText("Abandonar viaje"));
+    await fireEvent.press(await findByText("Grupo"));
+    await fireEvent.press(await findByText("Abandonar viaje"));
 
     const buttons = await findByText("Confirmar salida");
-    fireEvent.press(buttons);
+    await fireEvent.press(buttons);
 
     expect(leaveTrip).not.toHaveBeenCalled();
   });
@@ -344,14 +344,14 @@ describe("US 68 - Abandonar un viaje (Suite completa de tests frontend)", () => 
       />
     );
 
-    fireEvent.press(await findByText("Grupo"));
-    fireEvent.press(await findByText("Abandonar viaje"));
+    await fireEvent.press(await findByText("Grupo"));
+    await fireEvent.press(await findByText("Abandonar viaje"));
 
     const candidateItem = await findByTestId("admin-candidate-2");
-    fireEvent.press(candidateItem);
+    await fireEvent.press(candidateItem);
 
     const confirmButton = await findByText("Confirmar salida");
-    fireEvent.press(confirmButton);
+    await fireEvent.press(confirmButton);
 
     await waitFor(() => {
       expect(leaveTrip).toHaveBeenCalledWith(1, {
@@ -378,8 +378,8 @@ describe("US 68 - Abandonar un viaje (Suite completa de tests frontend)", () => 
       />
     );
 
-    fireEvent.press(await findByText("Grupo"));
-    fireEvent.press(await findByText("Abandonar viaje"));
+    await fireEvent.press(await findByText("Grupo"));
+    await fireEvent.press(await findByText("Abandonar viaje"));
 
     expect(queryByText("Transferir administración")).toBeNull();
   });
@@ -395,7 +395,7 @@ describe("US 68 - Abandonar un viaje (Suite completa de tests frontend)", () => 
       />
     );
 
-    fireEvent.press(await findByText("Grupo"));
+    await fireEvent.press(await findByText("Grupo"));
 
     // Con el viaje finalizado la opción directamente no se ofrece.
     await waitFor(() => expect(queryByText("Abandonar viaje")).toBeNull());
@@ -517,7 +517,7 @@ describe("US 68 - Abandonar un viaje (Suite completa de tests frontend)", () => 
         />
       );
 
-      fireEvent.press(await findByText("Ver gastos"));
+      await fireEvent.press(await findByText("Ver gastos"));
       expect(await findByText("Total gastado")).toBeTruthy();
     });
   });
@@ -592,10 +592,10 @@ describe("Viaje finalizado: solo lectura salvo Gastos", () => {
 
     expect(await findByText("Este viaje terminó el 8 de marzo")).toBeTruthy();
 
-    fireEvent.press(await findByLabelText("Itinerario, solo lectura"));
+    await fireEvent.press(await findByLabelText("Itinerario, solo lectura"));
     await waitFor(() => expect(queryByText("Este viaje terminó el 8 de marzo")).toBeNull());
 
-    fireEvent.press(await findByLabelText("Gastos, hay pagos pendientes"));
+    await fireEvent.press(await findByLabelText("Gastos, hay pagos pendientes"));
     await waitFor(() => expect(queryByText("Este viaje terminó el 8 de marzo")).toBeNull());
 
     // El sello de la portada se mantiene en todas las pestañas.
@@ -615,7 +615,7 @@ describe("Viaje finalizado: solo lectura salvo Gastos", () => {
   test("Gastos sigue permitiendo cargar y recalcular", async () => {
     const { findByText } = await renderFinalizado();
 
-    fireEvent.press(await findByText("Ir a Gastos"));
+    await fireEvent.press(await findByText("Ir a Gastos"));
     expect(await findByText("Agregar gasto")).toBeTruthy();
     expect(await findByText("Recalcular liquidación")).toBeTruthy();
   });
@@ -623,17 +623,17 @@ describe("Viaje finalizado: solo lectura salvo Gastos", () => {
   test("oculta las acciones de edición en las secciones bloqueadas", async () => {
     const { findByText, queryByText, findByLabelText } = await renderFinalizado();
 
-    fireEvent.press(await findByLabelText("Docs, solo lectura"));
+    await fireEvent.press(await findByLabelText("Docs, solo lectura"));
     await waitFor(() => expect(queryByText("Subir documentos")).toBeNull());
     expect(queryByText("Agregar información")).toBeNull();
 
-    fireEvent.press(await findByLabelText("Checklist, solo lectura"));
+    await fireEvent.press(await findByLabelText("Checklist, solo lectura"));
     await waitFor(() => expect(queryByText("Crear tarea")).toBeNull());
 
-    fireEvent.press(await findByLabelText("Grupo, solo lectura"));
+    await fireEvent.press(await findByLabelText("Grupo, solo lectura"));
     await waitFor(() => expect(queryByText("Abandonar viaje")).toBeNull());
 
-    fireEvent.press(await findByLabelText("Itinerario, solo lectura"));
+    await fireEvent.press(await findByLabelText("Itinerario, solo lectura"));
     expect(await findByText("Ver mapa del viaje")).toBeTruthy();
     expect(queryByText("Explorar destinos de interés")).toBeNull();
   });
@@ -647,7 +647,7 @@ describe("Viaje finalizado: solo lectura salvo Gastos", () => {
       />
     );
 
-    fireEvent.press(await findByLabelText("Editar viaje"));
+    await fireEvent.press(await findByLabelText("Editar viaje"));
     expect(navigation.navigate).toHaveBeenCalledWith("EditarViaje", { tripId: 7 });
     expect(
       await findByText("Como admin, podés editar los datos del viaje hasta el 8 de abril.")
@@ -746,8 +746,8 @@ describe("HU 71 - Tab Grupo: invitaciones enviadas", () => {
       <TripDetailScreen navigation={navigation} route={{ params: { trip: tripBase } }} />
     );
 
-    fireEvent.press(await findByText("Grupo"));
-    fireEvent.press(await findByTestId("group-view-invitaciones"));
+    await fireEvent.press(await findByText("Grupo"));
+    await fireEvent.press(await findByTestId("group-view-invitaciones"));
 
     expect(await findByText("@pepa")).toBeTruthy();
     expect(getSentInvitations).toHaveBeenCalledWith(1);
@@ -759,7 +759,7 @@ describe("HU 71 - Tab Grupo: invitaciones enviadas", () => {
       <TripDetailScreen navigation={navigation} route={{ params: { trip: tripBase } }} />
     );
 
-    fireEvent.press(await findByText("Grupo"));
+    await fireEvent.press(await findByText("Grupo"));
 
     expect(await findByText("Invitación pendiente")).toBeTruthy();
     expect(queryByTestId("group-view-invitaciones")).toBeNull();
@@ -794,8 +794,8 @@ describe("HU 72 - Cancelar invitación enviada", () => {
     const utils = await render(
       <TripDetailScreen navigation={navigation} route={{ params: { trip } }} />
     );
-    fireEvent.press(await utils.findByText("Grupo"));
-    fireEvent.press(await utils.findByTestId("group-view-invitaciones"));
+    await fireEvent.press(await utils.findByText("Grupo"));
+    await fireEvent.press(await utils.findByTestId("group-view-invitaciones"));
     return utils;
   }
 
@@ -827,7 +827,7 @@ describe("HU 72 - Cancelar invitación enviada", () => {
     });
 
     const { findByTestId } = await abrirInvitaciones();
-    fireEvent.press(await findByTestId("sent-invitation-cancel-3"));
+    await fireEvent.press(await findByTestId("sent-invitation-cancel-3"));
 
     expect(Alert.alert).toHaveBeenCalledWith(
       "Cancelar invitación",
@@ -849,7 +849,7 @@ describe("HU 72 - Cancelar invitación enviada", () => {
     });
 
     const { findByTestId } = await abrirInvitaciones();
-    fireEvent.press(await findByTestId("sent-invitation-cancel-3"));
+    await fireEvent.press(await findByTestId("sent-invitation-cancel-3"));
 
     expect(Alert.alert).toHaveBeenCalled();
     expect(cancelSentInvitation).not.toHaveBeenCalled();
@@ -865,7 +865,7 @@ describe("HU 72 - Cancelar invitación enviada", () => {
     });
 
     const { findByTestId } = await abrirInvitaciones();
-    fireEvent.press(await findByTestId("sent-invitation-cancel-3"));
+    await fireEvent.press(await findByTestId("sent-invitation-cancel-3"));
 
     await waitFor(() =>
       expect(Alert.alert).toHaveBeenCalledWith(
@@ -896,7 +896,7 @@ describe("HU 72 - Cancelar invitación enviada", () => {
       });
 
       const { findByTestId } = await abrirInvitaciones();
-      fireEvent.press(await findByTestId("sent-invitation-resend-4"));
+      await fireEvent.press(await findByTestId("sent-invitation-resend-4"));
 
       expect(Alert.alert).toHaveBeenCalledWith(
         "Volver a invitar",
@@ -918,7 +918,7 @@ describe("HU 72 - Cancelar invitación enviada", () => {
       });
 
       const { findByTestId } = await abrirInvitaciones();
-      fireEvent.press(await findByTestId("sent-invitation-resend-4"));
+      await fireEvent.press(await findByTestId("sent-invitation-resend-4"));
 
       expect(Alert.alert).toHaveBeenCalled();
       expect(addTripParticipant).not.toHaveBeenCalled();
@@ -931,7 +931,7 @@ describe("HU 72 - Cancelar invitación enviada", () => {
       });
 
       const { findByTestId } = await abrirInvitaciones();
-      fireEvent.press(await findByTestId("sent-invitation-resend-4"));
+      await fireEvent.press(await findByTestId("sent-invitation-resend-4"));
 
       await waitFor(() =>
         expect(Alert.alert).toHaveBeenCalledWith(
@@ -1014,13 +1014,13 @@ describe("Tab Gastos rediseñado", () => {
       <TripDetailScreen navigation={navigation} route={{ params: { trip } }} />
     );
 
-    fireEvent.press(await findByText("Gastos"));
+    await fireEvent.press(await findByText("Gastos"));
 
     expect(await findByText("Tu saldo")).toBeTruthy();
-    fireEvent.press(await findByTestId("gastos-view-saldos"));
+    await fireEvent.press(await findByTestId("gastos-view-saldos"));
     expect(await findByTestId("balance-10")).toBeTruthy();
 
-    fireEvent.press(await findByTestId("expense-my-balance"));
+    await fireEvent.press(await findByTestId("expense-my-balance"));
 
     expect(await findByTestId("transfer-pay-5")).toBeTruthy();
     expect(await findByText("Vos")).toBeTruthy();
@@ -1060,17 +1060,17 @@ describe("Tab Gastos rediseñado", () => {
       <TripDetailScreen navigation={navigation} route={{ params: { trip } }} />
     );
 
-    fireEvent.press(await findByText("Gastos"));
+    await fireEvent.press(await findByText("Gastos"));
 
     expect(await findByTestId("expense-category-header-1")).toBeTruthy();
     expect(await findByTestId("expense-category-header-2")).toBeTruthy();
     expect(getTripExpenses).toHaveBeenCalledWith(9);
 
-    fireEvent.press(await findByTestId("expense-filter-open"));
-    fireEvent.press(await findByTestId("expense-filter-categorias"));
-    fireEvent.press(await findByTestId("expense-filter-1"));
-    fireEvent.press(await findByTestId("expense-categories-done"));
-    fireEvent.press(await findByTestId("expense-filter-aplicar"));
+    await fireEvent.press(await findByTestId("expense-filter-open"));
+    await fireEvent.press(await findByTestId("expense-filter-categorias"));
+    await fireEvent.press(await findByTestId("expense-filter-1"));
+    await fireEvent.press(await findByTestId("expense-categories-done"));
+    await fireEvent.press(await findByTestId("expense-filter-aplicar"));
 
     expect(await findByTestId("expense-category-header-1")).toBeTruthy();
     expect(await findByTestId("expense-filter-tag-categorias")).toBeTruthy();
@@ -1133,7 +1133,7 @@ describe("Tab Itinerario: agenda por día", () => {
     const utils = await render(
       <TripDetailScreen navigation={navigation} route={{ params: { trip } }} />
     );
-    fireEvent.press(await utils.findByText("Itinerario"));
+    await fireEvent.press(await utils.findByText("Itinerario"));
     return utils;
   }
 
@@ -1362,5 +1362,87 @@ describe("US 79 - Editar gasto desde la solapa Gastos", () => {
       // No recarga todo el viaje.
       expect(getTripDetail.mock.calls.length).toBe(detalleViajeAntes);
     });
+  });
+});
+
+describe("Pestaña inicial (notificaciones y accesos rápidos)", () => {
+  const trip = {
+    id: 9,
+    title: "Viaje a Córdoba",
+    status: "activo",
+    hasLeft: false,
+    currency: "ARS",
+    startDate: "2099-12-01",
+    endDate: "2099-12-10",
+    admin: { id: 1, nombreCompleto: "Lucia Giampieri", email: "lucia@test.com" },
+    participants: [
+      { id: 1, nombreCompleto: "Lucia Giampieri", role: "administrador", status: "aceptado" },
+      { id: 2, nombreCompleto: "Daniela F", role: "participante", status: "aceptado" },
+    ],
+    cronograma: [],
+  };
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    setupDefaultMocks();
+    getCurrentUser.mockResolvedValue({ id: 1, nombre: "Lucia", apellido: "Giampieri" });
+    getTripDetail.mockResolvedValue(trip);
+  });
+
+  // La primera coincidencia es la barra de pestañas del viaje (dentro de Gastos
+  // hay otra sub-pestaña llamada "Gastos").
+  const pestania = (utils, nombre) => utils.getAllByRole("tab", { name: nombre })[0];
+  const pestaniaSeleccionada = (utils, nombre) =>
+    pestania(utils, nombre).props.accessibilityState?.selected;
+
+  test("abre directamente la pestaña indicada en initialTab", async () => {
+    const utils = await render(
+      <TripDetailScreen
+        navigation={makeNavigation()}
+        route={{ params: { trip, initialTab: "gastos" } }}
+      />
+    );
+
+    await waitFor(() => expect(getTripExpenses).toHaveBeenCalled());
+    expect(pestaniaSeleccionada(utils, "Gastos")).toBe(true);
+    expect(pestaniaSeleccionada(utils, "Resumen")).toBe(false);
+  });
+
+  test("sin initialTab o con una pestaña desconocida abre el resumen", async () => {
+    const utils = await render(
+      <TripDetailScreen
+        navigation={makeNavigation()}
+        route={{ params: { trip, initialTab: "no-existe" } }}
+      />
+    );
+
+    await waitFor(() => expect(pestaniaSeleccionada(utils, "Resumen")).toBe(true));
+  });
+
+  test("si ya estaba abierta y llega otra notificación, cambia a su pestaña", async () => {
+    const navigation = makeNavigation();
+    const utils = await render(
+      <TripDetailScreen
+        navigation={navigation}
+        route={{ params: { trip, initialTab: "gastos", notificationTarget: { tripId: 9 } } }}
+      />
+    );
+    await waitFor(() => expect(pestaniaSeleccionada(utils, "Gastos")).toBe(true));
+
+    // El usuario se va a otra pestaña y toca de nuevo un aviso de gastos.
+    await act(async () => {
+      await fireEvent.press(pestania(utils, "Grupo"));
+    });
+    expect(pestaniaSeleccionada(utils, "Grupo")).toBe(true);
+
+    await act(async () => {
+      utils.rerender(
+        <TripDetailScreen
+          navigation={navigation}
+          route={{ params: { trip, initialTab: "gastos", notificationTarget: { tripId: 9 } } }}
+        />
+      );
+    });
+    expect(pestaniaSeleccionada(utils, "Gastos")).toBe(true);
   });
 });

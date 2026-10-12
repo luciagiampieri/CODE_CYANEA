@@ -360,6 +360,23 @@ export default function AddGastoScreen({
 
   const [modalCategoriaVisible, setModalCategoriaVisible] = useState(false);
   const [modalPagadorVisible, setModalPagadorVisible] = useState(false);
+
+  // Paso guiado pendiente (abrir sola la hoja de pagador o de división después
+  // de elegir "Compartido" o un pagador). Si el usuario abre una hoja a mano
+  // antes de que se dispare, se cancela: así nunca quedan dos hojas abiertas.
+  const pasoGuiadoRef = useRef(null);
+  const cancelarPasoGuiado = useCallback(() => {
+    clearTimeout(pasoGuiadoRef.current);
+    pasoGuiadoRef.current = null;
+  }, []);
+  const programarPasoGuiado = useCallback((paso, demora) => {
+    clearTimeout(pasoGuiadoRef.current);
+    pasoGuiadoRef.current = setTimeout(() => {
+      pasoGuiadoRef.current = null;
+      paso();
+    }, demora);
+  }, []);
+  useEffect(() => cancelarPasoGuiado, [cancelarPasoGuiado]);
   const [modalDivisionVisible, setModalDivisionVisible] = useState(false);
 
   const [esCompartido, setEsCompartido] = useState(false);
@@ -554,7 +571,7 @@ export default function AddGastoScreen({
     setEsCompartido(true);
 
     // Lleva al usuario al dato que falta
-    setTimeout(() => {
+    programarPasoGuiado(() => {
       if (!idPagador) {
         setModalPagadorVisible(true);
       } else if (cantidadOtros === 0) {
@@ -587,12 +604,16 @@ export default function AddGastoScreen({
     // Siguiente paso: elegir entre quiénes se divide
     const otros = nuevaSeleccion.filter((id) => id !== nuevoPagadorId).length;
     if (otros === 0) {
-      setTimeout(() => setModalDivisionVisible(true), 300);
+      programarPasoGuiado(() => setModalDivisionVisible(true), 300);
     }
   }
 
   useEffect(() => {
-    if (!visible) return;
+    if (!visible) {
+      // Al cerrar el formulario no se abre ninguna hoja pendiente.
+      cancelarPasoGuiado();
+      return;
+    }
 
     setNombre("");
     setMonto("");
@@ -670,7 +691,7 @@ export default function AddGastoScreen({
     }
     cargarMonedas();
     cargarDatos();
-  }, [IdViaje, visible, monedaBase, gastoAEditar]);
+  }, [IdViaje, visible, monedaBase, gastoAEditar, cancelarPasoGuiado]);
 
   useEffect(() => {
     if (esCompartido && idPagador) {
@@ -1387,6 +1408,8 @@ export default function AddGastoScreen({
                         placeholder={!pagadorSeleccionado}
                         onPress={() => {
                           Keyboard.dismiss();
+                          cancelarPasoGuiado();
+                          setModalDivisionVisible(false);
                           setModalPagadorVisible(true);
                         }}
                         error={errores.pagador}
@@ -1429,6 +1452,8 @@ export default function AddGastoScreen({
                         subTone={subDivisionTono}
                         onPress={() => {
                           Keyboard.dismiss();
+                          cancelarPasoGuiado();
+                          setModalPagadorVisible(false);
                           setModalDivisionVisible(true);
                         }}
                         error={errores.participantes || errores.divisionPersonalizada}

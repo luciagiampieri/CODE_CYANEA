@@ -112,6 +112,12 @@ async function presionar(utils, texto) {
   });
 }
 
+async function esperar(ms) {
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, ms));
+  });
+}
+
 async function presionarTestId(utils, testId) {
   await act(async () => {
     fireEvent.press(utils.getByTestId(testId));
@@ -279,6 +285,11 @@ describe("US 94 - Confirmar gasto precargado desde un comprobante", () => {
     await presionar(utils, "Compartido");
 
     await presionar(utils, "Bruno Díaz"); // abre el selector de pagador
+    // Se espera más que el paso guiado de "Compartido" (250 ms): como el usuario
+    // abrió el selector de pagador a mano, la hoja de división no se tiene que
+    // abrir encima (antes quedaban las dos y "Juan Pérez" aparecía dos veces).
+    await esperar(400);
+    expect(utils.queryByText("Dividir gasto")).toBeNull();
     await presionar(utils, "Juan Pérez");
     // Si en la división solo estaba el pagador anterior, el nuevo pagador lo reemplaza:
     // el campo vuelve a pedir participantes hasta que se elija con quién se divide.

@@ -35,6 +35,7 @@ _EMAIL_EVENT_LABELS = {
     NotificationType.GASTO_MODIFICADO: "Gasto modificado",
     NotificationType.NUEVA_VOTACION: "Nueva votación",
     NotificationType.RECORDATORIO_DEUDA: "Deuda pendiente",
+    NotificationType.LIQUIDACION_ACTUALIZADA: "Liquidación actualizada",
     NotificationType.RECORDATORIO_ACTIVIDAD: "Actividad próxima",
     NotificationType.RECORDATORIO_RESERVA: "Vencimiento de reserva",
     NotificationType.PARTICIPANTE_EXPULSADO: "Cambio en el viaje",

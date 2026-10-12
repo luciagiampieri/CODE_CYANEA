@@ -23,6 +23,7 @@ class NotificationType(StrEnum):
     PARTICIPANTE_EXPULSADO = "participante_expulsado"
     INVITACION_CANCELADA = "invitacion_cancelada"
     GASTO_MODIFICADO = "gasto_modificado"
+    LIQUIDACION_ACTUALIZADA = "liquidacion_actualizada"
 
 
 @dataclass(slots=True)
@@ -53,6 +54,7 @@ class NotificationService:
         NotificationType.NUEVO_GASTO: "RecibeEmailsNuevosGastos",
         NotificationType.GASTO_MODIFICADO: "RecibeEmailsNuevosGastos",
         NotificationType.RECORDATORIO_DEUDA: "RecibeEmailsRecordatoriosDeuda",
+        NotificationType.LIQUIDACION_ACTUALIZADA: "RecibeEmailsRecordatoriosDeuda",
         NotificationType.RECORDATORIO_ACTIVIDAD: "RecibeEmailsRecordatoriosActividad",
         NotificationType.RECORDATORIO_RESERVA: "RecibeEmailsRecordatoriosReserva",
         NotificationType.PARTICIPANTE_EXPULSADO: "RecibeEmailsCambiosViaje",
@@ -65,6 +67,7 @@ class NotificationService:
         NotificationType.NUEVO_GASTO: "RecibePushNuevosGastos",
         NotificationType.GASTO_MODIFICADO: "RecibePushNuevosGastos",
         NotificationType.RECORDATORIO_DEUDA: "RecibePushRecordatoriosDeuda",
+        NotificationType.LIQUIDACION_ACTUALIZADA: "RecibePushRecordatoriosDeuda",
         NotificationType.RECORDATORIO_ACTIVIDAD: "RecibePushRecordatoriosActividad",
         NotificationType.RECORDATORIO_RESERVA: "RecibePushRecordatoriosReserva",
         NotificationType.PARTICIPANTE_EXPULSADO: "RecibePushCambiosViaje",

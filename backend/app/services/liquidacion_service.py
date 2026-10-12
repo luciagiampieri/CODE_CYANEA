@@ -443,3 +443,77 @@ def build_settlement_response(db: Session, trip_id: int, liquidacion: Liquidacio
         ResumenParticipantes=resumen,
         Transferencias=transferencias,
     )
+
+
+@dataclass(frozen=True)
+class TransferenciaPendiente:
+    """Transferencia pendiente vista desde un participante."""
+
+    rol: str  # "paga" o "cobra"
+    id_contraparte: int
+    nombre_contraparte: str
+    monto: Decimal
+
+
+def transferencias_pendientes_por_participante(
+    db: Session, trip_id: int
+) -> dict[int, list[TransferenciaPendiente]]:
+    """Transferencias pendientes de la liquidación activa, agrupadas por participante.
+
+    No regenera la liquidación: si todavía no hay una activa devuelve un dict vacío.
+    """
+    liquidacion = db.execute(
+        select(LiquidacionViaje)
+        .options(
+            joinedload(LiquidacionViaje.Transferencias)
+            .joinedload(TransferenciaLiquidacion.ParticipanteDeudor)
+            .joinedload(ParticipanteViaje.Usuario),
+            joinedload(LiquidacionViaje.Transferencias)
+            .joinedload(TransferenciaLiquidacion.ParticipanteAcreedor)
+            .joinedload(ParticipanteViaje.Usuario),
+            joinedload(LiquidacionViaje.Transferencias).joinedload(
+                TransferenciaLiquidacion.EstadoTransferencia
+            ),
+        )
+        .where(LiquidacionViaje.IdViaje == trip_id, LiquidacionViaje.Activa.is_(True))
+        .execution_options(populate_existing=True)
+    ).unique().scalar_one_or_none()
+    if liquidacion is None:
+        return {}
+
+    def nombre(participante: ParticipanteViaje) -> str:
+        usuario = participante.Usuario
+        return f"{usuario.Nombre} {usuario.Apellido}".strip() if usuario else "Participante"
+
+    resultado: dict[int, list[TransferenciaPendiente]] = {}
+    for transferencia in liquidacion.Transferencias:
+        if transferencia.EstadoTransferencia.Nombre != "pendiente":
+            continue
+        monto = _round_money(Decimal(transferencia.Monto))
+        deudor = transferencia.ParticipanteDeudor
+        acreedor = transferencia.ParticipanteAcreedor
+        resultado.setdefault(deudor.IdParticipanteViaje, []).append(
+            TransferenciaPendiente("paga", acreedor.IdParticipanteViaje, nombre(acreedor), monto)
+        )
+        resultado.setdefault(acreedor.IdParticipanteViaje, []).append(
+            TransferenciaPendiente("cobra", deudor.IdParticipanteViaje, nombre(deudor), monto)
+        )
+    return resultado
+
+
+def participantes_con_contrapartes_distintas(
+    antes: dict[int, list[TransferenciaPendiente]],
+    despues: dict[int, list[TransferenciaPendiente]],
+) -> set[int]:
+    """Participantes a los que les cambió a quién transfieren o de quién cobran.
+
+    Un cambio solo de monto con las mismas personas no cuenta.
+    """
+    def contrapartes(transferencias: list[TransferenciaPendiente]) -> set[tuple[str, int]]:
+        return {(t.rol, t.id_contraparte) for t in transferencias}
+
+    return {
+        participante_id
+        for participante_id in set(antes) | set(despues)
+        if contrapartes(antes.get(participante_id, [])) != contrapartes(despues.get(participante_id, []))
+    }

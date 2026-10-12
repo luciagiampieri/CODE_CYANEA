@@ -37,12 +37,47 @@ describe("notificationNavigation", () => {
     ).toEqual(expect.objectContaining({ initialTab: "gastos" }));
   });
 
+  it("resuelve la liquidación actualizada al tab de gastos", () => {
+    expect(
+      resolveNotificationTarget({ tripId: 12, eventType: "settlement_updated" })
+    ).toEqual(expect.objectContaining({ tripId: 12, initialTab: "gastos" }));
+    expect(
+      resolveNotificationTarget({ tripId: 12, notificationType: "liquidacion_actualizada" })
+    ).toEqual(expect.objectContaining({ initialTab: "gastos" }));
+  });
+
   it("resuelve votaciones al tab votar", () => {
     expect(
       resolveNotificationTarget({ tripId: 12, eventType: "voting_created", votingId: 3 })
     ).toEqual(
       expect.objectContaining({ tripId: 12, initialTab: "votar", votingId: 3 })
     );
+  });
+
+  it("resuelve las notificaciones de la lista de la app por su tipo", () => {
+    const tab = (tipo) => resolveNotificationTarget({ viajeId: 12, tipo })?.initialTab;
+
+    expect(tab("gasto_creado")).toBe("gastos");
+    expect(tab("gasto_modificado")).toBe("gastos");
+    expect(tab("liquidacion_actualizada")).toBe("gastos");
+    expect(tab("actividad_creada")).toBe("itinerario");
+    expect(tab("actividad_actualizada")).toBe("itinerario");
+    expect(tab("actividad_eliminada")).toBe("itinerario");
+    expect(tab("recordatorio_actividad")).toBe("itinerario");
+    expect(tab("nueva_votacion")).toBe("votar");
+    expect(tab("nuevo_administrador")).toBe("grupo");
+    expect(tab("participante_salio")).toBe("grupo");
+    expect(tab("viaje_actualizado")).toBe("resumen");
+  });
+
+  it("el push usa su eventType aunque el tipo sea otro", () => {
+    expect(
+      resolveNotificationTarget({ tripId: 12, tipo: "gasto_creado", eventType: "expense_created" })
+    ).toEqual(expect.objectContaining({ tripId: 12, initialTab: "gastos" }));
+  });
+
+  it("una invitación cancelada no abre el viaje", () => {
+    expect(resolveNotificationTarget({ viajeId: 12, tipo: "invitacion_cancelada" })).toBeNull();
   });
 
   it("ignora payloads sin viaje", () => {

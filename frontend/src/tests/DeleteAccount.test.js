@@ -91,7 +91,7 @@ describe("US 12 - Eliminar cuenta", () => {
         );
 
         // El usuario toca "Eliminar cuenta"
-        fireEvent.press(getByTestId("delete-account-button"));
+        await fireEvent.press(getByTestId("delete-account-button"));
 
         // Al ser una cuenta local, debe aparecer el campo de contraseña
         await waitFor(() => {
@@ -109,14 +109,14 @@ describe("US 12 - Eliminar cuenta", () => {
         );
 
         // Primero presionamos el botón "Eliminar cuenta" de la pantalla
-        fireEvent.press(getByTestId("delete-account-button"));
+        await fireEvent.press(getByTestId("delete-account-button"));
 
         // Verificamos que se abrió el modal y aparece el campo contraseña
         await waitFor(() => {
             expect(getByPlaceholderText("Contraseña")).toBeTruthy();
         });
 
-        fireEvent.press(getByTestId("confirm-password-delete-button"));
+        await fireEvent.press(getByTestId("confirm-password-delete-button"));
 
         const errorMessage = await findByText(
             "Debés ingresar tu contraseña."
@@ -140,13 +140,13 @@ describe("US 12 - Eliminar cuenta", () => {
             new Error("Contraseña incorrecta.")
         );
 
-        fireEvent.press(getByTestId("delete-account-button"));
+        await fireEvent.press(getByTestId("delete-account-button"));
 
         await waitFor(() => {
             expect(getByPlaceholderText("Contraseña")).toBeTruthy();
         });
 
-        fireEvent.changeText(
+        await fireEvent.changeText(
             getByPlaceholderText("Contraseña"),
             "wrongpassword"
         );
@@ -157,7 +157,7 @@ describe("US 12 - Eliminar cuenta", () => {
             );
         });
 
-        fireEvent.press(getByTestId("confirm-password-delete-button"));
+        await fireEvent.press(getByTestId("confirm-password-delete-button"));
 
         const errorMessage = await findByText("Contraseña incorrecta.");
         expect(errorMessage).toBeTruthy();
@@ -186,13 +186,13 @@ describe("US 12 - Eliminar cuenta", () => {
             message: "Cuenta eliminada correctamente.",
         });
 
-        fireEvent.press(getByTestId("delete-account-button"));
+        await fireEvent.press(getByTestId("delete-account-button"));
 
         await waitFor(() => {
             expect(getByPlaceholderText("Contraseña")).toBeTruthy();
         });
 
-        fireEvent.changeText(
+        await fireEvent.changeText(
             getByPlaceholderText("Contraseña"),
             "correctpassword"
         );
@@ -203,7 +203,7 @@ describe("US 12 - Eliminar cuenta", () => {
             );
         });
 
-        fireEvent.press(getByTestId("confirm-password-delete-button"));
+        await fireEvent.press(getByTestId("confirm-password-delete-button"));
 
         expect(
             await findByText("¿Eliminar cuenta definitivamente?")
@@ -213,7 +213,7 @@ describe("US 12 - Eliminar cuenta", () => {
             "correctpassword"
         );
 
-        fireEvent.press(
+        await fireEvent.press(
             getByTestId("confirm-delete-account-button")
         );
 
@@ -244,7 +244,7 @@ describe("US 12 - Eliminar cuenta", () => {
             <EditProfileScreen navigation={{}} />
         );
 
-        fireEvent.press(
+        await fireEvent.press(
             getByTestId("delete-account-button")
         );
 
@@ -279,7 +279,7 @@ describe("US 12 - Eliminar cuenta", () => {
             <EditProfileScreen navigation={{}} />
         );
 
-        fireEvent.press(
+        await fireEvent.press(
             getByTestId("delete-account-button")
         );
 
@@ -310,7 +310,7 @@ describe("US 12 - Eliminar cuenta", () => {
             valid: true,
         });
 
-        fireEvent.press(
+        await fireEvent.press(
             getByTestId("delete-account-button")
         );
 
@@ -320,7 +320,7 @@ describe("US 12 - Eliminar cuenta", () => {
             ).toBeTruthy();
         });
 
-        fireEvent.changeText(
+        await fireEvent.changeText(
             getByPlaceholderText("Contraseña"),
             "correctpassword"
         );
@@ -331,7 +331,7 @@ describe("US 12 - Eliminar cuenta", () => {
             );
         });
 
-        fireEvent.press(
+        await fireEvent.press(
             getByTestId("confirm-password-delete-button")
         );
 
@@ -339,7 +339,7 @@ describe("US 12 - Eliminar cuenta", () => {
             await findByText("¿Eliminar cuenta definitivamente?")
         ).toBeTruthy();
 
-        fireEvent.press(
+        await fireEvent.press(
             getByTestId("cancel-delete-account-button")
         );
 

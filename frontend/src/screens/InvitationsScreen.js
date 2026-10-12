@@ -20,7 +20,9 @@ import {
   getPendingInvitations,
   respondToInvitation,
   getNotificationsSocketUrl,
+  getTripDetail,
 } from "../services/api";
+import { resolveNotificationTarget } from "../utils/notificationTarget";
 import { colors, spacing, surfaces, textStyles, radii } from "../theme/tokens";
 
 import { appAlert } from "../components/ui/AppDialog";
@@ -186,6 +188,32 @@ export default function InvitationsScreen({ navigation }) {
     }
   };
 
+  // Tocar una novedad la marca como leída y abre el viaje en la pestaña que
+  // corresponde (gastos, itinerario, votar...). Si el aviso no es de un viaje
+  // al que se pueda entrar, solo se marca como leída.
+  const handleOpenNotification = async (item) => {
+    if (item.leida === false) {
+      setNotifications((prev) =>
+        prev.map((n) => (n.id === item.id ? { ...n, leida: true } : n))
+      );
+      markNotificationAsRead(item.id).catch(() => {});
+    }
+
+    const target = resolveNotificationTarget(item);
+    if (!target) return;
+
+    try {
+      const trip = await getTripDetail(target.tripId);
+      navigation.navigate("TripDetail", {
+        trip,
+        initialTab: target.initialTab,
+        notificationTarget: target,
+      });
+    } catch (error) {
+      appAlert("Atención", error.message || "No se pudo abrir el viaje de esta notificación.");
+    }
+  };
+
   const handleMarkAllAsRead = async () => {
     try {
       await markAllNotificationsAsRead();
@@ -281,9 +309,21 @@ export default function InvitationsScreen({ navigation }) {
     const fecha = formatDate(item.fechaCreacion || item.FechaCreacion);
     const leida = item.leida ?? true;
     const mensajeNotificacion = item.mensaje || item.Mensaje || "";
+    const abreViaje = resolveNotificationTarget(item) !== null;
 
     return (
-      <View key={item.idUnico} style={[styles.noteCard, !leida ? styles.noteCardUnread : styles.noteCardRead]}>
+      <Pressable
+        key={item.idUnico}
+        onPress={() => handleOpenNotification(item)}
+        accessibilityRole="button"
+        accessibilityHint={abreViaje ? "Abre el viaje de esta notificación" : undefined}
+        testID={`notification-${item.id}`}
+        style={({ pressed }) => [
+          styles.noteCard,
+          !leida ? styles.noteCardUnread : styles.noteCardRead,
+          pressed && styles.pressed,
+        ]}
+      >
         <View style={[styles.noteIcon, !leida ? styles.noteIconUnread : styles.noteIconRead]}>
           <FontAwesome6 name="bell" size={13} color={!leida ? colors.textInverse : colors.primary} />
         </View>
@@ -314,7 +354,16 @@ export default function InvitationsScreen({ navigation }) {
             ) : null}
           </View>
         </View>
-      </View>
+
+        {abreViaje ? (
+          <FontAwesome6
+            name="chevron-right"
+            size={12}
+            color={colors.textMuted}
+            style={styles.noteChevron}
+          />
+        ) : null}
+      </Pressable>
     );
   }
 
@@ -686,6 +735,9 @@ const styles = StyleSheet.create({
     gap: 8,
     marginTop: 6,
     minHeight: 18,
+  },
+  noteChevron: {
+    alignSelf: "center",
   },
   noteDate: {
     ...textStyles.meta,

@@ -11,6 +11,7 @@ import {
   markAllNotificationsAsRead,
   respondToInvitation,
   getNotificationsSocketUrl,
+  getTripDetail,
 } from "../services/api";
 
 jest.mock("../services/api", () => ({
@@ -20,6 +21,7 @@ jest.mock("../services/api", () => ({
   markAllNotificationsAsRead: jest.fn(),
   respondToInvitation: jest.fn(),
   getNotificationsSocketUrl: jest.fn(),
+  getTripDetail: jest.fn(),
 }));
 
 // Los avisos de la pantalla pasan por appAlert: se reemplaza para verificar título y mensaje.
@@ -51,7 +53,8 @@ jest.mock("../components/ui/PrimaryButton", () => {
 });
 
 const mockGoBack = jest.fn();
-const navigation = { goBack: mockGoBack };
+const mockNavigate = jest.fn();
+const navigation = { goBack: mockGoBack, navigate: mockNavigate };
 
 const AVISO_CARGANDO = "Cargando notificaciones...";
 const TEXTO_VACIO = "No tenés notificaciones pendientes.";
@@ -902,6 +905,105 @@ describe("US - Notificaciones e invitaciones (InvitationsScreen)", () => {
       expect(utils.queryByText(AVISO_CARGANDO)).toBeNull();
       expect(getNotifications).toHaveBeenCalledTimes(2);
       expect(getPendingInvitations).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  describe("tocar una novedad abre el viaje en la pestaña que corresponde", () => {
+    const avisoGasto = {
+      id: 40,
+      viajeId: 7,
+      tipo: "gasto_creado",
+      titulo: "Nuevo gasto en Viaje a Salta",
+      mensaje: "Ana Test registró el gasto Cena.",
+      fechaCreacion: "2026-09-02T10:00:00Z",
+      leida: false,
+    };
+    const viaje = { id: 7, title: "Viaje a Salta" };
+
+    async function tocarNovedad(utils, id) {
+      await act(async () => {
+        fireEvent.press(utils.getByTestId(`notification-${id}`));
+      });
+    }
+
+    it("un aviso de gasto la marca como leída y abre la pestaña Gastos", async () => {
+      getNotifications.mockResolvedValue([avisoGasto]);
+      getTripDetail.mockResolvedValue(viaje);
+      const utils = await renderPantallaCargada();
+
+      await tocarNovedad(utils, 40);
+
+      expect(markNotificationAsRead).toHaveBeenCalledWith(40);
+      expect(getTripDetail).toHaveBeenCalledWith(7);
+      expect(mockNavigate).toHaveBeenCalledWith(
+        "TripDetail",
+        expect.objectContaining({ trip: viaje, initialTab: "gastos" })
+      );
+      expect(utils.getByText("Estás al día")).toBeTruthy();
+    });
+
+    it.each([
+      ["liquidacion_actualizada", "gastos"],
+      ["gasto_modificado", "gastos"],
+      ["actividad_creada", "itinerario"],
+      ["recordatorio_actividad", "itinerario"],
+      ["nueva_votacion", "votar"],
+      ["participante_salio", "grupo"],
+      ["viaje_actualizado", "resumen"],
+    ])("un aviso %s abre la pestaña %s", async (tipo, pestania) => {
+      getNotifications.mockResolvedValue([{ ...avisoGasto, tipo }]);
+      getTripDetail.mockResolvedValue(viaje);
+      const utils = await renderPantallaCargada();
+
+      await tocarNovedad(utils, 40);
+
+      expect(mockNavigate).toHaveBeenCalledWith(
+        "TripDetail",
+        expect.objectContaining({ initialTab: pestania })
+      );
+    });
+
+    it("una novedad ya leída abre el viaje sin volver a marcarla", async () => {
+      getNotifications.mockResolvedValue([{ ...avisoGasto, leida: true }]);
+      getTripDetail.mockResolvedValue(viaje);
+      const utils = await renderPantallaCargada();
+
+      await tocarNovedad(utils, 40);
+
+      expect(markNotificationAsRead).not.toHaveBeenCalled();
+      expect(mockNavigate).toHaveBeenCalled();
+    });
+
+    it("una invitación cancelada solo se marca como leída: no abre el viaje", async () => {
+      getNotifications.mockResolvedValue([{ ...avisoGasto, tipo: "invitacion_cancelada" }]);
+      const utils = await renderPantallaCargada();
+
+      await tocarNovedad(utils, 40);
+
+      expect(markNotificationAsRead).toHaveBeenCalledWith(40);
+      expect(getTripDetail).not.toHaveBeenCalled();
+      expect(mockNavigate).not.toHaveBeenCalled();
+    });
+
+    it("si no se puede abrir el viaje, avisa y no navega", async () => {
+      getNotifications.mockResolvedValue([avisoGasto]);
+      getTripDetail.mockRejectedValue(new Error("No tenés acceso a este viaje."));
+      const utils = await renderPantallaCargada();
+
+      await tocarNovedad(utils, 40);
+
+      expect(appAlert).toHaveBeenCalledWith("Atención", "No tenés acceso a este viaje.");
+      expect(mockNavigate).not.toHaveBeenCalled();
+    });
+
+    it("'Marcar como leída' no abre el viaje", async () => {
+      getNotifications.mockResolvedValue([avisoGasto]);
+      const utils = await renderPantallaCargada();
+
+      await press(utils, "Marcar como leída");
+
+      expect(markNotificationAsRead).toHaveBeenCalledWith(40);
+      expect(mockNavigate).not.toHaveBeenCalled();
     });
   });
 });

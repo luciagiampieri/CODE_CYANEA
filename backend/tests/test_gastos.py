@@ -1302,3 +1302,221 @@ def test_editar_gasto_ws_usuario_sin_permiso_es_rechazado(client, gasto_editable
     assert respuesta["tipo"] == "edicion_gasto_rechazada"
     assert respuesta["codigo"] == "EXPENSE_EDIT_FORBIDDEN"
     assert "creador del gasto o su pagador actual" in respuesta["mensaje"]
+
+# ===========================================================================
+# Notificaciones al registrar un gasto
+#
+# - Un gasto personal no se notifica a nadie.
+# - Un gasto compartido se notifica a la división y al pagador.
+# - A quien no participa pero le cambia a quién transferir (o de quién cobrar)
+#   le llega "liquidación actualizada". Un cambio solo de monto no se avisa.
+# ===========================================================================
+
+@pytest.fixture
+def viaje_de_cuatro(db_session, viaje_con_admin, usuario_activo, categoria_gasto):
+    """Ana (admin), Bruno, Carla y Dario, todos aceptados."""
+    viaje, participante_ana = viaje_con_admin
+    personas = {"ana": (usuario_activo, participante_ana)}
+    for nombre in ("bruno", "carla", "dario"):
+        personas[nombre] = _agregar_participante_aceptado(db_session, viaje, nombre)
+    return viaje, categoria_gasto, personas
+
+
+def _registrar(client, viaje, categoria, personas, quien, monto, pagador, division=None, personal=False):
+    payload = {
+        "IdViaje": viaje.IdViaje,
+        "Nombre": f"Gasto de {quien}",
+        "MontoOriginal": str(monto),
+        "MonedaOriginal": viaje.Moneda,
+        "IdCategoria": categoria.IdCategoria,
+        "FechaGasto": str(date.today()),
+        "EsCompartido": not personal,
+    }
+    if not personal:
+        payload.update(
+            {
+                "DividirEntreTodos": False,
+                "TipoDivision": "igualitaria",
+                "IdPagador": personas[pagador][1].IdParticipanteViaje,
+                "IdParticipantes": [personas[n][1].IdParticipanteViaje for n in division],
+            }
+        )
+    response = client.post(
+        "/api/v1/gastos/", json=payload, headers=_headers_de(personas[quien][0])
+    )
+    assert response.status_code == 200, response.text
+    return response.json()["IdGasto"]
+
+
+def _avisos(db_session, personas, tipo):
+    db_session.expire_all()
+    por_id = {usuario.IdUsuario: nombre for nombre, (usuario, _) in personas.items()}
+    return sorted(
+        por_id[n.IdUsuario] for n in db_session.query(Notificacion).filter_by(Tipo=tipo).all()
+    )
+
+
+def _limpiar_avisos(db_session):
+    db_session.query(Notificacion).delete()
+    db_session.commit()
+
+
+def test_gasto_personal_no_notifica_a_nadie(client, db_session, viaje_de_cuatro):
+    viaje, categoria, personas = viaje_de_cuatro
+
+    _registrar(client, viaje, categoria, personas, "bruno", 500, None, personal=True)
+
+    db_session.expire_all()
+    assert db_session.query(Notificacion).count() == 0
+
+
+def test_gasto_compartido_notifica_solo_a_la_division_y_al_pagador(client, db_session, viaje_de_cuatro):
+    viaje, categoria, personas = viaje_de_cuatro
+
+    # Bruno registra un gasto que pagó Carla, dividido entre Carla y Dario.
+    _registrar(client, viaje, categoria, personas, "bruno", 200, "carla", ["carla", "dario"])
+
+    assert _avisos(db_session, personas, "gasto_creado") == ["carla", "dario"]
+
+
+def test_aviso_de_liquidacion_actualizada_a_quien_le_cambia_a_quien_transferir(client, db_session, viaje_de_cuatro):
+    viaje, categoria, personas = viaje_de_cuatro
+    # Ana pagó 300 entre Ana, Bruno y Carla: Bruno y Carla le deben 100 a Ana.
+    _registrar(client, viaje, categoria, personas, "ana", 300, "ana", ["ana", "bruno", "carla"])
+    _limpiar_avisos(db_session)
+
+    # Dario paga 200 entre Dario y Bruno. Saldos: Ana +200, Dario +100,
+    # Bruno -200, Carla -100 → Bruno le paga 200 a Ana y Carla 100 a Dario.
+    _registrar(client, viaje, categoria, personas, "dario", 200, "dario", ["dario", "bruno"])
+
+    # Bruno participa del gasto: recibe el aviso normal.
+    assert _avisos(db_session, personas, "gasto_creado") == ["bruno"]
+    # Carla (ahora le paga a Dario) y Ana (ya no cobra de Carla) no participan,
+    # pero les cambió con quién: reciben "liquidación actualizada".
+    assert _avisos(db_session, personas, "liquidacion_actualizada") == ["ana", "carla"]
+
+    aviso_carla = (
+        db_session.query(Notificacion)
+        .filter_by(Tipo="liquidacion_actualizada", IdUsuario=personas["carla"][0].IdUsuario)
+        .one()
+    )
+    assert aviso_carla.Titulo == f"Se actualizó la liquidación de {viaje.Titulo}"
+    assert aviso_carla.Mensaje == "Ahora tenés que transferir ARS 100,00 a Dario Test."
+
+
+def test_cambio_solo_de_monto_no_avisa_liquidacion_actualizada(client, db_session, viaje_de_cuatro):
+    viaje, categoria, personas = viaje_de_cuatro
+    _registrar(client, viaje, categoria, personas, "ana", 300, "ana", ["ana", "bruno", "carla"])
+    _limpiar_avisos(db_session)
+
+    # Ana paga 30 entre Ana y Bruno: Bruno le debe más a Ana, Carla sigue
+    # debiéndole lo mismo a la misma persona.
+    _registrar(client, viaje, categoria, personas, "ana", 30, "ana", ["ana", "bruno"])
+
+    assert _avisos(db_session, personas, "gasto_creado") == ["bruno"]
+    assert _avisos(db_session, personas, "liquidacion_actualizada") == []
+
+
+def test_quien_registra_no_recibe_avisos_propios(client, db_session, viaje_de_cuatro):
+    viaje, categoria, personas = viaje_de_cuatro
+
+    _registrar(client, viaje, categoria, personas, "ana", 300, "ana", ["ana", "bruno", "carla"])
+
+    assert "ana" not in _avisos(db_session, personas, "gasto_creado")
+    assert "ana" not in _avisos(db_session, personas, "liquidacion_actualizada")
+
+
+# ===========================================================================
+# "Liquidación actualizada" también al editar y al eliminar un gasto
+# ===========================================================================
+
+def _poner_en_curso(db_session, viaje):
+    viaje.FechaInicio = date.today() - timedelta(days=5)
+    viaje.FechaFin = date.today() + timedelta(days=30)
+    db_session.commit()
+
+
+def _editar_gasto(client, viaje, categoria, personas, id_gasto, quien, monto, pagador, division):
+    payload = {
+        "Nombre": f"Gasto editado por {quien}",
+        "MontoOriginal": str(monto),
+        "MonedaOriginal": viaje.Moneda,
+        "IdCategoria": categoria.IdCategoria,
+        "FechaGasto": str(date.today()),
+        "EsCompartido": True,
+        "DividirEntreTodos": False,
+        "TipoDivision": "igualitaria",
+        "IdPagador": personas[pagador][1].IdParticipanteViaje,
+        "IdParticipantes": [personas[n][1].IdParticipanteViaje for n in division],
+    }
+    response = client.put(
+        f"/api/v1/gastos/{id_gasto}", json=payload, headers=_headers_de(personas[quien][0])
+    )
+    assert response.status_code == 200, response.text
+
+
+def _mensaje_liquidacion(db_session, personas, nombre):
+    return (
+        db_session.query(Notificacion)
+        .filter_by(Tipo="liquidacion_actualizada", IdUsuario=personas[nombre][0].IdUsuario)
+        .one()
+        .Mensaje
+    )
+
+
+def test_editar_gasto_avisa_liquidacion_a_quien_le_cambia_a_quien_transferir(client, db_session, viaje_de_cuatro):
+    viaje, categoria, personas = viaje_de_cuatro
+    _poner_en_curso(db_session, viaje)
+    _registrar(client, viaje, categoria, personas, "ana", 300, "ana", ["ana", "bruno", "carla"])
+    id_gasto = _registrar(client, viaje, categoria, personas, "dario", 200, "dario", ["dario", "bruno"])
+    # Bruno le paga 200 a Ana y Carla 100 a Dario.
+    _limpiar_avisos(db_session)
+
+    # Dario cambia la división: ahora es entre Dario y Carla (sale Bruno).
+    # Saldos: Ana +200, Dario +100, Bruno -100, Carla -200.
+    _editar_gasto(client, viaje, categoria, personas, id_gasto, "dario", 200, "dario", ["dario", "carla"])
+
+    # Carla está en la división: recibe el aviso de gasto modificado.
+    assert _avisos(db_session, personas, "gasto_modificado") == ["carla"]
+    # Ana y Bruno no están en el gasto pero les cambió con quién: liquidación.
+    assert _avisos(db_session, personas, "liquidacion_actualizada") == ["ana", "bruno"]
+    assert _mensaje_liquidacion(db_session, personas, "bruno") == (
+        "Ahora tenés que transferir ARS 100,00 a Dario Test."
+    )
+
+
+def test_editar_solo_el_monto_no_avisa_liquidacion(client, db_session, viaje_de_cuatro):
+    viaje, categoria, personas = viaje_de_cuatro
+    _poner_en_curso(db_session, viaje)
+    id_gasto = _registrar(client, viaje, categoria, personas, "ana", 300, "ana", ["ana", "bruno", "carla"])
+    _limpiar_avisos(db_session)
+
+    # Siguen debiéndole a Ana, solo cambia cuánto.
+    _editar_gasto(client, viaje, categoria, personas, id_gasto, "ana", 600, "ana", ["ana", "bruno", "carla"])
+
+    assert _avisos(db_session, personas, "gasto_modificado") == ["bruno", "carla"]
+    assert _avisos(db_session, personas, "liquidacion_actualizada") == []
+
+
+def test_eliminar_gasto_avisa_liquidacion_a_quien_le_cambia_a_quien_transferir(client, db_session, viaje_de_cuatro):
+    viaje, categoria, personas = viaje_de_cuatro
+    _registrar(client, viaje, categoria, personas, "ana", 300, "ana", ["ana", "bruno", "carla"])
+    id_gasto = _registrar(client, viaje, categoria, personas, "dario", 200, "dario", ["dario", "bruno"])
+    # Bruno le paga 200 a Ana y Carla 100 a Dario.
+    _limpiar_avisos(db_session)
+
+    # Ana elimina el gasto de Dario: Bruno y Carla le deben 100 cada uno a Ana.
+    response = client.delete(
+        f"/api/v1/gastos/{id_gasto}", headers=_headers_de(personas["ana"][0])
+    )
+    assert response.status_code == 200, response.text
+
+    # Bruno sigue pagándole a Ana (solo cambia el monto): no se le avisa.
+    # Ana elimina (no se avisa a sí misma).
+    assert _avisos(db_session, personas, "liquidacion_actualizada") == ["carla", "dario"]
+    assert _mensaje_liquidacion(db_session, personas, "carla") == (
+        "Ahora tenés que transferir ARS 100,00 a Ana Test."
+    )
+    assert _mensaje_liquidacion(db_session, personas, "dario") == (
+        "Ya no tenés transferencias pendientes."
+    )

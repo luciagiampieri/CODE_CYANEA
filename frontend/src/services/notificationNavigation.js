@@ -1,45 +1,12 @@
 import { createNavigationContainerRef } from "@react-navigation/native";
 import { getTripDetail } from "./api";
 import { configureForegroundNotifications, getPushAvailabilityReason } from "./pushNotifications";
+import { resolveNotificationTarget } from "../utils/notificationTarget";
 
 export const navigationRef = createNavigationContainerRef();
 let pendingNotificationData = null;
 
-export function resolveNotificationTarget(data = {}) {
-  const tripId = data.tripId ?? data.idViaje ?? data.IdViaje;
-  if (!tripId) return null;
-
-  const eventType = data.eventType ?? data.tipo;
-  const notificationType = data.notificationType;
-  let initialTab = "resumen";
-
-  if (
-    [
-      "activity_created",
-      "activity_updated",
-      "activity_deleted",
-      "activity_reminder",
-    ].includes(eventType)
-  ) {
-    initialTab = "itinerario";
-  } else if (
-    ["expense_created", "expense_updated"].includes(eventType) ||
-    ["nuevo_gasto", "gasto_modificado"].includes(notificationType)
-  ) {
-    initialTab = "gastos";
-  } else if (eventType === "voting_created" || notificationType === "nueva_votacion") {
-    initialTab = "votar";
-  } 
-
-  return {
-    tripId,
-    initialTab,
-    activityId: data.activityId,
-    dayId: data.dayId,
-    expenseId: data.expenseId,
-    votingId: data.votingId,
-  };
-}
+export { resolveNotificationTarget };
 
 export async function openNotificationTarget(data) {
   const target = resolveNotificationTarget(data);

@@ -137,7 +137,7 @@ describe("ResultadosVotacion", () => {
 
     const { getByText, findByText } = await render(<ResultadosVotacion resultados={resultados} />);
 
-    fireEvent.press(getByText("Ver votos"));
+    await fireEvent.press(getByText("Ver votos"));
 
     expect(await findByText("Detalles de la votación")).toBeTruthy();
     expect(getByText("Ana López")).toBeTruthy();
@@ -162,7 +162,7 @@ describe("ResultadosVotacion", () => {
 
     const { getByText, findByText } = await render(<ResultadosVotacion resultados={resultados} />);
 
-    fireEvent.press(getByText("Ver votos"));
+    await fireEvent.press(getByText("Ver votos"));
 
     expect(await findByText("Nadie votó esta opción todavía.")).toBeTruthy();
   });
@@ -185,7 +185,7 @@ describe("ResultadosVotacion", () => {
 
     const { getByText, findByText } = await render(<ResultadosVotacion resultados={resultados} />);
 
-    fireEvent.press(getByText("Ver votos"));
+    await fireEvent.press(getByText("Ver votos"));
 
     expect(await findByText("Nadie votó esta opción.")).toBeTruthy();
   });
@@ -202,7 +202,7 @@ describe("ResultadosVotacion", () => {
       <ResultadosVotacion resultados={resultados} totalParticipantes={5} />
     );
 
-    fireEvent.press(getByText("Ver votos"));
+    await fireEvent.press(getByText("Ver votos"));
 
     expect(await findByText("3 de 5 participantes votaron")).toBeTruthy();
   });
@@ -217,7 +217,7 @@ describe("ResultadosVotacion", () => {
 
     const { getByText, findByText } = await render(<ResultadosVotacion resultados={resultados} />);
 
-    fireEvent.press(getByText("Ver votos"));
+    await fireEvent.press(getByText("Ver votos"));
 
     expect(await findByText("1 persona votó")).toBeTruthy();
   });
@@ -236,7 +236,7 @@ describe("ResultadosVotacion", () => {
       <ResultadosVotacion resultados={resultados} totalParticipantes={4} />
     );
 
-    fireEvent.press(getByText("Ver votos"));
+    await fireEvent.press(getByText("Ver votos"));
 
     expect(await findByText("Activa")).toBeTruthy();
     expect(getByText("MÚLTIPLE")).toBeTruthy();

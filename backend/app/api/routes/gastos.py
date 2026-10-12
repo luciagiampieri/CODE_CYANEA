@@ -48,8 +48,15 @@ from app.schemas.gasto import (
 )
 from app.models.gasto import TipoDivisionEnum
 from app.models.viaje import Viaje
-from app.services.liquidacion_service import rebuild_settlement_plan
-from app.services.notifications import NotificationType, TripNotificationEvent, dispatch_trip_notification, dispatch_user_notification
+from app.services.liquidacion_service import (
+    rebuild_settlement_plan,
+    transferencias_pendientes_por_participante,
+)
+from app.services.notificaciones_gastos import (
+    notificar_alta_gasto,
+    notificar_liquidacion_actualizada,
+)
+from app.services.notifications import NotificationType, TripNotificationEvent, dispatch_user_notification
 from app.services.trip_access import (
     TRIP_FINISHED_CODE,
     get_trip_with_relations,
@@ -438,6 +445,10 @@ async def create_gasto(data: GastoCreate, db: Session = Depends(get_db), current
     )
 
     print(f"DEBUG: Guardando gasto: {data.Nombre}, Monto Original: {data.MontoOriginal} {moneda_gasto}, Monto Convertido: {monto_convertido}")
+
+    # Transferencias pendientes antes del gasto, para avisar a quien le cambie
+    # a quién transferir o de quién cobrar.
+    transferencias_antes = transferencias_pendientes_por_participante(db, data.IdViaje)
       
     gasto = Gasto(
         IdViaje=data.IdViaje,
@@ -470,20 +481,12 @@ async def create_gasto(data: GastoCreate, db: Session = Depends(get_db), current
     db.refresh(gasto)
 
     rebuild_settlement_plan(db, data.IdViaje)
-    await dispatch_trip_notification(
-        db,
-        TripNotificationEvent(
-            notification_type=NotificationType.NUEVO_GASTO,
-            tipo="gasto_creado",
-            titulo=f"Nuevo gasto en {viaje.Titulo}",
-            mensaje=f"{_actor_display_name(current_user)} registró el gasto {gasto.Nombre}.",
-            id_viaje=data.IdViaje,
-            id_usuario_actor=current_user.IdUsuario,
-            data={
-                "eventType": "expense_created",
-                "expenseId": gasto.IdGasto,
-            },
-        ),
+    transferencias_despues = transferencias_pendientes_por_participante(db, data.IdViaje)
+
+    # Personal: nadie. Compartido: división y pagador, y aviso de liquidación
+    # actualizada a quien le cambie a quién transferir.
+    await notificar_alta_gasto(
+        db, viaje, gasto, current_user, transferencias_antes, transferencias_despues
     )
 
     return {
@@ -545,6 +548,10 @@ async def delete_gasto(
 
     ruta_storage = documento.UrlArchivo if borrar_documento else None
 
+    # Foto de las transferencias pendientes antes de borrar, para avisar a
+    # quienes les cambie a quién transferir o de quién cobrar.
+    transferencias_antes = transferencias_pendientes_por_participante(db, viaje_id)
+
     db.delete(gasto)
     db.flush()
     if borrar_documento:
@@ -552,6 +559,7 @@ async def delete_gasto(
         db.flush()
     rebuild_settlement_plan(db, viaje_id)
     db.commit()
+    transferencias_despues = transferencias_pendientes_por_participante(db, viaje_id)
 
     if ruta_storage:
         try:
@@ -560,6 +568,10 @@ async def delete_gasto(
             # Si el archivo ya no estaba en el storage, no bloqueamos la eliminación.
             pass
         await manager.broadcast_to_trip(viaje_id, {"tipo": "documento_actualizado"})
+
+    await notificar_liquidacion_actualizada(
+        db, viaje, current_user, transferencias_antes, transferencias_despues
+    )
 
     return {
         "message": "Gasto eliminado correctamente",
@@ -1009,6 +1021,8 @@ async def update_gasto(
     )
 
     nombre_anterior = gasto.Nombre
+    # Foto de las transferencias pendientes antes de guardar los cambios.
+    transferencias_antes = transferencias_pendientes_por_participante(db, viaje_id)
 
     try:
         gasto.Nombre = data.Nombre
@@ -1041,6 +1055,7 @@ async def update_gasto(
     except Exception:
         db.rollback()
         raise
+    transferencias_despues = transferencias_pendientes_por_participante(db, viaje_id)
 
     # Los cambios se reflejan para todos sin recargar la pantalla.
     await manager.broadcast_to_trip(
@@ -1083,6 +1098,16 @@ async def update_gasto(
             ),
             list(destinatarios),
         )
+
+    # A los demás solo se les avisa si les cambió a quién transferir o de quién cobrar.
+    await notificar_liquidacion_actualizada(
+        db,
+        viaje,
+        current_user,
+        transferencias_antes,
+        transferencias_despues,
+        excluir_usuarios=destinatarios_ids,
+    )
 
     return {
         "message": "Los cambios del gasto se guardaron correctamente.",

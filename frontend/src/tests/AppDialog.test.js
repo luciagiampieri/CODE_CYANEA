@@ -43,7 +43,7 @@ describe("AppDialog", () => {
     );
 
     await act(async () => {
-      fireEvent.press(utils.getByText("Eliminar"));
+      await fireEvent.press(utils.getByText("Eliminar"));
       jest.runAllTimers();
     });
 
