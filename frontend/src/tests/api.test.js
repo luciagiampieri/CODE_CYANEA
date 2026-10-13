@@ -363,3 +363,37 @@ describe("errores enriquecidos de la API", () => {
     unsubscribe();
   });
 });
+describe("getPossibleDuplicateExpenses (US 95)", () => {
+  it("consulta los criterios del gasto compartido como query string", async () => {
+    mockFetchOnce(200, []);
+
+    await api.getPossibleDuplicateExpenses(10, {
+      FechaGasto: "2026-10-12",
+      MontoOriginal: 50000,
+      MonedaOriginal: "ARS",
+      EsCompartido: true,
+      IdPagador: 3,
+    });
+
+    expect(global.fetch).toHaveBeenCalledWith(
+      `${API_BASE_URL}/gastos/trips/10/posibles-duplicados?fecha_gasto=2026-10-12&monto_original=50000&moneda_original=ARS&es_compartido=true&id_pagador=3`,
+      expect.objectContaining({ headers: expect.any(Object) })
+    );
+  });
+
+  it("en un gasto personal no envía el pagador", async () => {
+    mockFetchOnce(200, []);
+
+    await api.getPossibleDuplicateExpenses(10, {
+      FechaGasto: "2026-10-12",
+      MontoOriginal: 1500.5,
+      MonedaOriginal: "USD",
+      EsCompartido: false,
+      IdPagador: null,
+    });
+
+    const [url] = global.fetch.mock.calls[0];
+    expect(url).toContain("es_compartido=false");
+    expect(url).not.toContain("id_pagador");
+  });
+});

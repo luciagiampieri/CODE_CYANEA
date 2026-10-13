@@ -719,6 +719,28 @@ export async function createExpense(payload) {
 }
 
 
+// US 95: gastos existentes que podrían ser el mismo pago que se va a registrar.
+// No registra nada; el formulario lo consulta antes de createExpense.
+export async function getPossibleDuplicateExpenses(
+  tripId,
+  { FechaGasto, MontoOriginal, MonedaOriginal, EsCompartido, IdPagador }
+) {
+  const params = new URLSearchParams({
+    fecha_gasto: FechaGasto,
+    monto_original: String(MontoOriginal),
+    moneda_original: MonedaOriginal,
+    es_compartido: EsCompartido ? "true" : "false",
+  });
+  if (EsCompartido && IdPagador != null) {
+    params.append("id_pagador", String(IdPagador));
+  }
+  const response = await fetch(
+    `${API_BASE_URL}/gastos/trips/${tripId}/posibles-duplicados?${params.toString()}`,
+    { headers: await authHeaders() }
+  );
+  return parseResponse(response, "No se pudieron verificar posibles gastos duplicados");
+}
+
 export async function deleteExpense(expenseId, { eliminarComprobante = false } = {}) {
   const query = eliminarComprobante ? "?eliminar_comprobante=true" : "";
   const response = await fetch(`${API_BASE_URL}/gastos/${expenseId}${query}`, {

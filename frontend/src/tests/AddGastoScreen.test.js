@@ -8,6 +8,7 @@ import {
   createExpense,
   getCurrencies,
   getExpenseCategories,
+  getPossibleDuplicateExpenses,
   getTripParticipants,
   updateExpense,
 } from "../services/api";
@@ -17,6 +18,7 @@ jest.mock("../services/api", () => ({
   getTripParticipants: jest.fn(),
   getCurrencies: jest.fn(),
   createExpense: jest.fn(),
+  getPossibleDuplicateExpenses: jest.fn(),
   updateExpense: jest.fn(),
 }));
 
@@ -171,6 +173,8 @@ describe("US 79 - Editar gasto (AddGastoScreen en modo edición)", () => {
     await guardar(utils);
 
     expect(createExpense).not.toHaveBeenCalled();
+    // US 95: la advertencia de duplicados aplica al registro, no a la edición.
+    expect(getPossibleDuplicateExpenses).not.toHaveBeenCalled();
     expect(updateExpense).toHaveBeenCalledWith(
       15,
       expect.objectContaining({

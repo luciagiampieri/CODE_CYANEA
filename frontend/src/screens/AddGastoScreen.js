@@ -28,11 +28,13 @@ import { toYMD, parseYMD, formatDateDisplay, getTodayIso } from "../utils/dates"
 import PrimaryButton from "../components/ui/PrimaryButton";
 import CurrencySelector from "../components/trip/CurrencySelector";
 import ReceiptScanButton from "../components/trip/ReceiptScanButton";
+import PossibleDuplicateExpenseModal from "../components/trip/PossibleDuplicateExpenseModal";
 
 import {
   getExpenseCategories,
   getTripParticipants,
   createExpense,
+  getPossibleDuplicateExpenses,
   updateExpense,
   getCurrencies,
   getExchangeRate,
@@ -47,6 +49,7 @@ import {
   requiereConversionARS,
 } from "../utils/comprobanteGasto";
 import { avisar, confirmar } from "../utils/dialogs";
+import { criteriosDuplicado } from "../utils/duplicadosGasto";
 import { EDICION_GASTO, useEdicionGasto } from "../hooks/useEdicionGasto";
 
 const DEMORA_COTIZACION_MS = 400;
@@ -400,6 +403,12 @@ export default function AddGastoScreen({
   const [guardarComprobante, setGuardarComprobante] = useState(true);
 
   const [conversion, setConversion] = useState({ estado: "idle", fecha: null });
+
+  // US 95: gastos existentes que podrían ser el mismo pago (null = sin advertencia).
+  const [posiblesDuplicados, setPosiblesDuplicados] = useState(null);
+  const resolverDuplicadoRef = useRef(null);
+  // Si el formulario se cierra con la advertencia abierta, el gasto no se registra.
+  useEffect(() => () => resolverDuplicadoRef.current?.(false), []);
 
   // Scroll inteligente: deja el campo editado justo sobre el teclado
   const scrollPrincipal = useScrollAlCampo();
@@ -799,6 +808,42 @@ export default function AddGastoScreen({
     onClose();
   }
 
+  // US 95: antes de registrar, advierte si el gasto podría estar duplicado.
+  // Aplica igual a la carga manual y a la confirmación de un comprobante.
+  // Resuelve true si hay que registrar (no hay posibles duplicados o el
+  // usuario confirma) y false si el usuario cancela. Los gastos existentes se
+  // muestran como el detalle de un gasto (PossibleDuplicateExpenseModal).
+  async function confirmarSiHayPosiblesDuplicados(gasto) {
+    let posibles;
+    try {
+      posibles = await getPossibleDuplicateExpenses(IdViaje, criteriosDuplicado(gasto));
+    } catch (error) {
+      // La advertencia nunca bloquea: sin conexión (el gasto va a la cola
+      // offline) o si la verificación falla, se sigue con el registro.
+      return true;
+    }
+    if (!Array.isArray(posibles) || posibles.length === 0) return true;
+
+    return new Promise((resolve) => {
+      resolverDuplicadoRef.current = resolve;
+      setPosiblesDuplicados(posibles);
+    });
+  }
+
+  function responderPosibleDuplicado(registrar) {
+    setPosiblesDuplicados(null);
+    resolverDuplicadoRef.current?.(registrar);
+    resolverDuplicadoRef.current = null;
+  }
+
+  // "Descartar gasto nuevo": era un duplicado, así que no se registra y se
+  // cierra el formulario (y se borra la imagen del comprobante, si la hay).
+  function descartarPorDuplicado() {
+    responderPosibleDuplicado(false);
+    descartarComprobante();
+    onClose();
+  }
+
   async function handleGuardar() {
     let nuevosErrores = {};
 
@@ -923,6 +968,11 @@ export default function AddGastoScreen({
         }
         return;
       }
+
+      // Si cancela, el gasto no se registra y el formulario queda abierto
+      // con los datos cargados para corregirlos o descartarlos.
+      const registrar = await confirmarSiHayPosiblesDuplicados(nuevoGasto);
+      if (!registrar) return;
 
       try {
         const respuestaGasto = await createExpense(nuevoGasto);
@@ -1779,6 +1829,15 @@ export default function AddGastoScreen({
             marcarRevisado(CAMPO_FECHA);
           }}
           maxDate={new Date()}
+        />
+
+        <PossibleDuplicateExpenseModal
+          visible={Boolean(posiblesDuplicados)}
+          gastos={posiblesDuplicados || []}
+          idParticipanteActual={participanteActual?.IdParticipanteViaje}
+          onBack={() => responderPosibleDuplicado(false)}
+          onConfirm={() => responderPosibleDuplicado(true)}
+          onDiscard={descartarPorDuplicado}
         />
       </View>
     </Modal>

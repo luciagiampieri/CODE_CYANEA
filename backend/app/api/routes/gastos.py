@@ -44,6 +44,7 @@ from app.schemas.gasto import (
     EscaneoComprobanteRead,
     GastoUpdate,
     GastoDetalleRead,
+    GastoPosibleDuplicadoRead,
     ParticipanteDivisionRead,
 )
 from app.models.gasto import TipoDivisionEnum
@@ -58,6 +59,7 @@ from app.services.visibilidad_gastos import (
     gasto_visible_para,
     participa_en_el_gasto,
 )
+from app.services.duplicados_gastos import buscar_posibles_duplicados
 from app.services.notificaciones_gastos import (
     notificar_alta_gasto,
     notificar_liquidacion_actualizada,
@@ -850,6 +852,88 @@ def list_trip_gastos(
         )
         for gasto in gastos
     ]
+
+
+@router.get(
+    "/trips/{trip_id}/posibles-duplicados",
+    response_model=list[GastoPosibleDuplicadoRead],
+)
+def get_posibles_duplicados(
+    trip_id: int,
+    fecha_gasto: date = Query(..., description="Fecha del gasto que se está registrando."),
+    monto_original: Decimal = Query(..., gt=0, description="Monto en la moneda ingresada."),
+    moneda_original: str = Query(..., min_length=3, max_length=3),
+    es_compartido: bool = Query(...),
+    id_pagador: int | None = Query(
+        default=None,
+        description="Participante que pagó. Obligatorio si es compartido; en un gasto personal paga el usuario actual.",
+    ),
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+):
+    """Gastos existentes que podrían ser el mismo pago que se va a registrar (US 95).
+
+    El formulario lo consulta antes de `POST /gastos`, tanto en la carga manual
+    como en la confirmación de un comprobante. No persiste nada ni bloquea el
+    alta: si devuelve gastos, el usuario decide si registra igual o cancela.
+    Los criterios viven en `app/services/duplicados_gastos.py`.
+    """
+    viaje = require_trip_edit_access(get_trip_with_relations(db, trip_id), current_user)
+    participante_actual = next(
+        p for p in viaje.Participantes if p.IdUsuario == current_user.IdUsuario
+    )
+
+    if es_compartido and id_pagador is None:
+        raise HTTPException(status_code=400, detail="Debés indicar quién pagó el gasto.")
+
+    gastos = buscar_posibles_duplicados(
+        db,
+        id_viaje=trip_id,
+        id_usuario=current_user.IdUsuario,
+        fecha_gasto=fecha_gasto,
+        monto_original=monto_original,
+        moneda_original=moneda_original,
+        # En un gasto personal paga quien lo registra (igual que en el alta).
+        id_pagador=id_pagador if es_compartido else participante_actual.IdParticipanteViaje,
+        es_compartido=es_compartido,
+    )
+
+    moneda_viaje = (viaje.Moneda or "USD").upper()
+    return [_posible_duplicado_read(gasto, moneda_viaje) for gasto in gastos]
+
+
+def _posible_duplicado_read(gasto: Gasto, moneda_viaje: str) -> GastoPosibleDuplicadoRead:
+    """Mismos datos que el detalle del gasto (US 79), para mostrarlo igual (US 95)."""
+    creador = gasto.ParticipanteCreador
+    return GastoPosibleDuplicadoRead(
+        IdGasto=gasto.IdGasto,
+        Nombre=gasto.Nombre,
+        Monto=gasto.Monto,
+        MontoOriginal=gasto.MontoOriginal,
+        MonedaOriginal=gasto.MonedaOriginal,
+        MonedaViaje=moneda_viaje,
+        FechaGasto=gasto.FechaGasto,
+        IdCategoria=gasto.IdCategoria,
+        NombreCategoria=gasto.Categoria.Nombre,
+        IdPagador=gasto.IdPagador,
+        IdUsuarioPagador=gasto.Pagador.IdUsuario,
+        NombrePagador=_actor_display_name(gasto.Pagador.Usuario),
+        NombreCreador=_actor_display_name(creador.Usuario) if creador is not None else None,
+        FechaCreacion=gasto.FechaCreacion,
+        EsCompartido=gasto.TipoDivision is not None,
+        TipoDivision=gasto.TipoDivision,
+        Participantes=[
+            ParticipanteDivisionRead(
+                IdParticipanteViaje=asignacion.IdParticipanteViaje,
+                IdUsuario=asignacion.ParticipanteViaje.IdUsuario,
+                Nombre=asignacion.ParticipanteViaje.Usuario.Nombre,
+                Apellido=asignacion.ParticipanteViaje.Usuario.Apellido,
+                NombreUsuario=asignacion.ParticipanteViaje.Usuario.NombreUsuario,
+                MontoAsignado=asignacion.MontoAsignado,
+            )
+            for asignacion in gasto.ParticipantesAsociados
+        ],
+    )
 
 
 @router.get("/trips/{trip_id}/participants", response_model=list[ParticipantesGastosRead])

@@ -30,6 +30,76 @@ function Fila({ icono, etiqueta, valor, testID }) {
 }
 
 /**
+ * Datos del gasto tal como los muestra el detalle: nombre, monto, fecha,
+ * categoría, pagador, quién lo registró, división y participantes.
+ *
+ * Lo reutiliza la advertencia de posible gasto duplicado (US 95) para mostrar
+ * el gasto existente igual que cuando se lo toca en la lista. Espera los
+ * campos de `GastoDetalleRead` (o `GastoPosibleDuplicadoRead`, que trae los
+ * mismos). `fechaCarga` (ya formateada) se agrega a "Registró": la advertencia
+ * la muestra porque ayuda a decidir si es el mismo pago.
+ */
+export function ExpenseDetailContent({ gasto, pagoYo = false, fechaCarga = "" }) {
+  const moneda = gasto?.MonedaViaje;
+  const monedaOriginal = String(gasto?.MonedaOriginal ?? "").toUpperCase();
+  const mostrarOriginal = Boolean(gasto) && monedaOriginal && monedaOriginal !== moneda;
+
+  return (
+    <>
+      <View style={styles.hero}>
+        <View style={styles.heroIcon}>
+          <FontAwesome6 color={colors.primary} name={iconForCategory(gasto.NombreCategoria)} size={18} />
+        </View>
+        <View style={styles.heroBody}>
+          <Text numberOfLines={2} style={styles.nombre} testID="expense-detail-nombre">
+            {gasto.Nombre}
+          </Text>
+          <Text style={styles.monto}>{formatMoney(gasto.Monto, moneda)}</Text>
+          {mostrarOriginal ? (
+            <Text style={styles.original} testID="expense-detail-original">
+              Registrado: {formatMoney(gasto.MontoOriginal, monedaOriginal)}
+            </Text>
+          ) : null}
+        </View>
+      </View>
+
+      <View style={styles.bloque}>
+        <Fila etiqueta="Fecha" icono="calendar" valor={formatExpenseDate(gasto.FechaGasto)} />
+        <Fila etiqueta="Categoría" icono="tag" valor={gasto.NombreCategoria} />
+        <Fila
+          etiqueta="Pagó"
+          icono="wallet"
+          testID="expense-detail-pagador"
+          valor={pagoYo ? `${gasto.NombrePagador} (vos)` : gasto.NombrePagador}
+        />
+        {gasto.NombreCreador || fechaCarga ? (
+          <Fila
+            etiqueta="Registró"
+            icono="user-pen"
+            testID="expense-detail-registro"
+            valor={[gasto.NombreCreador, fechaCarga].filter(Boolean).join(" · ")}
+          />
+        ) : null}
+        <Fila etiqueta="División" icono="users" valor={textoDivision(gasto)} />
+      </View>
+
+      {gasto.EsCompartido && gasto.Participantes?.length ? (
+        <View style={styles.bloque} testID="expense-detail-participantes">
+          {gasto.Participantes.map((p) => (
+            <View key={p.IdParticipanteViaje} style={styles.participante}>
+              <Text numberOfLines={1} style={styles.participanteNombre}>
+                {nombreCompleto(p)}
+              </Text>
+              <Text style={styles.participanteMonto}>{formatMoney(p.MontoAsignado, moneda)}</Text>
+            </View>
+          ))}
+        </View>
+      ) : null}
+    </>
+  );
+}
+
+/**
  * Detalle de un gasto en modo lectura (US 79).
  *
  * Lo ve cualquier participante del viaje. Desde acá se decide qué hacer con
@@ -52,9 +122,6 @@ export default function ExpenseDetailModal({
   onDelete,
   deleting = false,
 }) {
-  const moneda = gasto?.MonedaViaje;
-  const monedaOriginal = String(gasto?.MonedaOriginal ?? "").toUpperCase();
-  const mostrarOriginal = Boolean(gasto) && monedaOriginal && monedaOriginal !== moneda;
   const pagoYo = gasto && String(gasto.IdUsuarioPagador) === String(currentUserId);
   const editandoOtro =
     gasto?.IdUsuarioEditando != null && String(gasto.IdUsuarioEditando) !== String(currentUserId);
@@ -86,50 +153,7 @@ export default function ExpenseDetailModal({
             </View>
           ) : gasto ? (
             <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-              <View style={styles.hero}>
-                <View style={styles.heroIcon}>
-                  <FontAwesome6 color={colors.primary} name={iconForCategory(gasto.NombreCategoria)} size={18} />
-                </View>
-                <View style={styles.heroBody}>
-                  <Text numberOfLines={2} style={styles.nombre} testID="expense-detail-nombre">
-                    {gasto.Nombre}
-                  </Text>
-                  <Text style={styles.monto}>{formatMoney(gasto.Monto, moneda)}</Text>
-                  {mostrarOriginal ? (
-                    <Text style={styles.original} testID="expense-detail-original">
-                      Registrado: {formatMoney(gasto.MontoOriginal, monedaOriginal)}
-                    </Text>
-                  ) : null}
-                </View>
-              </View>
-
-              <View style={styles.bloque}>
-                <Fila etiqueta="Fecha" icono="calendar" valor={formatExpenseDate(gasto.FechaGasto)} />
-                <Fila etiqueta="Categoría" icono="tag" valor={gasto.NombreCategoria} />
-                <Fila
-                  etiqueta="Pagó"
-                  icono="wallet"
-                  testID="expense-detail-pagador"
-                  valor={pagoYo ? `${gasto.NombrePagador} (vos)` : gasto.NombrePagador}
-                />
-                {gasto.NombreCreador ? (
-                  <Fila etiqueta="Registró" icono="user-pen" valor={gasto.NombreCreador} />
-                ) : null}
-                <Fila etiqueta="División" icono="users" valor={textoDivision(gasto)} />
-              </View>
-
-              {gasto.EsCompartido && gasto.Participantes?.length ? (
-                <View style={styles.bloque} testID="expense-detail-participantes">
-                  {gasto.Participantes.map((p) => (
-                    <View key={p.IdParticipanteViaje} style={styles.participante}>
-                      <Text numberOfLines={1} style={styles.participanteNombre}>
-                        {nombreCompleto(p)}
-                      </Text>
-                      <Text style={styles.participanteMonto}>{formatMoney(p.MontoAsignado, moneda)}</Text>
-                    </View>
-                  ))}
-                </View>
-              ) : null}
+              <ExpenseDetailContent gasto={gasto} pagoYo={pagoYo} />
 
               {editandoOtro ? (
                 <View style={[styles.aviso, styles.avisoInfo]} testID="expense-detail-editando">
