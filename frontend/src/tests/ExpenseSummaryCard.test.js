@@ -74,21 +74,59 @@ describe("ExpenseSummaryCard", () => {
     expect(queryByText("Recalcular liquidación")).toBeNull();
   });
 
-  it("no repite el código de moneda si el monto ya lo incluye", async () => {
-    const { queryByText } = await render(<ExpenseSummaryCard currency="EUR" totalSpent={160} />);
+  it("muestra el total del grupo y tu gasto, con lo que es personal", async () => {
+    const { getByTestId } = await render(
+      <ExpenseSummaryCard
+        currency="USD"
+        myExpense={600}
+        myPersonalExpense={500}
+        pendingTotal={100}
+        totalSpent={300}
+      />
+    );
 
-    expect(queryByText(" EUR")).toBeNull();
+    expect(getByTestId("expense-group-total")).toHaveTextContent(/Gastos del grupo/);
+    expect(getByTestId("expense-group-total")).toHaveTextContent(/300/);
+    expect(getByTestId("expense-my-total")).toHaveTextContent(/Tu gasto/);
+    expect(getByTestId("expense-my-total")).toHaveTextContent(/600/);
+    expect(getByTestId("expense-my-personal")).toHaveTextContent(/Incluye .*500 personales/);
   });
 
-  it("no agrega el código cuando el símbolo ya identifica la moneda (US$)", async () => {
-    const { queryByText } = await render(<ExpenseSummaryCard currency="USD" totalSpent={160} />);
+  it("sin gastos personales no muestra la aclaración", async () => {
+    const { getByTestId, queryByTestId } = await render(
+      <ExpenseSummaryCard currency="USD" myExpense={100} myPersonalExpense={0} totalSpent={300} />
+    );
 
-    expect(queryByText(" USD")).toBeNull();
+    expect(getByTestId("expense-my-total")).toHaveTextContent(/100/);
+    expect(queryByTestId("expense-my-personal")).toBeNull();
   });
 
-  it("aclara la moneda cuando el monto solo muestra el símbolo", async () => {
-    const { getByText } = await render(<ExpenseSummaryCard currency="ARS" totalSpent={160} />);
+  it("si no llega tu gasto, muestra 'Por saldar' como antes", async () => {
+    const { getByText, queryByTestId } = await render(
+      <ExpenseSummaryCard currency="USD" pendingTotal={100} totalSpent={300} />
+    );
 
-    expect(getByText(" ARS")).toBeTruthy();
+    expect(getByText("Por saldar")).toBeTruthy();
+    expect(queryByTestId("expense-my-total")).toBeNull();
+    expect(queryByTestId("expense-pending-total")).toBeNull();
+  });
+
+  it("los totales no repiten el código de moneda junto al monto", async () => {
+    const { getByTestId, queryByText } = await render(
+      <ExpenseSummaryCard currency="ARS" myExpense={50} totalSpent={160} />
+    );
+
+    expect(getByTestId("expense-group-total")).toHaveTextContent(/Gastos del grupo/);
+    expect(queryByText(/ARS/)).toBeNull();
+  });
+
+  it("no muestra 'Por saldar en el grupo' ni la frase de recálculo: no repite información", async () => {
+    const { queryByText, getByText } = await render(
+      <ExpenseSummaryCard canRebuild currency="ARS" myExpense={50} onRebuild={jest.fn()} pendingTotal={100} totalSpent={160} />
+    );
+
+    expect(queryByText(/Por saldar/)).toBeNull();
+    expect(queryByText(/Las cuentas se recalculan/)).toBeNull();
+    expect(getByText("Recalcular liquidación")).toBeTruthy();
   });
 });

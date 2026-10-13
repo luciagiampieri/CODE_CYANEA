@@ -9,6 +9,8 @@ const TAB_POR_EVENTO = {
   expense_created: "gastos",
   expense_updated: "gastos",
   settlement_updated: "gastos",
+  transfer_reported: "gastos",
+  transfer_rejected: "gastos",
   voting_created: "votar",
 };
 
@@ -21,12 +23,24 @@ const TAB_POR_TIPO = {
   gasto_creado: "gastos",
   gasto_modificado: "gastos",
   liquidacion_actualizada: "gastos",
+  transferencia_informada: "gastos",
+  transferencia_rechazada: "gastos",
   nueva_votacion: "votar",
   nuevo_administrador: "grupo",
   participante_salio: "grupo",
   // notificationType del push
   nuevo_gasto: "gastos",
 };
+
+// Avisos que hablan de a quién transferir: abren Gastos en "Transferencias".
+const VER_TRANSFERENCIAS = new Set([
+  "settlement_updated",
+  "transfer_reported",
+  "transfer_rejected",
+  "liquidacion_actualizada",
+  "transferencia_informada",
+  "transferencia_rechazada",
+]);
 
 // Avisos sobre un viaje al que el usuario ya no tiene acceso: no abren nada.
 const TIPOS_SIN_VIAJE = new Set(["invitacion_cancelada"]);
@@ -43,9 +57,15 @@ export function resolveNotificationTarget(data = {}) {
     TAB_POR_EVENTO[data.tipo] ??
     "resumen";
 
+  const verTransferencias =
+    VER_TRANSFERENCIAS.has(data.eventType) ||
+    VER_TRANSFERENCIAS.has(data.notificationType) ||
+    VER_TRANSFERENCIAS.has(data.tipo);
+
   return {
     tripId,
     initialTab,
+    gastosView: verTransferencias ? "transferencias" : undefined,
     activityId: data.activityId,
     dayId: data.dayId,
     expenseId: data.expenseId,

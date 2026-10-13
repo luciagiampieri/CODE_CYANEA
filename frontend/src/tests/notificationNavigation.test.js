@@ -76,6 +76,22 @@ describe("notificationNavigation", () => {
     ).toEqual(expect.objectContaining({ tripId: 12, initialTab: "gastos" }));
   });
 
+  it("los avisos de transferencias abren Gastos en la vista de Transferencias", () => {
+    for (const data of [
+      { viajeId: 12, tipo: "transferencia_informada" },
+      { viajeId: 12, tipo: "transferencia_rechazada" },
+      { viajeId: 12, tipo: "liquidacion_actualizada" },
+      { tripId: 12, eventType: "transfer_reported" },
+      { tripId: 12, eventType: "transfer_rejected" },
+    ]) {
+      expect(resolveNotificationTarget(data)).toEqual(
+        expect.objectContaining({ initialTab: "gastos", gastosView: "transferencias" })
+      );
+    }
+    // Un gasto nuevo abre Gastos en la lista, no en Transferencias.
+    expect(resolveNotificationTarget({ viajeId: 12, tipo: "gasto_creado" }).gastosView).toBeUndefined();
+  });
+
   it("una invitación cancelada no abre el viaje", () => {
     expect(resolveNotificationTarget({ viajeId: 12, tipo: "invitacion_cancelada" })).toBeNull();
   });

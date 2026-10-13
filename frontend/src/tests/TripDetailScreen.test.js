@@ -7,6 +7,8 @@ import {
   getTripDetail,
   getTripPlaces,
   getTripSettlement,
+  getMySettlementBalance,
+  reportSettlementTransfer,
   getTripDocuments,
   getVotaciones,
   getRepositorioItems,
@@ -64,6 +66,9 @@ const mockGoBack = jest.fn();
 const mockNavigate = jest.fn();
 
 jest.mock("../services/api", () => ({
+  getMySettlementBalance: jest.fn(),
+  reportSettlementTransfer: jest.fn(),
+  rejectSettlementTransfer: jest.fn(),
   getCurrentUser: jest.fn(),
   leaveTrip: jest.fn(),
   getTripDetail: jest.fn(),
@@ -478,7 +483,7 @@ describe("US 68 - Abandonar un viaje (Suite completa de tests frontend)", () => 
 
       expect(await findByText("Noches")).toBeTruthy();
       expect(await findByText("Viajeros")).toBeTruthy();
-      expect(await findByText("Total gastado (USD)")).toBeTruthy();
+      expect(await findByText("Gastos del grupo (USD)")).toBeTruthy();
       expect(await findByText("Faltan")).toBeTruthy();
     });
 
@@ -490,7 +495,7 @@ describe("US 68 - Abandonar un viaje (Suite completa de tests frontend)", () => 
         />
       );
 
-      expect(await findByText("Total gastado (USD)")).toBeTruthy();
+      expect(await findByText("Gastos del grupo (USD)")).toBeTruthy();
     });
 
     test("6. los contadores rápidos reflejan gastos, documentos y decisiones actuales", async () => {
@@ -518,7 +523,7 @@ describe("US 68 - Abandonar un viaje (Suite completa de tests frontend)", () => 
       );
 
       await fireEvent.press(await findByText("Ver gastos"));
-      expect(await findByText("Total gastado")).toBeTruthy();
+      expect(await findByText("Gastos del grupo")).toBeTruthy();
     });
   });
 });
@@ -1022,8 +1027,103 @@ describe("Tab Gastos rediseñado", () => {
 
     await fireEvent.press(await findByTestId("expense-my-balance"));
 
-    expect(await findByTestId("transfer-pay-5")).toBeTruthy();
-    expect(await findByText("Vos")).toBeTruthy();
+    expect(await findByTestId("transfer-report-5")).toBeTruthy();
+    expect(await findByText("Tenés que transferir")).toBeTruthy();
+  });
+
+  test("'Ya transferí' avisa al acreedor y muestra que espera su confirmación", async () => {
+    reportSettlementTransfer.mockResolvedValue({
+      Moneda: "ARS",
+      TotalGastosViaje: 1100,
+      ResumenParticipantes: [
+        { IdParticipanteViaje: 20, IdUsuario: 2, NombreCompleto: "Daniela F", BalancePendiente: 0 },
+        { IdParticipanteViaje: 10, IdUsuario: 1, NombreCompleto: "Lucia Giampieri", BalancePendiente: 0 },
+      ],
+      Transferencias: [
+        {
+          IdTransferenciaLiquidacion: 5,
+          IdParticipanteDeudor: 10,
+          IdParticipanteAcreedor: 20,
+          NombreDeudor: "Lucia Giampieri",
+          NombreAcreedor: "Daniela F",
+          Monto: 100,
+          Estado: "informada",
+        },
+      ],
+    });
+    const { findByText, findByTestId } = await render(
+      <TripDetailScreen navigation={navigation} route={{ params: { trip } }} />
+    );
+    await fireEvent.press(await findByText("Gastos"));
+    await fireEvent.press(await findByTestId("gastos-view-transferencias"));
+
+    await fireEvent.press(await findByTestId("transfer-report-5"));
+
+    expect(reportSettlementTransfer).toHaveBeenCalledWith(9, 5);
+    expect(await findByTestId("transfer-5")).toHaveTextContent(/Esperando que Daniela confirme/);
+  });
+
+  test("una notificación de transferencia abre Gastos en Transferencias", async () => {
+    const { findByTestId } = await render(
+      <TripDetailScreen
+        navigation={navigation}
+        route={{
+          params: {
+            trip,
+            initialTab: "gastos",
+            notificationTarget: { tripId: 9, gastosView: "transferencias" },
+          },
+        }}
+      />
+    );
+
+    expect(await findByTestId("transfer-report-5")).toBeTruthy();
+  });
+
+  test("desde Saldos se abre 'De dónde sale tu saldo'", async () => {
+    getMySettlementBalance.mockResolvedValue({
+      Moneda: "ARS",
+      TotalPagado: 0,
+      TotalParte: 100,
+      TransferenciasEnviadas: 0,
+      TransferenciasRecibidas: 0,
+      Saldo: -100,
+      Gastos: [
+        { IdGasto: 30, Nombre: "Cena", FechaGasto: "2099-09-02", NombreCategoria: "Comida y Bebida", Monto: 1100, NombrePagador: "Daniela F", PagasteVos: false, Pagado: 0, TuParte: 100, Efecto: -100 },
+      ],
+      Transferencias: [],
+    });
+    const { findByText, findByTestId } = await render(
+      <TripDetailScreen navigation={navigation} route={{ params: { trip } }} />
+    );
+    await fireEvent.press(await findByText("Gastos"));
+    await fireEvent.press(await findByTestId("gastos-view-saldos"));
+
+    await fireEvent.press(await findByTestId("balance-breakdown-open"));
+
+    expect(getMySettlementBalance).toHaveBeenCalledWith(9);
+    expect(await findByTestId("my-balance-headline")).toHaveTextContent(/Debés .*100/);
+    expect(await findByTestId("my-balance-expense-30")).toHaveTextContent(/Pagó Daniela/);
+  });
+
+  test("muestra el total del grupo y tu gasto con lo que informa la liquidación", async () => {
+    getTripSettlement.mockResolvedValue({
+      Moneda: "ARS",
+      TotalGastosViaje: 1100,
+      GastoUsuario: 600,
+      GastoPersonalUsuario: 500,
+      ResumenParticipantes: [],
+      Transferencias: [],
+    });
+    const { findByText, findByTestId } = await render(
+      <TripDetailScreen navigation={navigation} route={{ params: { trip } }} />
+    );
+
+    await fireEvent.press(await findByText("Gastos"));
+
+    expect(await findByTestId("expense-group-total")).toHaveTextContent(/1\.100/);
+    expect(await findByTestId("expense-my-total")).toHaveTextContent(/600/);
+    expect(await findByTestId("expense-my-personal")).toHaveTextContent(/500 personales/);
   });
 
   test("abre por defecto el listado de gastos y permite filtrar por categoría", async () => {
@@ -1361,6 +1461,47 @@ describe("US 79 - Editar gasto desde la solapa Gastos", () => {
       expect(getTripSettlement.mock.calls.length).toBe(liquidacionAntes + 1);
       // No recarga todo el viaje.
       expect(getTripDetail.mock.calls.length).toBe(detalleViajeAntes);
+    });
+
+    test("cuando alguien cambia una transferencia, se recargan saldos y transferencias", async () => {
+      const { findByText } = await render(
+        <TripDetailScreen navigation={navigation} route={{ params: { trip } }} />
+      );
+      await fireEvent.press(await findByText("Gastos"));
+      await waitFor(() => expect(sockets.length).toBeGreaterThan(0));
+      await waitFor(() => expect(getTripSettlement).toHaveBeenCalled());
+
+      const liquidacionAntes = getTripSettlement.mock.calls.length;
+      const gastosAntes = getTripExpenses.mock.calls.length;
+
+      const socketViaje = sockets.find((s) => s.url.includes("/itinerary"));
+      await act(async () => {
+        socketViaje.onmessage({ data: JSON.stringify({ tipo: "liquidacion_actualizada" }) });
+      });
+
+      await waitFor(() => expect(getTripSettlement.mock.calls.length).toBe(liquidacionAntes + 1));
+      // Solo cambió la liquidación: la lista de gastos no se vuelve a pedir.
+      expect(getTripExpenses.mock.calls.length).toBe(gastosAntes);
+    });
+
+    test("cuando otro elimina un gasto, se recargan la lista y los saldos", async () => {
+      const { findByText } = await render(
+        <TripDetailScreen navigation={navigation} route={{ params: { trip } }} />
+      );
+      await fireEvent.press(await findByText("Gastos"));
+      await waitFor(() => expect(sockets.length).toBeGreaterThan(0));
+      await waitFor(() => expect(getTripExpenses).toHaveBeenCalled());
+
+      const gastosAntes = getTripExpenses.mock.calls.length;
+      const liquidacionAntes = getTripSettlement.mock.calls.length;
+
+      const socketViaje = sockets.find((s) => s.url.includes("/itinerary"));
+      await act(async () => {
+        socketViaje.onmessage({ data: JSON.stringify({ tipo: "gasto_eliminado", idGasto: 30 }) });
+      });
+
+      await waitFor(() => expect(getTripExpenses.mock.calls.length).toBe(gastosAntes + 1));
+      expect(getTripSettlement.mock.calls.length).toBe(liquidacionAntes + 1);
     });
   });
 });

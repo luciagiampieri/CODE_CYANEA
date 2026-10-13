@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from decimal import Decimal, ROUND_HALF_UP
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session, joinedload
 
 from app.models import (
@@ -20,12 +20,49 @@ from app.models import (
 from app.schemas.liquidacion import (
     LiquidacionParticipanteResumen,
     LiquidacionViajeRead,
+    MiSaldoGastoRead,
+    MiSaldoRead,
+    MiSaldoTransferenciaRead,
     TransferenciaLiquidacionRead,
 )
 
 
 DECIMAL_ZERO = Decimal("0.00")
 DECIMAL_CENT = Decimal("0.01")
+
+# Estados de una transferencia (US: confirmar transferencias):
+# - pendiente: falta pagarla.
+# - informada: el deudor avisó "Ya transferí" y falta que el acreedor confirme.
+# - realizada: el acreedor confirmó que le llegó.
+# Para recalcular, "informada" ya cuenta como pagada: si se carga un gasto
+# nuevo mientras el acreedor no confirmó, ese monto no se vuelve a pedir.
+ESTADOS_PAGADOS = ("realizada", "informada")
+
+
+class PermisoTransferenciaError(Exception):
+    """El usuario no puede hacer esa acción sobre la transferencia."""
+
+
+@dataclass(frozen=True)
+class DatosTransferencia:
+    """Lo necesario para avisar sobre una transferencia (se toma antes de recalcular)."""
+    id_usuario_deudor: int
+    id_usuario_acreedor: int
+    nombre_deudor: str
+    nombre_acreedor: str
+    monto: Decimal
+
+
+def _datos_transferencia(transferencia: TransferenciaLiquidacion) -> DatosTransferencia:
+    deudor = transferencia.ParticipanteDeudor.Usuario
+    acreedor = transferencia.ParticipanteAcreedor.Usuario
+    return DatosTransferencia(
+        id_usuario_deudor=deudor.IdUsuario,
+        id_usuario_acreedor=acreedor.IdUsuario,
+        nombre_deudor=f"{deudor.Nombre} {deudor.Apellido}".strip(),
+        nombre_acreedor=f"{acreedor.Nombre} {acreedor.Apellido}".strip(),
+        monto=_round_money(Decimal(transferencia.Monto)),
+    )
 
 
 @dataclass
@@ -86,7 +123,9 @@ def _apply_realized_transfers(
     trip_id: int,
     balances: dict[int, Decimal],
 ) -> dict[int, Decimal]:
-    estado_realizada = _get_estado_transferencia(db, "realizada")
+    ids_estados_pagados = select(
+        EstadoTransferenciaLiquidacion.IdEstadoTransferenciaLiquidacion
+    ).where(EstadoTransferenciaLiquidacion.Nombre.in_(ESTADOS_PAGADOS))
     transferencias_realizadas = db.execute(
         select(
             TransferenciaLiquidacion.IdParticipanteDeudor,
@@ -99,8 +138,7 @@ def _apply_realized_transfers(
         )
         .where(
             LiquidacionViaje.IdViaje == trip_id,
-            TransferenciaLiquidacion.IdEstadoTransferenciaLiquidacion
-            == estado_realizada.IdEstadoTransferenciaLiquidacion,
+            TransferenciaLiquidacion.IdEstadoTransferenciaLiquidacion.in_(ids_estados_pagados),
         )
     ).all()
 
@@ -120,10 +158,19 @@ def _calcular_resumen_gastos_participantes(
     trip_id: int,
     participantes: list[ParticipanteViaje],
 ) -> tuple[Decimal, dict[int, Decimal], dict[int, Decimal]]:
+    """Totales del grupo: solo gastos compartidos.
+
+    Este resumen lo ve todo el grupo, así que los gastos personales (que solo
+    ve su dueño) no cuentan ni en el total ni en lo pagado o consumido por
+    cada uno. Los saldos no cambian: un gasto personal siempre da saldo 0.
+    """
     total_gastos_viaje = _round_money(
         Decimal(
             db.scalar(
-                select(func.coalesce(func.sum(Gasto.Monto), 0)).where(Gasto.IdViaje == trip_id)
+                select(func.coalesce(func.sum(Gasto.Monto), 0)).where(
+                    Gasto.IdViaje == trip_id,
+                    Gasto.TipoDivision.is_not(None),
+                )
             )
             or 0
         )
@@ -144,6 +191,7 @@ def _calcular_resumen_gastos_participantes(
         )
         .where(
             Gasto.IdViaje == trip_id,
+            Gasto.TipoDivision.is_not(None),
             ParticipanteViaje.IdEstadoParticipacion == estado_aceptado.IdEstadoParticipacion,
         )
         .group_by(Gasto.IdPagador)
@@ -164,6 +212,7 @@ def _calcular_resumen_gastos_participantes(
         )
         .where(
             Gasto.IdViaje == trip_id,
+            Gasto.TipoDivision.is_not(None),
             ParticipanteViaje.IdEstadoParticipacion == estado_aceptado.IdEstadoParticipacion,
         )
         .group_by(ParticipantesGastos.IdParticipanteViaje)
@@ -268,6 +317,29 @@ def rebuild_settlement_plan(db: Session, trip_id: int) -> LiquidacionViaje:
     db.add(nueva_liquidacion)
     db.flush()
 
+    # Las transferencias "informada" y "realizada" de todas las versiones
+    # anteriores pasan a la nueva (se mueven, no se copian, así no se cuentan
+    # dos veces). Si quedaran en una versión vieja, la pantalla —que muestra
+    # solo la activa— dejaría de verlas: el acreedor no podría confirmar un
+    # aviso y "Ya saldadas" se vaciaría cada vez que alguien carga un gasto.
+    # Ya se descontaron de los saldos en _apply_realized_transfers.
+    ids_estados_pagados = select(
+        EstadoTransferenciaLiquidacion.IdEstadoTransferenciaLiquidacion
+    ).where(EstadoTransferenciaLiquidacion.Nombre.in_(ESTADOS_PAGADOS))
+    ids_versiones_anteriores = select(LiquidacionViaje.IdLiquidacion).where(
+        LiquidacionViaje.IdViaje == trip_id,
+        LiquidacionViaje.IdLiquidacion != nueva_liquidacion.IdLiquidacion,
+    )
+    db.execute(
+        update(TransferenciaLiquidacion)
+        .where(
+            TransferenciaLiquidacion.IdLiquidacion.in_(ids_versiones_anteriores),
+            TransferenciaLiquidacion.IdEstadoTransferenciaLiquidacion.in_(ids_estados_pagados),
+        )
+        .values(IdLiquidacion=nueva_liquidacion.IdLiquidacion)
+        .execution_options(synchronize_session=False)
+    )
+
     estado_pendiente = _get_estado_transferencia(db, "pendiente")
     acreedores = sorted(
         (
@@ -343,12 +415,9 @@ def get_or_create_active_settlement(db: Session, trip_id: int) -> LiquidacionVia
     return rebuild_settlement_plan(db, trip_id)
 
 
-def marcar_transferencia_realizada(
-    db: Session,
-    trip_id: int,
-    transfer_id: int,
-    realizada: bool,
-) -> LiquidacionViaje:
+def _transferencia_activa(
+    db: Session, trip_id: int, transfer_id: int
+) -> TransferenciaLiquidacion:
     liquidacion = get_or_create_active_settlement(db, trip_id)
     transferencia = next(
         (
@@ -360,16 +429,121 @@ def marcar_transferencia_realizada(
     )
     if transferencia is None:
         raise ValueError("Transferencia no encontrada")
+    return transferencia
 
-    nombre_estado = "realizada" if realizada else "pendiente"
-    estado = _get_estado_transferencia(db, nombre_estado)
+
+def _cambiar_estado(transferencia: TransferenciaLiquidacion, estado: EstadoTransferenciaLiquidacion) -> None:
     transferencia.IdEstadoTransferenciaLiquidacion = estado.IdEstadoTransferenciaLiquidacion
-    transferencia.FechaConfirmacion = datetime.now(timezone.utc) if realizada else None
+    transferencia.FechaConfirmacion = (
+        datetime.now(timezone.utc) if estado.Nombre == "realizada" else None
+    )
+
+
+def _exigir_deudor(transferencia: TransferenciaLiquidacion, id_usuario: int) -> None:
+    if transferencia.ParticipanteDeudor.IdUsuario != id_usuario:
+        raise PermisoTransferenciaError(
+            "Solo quien tiene que transferir puede avisar que ya lo hizo."
+        )
+
+
+def _exigir_acreedor(transferencia: TransferenciaLiquidacion, id_usuario: int) -> None:
+    if transferencia.ParticipanteAcreedor.IdUsuario != id_usuario:
+        raise PermisoTransferenciaError(
+            "Solo quien recibe la transferencia puede confirmar si le llegó."
+        )
+
+
+def informar_transferencia(
+    db: Session, trip_id: int, transfer_id: int, id_usuario: int
+) -> tuple[LiquidacionViaje, DatosTransferencia]:
+    """"Ya transferí": el deudor avisa que pagó. Queda esperando que el acreedor confirme."""
+    transferencia = _transferencia_activa(db, trip_id, transfer_id)
+    _exigir_deudor(transferencia, id_usuario)
+    if transferencia.EstadoTransferencia.Nombre != "pendiente":
+        raise ValueError("La transferencia ya no está pendiente.")
+
+    datos = _datos_transferencia(transferencia)
+    _cambiar_estado(transferencia, _get_estado_transferencia(db, "informada"))
     db.commit()
-    return get_or_create_active_settlement(db, trip_id)
+    return get_or_create_active_settlement(db, trip_id), datos
 
 
-def build_settlement_response(db: Session, trip_id: int, liquidacion: LiquidacionViaje | None = None) -> LiquidacionViajeRead:
+def marcar_transferencia_realizada(
+    db: Session,
+    trip_id: int,
+    transfer_id: int,
+    realizada: bool,
+    id_usuario: int,
+) -> LiquidacionViaje:
+    """Solo el acreedor confirma que le llegó (realizada=True) o lo deshace (False).
+
+    Puede confirmar aunque el deudor no haya avisado antes. Al deshacer, la
+    deuda vuelve a pendiente y se recalcula la liquidación.
+    """
+    transferencia = _transferencia_activa(db, trip_id, transfer_id)
+    _exigir_acreedor(transferencia, id_usuario)
+    estado_actual = transferencia.EstadoTransferencia.Nombre
+
+    if realizada:
+        if estado_actual == "realizada":
+            return get_or_create_active_settlement(db, trip_id)
+        _cambiar_estado(transferencia, _get_estado_transferencia(db, "realizada"))
+        db.commit()
+        return get_or_create_active_settlement(db, trip_id)
+
+    if estado_actual != "realizada":
+        raise ValueError("Solo se puede deshacer una transferencia confirmada.")
+    _cambiar_estado(transferencia, _get_estado_transferencia(db, "pendiente"))
+    db.flush()
+    return rebuild_settlement_plan(db, trip_id)
+
+
+def rechazar_transferencia(
+    db: Session, trip_id: int, transfer_id: int, id_usuario: int
+) -> tuple[LiquidacionViaje, DatosTransferencia]:
+    """"No me llegó": el acreedor rechaza un aviso del deudor. La deuda vuelve
+    a pendiente y se recalcula la liquidación (pudo haber cambiado mientras)."""
+    transferencia = _transferencia_activa(db, trip_id, transfer_id)
+    _exigir_acreedor(transferencia, id_usuario)
+    if transferencia.EstadoTransferencia.Nombre != "informada":
+        raise ValueError("Solo se puede rechazar una transferencia que el deudor avisó.")
+
+    datos = _datos_transferencia(transferencia)
+    _cambiar_estado(transferencia, _get_estado_transferencia(db, "pendiente"))
+    db.flush()
+    return rebuild_settlement_plan(db, trip_id), datos
+
+
+def _gasto_personal_participante(db: Session, trip_id: int, id_participante: int) -> Decimal:
+    """Suma de los gastos personales de un participante (su división es él solo)."""
+    return _round_money(
+        Decimal(
+            db.scalar(
+                select(func.coalesce(func.sum(ParticipantesGastos.MontoAsignado), 0))
+                .join(Gasto, Gasto.IdGasto == ParticipantesGastos.IdGasto)
+                .where(
+                    Gasto.IdViaje == trip_id,
+                    Gasto.TipoDivision.is_(None),
+                    ParticipantesGastos.IdParticipanteViaje == id_participante,
+                )
+            )
+            or 0
+        )
+    )
+
+
+def build_settlement_response(
+    db: Session,
+    trip_id: int,
+    liquidacion: LiquidacionViaje | None = None,
+    id_usuario: int | None = None,
+) -> LiquidacionViajeRead:
+    """Resumen financiero del viaje.
+
+    Si se indica `id_usuario`, incluye "Tu gasto" de esa persona
+    (`GastoUsuario` = su parte de los gastos compartidos + sus gastos
+    personales, y `GastoPersonalUsuario`).
+    """
     liquidacion = liquidacion or get_or_create_active_settlement(db, trip_id)
     viaje, participantes, balances = calcular_balances_participantes(db, trip_id)
     total_gastos_viaje, total_pagado, gasto_individual = _calcular_resumen_gastos_participantes(
@@ -377,6 +551,21 @@ def build_settlement_response(db: Session, trip_id: int, liquidacion: Liquidacio
         trip_id,
         participantes,
     )
+
+    gasto_usuario = None
+    gasto_personal_usuario = None
+    participante_usuario = next(
+        (p for p in participantes if id_usuario is not None and p.IdUsuario == id_usuario),
+        None,
+    )
+    if participante_usuario is not None:
+        gasto_personal_usuario = _gasto_personal_participante(
+            db, trip_id, participante_usuario.IdParticipanteViaje
+        )
+        gasto_usuario = _round_money(
+            gasto_individual.get(participante_usuario.IdParticipanteViaje, DECIMAL_ZERO)
+            + gasto_personal_usuario
+        )
 
     pendientes_por_participante = {participante.IdParticipanteViaje: DECIMAL_ZERO for participante in participantes}
     transferencias = []
@@ -439,6 +628,8 @@ def build_settlement_response(db: Session, trip_id: int, liquidacion: Liquidacio
         Version=liquidacion.Version,
         Moneda=viaje.Moneda,
         TotalGastosViaje=total_gastos_viaje,
+        GastoUsuario=gasto_usuario,
+        GastoPersonalUsuario=gasto_personal_usuario,
         TieneDesbalances=any(item.Monto > DECIMAL_ZERO for item in transferencias if item.Estado == "pendiente"),
         ResumenParticipantes=resumen,
         Transferencias=transferencias,
@@ -517,3 +708,139 @@ def participantes_con_contrapartes_distintas(
         for participante_id in set(antes) | set(despues)
         if contrapartes(antes.get(participante_id, [])) != contrapartes(despues.get(participante_id, []))
     }
+
+
+# ---------------------------------------------------------------------------
+# "De dónde sale tu saldo"
+# ---------------------------------------------------------------------------
+
+def _nombre_usuario(participante: ParticipanteViaje) -> str:
+    usuario = participante.Usuario
+    if usuario is None:
+        return "Participante"
+    return f"{usuario.Nombre} {usuario.Apellido}".strip() or usuario.NombreUsuario
+
+
+def desglose_saldo_usuario(db: Session, trip_id: int, id_usuario: int) -> MiSaldoRead:
+    """Explica el saldo del usuario gasto por gasto.
+
+    Saldo = lo que pagó - su parte (solo gastos compartidos: un gasto personal
+    da 0) + transferencias que hizo - transferencias que recibió (confirmadas o
+    avisadas). Coincide con lo que le queda por cobrar o pagar en la
+    liquidación.
+    """
+    viaje = db.get(Viaje, trip_id)
+    if viaje is None:
+        raise ValueError("Viaje no encontrado")
+    yo = next(
+        (p for p in get_trip_accepted_participants(db, trip_id) if p.IdUsuario == id_usuario),
+        None,
+    )
+    if yo is None:
+        raise PermisoTransferenciaError("No participás de la liquidación de este viaje.")
+    mi_id = yo.IdParticipanteViaje
+
+    gastos = db.scalars(
+        select(Gasto)
+        .options(
+            joinedload(Gasto.Categoria),
+            joinedload(Gasto.Pagador).joinedload(ParticipanteViaje.Usuario),
+            joinedload(Gasto.ParticipantesAsociados),
+        )
+        .where(Gasto.IdViaje == trip_id, Gasto.TipoDivision.is_not(None))
+        .order_by(Gasto.FechaGasto.desc(), Gasto.IdGasto.desc())
+    ).unique().all()
+
+    detalle_gastos = []
+    total_pagado = DECIMAL_ZERO
+    total_parte = DECIMAL_ZERO
+    for gasto in gastos:
+        pague = gasto.IdPagador == mi_id
+        parte = next(
+            (
+                Decimal(a.MontoAsignado)
+                for a in gasto.ParticipantesAsociados
+                if a.IdParticipanteViaje == mi_id
+            ),
+            None,
+        )
+        if not pague and parte is None:
+            continue  # no me toca
+        pagado = _round_money(Decimal(gasto.Monto)) if pague else DECIMAL_ZERO
+        parte = _round_money(parte or DECIMAL_ZERO)
+        total_pagado += pagado
+        total_parte += parte
+        detalle_gastos.append(
+            MiSaldoGastoRead(
+                IdGasto=gasto.IdGasto,
+                Nombre=gasto.Nombre,
+                FechaGasto=gasto.FechaGasto,
+                NombreCategoria=gasto.Categoria.Nombre,
+                Monto=_round_money(Decimal(gasto.Monto)),
+                NombrePagador=_nombre_usuario(gasto.Pagador),
+                PagasteVos=pague,
+                Pagado=pagado,
+                TuParte=parte,
+                Efecto=_round_money(pagado - parte),
+            )
+        )
+
+    transferencias = db.scalars(
+        select(TransferenciaLiquidacion)
+        .options(
+            joinedload(TransferenciaLiquidacion.ParticipanteDeudor).joinedload(ParticipanteViaje.Usuario),
+            joinedload(TransferenciaLiquidacion.ParticipanteAcreedor).joinedload(ParticipanteViaje.Usuario),
+            joinedload(TransferenciaLiquidacion.EstadoTransferencia),
+        )
+        .join(
+            LiquidacionViaje,
+            LiquidacionViaje.IdLiquidacion == TransferenciaLiquidacion.IdLiquidacion,
+        )
+        .join(
+            EstadoTransferenciaLiquidacion,
+            EstadoTransferenciaLiquidacion.IdEstadoTransferenciaLiquidacion
+            == TransferenciaLiquidacion.IdEstadoTransferenciaLiquidacion,
+        )
+        .where(
+            LiquidacionViaje.IdViaje == trip_id,
+            EstadoTransferenciaLiquidacion.Nombre.in_(ESTADOS_PAGADOS),
+            (TransferenciaLiquidacion.IdParticipanteDeudor == mi_id)
+            | (TransferenciaLiquidacion.IdParticipanteAcreedor == mi_id),
+        )
+        .order_by(TransferenciaLiquidacion.IdTransferenciaLiquidacion)
+    ).unique().all()
+
+    detalle_transferencias = []
+    enviadas = DECIMAL_ZERO
+    recibidas = DECIMAL_ZERO
+    for transferencia in transferencias:
+        monto = _round_money(Decimal(transferencia.Monto))
+        enviada = transferencia.IdParticipanteDeudor == mi_id
+        if enviada:
+            enviadas += monto
+        else:
+            recibidas += monto
+        contraparte = (
+            transferencia.ParticipanteAcreedor if enviada else transferencia.ParticipanteDeudor
+        )
+        detalle_transferencias.append(
+            MiSaldoTransferenciaRead(
+                IdTransferenciaLiquidacion=transferencia.IdTransferenciaLiquidacion,
+                Enviada=enviada,
+                NombreContraparte=_nombre_usuario(contraparte),
+                Monto=monto,
+                Estado=transferencia.EstadoTransferencia.Nombre,
+                Efecto=monto if enviada else -monto,
+            )
+        )
+
+    return MiSaldoRead(
+        Moneda=(viaje.Moneda or "USD").upper(),
+        TotalPagado=_round_money(total_pagado),
+        TotalParte=_round_money(total_parte),
+        TransferenciasEnviadas=_round_money(enviadas),
+        TransferenciasRecibidas=_round_money(recibidas),
+        Saldo=_round_money(total_pagado - total_parte + enviadas - recibidas),
+        Gastos=detalle_gastos,
+        Transferencias=detalle_transferencias,
+    )

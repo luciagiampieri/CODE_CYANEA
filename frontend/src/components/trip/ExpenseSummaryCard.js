@@ -11,11 +11,23 @@ import { colors, radii, spacing, textStyles } from "../../theme/tokens";
  *
  * `mySaldo` es el BalancePendiente del usuario actual (negativo = debe,
  * positivo = le deben, 0 = al día). Si es null no se muestra el bloque.
+ *
+ * `totalSpent` es el total del grupo (solo gastos compartidos). `myExpense`
+ * es "Tu gasto": tu parte de los compartidos + tus gastos personales
+ * (`myPersonalExpense`). Si `myExpense` es null se muestra "Por saldar" en
+ * su lugar, como antes.
+ *
+ * Jerarquía: el saldo es lo protagonista; los dos totales quedan como datos
+ * tranquilos, uno al lado del otro; "Agregar gasto" es la acción principal y
+ * "Recalcular liquidación" una acción secundaria discreta. Lo pendiente del
+ * grupo no se repite acá: está en la pestaña Transferencias.
  */
 export default function ExpenseSummaryCard({
   currency,
   totalSpent = 0,
   pendingTotal = 0,
+  myExpense = null,
+  myPersonalExpense = 0,
   mySaldo = null,
   loading = false,
   error = "",
@@ -30,11 +42,12 @@ export default function ExpenseSummaryCard({
   const tone = saldo < 0 ? "debt" : saldo > 0 ? "credit" : "even";
   const palette = TONES[tone];
 
-  // La mayoría de las monedas ya se formatean identificables ("EUR 160",
-  // "US$ 160"). Solo el peso argentino queda como "$ 160", sin letras: en ese
-  // caso se agrega la etiqueta con el código para que no haya dudas.
+  // Todos los montos están en la moneda del viaje (el Resumen la indica en
+  // "Total del grupo (ARS)"). Acá no se repite el código: al lado del número
+  // achicaba el monto y en la etiqueta la partía en dos renglones.
   const totalSpentText = formatMoney(totalSpent, currency);
-  const showCurrencyTag = Boolean(currency) && !/[A-Za-z]/.test(totalSpentText);
+  const showMyExpense = myExpense !== null && myExpense !== undefined;
+  const personal = Number(myPersonalExpense ?? 0);
 
   return (
     <View style={styles.card}>
@@ -67,19 +80,59 @@ export default function ExpenseSummaryCard({
         </Pressable>
       ) : null}
 
-      <View style={styles.totalsRow}>
-        <View style={styles.total}>
-          <Text style={styles.totalLabel}>Total gastado</Text>
-          <Text style={styles.totalValue}>
+      <View style={styles.stats}>
+        <View style={styles.stat} testID="expense-group-total">
+          <Text numberOfLines={1} style={styles.statLabel}>
+            Gastos del grupo
+          </Text>
+          <Text
+            adjustsFontSizeToFit
+            minimumFontScale={0.7}
+            numberOfLines={1}
+            style={styles.statValue}
+          >
             {totalSpentText}
-            {showCurrencyTag ? <Text style={styles.currency}> {currency}</Text> : null}
           </Text>
         </View>
-        <View style={styles.total}>
-          <Text style={styles.totalLabel}>Por saldar</Text>
-          <Text style={styles.totalValue}>{formatMoney(pendingTotal, currency)}</Text>
-        </View>
-        {loading ? <ActivityIndicator color={colors.primary} /> : null}
+
+        <View style={styles.statDivider} />
+
+        {showMyExpense ? (
+          <View style={styles.stat} testID="expense-my-total">
+            <Text numberOfLines={1} style={styles.statLabel}>
+              Tu gasto
+            </Text>
+            <Text
+              adjustsFontSizeToFit
+              minimumFontScale={0.7}
+              numberOfLines={1}
+              style={styles.statValue}
+            >
+              {formatMoney(myExpense, currency)}
+            </Text>
+            {personal > 0 ? (
+              <Text numberOfLines={2} style={styles.statNote} testID="expense-my-personal">
+                Incluye {formatMoney(personal, currency)} personales
+              </Text>
+            ) : null}
+          </View>
+        ) : (
+          <View style={styles.stat}>
+            <Text numberOfLines={1} style={styles.statLabel}>
+              Por saldar
+            </Text>
+            <Text
+              adjustsFontSizeToFit
+              minimumFontScale={0.7}
+              numberOfLines={1}
+              style={styles.statValue}
+            >
+              {formatMoney(pendingTotal, currency)}
+            </Text>
+          </View>
+        )}
+
+        {loading ? <ActivityIndicator color={colors.primary} style={styles.loading} /> : null}
       </View>
 
       {error ? <Text style={styles.error}>{error}</Text> : null}
@@ -94,22 +147,22 @@ export default function ExpenseSummaryCard({
         />
       ) : null}
 
-      <View style={styles.footer}>
-        <Text style={styles.footerText}>Las cuentas se recalculan con cada gasto nuevo.</Text>
-        {canRebuild ? (
-          <Pressable
-            accessibilityRole="button"
-            disabled={rebuilding}
-            hitSlop={8}
-            onPress={onRebuild}
-            testID="expense-rebuild"
-          >
-            <Text style={styles.footerLink}>
-              {rebuilding ? "Recalculando..." : "Recalcular liquidación"}
-            </Text>
-          </Pressable>
-        ) : null}
-      </View>
+      {canRebuild ? (
+        <Pressable
+          accessibilityHint="Vuelve a calcular quién le transfiere a quién"
+          accessibilityRole="button"
+          disabled={rebuilding}
+          hitSlop={8}
+          onPress={onRebuild}
+          style={styles.rebuild}
+          testID="expense-rebuild"
+        >
+          <FontAwesome6 color={colors.textSecondary} name="rotate" size={11} />
+          <Text style={styles.rebuildText}>
+            {rebuilding ? "Recalculando..." : "Recalcular liquidación"}
+          </Text>
+        </Pressable>
+      ) : null}
     </View>
   );
 }
@@ -122,7 +175,7 @@ const TONES = {
 
 const styles = StyleSheet.create({
   card: {
-    gap: spacing.md,
+    gap: spacing.lg,
   },
   myBalance: {
     flexDirection: "row",
@@ -154,28 +207,40 @@ const styles = StyleSheet.create({
     ...textStyles.meta,
     fontWeight: "700",
   },
-  totalsRow: {
+  stats: {
     flexDirection: "row",
-    alignItems: "center",
-    gap: spacing.md,
+    alignItems: "stretch",
+    paddingVertical: spacing.xs,
   },
-  total: {
+  stat: {
     flex: 1,
-    gap: 2,
+    minWidth: 0,
+    gap: spacing.xxs,
+    paddingHorizontal: spacing.xs,
   },
-  totalLabel: {
+  statDivider: {
+    width: StyleSheet.hairlineWidth,
+    backgroundColor: colors.borderStrong,
+    marginHorizontal: spacing.xs,
+  },
+  statLabel: {
     ...textStyles.meta,
+    fontSize: 13,
     color: colors.textSecondary,
   },
-  totalValue: {
+  statValue: {
     ...textStyles.kpiValue,
     color: colors.primary,
-    fontSize: 20,
+    fontSize: 22,
   },
-  currency: {
+  statNote: {
     ...textStyles.meta,
+    fontSize: 12,
     color: colors.textMuted,
-    fontSize: 11,
+  },
+  loading: {
+    alignSelf: "center",
+    marginLeft: spacing.xs,
   },
   error: {
     ...textStyles.meta,
@@ -184,24 +249,17 @@ const styles = StyleSheet.create({
   addButton: {
     alignSelf: "stretch",
   },
-  footer: {
+  rebuild: {
     flexDirection: "row",
-    flexWrap: "wrap",
-    justifyContent: "center",
     alignItems: "center",
-    columnGap: 6,
-    rowGap: 2,
+    alignSelf: "center",
+    gap: 6,
+    paddingVertical: spacing.xxs,
   },
-  footerText: {
+  rebuildText: {
     ...textStyles.meta,
-    color: colors.textMuted,
-    fontSize: 12,
-  },
-  footerLink: {
-    ...textStyles.meta,
-    color: colors.primary,
-    fontSize: 12,
-    fontWeight: "700",
-    textDecorationLine: "underline",
+    color: colors.textSecondary,
+    fontSize: 13,
+    fontWeight: "600",
   },
 });

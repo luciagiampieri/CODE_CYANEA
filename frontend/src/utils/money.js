@@ -12,6 +12,12 @@ export function formatMoney(amount, currency) {
   }).format(numeric);
 }
 
+// Igual que formatMoney, pero el símbolo no se separa del número al saltar de
+// renglón ("$ 30.400" nunca queda como "$" / "30.400").
+export function formatMoneyNoBreak(amount, currency) {
+  return formatMoney(amount, currency).replace(/\s/g, "\u00a0");
+}
+
 export function formatSignedMoney(amount, currency) {
   const numeric = Number(amount ?? 0);
   if (!numeric) return formatMoney(0, currency);

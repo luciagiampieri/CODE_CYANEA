@@ -849,6 +849,14 @@ export async function getTripSettlement(tripId) {
   return parseResponse(response, "No se pudo obtener la liquidación del viaje");
 }
 
+// "De dónde sale tu saldo": gastos compartidos y transferencias del usuario, uno por uno.
+export async function getMySettlementBalance(tripId) {
+  const response = await fetch(`${API_BASE_URL}/trips/${tripId}/settlement/mi-saldo`, {
+    headers: await authHeaders(),
+  });
+  return parseResponse(response, "No se pudo cargar el detalle de tu saldo");
+}
+
 export async function rebuildTripSettlement(tripId) {
   const response = await fetch(`${API_BASE_URL}/trips/${tripId}/settlement/rebuild`, {
     method: "POST",
@@ -860,6 +868,25 @@ export async function rebuildTripSettlement(tripId) {
   return parseResponse(response, "No se pudo recalcular la liquidación");
 }
 
+// "Ya transferí": el deudor avisa que pagó; el acreedor tiene que confirmarlo.
+export async function reportSettlementTransfer(tripId, transferId) {
+  const response = await fetch(
+    `${API_BASE_URL}/trips/${tripId}/settlement/transfers/${transferId}/informar`,
+    { method: "POST", headers: await authHeaders() }
+  );
+  return parseResponse(response, "No se pudo avisar la transferencia");
+}
+
+// "No me llegó": el acreedor rechaza el aviso y la deuda vuelve a pendiente.
+export async function rejectSettlementTransfer(tripId, transferId) {
+  const response = await fetch(
+    `${API_BASE_URL}/trips/${tripId}/settlement/transfers/${transferId}/rechazar`,
+    { method: "POST", headers: await authHeaders() }
+  );
+  return parseResponse(response, "No se pudo rechazar la transferencia");
+}
+
+// Solo el acreedor: "Me llegó" (realizada = true) o "Deshacer" (false).
 export async function markSettlementTransferPaid(tripId, transferId, realizada = true) {
   const response = await fetch(
     `${API_BASE_URL}/trips/${tripId}/settlement/transfers/${transferId}`,

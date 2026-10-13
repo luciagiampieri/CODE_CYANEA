@@ -20,6 +20,7 @@ from app.models.participante_viaje import ParticipanteViaje
 from app.models.usuario import Usuario
 from app.models.viaje import Viaje
 from app.services.liquidacion_service import (
+    DatosTransferencia,
     TransferenciaPendiente,
     participantes_con_contrapartes_distintas,
 )
@@ -173,3 +174,55 @@ async def notificar_liquidacion_actualizada(
             ),
             _usuarios(db, {participante.IdUsuario}),
         )
+
+
+# ---------------------------------------------------------------------------
+# Confirmación de transferencias
+# ---------------------------------------------------------------------------
+
+async def notificar_transferencia_informada(
+    db: Session, viaje: Viaje, datos: DatosTransferencia
+) -> None:
+    """"Ya transferí": se le pide al acreedor que revise si le llegó."""
+    moneda = (viaje.Moneda or "USD").upper()
+    await dispatch_user_notification(
+        db,
+        TripNotificationEvent(
+            notification_type=NotificationType.TRANSFERENCIA_INFORMADA,
+            tipo="transferencia_informada",
+            titulo="Revisá si te llegó una transferencia",
+            mensaje=(
+                f"{datos.nombre_deudor} dice que te transfirió "
+                f"{formatear_monto(datos.monto, moneda)} por {viaje.Titulo}. "
+                "Revisá si te llegó y confirmalo en Gastos."
+            ),
+            id_viaje=viaje.IdViaje,
+            id_usuario_actor=datos.id_usuario_deudor,
+            data={"eventType": "transfer_reported"},
+        ),
+        _usuarios(db, {datos.id_usuario_acreedor}),
+    )
+
+
+async def notificar_transferencia_rechazada(
+    db: Session, viaje: Viaje, datos: DatosTransferencia
+) -> None:
+    """"No me llegó": se le avisa al deudor que la deuda sigue pendiente."""
+    moneda = (viaje.Moneda or "USD").upper()
+    await dispatch_user_notification(
+        db,
+        TripNotificationEvent(
+            notification_type=NotificationType.TRANSFERENCIA_RECHAZADA,
+            tipo="transferencia_rechazada",
+            titulo=f"A {datos.nombre_acreedor} no le llegó tu transferencia",
+            mensaje=(
+                f"{datos.nombre_acreedor} indicó que no le llegó tu transferencia de "
+                f"{formatear_monto(datos.monto, moneda)} en {viaje.Titulo}. "
+                "La deuda volvió a quedar pendiente."
+            ),
+            id_viaje=viaje.IdViaje,
+            id_usuario_actor=datos.id_usuario_acreedor,
+            data={"eventType": "transfer_rejected"},
+        ),
+        _usuarios(db, {datos.id_usuario_deudor}),
+    )

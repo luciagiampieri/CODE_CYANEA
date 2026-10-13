@@ -945,6 +945,8 @@ describe("US - Notificaciones e invitaciones (InvitationsScreen)", () => {
     it.each([
       ["liquidacion_actualizada", "gastos"],
       ["gasto_modificado", "gastos"],
+      ["transferencia_informada", "gastos"],
+      ["transferencia_rechazada", "gastos"],
       ["actividad_creada", "itinerario"],
       ["recordatorio_actividad", "itinerario"],
       ["nueva_votacion", "votar"],
