@@ -1651,3 +1651,411 @@ def test_el_asistente_no_ve_los_gastos_personales_de_otros(client, db_session, v
     assert sorted(g["nombre"] for g in de_bruno["recientes"]) == ["Gasto de ana", "Gasto de bruno"]
     assert Decimal(str(de_carla["total"])) == Decimal("300")
     assert Decimal(str(de_bruno["total"])) == Decimal("800")
+
+
+# ===========================================================================
+# Resumen: "Total del grupo" (solo compartidos) y "Tu gasto"
+# ===========================================================================
+
+def _resumen(client, viaje, personas, quien):
+    response = client.get(
+        f"/api/v1/trips/{viaje.IdViaje}/settlement", headers=_headers_de(personas[quien][0])
+    )
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
+def test_total_del_grupo_no_incluye_gastos_personales(client, viaje_de_cuatro):
+    viaje, categoria, personas = viaje_de_cuatro
+    _registrar(client, viaje, categoria, personas, "ana", 300, "ana", ["ana", "bruno", "carla"])
+    _registrar(client, viaje, categoria, personas, "bruno", 500, None, personal=True)
+
+    resumen = _resumen(client, viaje, personas, "carla")
+
+    assert Decimal(resumen["TotalGastosViaje"]) == Decimal("300")
+    # El gasto personal de Bruno tampoco se filtra en lo pagado/consumido de cada uno.
+    bruno = next(
+        p for p in resumen["ResumenParticipantes"]
+        if p["IdUsuario"] == personas["bruno"][0].IdUsuario
+    )
+    assert Decimal(bruno["TotalPagado"]) == Decimal("0")
+    assert Decimal(bruno["GastoIndividual"]) == Decimal("100")
+    # Los saldos no cambian: un gasto personal da saldo 0.
+    assert Decimal(bruno["BalancePendiente"]) == Decimal("-100")
+
+
+def test_tu_gasto_suma_tu_parte_de_los_compartidos_y_tus_personales(client, viaje_de_cuatro):
+    viaje, categoria, personas = viaje_de_cuatro
+    _registrar(client, viaje, categoria, personas, "ana", 300, "ana", ["ana", "bruno", "carla"])
+    _registrar(client, viaje, categoria, personas, "bruno", 500, None, personal=True)
+
+    de_bruno = _resumen(client, viaje, personas, "bruno")
+    de_carla = _resumen(client, viaje, personas, "carla")
+    de_dario = _resumen(client, viaje, personas, "dario")
+
+    assert Decimal(de_bruno["GastoUsuario"]) == Decimal("600")
+    assert Decimal(de_bruno["GastoPersonalUsuario"]) == Decimal("500")
+    assert Decimal(de_carla["GastoUsuario"]) == Decimal("100")
+    assert Decimal(de_carla["GastoPersonalUsuario"]) == Decimal("0")
+    assert Decimal(de_dario["GastoUsuario"]) == Decimal("0")
+    # El total del grupo es el mismo para todos.
+    assert de_bruno["TotalGastosViaje"] == de_carla["TotalGastosViaje"] == de_dario["TotalGastosViaje"]
+
+
+# ===========================================================================
+# Confirmar transferencias: "Ya transferí" / "Me llegó" / "No me llegó"
+#
+# Ana pagó 300 entre Ana, Bruno y Carla: Bruno y Carla le deben 100 a Ana.
+# ===========================================================================
+
+URL_LIQUIDACION = "/api/v1/trips/{}/settlement"
+
+
+@pytest.fixture
+def deudas_con_ana(client, db_session, viaje_de_cuatro):
+    viaje, categoria, personas = viaje_de_cuatro
+    _poner_en_curso(db_session, viaje)
+    _registrar(client, viaje, categoria, personas, "ana", 300, "ana", ["ana", "bruno", "carla"])
+    _limpiar_avisos(db_session)
+    return viaje, categoria, personas
+
+
+def _transferencias(client, viaje, personas, quien="ana"):
+    return client.get(
+        URL_LIQUIDACION.format(viaje.IdViaje), headers=_headers_de(personas[quien][0])
+    ).json()["Transferencias"]
+
+
+def _transferencia_de(client, viaje, personas, deudor, estado=None):
+    nombre = f"{deudor.capitalize()} Test"
+    return next(
+        t for t in _transferencias(client, viaje, personas)
+        if t["NombreDeudor"] == nombre and (estado is None or t["Estado"] == estado)
+    )
+
+
+def _accion(client, viaje, personas, quien, transferencia, accion):
+    url = f"{URL_LIQUIDACION.format(viaje.IdViaje)}/transfers/{transferencia['IdTransferenciaLiquidacion']}"
+    headers = _headers_de(personas[quien][0])
+    if accion == "informar":
+        return client.post(f"{url}/informar", headers=headers)
+    if accion == "rechazar":
+        return client.post(f"{url}/rechazar", headers=headers)
+    return client.patch(url, json={"Realizada": accion == "confirmar"}, headers=headers)
+
+
+def test_solo_el_deudor_puede_avisar_que_transfirio(client, db_session, deudas_con_ana):
+    viaje, _, personas = deudas_con_ana
+    de_bruno = _transferencia_de(client, viaje, personas, "bruno")
+
+    assert _accion(client, viaje, personas, "ana", de_bruno, "informar").status_code == 403
+    assert _accion(client, viaje, personas, "dario", de_bruno, "informar").status_code == 403
+
+    response = _accion(client, viaje, personas, "bruno", de_bruno, "informar")
+
+    assert response.status_code == 200, response.text
+    assert _transferencia_de(client, viaje, personas, "bruno")["Estado"] == "informada"
+    # Se le pide a Ana que revise si le llegó.
+    assert _avisos(db_session, personas, "transferencia_informada") == ["ana"]
+    aviso = db_session.query(Notificacion).filter_by(Tipo="transferencia_informada").one()
+    assert aviso.Titulo == "Revisá si te llegó una transferencia"
+    assert aviso.Mensaje == (
+        f"Bruno Test dice que te transfirió ARS 100,00 por {viaje.Titulo}. "
+        "Revisá si te llegó y confirmalo en Gastos."
+    )
+
+
+def test_no_se_puede_avisar_dos_veces(client, deudas_con_ana):
+    viaje, _, personas = deudas_con_ana
+    de_bruno = _transferencia_de(client, viaje, personas, "bruno")
+    _accion(client, viaje, personas, "bruno", de_bruno, "informar")
+
+    response = _accion(client, viaje, personas, "bruno", de_bruno, "informar")
+
+    assert response.status_code == 400
+
+
+def test_solo_el_acreedor_confirma_que_le_llego(client, deudas_con_ana):
+    viaje, _, personas = deudas_con_ana
+    de_bruno = _transferencia_de(client, viaje, personas, "bruno")
+    _accion(client, viaje, personas, "bruno", de_bruno, "informar")
+
+    assert _accion(client, viaje, personas, "bruno", de_bruno, "confirmar").status_code == 403
+    response = _accion(client, viaje, personas, "ana", de_bruno, "confirmar")
+
+    assert response.status_code == 200, response.text
+    assert _transferencia_de(client, viaje, personas, "bruno")["Estado"] == "realizada"
+
+
+def test_el_acreedor_puede_confirmar_aunque_no_le_hayan_avisado(client, deudas_con_ana):
+    viaje, _, personas = deudas_con_ana
+    de_carla = _transferencia_de(client, viaje, personas, "carla")
+
+    response = _accion(client, viaje, personas, "ana", de_carla, "confirmar")
+
+    assert response.status_code == 200
+    assert _transferencia_de(client, viaje, personas, "carla")["Estado"] == "realizada"
+
+
+def test_lo_informado_no_se_vuelve_a_pedir_al_cargar_un_gasto(client, deudas_con_ana):
+    viaje, categoria, personas = deudas_con_ana
+    de_bruno = _transferencia_de(client, viaje, personas, "bruno")
+    _accion(client, viaje, personas, "bruno", de_bruno, "informar")
+
+    # Ana todavía no confirmó y se carga otro gasto igual.
+    _registrar(client, viaje, categoria, personas, "ana", 300, "ana", ["ana", "bruno", "carla"])
+
+    transferencias = _transferencias(client, viaje, personas)
+    de_bruno_ahora = [t for t in transferencias if t["NombreDeudor"] == "Bruno Test"]
+    # El aviso sigue a la vista (pasó a la liquidación nueva) para que Ana lo confirme...
+    informada = next(t for t in de_bruno_ahora if t["Estado"] == "informada")
+    assert informada["IdTransferenciaLiquidacion"] == de_bruno["IdTransferenciaLiquidacion"]
+    assert Decimal(informada["Monto"]) == Decimal("100")
+    # ...y a Bruno solo se le pide lo del gasto nuevo, no los 100 que ya avisó.
+    pendiente = next(t for t in de_bruno_ahora if t["Estado"] == "pendiente")
+    assert Decimal(pendiente["Monto"]) == Decimal("100")
+    de_carla = next(t for t in transferencias if t["NombreDeudor"] == "Carla Test")
+    assert Decimal(de_carla["Monto"]) == Decimal("200")
+
+
+def test_no_me_llego_vuelve_a_pendiente_y_avisa_al_deudor(client, db_session, deudas_con_ana):
+    viaje, _, personas = deudas_con_ana
+    de_bruno = _transferencia_de(client, viaje, personas, "bruno")
+    _accion(client, viaje, personas, "bruno", de_bruno, "informar")
+
+    assert _accion(client, viaje, personas, "bruno", de_bruno, "rechazar").status_code == 403
+    response = _accion(client, viaje, personas, "ana", de_bruno, "rechazar")
+
+    assert response.status_code == 200, response.text
+    de_bruno_ahora = [t for t in _transferencias(client, viaje, personas) if t["NombreDeudor"] == "Bruno Test"]
+    assert [(t["Estado"], Decimal(t["Monto"])) for t in de_bruno_ahora] == [("pendiente", Decimal("100"))]
+    assert _avisos(db_session, personas, "transferencia_rechazada") == ["bruno"]
+    aviso = db_session.query(Notificacion).filter_by(Tipo="transferencia_rechazada").one()
+    assert aviso.Titulo == "A Ana Test no le llegó tu transferencia"
+
+
+def test_solo_se_rechaza_lo_que_el_deudor_aviso(client, deudas_con_ana):
+    viaje, _, personas = deudas_con_ana
+    de_carla = _transferencia_de(client, viaje, personas, "carla")
+
+    response = _accion(client, viaje, personas, "ana", de_carla, "rechazar")
+
+    assert response.status_code == 400
+
+
+def test_deshacer_una_confirmacion_vuelve_a_pedir_la_deuda(client, deudas_con_ana):
+    viaje, _, personas = deudas_con_ana
+    de_bruno = _transferencia_de(client, viaje, personas, "bruno")
+    _accion(client, viaje, personas, "ana", de_bruno, "confirmar")
+
+    response = _accion(client, viaje, personas, "ana", de_bruno, "deshacer")
+
+    assert response.status_code == 200, response.text
+    pendiente = _transferencia_de(client, viaje, personas, "bruno")
+    assert pendiente["Estado"] == "pendiente"
+    assert Decimal(pendiente["Monto"]) == Decimal("100")
+
+
+def test_una_transferencia_informada_no_bloquea_editar_ni_eliminar_gastos(client, deudas_con_ana):
+    viaje, categoria, personas = deudas_con_ana
+    otro = _registrar(client, viaje, categoria, personas, "ana", 60, "ana", ["ana", "bruno"])
+    de_bruno = _transferencia_de(client, viaje, personas, "bruno")
+    _accion(client, viaje, personas, "bruno", de_bruno, "informar")
+
+    response = client.delete(f"/api/v1/gastos/{otro}", headers=_headers_de(personas["ana"][0]))
+
+    assert response.status_code == 200, response.text
+
+
+# ===========================================================================
+# Tiempo real: los cambios de gastos y transferencias se avisan por WebSocket
+# ===========================================================================
+
+def _eventos(broadcasts, viaje):
+    return [
+        llamada.args[1]
+        for llamada in broadcasts.await_args_list
+        if llamada.args[0] == viaje.IdViaje
+    ]
+
+
+def test_registrar_un_gasto_avisa_al_resto_del_grupo(client, viaje_de_cuatro, broadcasts):
+    viaje, categoria, personas = viaje_de_cuatro
+
+    id_gasto = _registrar(client, viaje, categoria, personas, "ana", 300, "ana", ["ana", "bruno"])
+
+    assert {"tipo": "gasto_actualizado", "idGasto": id_gasto} in _eventos(broadcasts, viaje)
+
+
+def test_eliminar_un_gasto_avisa_al_resto_del_grupo(client, viaje_de_cuatro, broadcasts):
+    viaje, categoria, personas = viaje_de_cuatro
+    id_gasto = _registrar(client, viaje, categoria, personas, "ana", 300, "ana", ["ana", "bruno"])
+    broadcasts.reset_mock()
+
+    response = client.delete(f"/api/v1/gastos/{id_gasto}", headers=_headers_de(personas["ana"][0]))
+
+    assert response.status_code == 200
+    assert {"tipo": "gasto_eliminado", "idGasto": id_gasto} in _eventos(broadcasts, viaje)
+
+
+@pytest.mark.parametrize("accion", ["informar", "confirmar", "rechazar", "deshacer", "recalcular"])
+def test_cada_cambio_en_transferencias_avisa_al_resto_del_grupo(client, deudas_con_ana, broadcasts, accion):
+    viaje, _, personas = deudas_con_ana
+    de_bruno = _transferencia_de(client, viaje, personas, "bruno")
+    if accion == "rechazar":
+        _accion(client, viaje, personas, "bruno", de_bruno, "informar")
+    if accion == "deshacer":
+        _accion(client, viaje, personas, "ana", de_bruno, "confirmar")
+    broadcasts.reset_mock()
+
+    if accion == "recalcular":
+        response = client.post(
+            f"{URL_LIQUIDACION.format(viaje.IdViaje)}/rebuild", headers=_headers_de(personas["ana"][0])
+        )
+    else:
+        quien = "bruno" if accion == "informar" else "ana"
+        response = _accion(client, viaje, personas, quien, de_bruno, accion)
+
+    assert response.status_code == 200, response.text
+    assert _eventos(broadcasts, viaje) == [{"tipo": "liquidacion_actualizada"}]
+
+
+def test_una_accion_rechazada_no_avisa_nada(client, deudas_con_ana, broadcasts):
+    viaje, _, personas = deudas_con_ana
+    de_bruno = _transferencia_de(client, viaje, personas, "bruno")
+    broadcasts.reset_mock()
+
+    response = _accion(client, viaje, personas, "ana", de_bruno, "informar")
+
+    assert response.status_code == 403
+    assert _eventos(broadcasts, viaje) == []
+
+
+def test_lo_ya_saldado_sigue_a_la_vista_al_cargar_otro_gasto(client, deudas_con_ana):
+    viaje, categoria, personas = deudas_con_ana
+    de_bruno = _transferencia_de(client, viaje, personas, "bruno")
+    _accion(client, viaje, personas, "ana", de_bruno, "confirmar")
+
+    # Se recalcula la liquidación varias veces.
+    _registrar(client, viaje, categoria, personas, "carla", 90, "carla", ["carla", "dario"])
+    client.post(f"{URL_LIQUIDACION.format(viaje.IdViaje)}/rebuild", headers=_headers_de(personas["ana"][0]))
+
+    transferencias = _transferencias(client, viaje, personas)
+    saldadas = [t for t in transferencias if t["Estado"] == "realizada"]
+    # La confirmación sigue (una sola vez, no duplicada) y la deuda no vuelve.
+    assert [t["IdTransferenciaLiquidacion"] for t in saldadas] == [de_bruno["IdTransferenciaLiquidacion"]]
+    assert not any(
+        t["NombreDeudor"] == "Bruno Test" and t["Estado"] == "pendiente" for t in transferencias
+    )
+
+
+def test_deshacer_una_confirmacion_vieja_vuelve_a_pedir_la_deuda(client, deudas_con_ana):
+    viaje, categoria, personas = deudas_con_ana
+    de_bruno = _transferencia_de(client, viaje, personas, "bruno")
+    _accion(client, viaje, personas, "ana", de_bruno, "confirmar")
+    # Después de confirmar se cargó otro gasto: la confirmación pasó a la versión nueva.
+    _registrar(client, viaje, categoria, personas, "carla", 90, "carla", ["carla", "dario"])
+
+    response = _accion(client, viaje, personas, "ana", de_bruno, "deshacer")
+
+    assert response.status_code == 200, response.text
+    de_bruno_ahora = [t for t in _transferencias(client, viaje, personas) if t["NombreDeudor"] == "Bruno Test"]
+    assert [(t["Estado"], Decimal(t["Monto"])) for t in de_bruno_ahora] == [("pendiente", Decimal("100"))]
+
+
+# ===========================================================================
+# "De dónde sale tu saldo" (GET /trips/{id}/settlement/mi-saldo)
+#
+# Ana paga 300 entre Ana, Bruno y Carla; Dario paga 200 entre Dario y Bruno.
+# Saldos: Ana +200, Dario +100, Bruno -200, Carla -100.
+# ===========================================================================
+
+@pytest.fixture
+def saldos_del_grupo(client, db_session, viaje_de_cuatro):
+    viaje, categoria, personas = viaje_de_cuatro
+    _poner_en_curso(db_session, viaje)
+    _registrar(client, viaje, categoria, personas, "ana", 300, "ana", ["ana", "bruno", "carla"])
+    _registrar(client, viaje, categoria, personas, "dario", 200, "dario", ["dario", "bruno"])
+    return viaje, categoria, personas
+
+
+def _mi_saldo(client, viaje, personas, quien):
+    response = client.get(
+        f"{URL_LIQUIDACION.format(viaje.IdViaje)}/mi-saldo", headers=_headers_de(personas[quien][0])
+    )
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
+def _saldo_en_liquidacion(client, viaje, personas, quien):
+    resumen = _resumen(client, viaje, personas, quien)["ResumenParticipantes"]
+    return Decimal(
+        next(p for p in resumen if p["IdUsuario"] == personas[quien][0].IdUsuario)["BalancePendiente"]
+    )
+
+
+def test_mi_saldo_explica_gasto_por_gasto(client, saldos_del_grupo):
+    viaje, _, personas = saldos_del_grupo
+
+    de_ana = _mi_saldo(client, viaje, personas, "ana")
+    de_bruno = _mi_saldo(client, viaje, personas, "bruno")
+
+    # Ana pagó 300 y su parte es 100. El gasto de Dario no la incluye.
+    assert [(g["Nombre"], g["PagasteVos"], Decimal(g["Efecto"])) for g in de_ana["Gastos"]] == [
+        ("Gasto de ana", True, Decimal("200")),
+    ]
+    assert (Decimal(de_ana["TotalPagado"]), Decimal(de_ana["TotalParte"])) == (Decimal("300"), Decimal("100"))
+    assert Decimal(de_ana["Saldo"]) == Decimal("200")
+
+    # Bruno no pagó nada y tiene 100 en cada gasto.
+    assert sorted(Decimal(g["TuParte"]) for g in de_bruno["Gastos"]) == [Decimal("100"), Decimal("100")]
+    assert {g["NombrePagador"] for g in de_bruno["Gastos"]} == {"Ana Test", "Dario Test"}
+    assert Decimal(de_bruno["Saldo"]) == Decimal("-200")
+
+
+def test_mi_saldo_coincide_con_la_liquidacion(client, saldos_del_grupo):
+    viaje, _, personas = saldos_del_grupo
+
+    for quien in ("ana", "bruno", "carla", "dario"):
+        assert Decimal(_mi_saldo(client, viaje, personas, quien)["Saldo"]) == _saldo_en_liquidacion(
+            client, viaje, personas, quien
+        )
+
+
+def test_mi_saldo_cuenta_las_transferencias_hechas(client, saldos_del_grupo):
+    viaje, _, personas = saldos_del_grupo
+    de_bruno = _transferencia_de(client, viaje, personas, "bruno")
+    _accion(client, viaje, personas, "bruno", de_bruno, "informar")
+
+    saldo = _mi_saldo(client, viaje, personas, "bruno")
+
+    assert [
+        (t["Enviada"], t["NombreContraparte"], Decimal(t["Monto"]), t["Estado"])
+        for t in saldo["Transferencias"]
+    ] == [(True, "Ana Test", Decimal("200"), "informada")]
+    assert Decimal(saldo["TransferenciasEnviadas"]) == Decimal("200")
+    assert Decimal(saldo["Saldo"]) == Decimal("0")
+    assert Decimal(saldo["Saldo"]) == _saldo_en_liquidacion(client, viaje, personas, "bruno")
+    # Del otro lado, Ana la ve como recibida.
+    de_ana = _mi_saldo(client, viaje, personas, "ana")
+    assert [(t["Enviada"], Decimal(t["Efecto"])) for t in de_ana["Transferencias"]] == [(False, Decimal("-200"))]
+
+
+def test_mi_saldo_no_incluye_gastos_personales(client, saldos_del_grupo):
+    viaje, categoria, personas = saldos_del_grupo
+    _registrar(client, viaje, categoria, personas, "ana", 999, None, personal=True)
+
+    de_ana = _mi_saldo(client, viaje, personas, "ana")
+
+    assert [g["Nombre"] for g in de_ana["Gastos"]] == ["Gasto de ana"]
+    assert Decimal(de_ana["Saldo"]) == Decimal("200")
+
+
+def test_mi_saldo_de_quien_no_tiene_gastos_es_cero(client, db_session, saldos_del_grupo):
+    viaje, _, personas = saldos_del_grupo
+    eva = _agregar_participante_aceptado(db_session, viaje, "eva")[0]
+    # Eva entra al viaje: no tiene gastos, su saldo es 0.
+    response = client.get(f"{URL_LIQUIDACION.format(viaje.IdViaje)}/mi-saldo", headers=_headers_de(eva))
+    assert response.status_code == 200
+    assert Decimal(response.json()["Saldo"]) == Decimal("0")
+    assert response.json()["Gastos"] == []

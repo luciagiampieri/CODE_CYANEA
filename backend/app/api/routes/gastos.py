@@ -56,6 +56,7 @@ from app.services.visibilidad_gastos import (
     condicion_gasto_visible,
     exigir_gasto_visible,
     gasto_visible_para,
+    participa_en_el_gasto,
 )
 from app.services.notificaciones_gastos import (
     notificar_alta_gasto,
@@ -488,6 +489,11 @@ async def create_gasto(data: GastoCreate, db: Session = Depends(get_db), current
     rebuild_settlement_plan(db, data.IdViaje)
     transferencias_despues = transferencias_pendientes_por_participante(db, data.IdViaje)
 
+    # Los demás ven el gasto nuevo y los saldos sin recargar la pantalla.
+    await manager.broadcast_to_trip(
+        data.IdViaje, {"tipo": "gasto_actualizado", "idGasto": gasto.IdGasto}
+    )
+
     # Personal: nadie. Compartido: división y pagador, y aviso de liquidación
     # actualizada a quien le cambie a quién transferir.
     await notificar_alta_gasto(
@@ -570,6 +576,9 @@ async def delete_gasto(
             # Si el archivo ya no estaba en el storage, no bloqueamos la eliminación.
             pass
         await manager.broadcast_to_trip(viaje_id, {"tipo": "documento_actualizado"})
+
+    # Los demás dejan de ver el gasto y se actualizan sus saldos.
+    await manager.broadcast_to_trip(viaje_id, {"tipo": "gasto_eliminado", "idGasto": gasto_id})
 
     await notificar_liquidacion_actualizada(
         db, viaje, current_user, transferencias_antes, transferencias_despues
@@ -780,6 +789,10 @@ def list_trip_gastos(
             selectinload(Gasto.Categoria),
             selectinload(Gasto.Pagador).selectinload(ParticipanteViaje.Usuario),
             selectinload(Gasto.Comprobante),
+            selectinload(Gasto.ParticipanteCreador),
+            selectinload(Gasto.ParticipantesAsociados).selectinload(
+                ParticipantesGastos.ParticipanteViaje
+            ),
         )
         .where(Gasto.IdViaje == trip_id)
         # Los gastos personales solo los ve su dueño (creador o pagador).
@@ -817,6 +830,7 @@ def list_trip_gastos(
             IdUsuarioPagador=gasto.Pagador.IdUsuario,
             NombrePagador=_actor_display_name(gasto.Pagador.Usuario),
             EsCompartido=gasto.TipoDivision is not None,
+            ParticipoEnElGasto=participa_en_el_gasto(gasto, current_user.IdUsuario),
             IdDocumentoComprobante=(
                 gasto.IdDocumentoComprobante if _comprobante_visible(gasto) else None
             ),

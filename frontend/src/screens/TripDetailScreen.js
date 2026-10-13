@@ -27,6 +27,7 @@ import GroupMemberList from "../components/trip/GroupMemberList";
 import ExpenseSummaryCard from "../components/trip/ExpenseSummaryCard";
 import ExpenseList from "../components/trip/ExpenseList";
 import ExpenseDetailModal from "../components/trip/ExpenseDetailModal";
+import MyBalanceBreakdownModal from "../components/trip/MyBalanceBreakdownModal";
 import SettlementBalances from "../components/trip/SettlementBalances";
 import SettlementTransfers from "../components/trip/SettlementTransfers";
 import SentInvitationsList from "../components/trip/SentInvitationsList";
@@ -55,6 +56,9 @@ import {
   getSentInvitations,
   cancelSentInvitation,
   markSettlementTransferPaid,
+  getMySettlementBalance,
+  rejectSettlementTransfer,
+  reportSettlementTransfer,
   removeTripExternalInvitation,
   removeTripParticipant,
   rebuildTripSettlement,
@@ -309,6 +313,7 @@ export default function TripDetailScreen({ navigation, route }) {
       return;
     }
     if (initialTabParam) setActiveTab(tabValida(initialTabParam));
+    if (notificationTarget?.gastosView) setGastosView(notificationTarget.gastosView);
   }, [initialTabParam, notificationTarget]);
   const [votacionesActivas, setVotacionesActivas] = useState([]);
   const [loadingVotaciones, setLoadingVotaciones] = useState(false);
@@ -600,12 +605,29 @@ export default function TripDetailScreen({ navigation, route }) {
     () => settlement?.Transferencias?.filter((item) => item.Estado === "pendiente") ?? [],
     [settlement]
   );
+  // Lo que espera una acción del usuario: avisar que transfirió (es deudor de
+  // una pendiente) o confirmar si le llegó (es acreedor de una informada).
+  const myTransfersToAct = useMemo(() => {
+    if (!currentUser || !settlement?.ResumenParticipantes) return 0;
+    const me = settlement.ResumenParticipantes.find(
+      (item) => String(item.IdUsuario) === String(currentUser.id)
+    );
+    if (!me) return 0;
+    return (settlement.Transferencias ?? []).filter(
+      (item) =>
+        (item.IdParticipanteDeudor === me.IdParticipanteViaje && item.Estado === "pendiente") ||
+        (item.IdParticipanteAcreedor === me.IdParticipanteViaje && item.Estado === "informada")
+    ).length;
+  }, [currentUser, settlement]);
+
   const totalPendienteLiquidacion = useMemo(
     () => pendingTransfers.reduce((acc, item) => acc + Number(item.Monto ?? 0), 0),
     [pendingTransfers]
   );
 
-  const [gastosView, setGastosView] = useState("gastos");
+  const [gastosView, setGastosView] = useState(
+    () => route.params?.notificationTarget?.gastosView ?? "gastos"
+  );
   const [expenses, setExpenses] = useState([]);
   const [expenseCategories, setExpenseCategories] = useState([]);
   const [expensesLoading, setExpensesLoading] = useState(false);
@@ -778,18 +800,51 @@ async function ejecutarBorradoGasto(gastoId, eliminarComprobante = false) {
 
   useEffect(() => onTripFinishedError(() => loadTripDetail()), [loadTripDetail]);
 
-  const loadSettlement = useCallback(async () => {
+  // "De dónde sale tu saldo" (punto 6).
+  const [miSaldo, setMiSaldo] = useState({ visible: false, data: null, loading: false, error: "" });
+  const miSaldoVisibleRef = useRef(false);
+
+  const cargarMiSaldo = useCallback(async () => {
     if (!initialTrip?.id) return;
+    setMiSaldo((actual) => ({ ...actual, loading: true, error: "" }));
+    try {
+      const data = await getMySettlementBalance(initialTrip.id);
+      setMiSaldo((actual) => ({ ...actual, data, loading: false }));
+    } catch (error) {
+      setMiSaldo((actual) => ({
+        ...actual,
+        loading: false,
+        error: error.message || "No se pudo cargar el detalle de tu saldo.",
+      }));
+    }
+  }, [initialTrip?.id]);
+
+  function abrirMiSaldo() {
+    miSaldoVisibleRef.current = true;
+    setMiSaldo({ visible: true, data: null, loading: true, error: "" });
+    cargarMiSaldo();
+  }
+
+  function cerrarMiSaldo() {
+    miSaldoVisibleRef.current = false;
+    setMiSaldo({ visible: false, data: null, loading: false, error: "" });
+  }
+
+  // `silencioso`: recarga en segundo plano (por WebSocket) sin mostrar el
+  // spinner, para que la tarjeta no parpadee cuando otro hace un cambio.
+  const loadSettlement = useCallback(async (opciones) => {
+    if (!initialTrip?.id) return;
+    const silencioso = opciones?.silencioso === true;
 
     try {
-      setLoadingSettlement(true);
+      if (!silencioso) setLoadingSettlement(true);
       setSettlementError("");
       const data = await getTripSettlement(initialTrip.id);
       setSettlement(data);
     } catch (error) {
       setSettlementError(error.message || "No se pudo cargar la liquidación del viaje.");
     } finally {
-      setLoadingSettlement(false);
+      if (!silencioso) setLoadingSettlement(false);
     }
   }, [initialTrip?.id]);
 
@@ -1033,10 +1088,29 @@ async function ejecutarBorradoGasto(gastoId, eliminarComprobante = false) {
             // la liquidación (y el detalle, si está abierto) sin recargar la pantalla.
             if (mensaje.tipo === "gasto_actualizado") {
               loadExpenses();
-              loadSettlement();
+              loadSettlement({ silencioso: true });
+              if (miSaldoVisibleRef.current) cargarMiSaldo();
               if (detalleGastoIdRef.current === mensaje.idGasto) {
                 cargarDetalleGasto(mensaje.idGasto, { silencioso: true });
               }
+              return;
+            }
+            // Otro participante eliminó un gasto: desaparece de la lista, se
+            // actualizan los saldos y, si tenía su detalle abierto, se cierra.
+            if (mensaje.tipo === "gasto_eliminado") {
+              loadExpenses();
+              loadSettlement({ silencioso: true });
+              if (miSaldoVisibleRef.current) cargarMiSaldo();
+              if (detalleGastoIdRef.current === mensaje.idGasto) {
+                cerrarDetalleGasto();
+              }
+              return;
+            }
+            // Cambió la liquidación (alguien avisó "Ya transferí", confirmó,
+            // rechazó, deshizo o recalculó): se refrescan saldos y transferencias.
+            if (mensaje.tipo === "liquidacion_actualizada") {
+              loadSettlement({ silencioso: true });
+              if (miSaldoVisibleRef.current) cargarMiSaldo();
               return;
             }
             // Alguien empezó o terminó de editar un gasto: si su detalle está
@@ -1581,18 +1655,47 @@ async function ejecutarBorradoGasto(gastoId, eliminarComprobante = false) {
     }
   }
 
-  async function handleMarkTransferPaid(transferId, realizada) {
+  async function runTransferAction(transferId, action) {
     if (!trip?.id || !lock.canEdit("gastos")) return;
     try {
       setUpdatingTransferId(transferId);
       setSettlementError("");
-      const data = await markSettlementTransferPaid(trip.id, transferId, realizada);
+      const data = await action();
       setSettlement(data);
     } catch (error) {
       setSettlementError(error.message || "No se pudo actualizar la transferencia.");
     } finally {
       setUpdatingTransferId(null);
     }
+  }
+
+  // Acreedor: "Me llegó" (realizada = true) o "Deshacer" (false).
+  function handleMarkTransferPaid(transferId, realizada) {
+    return runTransferAction(transferId, () =>
+      markSettlementTransferPaid(trip.id, transferId, realizada)
+    );
+  }
+
+  // Deudor: "Ya transferí".
+  function handleReportTransfer(transferId) {
+    return runTransferAction(transferId, () => reportSettlementTransfer(trip.id, transferId));
+  }
+
+  // Acreedor: "No me llegó". Se confirma antes porque le avisa al deudor.
+  function handleRejectTransfer(transferId) {
+    appAlert(
+      "¿No te llegó la transferencia?",
+      "Le vamos a avisar para que la revise. La deuda vuelve a quedar pendiente.",
+      [
+        { text: "Volver", style: "cancel" },
+        {
+          text: "No me llegó",
+          style: "destructive",
+          onPress: () =>
+            runTransferAction(transferId, () => rejectSettlementTransfer(trip.id, transferId)),
+        },
+      ]
+    );
   }
 
   const [activityToDelete, setActivityToDelete] = useState(null);
@@ -2060,7 +2163,7 @@ async function ejecutarBorradoGasto(gastoId, eliminarComprobante = false) {
                     )}
                   </Text>
                   <Text style={styles.summaryLabel}>
-                    Total gastado ({settlement?.Moneda || trip?.currency || "ARS"})
+                    Gastos del grupo ({settlement?.Moneda || trip?.currency || "ARS"})
                   </Text>
                 </Pressable>
 
@@ -2523,6 +2626,8 @@ async function ejecutarBorradoGasto(gastoId, eliminarComprobante = false) {
                   currency={settlement?.Moneda ?? trip.currency}
                   error={settlementError}
                   loading={loadingSettlement}
+                  myExpense={settlement?.GastoUsuario ?? null}
+                  myPersonalExpense={settlement?.GastoPersonalUsuario ?? 0}
                   mySaldo={mySettlementBalance}
                   onAddExpense={() => setShowAddGastoModal(true)}
                   onRebuild={handleRebuildSettlement}
@@ -2547,7 +2652,7 @@ async function ejecutarBorradoGasto(gastoId, eliminarComprobante = false) {
                     {
                       id: "transferencias",
                       label: "Transferencias",
-                      badge: pendingTransfers.length,
+                      badge: myTransfersToAct,
                     },
                   ]}
                   testID="gastos-view"
@@ -2582,7 +2687,9 @@ async function ejecutarBorradoGasto(gastoId, eliminarComprobante = false) {
                     currency={settlement?.Moneda ?? trip.currency}
                     currentUserId={currentUser?.id}
                     loading={loadingSettlement}
-                    onToggle={handleMarkTransferPaid}
+                    onConfirm={handleMarkTransferPaid}
+                    onReject={handleRejectTransfer}
+                    onReport={handleReportTransfer}
                     transfers={settlement?.Transferencias ?? []}
                     updatingTransferId={updatingTransferId}
                   />
@@ -2592,6 +2699,7 @@ async function ejecutarBorradoGasto(gastoId, eliminarComprobante = false) {
                     currency={settlement?.Moneda ?? trip.currency}
                     currentUserId={currentUser?.id}
                     loading={loadingSettlement}
+                    onShowBreakdown={abrirMiSaldo}
                   />
                 )}
               </View>
@@ -3309,6 +3417,14 @@ async function ejecutarBorradoGasto(gastoId, eliminarComprobante = false) {
           loadSettlement();
           loadExpenses();
         }}
+      />
+      <MyBalanceBreakdownModal
+        data={miSaldo.data}
+        error={miSaldo.error}
+        loading={miSaldo.loading}
+        visible={miSaldo.visible}
+        onClose={cerrarMiSaldo}
+        onRetry={cargarMiSaldo}
       />
       <ExpenseDetailModal
         visible={!!detalleGasto}

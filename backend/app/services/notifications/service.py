@@ -24,6 +24,8 @@ class NotificationType(StrEnum):
     INVITACION_CANCELADA = "invitacion_cancelada"
     GASTO_MODIFICADO = "gasto_modificado"
     LIQUIDACION_ACTUALIZADA = "liquidacion_actualizada"
+    TRANSFERENCIA_INFORMADA = "transferencia_informada"
+    TRANSFERENCIA_RECHAZADA = "transferencia_rechazada"
 
 
 @dataclass(slots=True)
@@ -54,7 +56,10 @@ class NotificationService:
         NotificationType.NUEVO_GASTO: "RecibeEmailsNuevosGastos",
         NotificationType.GASTO_MODIFICADO: "RecibeEmailsNuevosGastos",
         NotificationType.RECORDATORIO_DEUDA: "RecibeEmailsRecordatoriosDeuda",
+        # Cambios de a quién transferir: misma preferencia que los recordatorios de deuda.
         NotificationType.LIQUIDACION_ACTUALIZADA: "RecibeEmailsRecordatoriosDeuda",
+        NotificationType.TRANSFERENCIA_INFORMADA: "RecibeEmailsRecordatoriosDeuda",
+        NotificationType.TRANSFERENCIA_RECHAZADA: "RecibeEmailsRecordatoriosDeuda",
         NotificationType.RECORDATORIO_ACTIVIDAD: "RecibeEmailsRecordatoriosActividad",
         NotificationType.RECORDATORIO_RESERVA: "RecibeEmailsRecordatoriosReserva",
         NotificationType.PARTICIPANTE_EXPULSADO: "RecibeEmailsCambiosViaje",
@@ -68,6 +73,8 @@ class NotificationService:
         NotificationType.GASTO_MODIFICADO: "RecibePushNuevosGastos",
         NotificationType.RECORDATORIO_DEUDA: "RecibePushRecordatoriosDeuda",
         NotificationType.LIQUIDACION_ACTUALIZADA: "RecibePushRecordatoriosDeuda",
+        NotificationType.TRANSFERENCIA_INFORMADA: "RecibePushRecordatoriosDeuda",
+        NotificationType.TRANSFERENCIA_RECHAZADA: "RecibePushRecordatoriosDeuda",
         NotificationType.RECORDATORIO_ACTIVIDAD: "RecibePushRecordatoriosActividad",
         NotificationType.RECORDATORIO_RESERVA: "RecibePushRecordatoriosReserva",
         NotificationType.PARTICIPANTE_EXPULSADO: "RecibePushCambiosViaje",

@@ -101,6 +101,7 @@ def master_data(db_session):
     estados_transferencia = [
         EstadoTransferenciaLiquidacion(Nombre="pendiente", Activo=True),
         EstadoTransferenciaLiquidacion(Nombre="realizada", Activo=True),
+        EstadoTransferenciaLiquidacion(Nombre="informada", Activo=True),
         EstadoTransferenciaLiquidacion(Nombre="anulada", Activo=True),
     ]
 

@@ -369,7 +369,8 @@ def test_recalcular_no_revive_deudas_ya_saldadas(
     data = rebuild_response.json()
 
     assert data["TieneDesbalances"] is False
-    assert data["Transferencias"] == []
+    # La deuda saldada no vuelve como pendiente; la confirmación queda como historial.
+    assert [t["Estado"] for t in data["Transferencias"]] == ["realizada"]
     resumen = {item["NombreCompleto"]: Decimal(item["BalancePendiente"]) for item in data["ResumenParticipantes"]}
     assert resumen["Ana Test"] == Decimal("0.00")
     assert resumen["Bruno Test"] == Decimal("0.00")

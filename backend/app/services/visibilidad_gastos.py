@@ -33,6 +33,19 @@ def gasto_visible_para(gasto: Gasto, id_usuario: int) -> bool:
     return id_usuario in duenos
 
 
+def participa_en_el_gasto(gasto: Gasto, id_usuario: int) -> bool:
+    """El usuario está en la división del gasto, lo pagó o es su gasto personal."""
+    if gasto.Pagador.IdUsuario == id_usuario:
+        return True
+    if es_gasto_personal(gasto):
+        # Un gasto personal visible es propio (lo creó o lo pagó).
+        return gasto_visible_para(gasto, id_usuario)
+    return any(
+        asignacion.ParticipanteViaje.IdUsuario == id_usuario
+        for asignacion in gasto.ParticipantesAsociados
+    )
+
+
 def condicion_gasto_visible(id_usuario: int) -> ColumnElement[bool]:
     """Misma regla que `gasto_visible_para`, para filtrar consultas."""
     mis_participaciones = select(ParticipanteViaje.IdParticipanteViaje).where(
