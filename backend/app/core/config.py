@@ -62,26 +62,31 @@ class Settings(BaseSettings):
     supabase_service_key: str = ""
     supabase_bucket: str = "trip-documents"
 
-    # Generación de imágenes con IA (portada de viaje, US 57)
+    # Generación de imágenes con IA
     cloudflare_account_id: str | None = None
     cloudflare_api_token: str | None = None
     ai_image_model: str = "@cf/black-forest-labs/flux-1-schnell"
     # Si es True no se llama a ningún servicio externo: devuelve una imagen de prueba.
     ai_cover_mock: bool = False
 
-    # Escaneo de comprobantes con IA (US 93)
-    # Proveedor intercambiable por configuración (RNF-37): "gemini" o "mock".
-    # Con "mock" no se llama a ningún servicio externo (desarrollo y tests).
+    # Escaneo de comprobantes con IA
     ai_receipt_provider: str = "gemini"
     gemini_api_key: str | None = None
     gemini_verify_ssl: bool = True
     ai_receipt_model: str = "gemini-3.8-flash"
-    # Modelo alternativo si el principal está saturado, llegó al límite de uso,
-    # no responde a tiempo o fue retirado (RNF-30). Vacío = sin respaldo.
     ai_receipt_fallback_model: str | None = "gemini-3.5-flash-lite"
-    # Tiempo máximo de espera al proveedor; se deja margen para cumplir los
-    # 15 segundos totales del RNF-34 (subida + validaciones + respuesta).
     ai_receipt_timeout_seconds: float = 12.0
+
+    # Sugerencias de actividades con IA
+    ai_suggestions_provider: str = "gemini"
+    ai_suggestions_model: str | None = None
+    ai_suggestions_fallback_model: str | None = None
+    ai_suggestions_timeout_seconds: float = 20.0
+    ai_suggestions_total_timeout_seconds: float = 28.0
+    ai_suggestions_daily_limit: int = 10
+    ai_suggestions_max_distance_km: float = 15.0
+    ai_suggestions_max_results: int = 5
+    ai_suggestions_timezone: str = "America/Argentina/Buenos_Aires"
 
     # Asistente IA del viaje
     ai_assistant_enabled: bool = True

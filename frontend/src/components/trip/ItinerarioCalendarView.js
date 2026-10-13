@@ -45,6 +45,8 @@ export default function ItinerarioCalendarView({
   onAddActivity,
   onGenerarRuta,
   generandoRutaDayId = null,
+  onSuggestActivities,
+  sugerenciasPorDia = {},
 }) {
   const { width } = useResponsive();
   const [diaConMapaVisible, setDiaConMapaVisible] = useState(null);
@@ -279,6 +281,26 @@ export default function ItinerarioCalendarView({
                   <Pressable onPress={() => onAddActivity(dia)} style={styles.agregarBoton}>
                     <FontAwesome6 color={colors.primary} name="plus" size={11} />
                     <Text style={styles.agregarTexto}>Agregar</Text>
+                  </Pressable>
+                ) : null}
+
+                {(sugerenciasPorDia?.[dia.dayId] ?? []).map((sugerencia) => (
+                  <View key={sugerencia.IdSugerenciaActividad} style={styles.actividad}>
+                    <View style={styles.actividadHeaderRow}>
+                      <FontAwesome6 color={colors.primary} name="wand-magic-sparkles" size={11} />
+                      <Text style={styles.actividadHora}>
+                        {sugerencia.HoraInicio} - {sugerencia.HoraFin} · Sugerencia pendiente
+                      </Text>
+                    </View>
+                    <Text numberOfLines={2} style={styles.actividadTitulo}>
+                      {sugerencia.Nombre}
+                    </Text>
+                  </View>
+                ))}
+                {onSuggestActivities && Number.isInteger(dia.dayId) ? (
+                  <Pressable onPress={() => onSuggestActivities(dia)} style={styles.agregarBoton}>
+                    <FontAwesome6 color={colors.primary} name="wand-magic-sparkles" size={11} />
+                    <Text style={styles.agregarTexto}>Sugerir con IA</Text>
                   </Pressable>
                 ) : null}
 

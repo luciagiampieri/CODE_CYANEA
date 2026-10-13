@@ -1581,7 +1581,7 @@ export async function acceptTripCoverAI(tripId, imageBase64, mimeType) {
   });
   return parseResponse(response, "No se pudo establecer la portada generada");
 }
-// US 86 - Preferencias de planificación del viaje
+// Preferencias de planificación del viaje
 export async function getPlanningPreferences(tripId) {
   const response = await fetch(`${API_BASE_URL}/trips/${tripId}/preferencias-planificacion`, {
     headers: await authHeaders(),
@@ -1606,4 +1606,60 @@ export async function savePlanningPreferences(tripId, payload) {
     body: JSON.stringify(payload),
   });
   return parseResponse(response, "No se pudieron guardar tus preferencias de planificación");
+}
+
+
+export async function getActivitySuggestionsContext(tripId) {
+  const response = await fetch(`${API_BASE_URL}/trips/${tripId}/sugerencias-actividades/contexto`, {
+    headers: await authHeaders(),
+    cache: "no-store",
+  });
+  return parseResponse(response, "No se pudo cargar la información del asistente");
+}
+
+export async function getActivitySuggestions(tripId) {
+  const response = await fetch(`${API_BASE_URL}/trips/${tripId}/sugerencias-actividades`, {
+    headers: await authHeaders(),
+    cache: "no-store",
+  });
+  return parseResponse(response, "No se pudieron cargar las sugerencias de actividades");
+}
+
+export async function requestActivitySuggestions(tripId, payload) {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 35000);
+  try {
+    const response = await fetch(`${API_BASE_URL}/trips/${tripId}/sugerencias-actividades`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(await authHeaders()),
+      },
+      body: JSON.stringify(payload),
+      signal: controller.signal,
+    });
+    return await parseResponse(response, "No se pudieron generar las sugerencias");
+  } catch (error) {
+    if (error?.name === "AbortError") {
+      const timeoutError = new Error(
+        "El asistente tardó demasiado en responder. Podés intentar nuevamente o crear la actividad manualmente."
+      );
+      timeoutError.code = "AI_TIMEOUT";
+      throw timeoutError;
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+export async function getActivitySuggestionPhotoSource(tripId, sugerenciaId) {
+  const url = `${API_BASE_URL}/trips/${tripId}/sugerencias-actividades/${sugerenciaId}/foto`;
+  const headers = await authHeaders();
+  if (Platform.OS === "web") {
+    const response = await fetch(url, { headers });
+    if (!response.ok) throw new Error("No se pudo cargar la foto");
+    return { uri: URL.createObjectURL(await response.blob()) };
+  }
+  return { uri: url, headers };
 }

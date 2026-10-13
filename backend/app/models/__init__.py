@@ -39,6 +39,7 @@ from app.models.accion_asistente_viaje import AccionAsistenteViaje
 from app.models.voto import Voto
 from app.models.auditoria_acceso_backoffice import AuditoriaAccesoBackoffice
 from app.models.sesion_backoffice import SesionBackoffice
+from app.models.sugerencia_actividad import (EstadoSugerenciaActividad, SolicitudSugerenciaActividad, SugerenciaActividad,)
 __all__ = [
     "EstadoInvitacion",
     "EstadoParticipacion",
@@ -80,4 +81,7 @@ __all__ = [
     "Voto",
     "AuditoriaAccesoBackoffice",
     "SesionBackoffice",
+    "EstadoSugerenciaActividad",
+    "SolicitudSugerenciaActividad",
+    "SugerenciaActividad",
 ]

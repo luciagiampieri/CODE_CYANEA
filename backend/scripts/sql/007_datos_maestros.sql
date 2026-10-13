@@ -96,3 +96,18 @@ WHERE NOT EXISTS (
     FROM public."CategoriasChecklist" cc
     WHERE cc."Nombre" = datos."Nombre"
 );
+
+
+INSERT INTO public."EstadosSugerenciasActividades" ("Nombre")
+SELECT datos."Nombre"
+FROM (
+    VALUES
+        ('pendiente'),
+        ('aceptada'),
+        ('rechazada')
+) AS datos("Nombre")
+WHERE NOT EXISTS (
+    SELECT 1
+    FROM public."EstadosSugerenciasActividades" e
+    WHERE e."Nombre" = datos."Nombre"
+);

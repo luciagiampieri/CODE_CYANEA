@@ -77,6 +77,7 @@ import {
   getChecklists,
   deleteChecklist,
   toggleChecklistCompletada,
+  getActivitySuggestions, 
 } from "../services/api";
 import { colors, radii, spacing, surfaces, textStyles } from "../theme/tokens";
 
@@ -103,6 +104,8 @@ import { getTripLock } from "../utils/tripLock";
 import { getRouteHint } from "../utils/routeMessages";
 import { formatMoney } from "../utils/money";
 import { centerInScroll } from "../utils/scrollHelpers";
+import ActivitySuggestionsScreen from "./ActivitySuggestionsScreen"; // SUGERENCIAS
+import ActivitySuggestionCard from "../components/trip/ActivitySuggestionCard"; // SUGERENCIAS
 
 import { appAlert } from "../components/ui/AppDialog";
 
@@ -369,6 +372,39 @@ export default function TripDetailScreen({ navigation, route }) {
 
   const [keyboardInset, setKeyboardInset] = useState(0);
 
+  const [sugerenciasPorDia, setSugerenciasPorDia] = useState({});
+  const [sugerenciasDayId, setSugerenciasDayId] = useState(null);
+  const [showSugerenciasModal, setShowSugerenciasModal] = useState(false);
+
+  // Sugerencias pendientes del viaje, agrupadas por día (las ven todos los participantes).
+  const cargarSugerencias = useCallback(async () => {
+    if (!trip?.id) return;
+    try {
+      const data = await getActivitySuggestions(trip.id);
+      const agrupadas = {};
+      (Array.isArray(data) ? data : []).forEach((sugerencia) => {
+        if (!agrupadas[sugerencia.IdDiaCronograma]) agrupadas[sugerencia.IdDiaCronograma] = [];
+        agrupadas[sugerencia.IdDiaCronograma].push(sugerencia);
+      });
+      setSugerenciasPorDia(agrupadas);
+    } catch (error) {
+      console.warn("No se pudieron cargar las sugerencias de actividades:", error?.message);
+    }
+  }, [trip?.id]);
+
+  // Carga sugerencias de actividades para el día actual
+  useEffect(() => {
+    if (activeTab === "itinerario") {
+      cargarSugerencias();
+    }
+  }, [activeTab, cargarSugerencias, trip?.cronograma]);
+
+  function abrirSugerencias(dayId) {
+    if (!lock.canEdit("itinerario")) return;
+    setSugerenciasDayId(dayId);
+    setShowSugerenciasModal(true);
+  }
+
   const [comprobanteViendo, setComprobanteViendo] = useState(null);
   const [descargandoComprobanteId, setDescargandoComprobanteId] = useState(null);
   const { width: winW, height: winH } = useWindowDimensions();
@@ -611,7 +647,6 @@ export default function TripDetailScreen({ navigation, route }) {
   const [expensesLoading, setExpensesLoading] = useState(false);
   const [expensesError, setExpensesError] = useState("");
   const [deletingExpenseId, setDeletingExpenseId] = useState(null);
-  // US 79: detalle del gasto (modo lectura) y gasto abierto en el formulario de edición.
   const [detalleGasto, setDetalleGasto] = useState(null); // { id, gasto, loading, error }
   const [gastoEnEdicion, setGastoEnEdicion] = useState(null);
   const detalleGastoIdRef = useRef(null);
@@ -640,7 +675,7 @@ export default function TripDetailScreen({ navigation, route }) {
     }
   }, [activeTab, loadExpenses]);
 
-async function ejecutarBorradoGasto(gastoId, eliminarComprobante = false) {
+  async function ejecutarBorradoGasto(gastoId, eliminarComprobante = false) {
     try {
       setGastoParaEliminar(null);
       setDeletingExpenseId(gastoId);
@@ -667,8 +702,6 @@ async function ejecutarBorradoGasto(gastoId, eliminarComprobante = false) {
     }
   }
 
-  // US 79: carga el detalle de un gasto. `silencioso` no muestra el spinner
-  // (se usa para refrescarlo cuando llega un evento por WebSocket).
   const cargarDetalleGasto = useCallback(async (idGasto, { silencioso = false } = {}) => {
     detalleGastoIdRef.current = idGasto;
     if (!silencioso) {
@@ -2322,6 +2355,31 @@ async function ejecutarBorradoGasto(gastoId, eliminarComprobante = false) {
                           }
                         />
 
+                        {/* SUGERENCIAS */}
+                        {(sugerenciasPorDia[dayId] ?? []).length > 0 ? (
+                          <View style={styles.suggestionsBlock}>
+                            <Text style={styles.suggestionsTitle}>Sugerencias del asistente</Text>
+                            {(sugerenciasPorDia[dayId] ?? []).map((sugerencia) => (
+                              <ActivitySuggestionCard
+                                key={sugerencia.IdSugerenciaActividad}
+                                sugerencia={sugerencia}
+                              />
+                            ))}
+                          </View>
+                        ) : null}
+
+                        {lock.canEdit("itinerario") && Number.isInteger(dayId) ? (
+                          <Pressable
+                            accessibilityRole="button"
+                            onPress={() => abrirSugerencias(dayId)}
+                            style={styles.suggestButton}
+                            testID={`suggest-activities-${dayId}`}
+                          >
+                            <FontAwesome6 color={colors.primary} name="wand-magic-sparkles" size={12} />
+                            <Text style={styles.suggestButtonText}>Sugerir con IA</Text>
+                          </Pressable>
+                        ) : null}
+
                         {(() => {
                           const actividadesConUbicacion = actividades.filter(
                             (item) => item.idLugarInteres || item.lugarInteres
@@ -2477,6 +2535,10 @@ async function ejecutarBorradoGasto(gastoId, eliminarComprobante = false) {
               dias={itinerarioDias}
               generandoRutaDayId={generandoRutaDayId}
               onGenerarRuta={lock.canEdit("itinerario") ? handleGenerarRuta : undefined}
+              onSuggestActivities={
+                lock.canEdit("itinerario") ? (day) => abrirSugerencias(day.dayId) : undefined
+              }
+              sugerenciasPorDia={sugerenciasPorDia}
               onAddActivity={
                 lock.canEdit("itinerario")
                   ? (day) =>
@@ -3291,6 +3353,29 @@ async function ejecutarBorradoGasto(gastoId, eliminarComprobante = false) {
         activityToEdit={activityModalDay?.activity}
         onCancelEdit={(activityId) => {
           finalizarEdicionActividad(activityId);
+        }}
+      />
+      <ActivitySuggestionsScreen
+        visible={showSugerenciasModal}
+        tripId={trip?.id}
+        tripTitle={trip?.title}
+        dias={itinerarioDias}
+        initialDayId={sugerenciasDayId}
+        onClose={() => setShowSugerenciasModal(false)}
+        onGenerado={cargarSugerencias}
+        onCrearManual={(dayId) => {
+          const dia = itinerarioDias.find((item) => item.dayId === dayId);
+          setShowSugerenciasModal(false);
+          if (dia) {
+            setTimeout(
+              () =>
+                setActivityModalDay({
+                  id: dia.dayId,
+                  label: `${dia.dayDateText} · Día ${dia.dayIndex}`,
+                }),
+              350
+            );
+          }
         }}
       />
       <AddGastoScreen
@@ -4623,5 +4708,27 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(0, 0, 0, 0.6)",
     zIndex: 10,
     width: "100%",
-  }
+  },
+  suggestionsBlock: {
+    marginTop: spacing.sm,
+    gap: spacing.sm,
+  },
+  suggestionsTitle: {
+    ...textStyles.sectionLabel,
+    color: colors.textMuted,
+    fontSize: 11,
+    letterSpacing: 0.8,
+  },
+  suggestButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.xs,
+    alignSelf: "flex-start",
+    marginTop: spacing.xs,
+  },
+  suggestButtonText: {
+    ...textStyles.bodyStrong,
+    color: colors.primary,
+    fontSize: 13,
+  },  
 });
