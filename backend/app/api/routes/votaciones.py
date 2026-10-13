@@ -19,12 +19,13 @@ from app.schemas.votacion import (
     PropuestaRead,
     ResultadoPropuesta,
     VotacionCreate,
+    VotacionDesdeSugerenciasCreate,
     VotacionRead,
     VotacionResultados,
     VotacionUpdate,
     VotanteResultado,
 )
-
+from app.services import sugerencias_votacion
 from app.services.notifications import NotificationType, TripNotificationEvent, dispatch_trip_notification
 from app.services.trip_access import get_trip_with_relations, require_trip_access, require_trip_edit_access, require_trip_not_finished, is_trip_finished
 
@@ -46,7 +47,6 @@ def _aware(fecha: datetime) -> datetime:
 def _estado(votacion: Votacion, viaje: Viaje | None = None) -> str:
     if votacion.FechaCancelacion is not None:
         return "cancelada"
-    # Cuando el viaje termina, las votaciones abiertas se cierran solas.
     if viaje is not None and is_trip_finished(viaje):
         return "cerrada"
     return "cerrada" if _aware(votacion.FechaCierre) <= _ahora_utc() else "abierta"
@@ -83,7 +83,12 @@ def _build_votacion_read(
         Estado=_estado(votacion, viaje),
         YaVoto=ya_voto,
         Propuestas=[
-            PropuestaRead(IdPropuesta=p.IdPropuesta, Texto=p.Texto) for p in propuestas
+            PropuestaRead(
+                IdPropuesta=p.IdPropuesta,
+                Texto=p.Texto,
+                IdSugerenciaActividad=p.IdSugerenciaActividad,
+            )
+            for p in propuestas
         ],
         FechaCancelacion=_aware(votacion.FechaCancelacion) if votacion.FechaCancelacion else None,
     )
@@ -141,6 +146,7 @@ def _calcular_resultados(
             Porcentaje=round((votos_por_propuesta.get(p.IdPropuesta, 0) / total_votos) * 100, 2)
             if total_votos else 0.0,
             Votantes=votantes_por_propuesta.get(p.IdPropuesta, []),
+            IdSugerenciaActividad=p.IdSugerenciaActividad,
         )
         for p in propuestas
     ]
@@ -176,6 +182,59 @@ def _calcular_resultados(
     )
 
 
+def _crear_votacion(
+    db: Session,
+    *,
+    id_viaje: int,
+    titulo: str,
+    tipo: str,
+    fecha_cierre: datetime,
+    id_creador: int,
+    propuestas: list[tuple[str, int | None]],
+) -> Votacion:
+    votacion = Votacion(
+        IdViaje=id_viaje,
+        Titulo=titulo,
+        Tipo=tipo,
+        FechaCierre=fecha_cierre,
+        IdCreador=id_creador,
+    )
+    db.add(votacion)
+    db.flush()
+
+    for indice, (texto, id_sugerencia) in enumerate(propuestas, start=1):
+        db.add(
+            Propuesta(
+                IdVotacion=votacion.IdVotacion,
+                Texto=texto,
+                Orden=indice,
+                IdSugerenciaActividad=id_sugerencia,
+            )
+        )
+    return votacion
+
+
+async def _notificar_nueva_votacion(
+    db: Session, viaje: Viaje, votacion: Votacion, actor: Usuario
+) -> None:
+    """Notifica la nueva votación respetando las preferencias de cada participante."""
+    await dispatch_trip_notification(
+        db,
+        TripNotificationEvent(
+            notification_type=NotificationType.NUEVA_VOTACION,
+            tipo="nueva_votacion",
+            titulo=f"Nueva votación en {viaje.Titulo}",
+            mensaje=f"{_actor_display_name(actor)} creó la votación {votacion.Titulo}.",
+            id_viaje=votacion.IdViaje,
+            id_usuario_actor=actor.IdUsuario,
+            data={
+                "eventType": "voting_created",
+                "votingId": votacion.IdVotacion,
+            },
+        ),
+    )
+
+
 @router.post("", response_model=VotacionRead, status_code=status.HTTP_201_CREATED)
 async def crear_votacion(
     payload: VotacionCreate,
@@ -190,48 +249,89 @@ async def crear_votacion(
     )
     require_trip_not_finished(viaje, "las votaciones")
 
-    votacion = Votacion(
-        IdViaje=payload.idViaje,
-        Titulo=payload.nombre,
-        Tipo=payload.tipo,
-        FechaCierre=payload.fechaCierre,
-        IdCreador=current_user.IdUsuario,
+    votacion = _crear_votacion(
+        db,
+        id_viaje=payload.idViaje,
+        titulo=payload.nombre,
+        tipo=payload.tipo,
+        fecha_cierre=payload.fechaCierre,
+        id_creador=current_user.IdUsuario,
+        propuestas=[(texto, None) for texto in payload.propuestas],
     )
-    db.add(votacion)
-    db.flush()
-
-    for indice, texto in enumerate(payload.propuestas, start=1):
-        db.add(Propuesta(IdVotacion=votacion.IdVotacion, Texto=texto, Orden=indice))
 
     db.commit()
     db.refresh(votacion)
-
 
     background_tasks.add_task(
         ws_manager.broadcast,
         votacion.IdViaje,
         {"tipo": "votacion_actualizada", "idVotacion": votacion.IdVotacion},
     )
-    await dispatch_trip_notification(
-        db,
-        TripNotificationEvent(
-            notification_type=NotificationType.NUEVA_VOTACION,
-            tipo="nueva_votacion",
-            titulo=f"Nueva votación en {viaje.Titulo}",
-            mensaje=f"{_actor_display_name(current_user)} creó la votación {votacion.Titulo}.",
-            id_viaje=votacion.IdViaje,
-            id_usuario_actor=current_user.IdUsuario,
-            data={
-                "eventType": "voting_created",
-                "votingId": votacion.IdVotacion,
-            },
-        ),
-    )
+    await _notificar_nueva_votacion(db, viaje, votacion, current_user)
 
     return _build_votacion_read(db, votacion, current_user.IdUsuario)
 
 
-@router.get("", response_model=List[VotacionRead]) 
+@router.post(
+    "/desde-sugerencias",
+    response_model=VotacionRead,
+    status_code=status.HTTP_201_CREATED,
+)
+async def crear_votacion_desde_sugerencias(
+    payload: VotacionDesdeSugerenciasCreate,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> VotacionRead:
+
+    viaje = require_trip_edit_access(
+        get_trip_with_relations(db, payload.idViaje),
+        current_user,
+    )
+    require_trip_not_finished(viaje, "las votaciones")
+
+    datos = sugerencias_votacion.preparar_votacion(
+        db,
+        id_viaje=payload.idViaje,
+        ids_sugerencias=payload.idsSugerencias,
+        titulo=payload.nombre,
+        fecha_cierre=payload.fechaCierre,
+    )
+
+    votacion = _crear_votacion(
+        db,
+        id_viaje=payload.idViaje,
+        titulo=datos.titulo,
+        tipo="opcion_unica",
+        fecha_cierre=datos.fecha_cierre,
+        id_creador=current_user.IdUsuario,
+        propuestas=[
+            (sugerencias_votacion.texto_propuesta(s), s.IdSugerenciaActividad)
+            for s in datos.sugerencias
+        ],
+    )
+
+    sugerencias_votacion.marcar_en_votacion(db, datos.sugerencias)
+
+    db.commit()
+    db.refresh(votacion)
+
+    background_tasks.add_task(
+        ws_manager.broadcast,
+        votacion.IdViaje,
+        {"tipo": "votacion_actualizada", "idVotacion": votacion.IdVotacion},
+    )
+    background_tasks.add_task(
+        ws_manager.broadcast,
+        votacion.IdViaje,
+        {"tipo": "sugerencias_actualizadas"},
+    )
+    await _notificar_nueva_votacion(db, viaje, votacion, current_user)
+
+    return _build_votacion_read(db, votacion, current_user.IdUsuario, viaje)
+
+
+@router.get("", response_model=List[VotacionRead])
 def listar_votaciones(
     idViaje: int = Query(..., description="Viaje del que se listan las votaciones"),
     db: Session = Depends(get_db),
@@ -264,7 +364,7 @@ def listar_votaciones(
         consulta = consulta.where(
             Votacion.FechaCreacion <= participacion.FechaSalida
         )
-        
+
     votaciones = db.scalars(
         consulta.order_by(Votacion.FechaCreacion.desc())
     ).all()
@@ -371,8 +471,8 @@ class VotoRequest(BaseModel):
 
 @router.post("/{id_votacion}/votar")
 def emitir_voto(
-    id_votacion: int, 
-    request: VotoRequest, 
+    id_votacion: int,
+    request: VotoRequest,
     background_tasks: BackgroundTasks,
     current_user: Usuario = Depends(get_current_user),
     db: Session = Depends(get_db)
@@ -401,7 +501,7 @@ def emitir_voto(
             Voto.IdUsuario == current_user.IdUsuario,
         )
     ) or 0
-    
+
     if ya_voto > 0:
         raise HTTPException(status_code=400, detail="Ya has emitido un voto en esta votación.")
 
@@ -419,7 +519,7 @@ def emitir_voto(
             IdPropuesta=id_propuesta
         )
         db.add(nuevo_voto)
-        
+
     db.commit()
 
     background_tasks.add_task(
@@ -465,6 +565,7 @@ def cancelar_votacion(
         )
 
     votacion.FechaCancelacion = _ahora_utc()
+    sugerencias_liberadas = sugerencias_votacion.liberar_sugerencias(db, votacion)
     db.commit()
     db.refresh(votacion)
 
@@ -473,6 +574,12 @@ def cancelar_votacion(
         votacion.IdViaje,
         {"tipo": "votacion_actualizada", "idVotacion": votacion.IdVotacion},
     )
+    if sugerencias_liberadas:
+        background_tasks.add_task(
+            ws_manager.broadcast,
+            votacion.IdViaje,
+            {"tipo": "sugerencias_actualizadas"},
+        )
 
     return _build_votacion_read(db, votacion, current_user.IdUsuario)
 
@@ -520,6 +627,15 @@ def editar_votacion(
             status_code=400,
             detail="No se pueden modificar las propuestas después de emitir votos.",
         )
+
+    if sugerencias_votacion.es_votacion_de_sugerencias(votacion):
+        if cambia_propuestas:
+            raise HTTPException(
+                status_code=400,
+                detail="Las propuestas de una votación creada desde sugerencias no se pueden modificar.",
+            )
+        if payload.fechaCierre is not None:
+            sugerencias_votacion.validar_cierre_editado(db, votacion, payload.fechaCierre)
 
     if payload.nombre is not None:
         votacion.Titulo = payload.nombre
@@ -573,6 +689,7 @@ def eliminar_votacion(
             detail="Solo se pueden eliminar votaciones que están activas.",
         )
 
+    sugerencias_liberadas = sugerencias_votacion.liberar_sugerencias(db, votacion)
     db.delete(votacion)
     db.commit()
     background_tasks.add_task(
@@ -580,4 +697,10 @@ def eliminar_votacion(
         viaje.IdViaje,
         {"tipo": "votacion_actualizada", "idVotacion": id_votacion},
     )
+    if sugerencias_liberadas:
+        background_tasks.add_task(
+            ws_manager.broadcast,
+            viaje.IdViaje,
+            {"tipo": "sugerencias_actualizadas"},
+        )
     return {"message": "Votación eliminada correctamente."}

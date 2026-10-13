@@ -3,13 +3,15 @@ import { FontAwesome6 } from "@expo/vector-icons";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import { formatDuration, getActivityTimes, getPlaceName, isTodayISO } from "../../utils/agenda";
+import { aHora, aMinutos, calcularHuecosLibres } from "../../utils/huecosLibres";
 import { colors, radii, spacing, textStyles } from "../../theme/tokens";
 
-const ALTO_HORA = 68; // px por hora
-const ALTO_MINIMO = 32; // una actividad corta nunca queda más chica que esto
+const ALTO_HORA = 68; 
+const ALTO_MINIMO = 32; 
 const ANCHO_HORAS = 38;
+const INICIO_SUGERENCIAS = 8 * 60;
+const FIN_SUGERENCIAS = 23 * 60;
 
-// Color por tipo de actividad, deducido del ícono. Fondo suave + acento + texto oscuro del mismo tono.
 const TIPOS = {
   comida: { acento: "#D97706", fondo: "rgba(217,119,6,0.14)", texto: "#92400E", iconos: ["utensils", "mug-hot", "burger", "pizza-slice", "wine-glass", "martini-glass", "ice-cream", "bowl-food", "cake-candles", "beer-mug-empty"] },
   traslado: { acento: "#2563EB", fondo: "rgba(37,99,235,0.12)", texto: "#1E40AF", iconos: ["plane", "plane-departure", "plane-arrival", "car", "bus", "train", "taxi", "ship", "bicycle", "person-walking", "route", "motorcycle", "subway"] },
@@ -25,7 +27,6 @@ function tipoDe(icono) {
     : { acento: colors.primary, fondo: colors.surfaceAlt, texto: colors.primary };
 }
 
-// Reparte en columnas las actividades que se pisan, para que queden lado a lado.
 function acomodar(items) {
   const ordenadas = [...items].sort((a, b) => a.startMin - b.startMin || a.endMin - b.endMin);
   const resultado = [];
@@ -50,12 +51,16 @@ function acomodar(items) {
   return resultado;
 }
 
-/**
- * Vista "día en el tiempo": un eje de horas y cada actividad como un bloque cuyo alto
- * es proporcional a su duración. Las que se superponen quedan una al lado de la otra.
- * Las actividades sin horario se listan arriba como fichas.
- */
-export default function DayTimeGrid({ actividades = [], fecha, canEdit = false, onAdd, onEdit, onDelete }) {
+
+export default function DayTimeGrid({
+  actividades = [],
+  fecha,
+  canEdit = false,
+  onAdd,
+  onEdit,
+  onDelete,
+  onSuggestGap,
+}) {
   const esHoy = isTodayISO(fecha);
 
   const { bloques, sinHorario, desde, hasta } = useMemo(() => {
@@ -67,7 +72,6 @@ export default function DayTimeGrid({ actividades = [], fecha, canEdit = false, 
         sin.push(item);
         return;
       }
-      // Sin hora de fin se dibuja como una franja de 45 min.
       const fin = endMin ?? startMin + 45;
       conHorario.push({ item, startMin, endMin: fin, start, end, tieneFin: endMin != null });
     });
@@ -81,7 +85,22 @@ export default function DayTimeGrid({ actividades = [], fecha, canEdit = false, 
     return { bloques: acomodar(conHorario), sinHorario: sin, desde: d, hasta: h };
   }, [actividades]);
 
-  // Las que se pisan llevan una letra (A, B, C) que se repite en el aviso de arriba.
+  const ahora = new Date();
+  const minutosAhora = ahora.getHours() * 60 + ahora.getMinutes();
+  const mostrarAhora = esHoy && minutosAhora >= desde && minutosAhora <= hasta;
+
+  const puedeSugerir = canEdit && typeof onSuggestGap === "function";
+  const huecos = useMemo(() => {
+    if (!puedeSugerir || !bloques.length) return [];
+    const inicio = Math.max(desde, INICIO_SUGERENCIAS);
+    const fin = Math.min(hasta, FIN_SUGERENCIAS);
+    if (fin <= inicio) return [];
+    return calcularHuecosLibres(
+      bloques.map((b) => ({ horaInicio: aHora(b.startMin), horaFin: aHora(b.endMin) })),
+      { inicioDia: aHora(inicio), finDia: aHora(fin) }
+    ).filter((h) => !(esHoy && aMinutos(h.hasta) <= minutosAhora));
+  }, [puedeSugerir, bloques, desde, hasta, esHoy, minutosAhora]);
+
   const enConflicto = bloques
     .filter((b) => b.columnas > 1)
     .sort((a, b) => a.startMin - b.startMin || a.col - b.col);
@@ -89,10 +108,6 @@ export default function DayTimeGrid({ actividades = [], fecha, canEdit = false, 
   enConflicto.forEach((b, i) => {
     letraDe[b.item.id] = String.fromCharCode(65 + (i % 26));
   });
-
-  const ahora = new Date();
-  const minutosAhora = ahora.getHours() * 60 + ahora.getMinutes();
-  const mostrarAhora = esHoy && minutosAhora >= desde && minutosAhora <= hasta;
 
   const horas = [];
   for (let m = desde; m < hasta; m += 60) horas.push(m);
@@ -143,7 +158,7 @@ export default function DayTimeGrid({ actividades = [], fecha, canEdit = false, 
                 <Text numberOfLines={1} style={styles.avisoTexto}>
                   <Text style={styles.avisoHora}>
                     {b.start}
-                    {b.tieneFin ? `–${b.end}` : ""}
+                    {b.tieneFin ? ` – ${b.end}` : ""}
                   </Text>
                   {"  "}
                   {b.item.title}
@@ -164,6 +179,32 @@ export default function DayTimeGrid({ actividades = [], fecha, canEdit = false, 
           ))}
 
           <View style={styles.carril}>
+            {huecos.map((h) => {
+              const inicio = aMinutos(h.desde);
+              const fin = aMinutos(h.hasta);
+              const top = ((inicio - desde) / 60) * ALTO_HORA + 2;
+              const alto = ((fin - inicio) / 60) * ALTO_HORA - 6;
+              return (
+                <Pressable
+                  key={`hueco-${h.desde}`}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Libre de ${h.desde} a ${h.hasta}. Sugerir actividades con IA`}
+                  onPress={() => onSuggestGap(h.desde, h.hasta)}
+                  style={({ pressed }) => [
+                    styles.hueco,
+                    { top, height: alto },
+                    pressed && styles.huecoPresionado,
+                  ]}
+                  testID={`timegrid-gap-${h.desde}`}
+                >
+                  <FontAwesome6 color={colors.primary} name="wand-magic-sparkles" size={11} />
+                  <Text style={styles.huecoTexto}>
+                    {formatDuration(fin - inicio)} libres · Sugerir
+                  </Text>
+                </Pressable>
+              );
+            })}
+
             {bloques.map((b) => {
               const top = ((b.startMin - desde) / 60) * ALTO_HORA;
               const alto = Math.max(((b.endMin - b.startMin) / 60) * ALTO_HORA - 2, ALTO_MINIMO);
@@ -230,7 +271,7 @@ export default function DayTimeGrid({ actividades = [], fecha, canEdit = false, 
                     {alto >= 40 ? (
                       <Text numberOfLines={1} style={[styles.bloqueHora, { color: tipo.texto }]}>
                         {b.start}
-                        {b.tieneFin ? `–${b.end}` : ""}
+                        {b.tieneFin ? ` – ${b.end}` : ""}
                         {b.tieneFin && b.columnas === 1 ? ` · ${formatDuration(b.endMin - b.startMin)}` : ""}
                       </Text>
                     ) : null}
@@ -298,6 +339,22 @@ const styles = StyleSheet.create({
   },
   linea: { flex: 1, height: 1, backgroundColor: colors.border },
   carril: { position: "absolute", top: 0, bottom: 0, left: ANCHO_HORAS + 4, right: 0 },
+  hueco: {
+    position: "absolute",
+    left: 0,
+    right: 3,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderStyle: "dashed",
+    borderColor: colors.accentStrong,
+    backgroundColor: colors.accentMuted,
+  },
+  huecoPresionado: { opacity: 0.75 },
+  huecoTexto: { ...textStyles.meta, color: colors.primary, fontSize: 12, fontWeight: "700" },
   bloque: { position: "absolute", paddingRight: 3, paddingBottom: 2 },
   bloquePasado: { opacity: 0.55 },
   bloqueInterior: {

@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState, useRef } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Modal,
@@ -16,10 +16,14 @@ import ActivitySuggestionCard from "../components/trip/ActivitySuggestionCard";
 import PrimaryButton from "../components/ui/PrimaryButton";
 import { getActivitySuggestionsContext, requestActivitySuggestions } from "../services/api";
 import { colors, radii, spacing, textStyles } from "../theme/tokens";
+import { acotarFranja, aMinutos, calcularHuecosLibres } from "../utils/huecosLibres";
 import PlanningPreferencesScreen from "./PlanningPreferencesScreen";
 
 const DURACION_MINIMA_MINUTOS = 60;
 
+const FRANJA_POR_DEFECTO = { inicio: "10:00", fin: "13:00" };
+
+// Solo se ofrecen cuando el día no tiene actividades (si tiene, se ofrecen sus huecos libres).
 const FRANJAS_RAPIDAS = [
   { id: "manana", label: "Mañana", inicio: "09:00", fin: "13:00" },
   { id: "tarde", label: "Tarde", inicio: "14:00", fin: "18:00" },
@@ -32,7 +36,6 @@ const DISTANCIAS = [
   { km: 30, label: "Más lejos · 30 km" },
 ];
 
-
 const MENSAJES_PROGRESO = [
   "Analizando las preferencias del grupo…",
   "Buscando actividades para tu franja…",
@@ -42,6 +45,13 @@ const MENSAJES_PROGRESO = [
 
 const ERRORES_DE_IA = ["AI_UNAVAILABLE", "AI_TIMEOUT", "AI_RATE_LIMITED", "AI_INVALID_RESPONSE"];
 
+const SEMANA = ["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"];
+const SEMANA_LARGA = ["Domingo", "Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"];
+const MESES = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"];
+const MESES_LARGOS = [
+  "enero", "febrero", "marzo", "abril", "mayo", "junio",
+  "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre",
+];
 
 export function normalizarHora(texto) {
   const match = String(texto ?? "").trim().match(/^(\d{1,2})(?::?(\d{2}))?$/);
@@ -50,11 +60,6 @@ export function normalizarHora(texto) {
   const minutos = match[2] ? Number(match[2]) : 0;
   if (horas > 23 || minutos > 59) return null;
   return `${String(horas).padStart(2, "0")}:${String(minutos).padStart(2, "0")}`;
-}
-
-function aMinutos(hhmm) {
-  const [h, m] = hhmm.split(":").map(Number);
-  return h * 60 + m;
 }
 
 export function validarFranja(inicioTexto, finTexto) {
@@ -78,6 +83,38 @@ function hoyIso() {
   return `${ahora.getFullYear()}-${mes}-${dia}`;
 }
 
+function fechaISO(fechaRaw) {
+  return String(fechaRaw ?? "").slice(0, 10);
+}
+
+function partesDeFecha(fechaRaw) {
+  const fecha = new Date(`${fechaISO(fechaRaw)}T12:00:00`);
+  if (Number.isNaN(fecha.getTime())) return null;
+  return {
+    semana: SEMANA[fecha.getDay()],
+    numero: String(fecha.getDate()),
+    mes: MESES[fecha.getMonth()],
+    larga: `${SEMANA_LARGA[fecha.getDay()]} ${fecha.getDate()} de ${MESES_LARGOS[fecha.getMonth()]}`,
+  };
+}
+
+// Huecos libres del día (≥ 1 h), acotados a 4 h. Si el día es hoy, descarta los que ya pasaron.
+function huecosDelDia(dia, hoy) {
+  if (!dia) return [];
+  let huecos = calcularHuecosLibres(dia.actividades);
+  if (fechaISO(dia.fechaRaw) === hoy) {
+    const ahora = new Date();
+    const minutosAhora = ahora.getHours() * 60 + ahora.getMinutes();
+    huecos = huecos.filter((h) => aMinutos(h.hasta) > minutosAhora);
+  }
+  return huecos.map((h) => acotarFranja({ inicio: h.desde, fin: h.hasta }));
+}
+
+function textoActividades(cantidad) {
+  if (cantidad === 0) return "Sin actividades";
+  return `${cantidad} ${cantidad === 1 ? "actividad" : "actividades"}`;
+}
+
 export default function ActivitySuggestionsScreen({
   visible,
   onClose,
@@ -85,19 +122,18 @@ export default function ActivitySuggestionsScreen({
   tripTitle,
   dias,
   initialDayId,
+  initialFranja,
   onGenerado,
   onCrearManual,
 }) {
   const [dayId, setDayId] = useState(null);
-  const [inicioTexto, setInicioTexto] = useState("10:00");
-  const [finTexto, setFinTexto] = useState("13:00");
+  const [inicioTexto, setInicioTexto] = useState(FRANJA_POR_DEFECTO.inicio);
+  const [finTexto, setFinTexto] = useState(FRANJA_POR_DEFECTO.fin);
   const [contexto, setContexto] = useState(null);
-  const [indicacion, setIndicacion] = useState(""); 
+  const [indicacion, setIndicacion] = useState("");
   const [distanciaKm, setDistanciaKm] = useState(15);
-  const [diaAbierto, setDiaAbierto] = useState(false);
-  const listaDiasRef = useRef(null);
   const [cargandoContexto, setCargandoContexto] = useState(false);
-  const [fase, setFase] = useState("formulario"); 
+  const [fase, setFase] = useState("formulario");
   const [sugerencias, setSugerencias] = useState([]);
   const [mensajeVacio, setMensajeVacio] = useState("");
   const [errorInfo, setErrorInfo] = useState(null);
@@ -105,6 +141,7 @@ export default function ActivitySuggestionsScreen({
   const [restantes, setRestantes] = useState(null);
   const [pasoProgreso, setPasoProgreso] = useState(0);
   const [mostrarPreferencias, setMostrarPreferencias] = useState(false);
+  const [mostrarDias, setMostrarDias] = useState(false);
 
   const diasValidos = useMemo(
     () => (dias ?? []).filter((dia) => Number.isInteger(dia.dayId)),
@@ -112,6 +149,40 @@ export default function ActivitySuggestionsScreen({
   );
   const hoy = hoyIso();
   const franja = validarFranja(inicioTexto, finTexto);
+  const diaSeleccionado = diasValidos.find((item) => item.dayId === dayId) ?? null;
+  const actividadesDelDia = diaSeleccionado?.actividades ?? [];
+  const huecosSeleccionado = huecosDelDia(diaSeleccionado, hoy);
+
+  // Actividades del día que pisan la franja elegida (solo para avisar, no bloquea).
+  const superpuestas =
+    franja.inicio && diaSeleccionado
+      ? actividadesDelDia.filter((actividad) => {
+          const inicio = aMinutos(actividad.horaInicio);
+          const fin = aMinutos(actividad.horaFin);
+          return (
+            inicio != null &&
+            fin != null &&
+            inicio < aMinutos(franja.fin) &&
+            fin > aMinutos(franja.inicio)
+          );
+        })
+      : [];
+
+  function franjaSugeridaPara(idDia) {
+    const dia = diasValidos.find((item) => item.dayId === idDia);
+    return huecosDelDia(dia, hoy)[0] ?? FRANJA_POR_DEFECTO;
+  }
+
+  function aplicarFranja({ inicio, fin }) {
+    setInicioTexto(inicio);
+    setFinTexto(fin);
+  }
+
+  function elegirDia(idDia) {
+    setDayId(idDia);
+    aplicarFranja(franjaSugeridaPara(idDia));
+    setMostrarDias(false);
+  }
 
   async function cargarContexto() {
     if (!tripId) return;
@@ -136,15 +207,21 @@ export default function ActivitySuggestionsScreen({
     setMensajeVacio("");
     setIndicacion("");
     setDistanciaKm(15);
-    setDiaAbierto(false)
-    setDayId(initialDayId ?? diasValidos[0]?.dayId ?? null);
+    setMostrarDias(false);
     cargarContexto();
   }, [visible, tripId]);
 
-
+  // Al abrir (o si cambian el día o la franja con que se abre): precarga día y horario.
+  // Si se abrió desde un hueco libre, usa ese hueco; si no, el primer hueco del día.
   useEffect(() => {
-    if (visible && initialDayId != null) setDayId(initialDayId);
-  }, [initialDayId]);
+    if (!visible) return;
+    const primerDiaDisponible =
+      diasValidos.find((item) => !item.fechaRaw || fechaISO(item.fechaRaw) >= hoy) ??
+      diasValidos[0];
+    const idDia = initialDayId ?? primerDiaDisponible?.dayId ?? null;
+    setDayId(idDia);
+    aplicarFranja(acotarFranja(initialFranja) ?? franjaSugeridaPara(idDia));
+  }, [visible, initialDayId, initialFranja?.inicio, initialFranja?.fin]);
 
   useEffect(() => {
     if (fase !== "cargando") return undefined;
@@ -166,7 +243,7 @@ export default function ActivitySuggestionsScreen({
         HoraInicio: franja.inicio,
         HoraFin: franja.fin,
         ContinuarSinPreferencias: continuarSinPreferencias || sinPreferencias,
-        Indicacion: indicacion.trim() || null, 
+        Indicacion: indicacion.trim() || null,
         DistanciaMaximaKm: distanciaKm,
       });
       setRestantes(resultado.SolicitudesRestantes);
@@ -193,119 +270,150 @@ export default function ActivitySuggestionsScreen({
     }
   }
 
-  function aplicarFranjaRapida(opcion) {
-    setInicioTexto(opcion.inicio);
-    setFinTexto(opcion.fin);
-  }
-
   const limiteAlcanzado = restantes != null && restantes <= 0;
   const solicitudDeshabilitada =
     !franja.inicio || dayId == null || limiteAlcanzado || contexto?.PuedeSolicitar === false;
 
-  function renderFormulario() {
+  function renderChipFranja({ key, label, inicio, fin, testID }) {
+    const activo = normalizarHora(inicioTexto) === inicio && normalizarHora(finTexto) === fin;
     return (
-      <View style={styles.content}>
-        <Text style={styles.intro}>
-          El asistente propone actividades para tu franja libre según los intereses, el ritmo y el
-          presupuesto del grupo. Quedan como pendientes y las ve todo el viaje.
-        </Text>
+      <Pressable
+        key={key}
+        onPress={() => aplicarFranja({ inicio, fin })}
+        style={[styles.chip, activo && styles.chipActive]}
+        accessibilityRole="button"
+        accessibilityState={{ selected: activo }}
+        testID={testID}
+      >
+        <Text style={[styles.chipText, activo && styles.chipTextActive]}>{label}</Text>
+      </Pressable>
+    );
+  }
 
+  function renderSelectorDia() {
+    const partes = diaSeleccionado ? partesDeFecha(diaSeleccionado.fechaRaw) : null;
+    return (
+      <View style={styles.seccion}>
         <Text style={styles.label}>Día</Text>
-        {(() => {
-          const indice = diasValidos.findIndex((item) => item.dayId === dayId);
-          const dia = diasValidos[indice];
-          return (
-            <View>
-              <Pressable
-                onPress={() => setDiaAbierto((abierto) => !abierto)}
-                style={[styles.diaSelect, diaAbierto && styles.diaSelectAbierto]}
-                accessibilityRole="button"
-                accessibilityState={{ expanded: diaAbierto }}
-                testID="suggestions-dia-select"
-              >
-                <Text style={styles.diaTitulo}>
-                  {dia ? `Día ${dia.dayIndex} · ${dia.dayDateTextCorta || dia.dayDateText}` : "Elegí un día"}
-                </Text>
-                <FontAwesome6
-                  name={diaAbierto ? "chevron-up" : "chevron-down"}
-                  size={13}
-                  color={colors.primary}
-                />
-              </Pressable>
+        <Pressable
+          onPress={() => setMostrarDias((abierto) => !abierto)}
+          style={({ pressed }) => [styles.selectorDia, pressed && styles.selectorDiaPresionado]}
+          accessibilityRole="button"
+          accessibilityLabel={diaSeleccionado ? `Día ${diaSeleccionado.dayIndex}` : "Elegir día"}
+          accessibilityState={{ expanded: mostrarDias }}
+          testID="suggestions-dia-select"
+        >
+          <View style={styles.selectorDiaTexto}>
+            <Text style={styles.selectorDiaTitulo}>
+              {diaSeleccionado ? `Día ${diaSeleccionado.dayIndex}` : "Elegí un día"}
+            </Text>
+            {diaSeleccionado ? (
+              <Text numberOfLines={1} style={styles.selectorDiaDetalle}>
+                {partes ? partes.larga : ""} · {textoActividades(actividadesDelDia.length)}
+              </Text>
+            ) : null}
+          </View>
+          <FontAwesome6
+            name={mostrarDias ? "chevron-up" : "chevron-down"}
+            size={14}
+            color={colors.primary}
+          />
+        </Pressable>
 
-              {diaAbierto ? (
-                <View style={styles.diaLista}>
-                  <ScrollView
-                    ref={listaDiasRef}
-                    nestedScrollEnabled
-                    style={styles.diaListaScroll}
-                    onLayout={() =>
-                      listaDiasRef.current?.scrollTo({
-                        y: Math.max(0, indice * 44 - 88),
-                        animated: false,
-                      })
-                    }
+        {mostrarDias ? (
+          <View style={styles.listaDias} testID="suggestions-dia-options">
+            <ScrollView nestedScrollEnabled showsVerticalScrollIndicator={false}>
+              {diasValidos.map((item) => {
+                const activo = item.dayId === dayId;
+                const pasado = Boolean(item.fechaRaw) && fechaISO(item.fechaRaw) < hoy;
+                const fecha = partesDeFecha(item.fechaRaw);
+                const tieneActividades = (item.actividades ?? []).length > 0;
+                return (
+                  <Pressable
+                    key={item.dayId}
+                    disabled={pasado}
+                    onPress={() => elegirDia(item.dayId)}
+                    style={[
+                      styles.opcionDia,
+                      activo && styles.opcionDiaActiva,
+                      pasado && styles.opcionDiaPasada,
+                    ]}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Día ${item.dayIndex}${fecha ? `, ${fecha.larga}` : ""}`}
+                    accessibilityState={{ selected: activo, disabled: pasado }}
+                    testID={`suggestions-dia-${item.dayId}`}
                   >
-                    {diasValidos.map((item) => {
-                      const activo = item.dayId === dayId;
-                      const pasado = item.fechaRaw && String(item.fechaRaw).slice(0, 10) < hoy;
-                      return (
-                        <Pressable
-                          key={item.dayId}
-                          disabled={pasado}
-                          onPress={() => {
-                            setDayId(item.dayId);
-                            setDiaAbierto(false);
-                          }}
-                          style={[
-                            styles.diaOpcion,
-                            activo && styles.diaOpcionActiva,
-                            pasado && styles.chipDisabled,
-                          ]}
-                          accessibilityRole="button"
-                          accessibilityState={{ selected: activo, disabled: pasado }}
-                        >
-                          <Text style={[styles.diaOpcionTexto, activo && styles.diaOpcionTextoActivo]}>
-                            Día {item.dayIndex} · {item.dayDateTextCorta || item.dayDateText}
-                          </Text>
-                          {activo ? (
-                            <FontAwesome6 name="check" size={12} color={colors.textInverse} />
-                          ) : null}
-                        </Pressable>
-                      );
-                    })}
-                  </ScrollView>
-                </View>
-              ) : null}
-            </View>
-          );
-        })()}
+                    <View style={styles.opcionDiaFecha}>
+                      <Text style={[styles.opcionDiaNumero, activo && styles.opcionDiaTextoActivo]}>
+                        Día {item.dayIndex}
+                      </Text>
+                      {fecha ? (
+                        <Text style={[styles.opcionDiaDetalle, activo && styles.opcionDiaTextoActivo]}>
+                          {fecha.larga}
+                        </Text>
+                      ) : null}
+                    </View>
+                    <View
+                      style={[
+                        styles.diaChipPunto,
+                        tieneActividades && styles.diaChipPuntoLleno,
+                        activo && tieneActividades && styles.diaChipPuntoActivo,
+                      ]}
+                    />
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
+          </View>
+        ) : null}
+      </View>
+    );
+  }
 
+  function renderFranja() {
+    const diaConActividades = actividadesDelDia.length > 0;
+    return (
+      <View style={styles.seccion}>
         <Text style={styles.label}>Franja horaria</Text>
-        <View style={styles.chipsRow}>
-          {FRANJAS_RAPIDAS.map((opcion) => {
-            const activo =
-              normalizarHora(inicioTexto) === opcion.inicio &&
-              normalizarHora(finTexto) === opcion.fin;
-            return (
-              <Pressable
-                key={opcion.id}
-                onPress={() => aplicarFranjaRapida(opcion)}
-                style={[styles.chip, activo && styles.chipActive]}
-                accessibilityRole="button"
-                accessibilityState={{ selected: activo }}
-                testID={`suggestions-franja-${opcion.id}`}
-              >
-                <Text style={[styles.chipText, activo && styles.chipTextActive]}>
-                  {opcion.label} {opcion.inicio}–{opcion.fin}
-                </Text>
-              </Pressable>
-            );
-          })}
-        </View>
+
+        {diaConActividades ? (
+          huecosSeleccionado.length > 0 ? (
+            <>
+              <Text style={styles.hint}>Huecos libres de este día</Text>
+              <View style={styles.chipsRow}>
+                {huecosSeleccionado.map((hueco) =>
+                  renderChipFranja({
+                    key: `${hueco.inicio}-${hueco.fin}`,
+                    label: `${hueco.inicio} – ${hueco.fin}`,
+                    inicio: hueco.inicio,
+                    fin: hueco.fin,
+                    testID: `suggestions-hueco-${hueco.inicio}`,
+                  })
+                )}
+              </View>
+            </>
+          ) : (
+            <Text style={styles.hint}>
+              Este día no tiene huecos libres de una hora o más. Podés elegir el horario a mano.
+            </Text>
+          )
+        ) : (
+          <View style={styles.chipsRow}>
+            {FRANJAS_RAPIDAS.map((opcion) =>
+              renderChipFranja({
+                key: opcion.id,
+                label: `${opcion.label} ${opcion.inicio} – ${opcion.fin}`,
+                inicio: opcion.inicio,
+                fin: opcion.fin,
+                testID: `suggestions-franja-${opcion.id}`,
+              })
+            )}
+          </View>
+        )}
+
         <View style={styles.horasRow}>
           <View style={styles.horaCol}>
-            <Text style={styles.hint}>Desde</Text>
+            <Text style={styles.label}>Desde</Text>
             <TextInput
               style={styles.horaInput}
               value={inicioTexto}
@@ -318,9 +426,9 @@ export default function ActivitySuggestionsScreen({
               testID="suggestions-hora-inicio"
             />
           </View>
-          <FontAwesome6 name="arrow-right" size={12} color={colors.textMuted} style={styles.flecha} />
+          <FontAwesome6 name="arrow-right" size={12} color={colors.overlay} style={styles.flecha} />
           <View style={styles.horaCol}>
-            <Text style={styles.hint}>Hasta</Text>
+            <Text style={styles.label}>Hasta</Text>
             <TextInput
               style={styles.horaInput}
               value={finTexto}
@@ -334,93 +442,137 @@ export default function ActivitySuggestionsScreen({
             />
           </View>
         </View>
+
         {franja.error ? <Text style={styles.error}>{franja.error}</Text> : null}
-        <Text style={styles.label}>Distancia máxima</Text>
-        <View style={styles.chipsRow}>
-          {DISTANCIAS.map((opcion) => {
-            const activo = opcion.km === distanciaKm;
-            return (
-              <Pressable
-                key={opcion.km}
-                onPress={() => setDistanciaKm(opcion.km)}
-                style={[styles.chip, activo && styles.chipActive]}
-                accessibilityRole="button"
-                accessibilityState={{ selected: activo }}
-                testID={`suggestions-distancia-${opcion.km}`}
-              >
-                <Text style={[styles.chipText, activo && styles.chipTextActive]}>
-                  {opcion.label}
-                </Text>
-              </Pressable>
-            );
-          })}
-        </View>
-        <Text style={[styles.hint, { marginTop: spacing.xs }]}>
-          Desde tus actividades del día o el destino.
-        </Text>
-        <Text style={styles.label}>Indicación para esta búsqueda (opcional)</Text>
-        <TextInput
-          style={styles.indicacionInput}
-          value={indicacion}
-          onChangeText={setIndicacion}
-          multiline
-          maxLength={300}
-          placeholder="Ej: que sea bajo techo, sin mucha caminata…"
-          placeholderTextColor={colors.overlay}
-          textAlignVertical="top"
-          testID="suggestions-indicacion"
-        />
-        <View style={styles.indicacionFooter}>
-          <Text style={styles.contadorIndicacion}>No incluyas datos personales.</Text>
-          <Text style={styles.contadorIndicacion}>{indicacion.length}/300</Text>
-        </View>
 
-        {cargandoContexto ? (
-          <ActivityIndicator color={colors.primary} style={styles.contextLoader} />
-        ) : contexto ? (
-          <View style={styles.infoBox}>
-            <FontAwesome6 name="users" size={12} color={colors.primary} />
-            <Text style={styles.infoText}>
-              {contexto.ParticipantesConPreferencias} de {contexto.ParticipantesTotal} participantes
-              configuraron sus preferencias.
-            </Text>
-          </View>
-        ) : null}
-
-        {contexto && !contexto.MisPreferenciasConfiguradas ? (
-          <Pressable style={styles.linkRow} onPress={() => setMostrarPreferencias(true)}>
-            <FontAwesome6 name="sliders" size={12} color={colors.primary} />
-            <Text style={styles.linkText}>Configurar mis preferencias para este viaje</Text>
-          </Pressable>
-        ) : null}
-
-        {sinPreferencias ? (
-          <View style={styles.aviso} testID="suggestions-sin-preferencias">
-            <FontAwesome6 name="circle-info" size={12} color={colors.warning} />
+        {!franja.error && superpuestas.length > 0 ? (
+          <View style={styles.aviso} testID="suggestions-superposicion">
+            <FontAwesome6 name="triangle-exclamation" size={12} color={colors.warning} />
             <Text style={styles.avisoTexto}>
-              Ningún participante configuró sus preferencias. Si continuás, el asistente usará
-              criterios generales.
+              Este horario se superpone con {superpuestas.map((a) => a.title).join(", ")}.
             </Text>
           </View>
         ) : null}
+      </View>
+    );
+  }
 
+  function renderFormulario() {
+    return (
+      <View>
+        <Text style={styles.intro}>
+          El asistente propone actividades para tu franja libre según los intereses, el ritmo y el
+          presupuesto del grupo.
+        </Text>
+
+        {renderSelectorDia()}
+        {renderFranja()}
+
+        <View style={styles.seccion}>
+          <Text style={styles.label}>Distancia máxima</Text>
+          <View style={styles.chipsRow}>
+            {DISTANCIAS.map((opcion) => {
+              const activo = opcion.km === distanciaKm;
+              return (
+                <Pressable
+                  key={opcion.km}
+                  onPress={() => setDistanciaKm(opcion.km)}
+                  style={[styles.chip, activo && styles.chipActive]}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: activo }}
+                  testID={`suggestions-distancia-${opcion.km}`}
+                >
+                  <Text style={[styles.chipText, activo && styles.chipTextActive]}>
+                    {opcion.label}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+          <Text style={styles.hint}>Se mide desde tus actividades del día o desde el destino.</Text>
+        </View>
+
+        <View style={styles.seccion}>
+          <Text style={styles.label}>Indicación para esta búsqueda (opcional)</Text>
+          <TextInput
+            style={styles.indicacionInput}
+            value={indicacion}
+            onChangeText={setIndicacion}
+            multiline
+            maxLength={300}
+            placeholder="Sin mucha caminata, al aire libre…"
+            placeholderTextColor={colors.overlay}
+            textAlignVertical="top"
+            testID="suggestions-indicacion"
+          />
+          <View style={styles.indicacionFooter}>
+            <Text style={styles.hint}>No incluyas datos personales.</Text>
+            <Text style={styles.hint}>{indicacion.length}/300</Text>
+          </View>
+        </View>
+
+        <View style={styles.seccion}>
+          {cargandoContexto ? (
+            <ActivityIndicator color={colors.primary} />
+          ) : contexto ? (
+            <View style={styles.infoBox}>
+              <FontAwesome6 name="users" size={12} color={colors.primary} />
+              <Text style={styles.infoText}>
+                {contexto.ParticipantesConPreferencias} de {contexto.ParticipantesTotal} participantes
+                configuraron sus preferencias.
+              </Text>
+            </View>
+          ) : null}
+
+          {contexto && !contexto.MisPreferenciasConfiguradas ? (
+            <Pressable style={styles.linkRow} onPress={() => setMostrarPreferencias(true)}>
+              <FontAwesome6 name="sliders" size={12} color={colors.primary} />
+              <Text style={styles.linkText}>Configurar mis preferencias para este viaje</Text>
+            </Pressable>
+          ) : null}
+
+          {sinPreferencias ? (
+            <View style={styles.aviso} testID="suggestions-sin-preferencias">
+              <FontAwesome6 name="circle-info" size={12} color={colors.warning} />
+              <Text style={styles.avisoTexto}>
+                Ningún participante configuró sus preferencias. Si continuás, el asistente usará
+                criterios generales.
+              </Text>
+            </View>
+          ) : null}
+        </View>
+      </View>
+    );
+  }
+
+  // Pie fijo del formulario: contador de solicitudes y botón de generar.
+  function renderPieFormulario() {
+    return (
+      <View style={styles.pie}>
         {restantes != null ? (
-          <Text style={[styles.contador, limiteAlcanzado && styles.error]}>
+          <Text style={[styles.contador, limiteAlcanzado && styles.contadorError]}>
             {limiteAlcanzado
               ? `Alcanzaste el límite de ${contexto?.LimiteDiario ?? ""} solicitudes de hoy para este viaje.`
               : `Te quedan ${restantes} ${restantes === 1 ? "solicitud" : "solicitudes"} hoy en este viaje.`}
           </Text>
         ) : null}
-
-        <PrimaryButton
-          label={sinPreferencias ? "Continuar con criterios generales" : "Generar sugerencias"}
-          icon="wand-magic-sparkles"
-          iconPosition="left"
+        <Pressable
+          accessibilityRole="button"
+          accessibilityState={{ disabled: solicitudDeshabilitada }}
           disabled={solicitudDeshabilitada}
           onPress={() => generar(sinPreferencias)}
-          style={styles.submitButton}
+          style={({ pressed }) => [
+            styles.botonIA,
+            solicitudDeshabilitada && styles.botonIADeshabilitado,
+            pressed && styles.botonIAPresionado,
+          ]}
           testID="suggestions-generar"
-        />
+        >
+          <FontAwesome6 name="wand-magic-sparkles" size={15} color={colors.primary} />
+          <Text style={styles.botonIATexto}>
+            {sinPreferencias ? "Continuar con criterios generales" : "Generar sugerencias"}
+          </Text>
+        </Pressable>
       </View>
     );
   }
@@ -437,9 +589,11 @@ export default function ActivitySuggestionsScreen({
 
   function renderResultados() {
     return (
-      <View style={styles.content}>
+      <View>
         <Text style={styles.intro}>
-          {sugerencias.length === 1 ? "Esta es la sugerencia para tu franja." : `Estas son las ${sugerencias.length} sugerencias para tu franja.`}{" "}
+          {sugerencias.length === 1
+            ? "Esta es la sugerencia para tu franja."
+            : `Estas son las ${sugerencias.length} sugerencias para tu franja.`}{" "}
           Quedaron pendientes y las ven todos los participantes.
         </Text>
         <View style={styles.listaCards}>
@@ -448,7 +602,7 @@ export default function ActivitySuggestionsScreen({
           ))}
         </View>
         {restantes != null ? (
-          <Text style={styles.contador}>
+          <Text style={[styles.contador, styles.contadorResultados]}>
             Te quedan {restantes} {restantes === 1 ? "solicitud" : "solicitudes"} hoy.
           </Text>
         ) : null}
@@ -460,7 +614,7 @@ export default function ActivitySuggestionsScreen({
   function renderVacio() {
     return (
       <View style={styles.centrado} testID="suggestions-empty">
-        <FontAwesome6 name="magnifying-glass" size={22} color={colors.textMuted} />
+        <FontAwesome6 name="magnifying-glass" size={22} color={colors.overlay} />
         <Text style={styles.emptyTitle}>No encontramos opciones</Text>
         <Text style={styles.emptyText}>{mensajeVacio}</Text>
         <PrimaryButton
@@ -507,22 +661,35 @@ export default function ActivitySuggestionsScreen({
     <Modal animationType="slide" transparent visible={visible} onRequestClose={onClose}>
       <View style={styles.overlay}>
         <View style={styles.sheet}>
-          <ScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
-            <View style={styles.headerRow}>
-              <View style={styles.headerTexts}>
-                <Text style={styles.title}>Sugerencias con IA</Text>
-                {tripTitle ? (
-                  <Text style={styles.subtitle} numberOfLines={1}>
-                    {tripTitle}
-                  </Text>
-                ) : null}
-              </View>
-              <TouchableOpacity onPress={onClose} testID="close-suggestions-modal">
-                <FontAwesome6 name="xmark" size={18} color={colors.textMuted} />
-              </TouchableOpacity>
+          <View style={styles.headerRow}>
+            <View style={styles.headerTexts}>
+              <Text style={styles.title}>Sugerencias con IA</Text>
+              {tripTitle ? (
+                <Text style={styles.subtitle} numberOfLines={1}>
+                  {tripTitle}
+                </Text>
+              ) : null}
             </View>
+            <TouchableOpacity
+              onPress={onClose}
+              style={styles.closeButton}
+              accessibilityLabel="Cerrar"
+              testID="close-suggestions-modal"
+            >
+              <FontAwesome6 name="xmark" size={16} color={colors.primary} />
+            </TouchableOpacity>
+          </View>
+
+          <ScrollView
+            style={styles.scroll}
+            contentContainerStyle={styles.scrollContent}
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
+          >
             {renderContenido()}
           </ScrollView>
+
+          {fase === "formulario" ? renderPieFormulario() : null}
 
           <PlanningPreferencesScreen
             visible={mostrarPreferencias}
@@ -538,26 +705,6 @@ export default function ActivitySuggestionsScreen({
 }
 
 const styles = StyleSheet.create({
-  indicacionInput: {
-    minHeight: 80,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: radii.md,
-    backgroundColor: colors.surface,
-    padding: spacing.md,
-    color: colors.textPrimary,
-    ...textStyles.body,
-  },
-  contadorIndicacion: {
-    ...textStyles.meta,
-    color: colors.textMuted,
-    marginTop: spacing.xxs,
-  },
-  indicacionFooter: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    marginTop: spacing.xs,
-  },
   overlay: {
     flex: 1,
     backgroundColor: colors.overlayStrong,
@@ -567,7 +714,9 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surface,
     borderTopLeftRadius: radii.xl,
     borderTopRightRadius: radii.xl,
-    padding: spacing.lg,
+    paddingTop: spacing.lg,
+    paddingHorizontal: spacing.lg,
+    paddingBottom: spacing.md,
     maxHeight: "92%",
     width: "100%",
     maxWidth: 720,
@@ -577,7 +726,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    marginBottom: spacing.xs,
+    paddingBottom: spacing.sm,
   },
   headerTexts: {
     flex: 1,
@@ -586,36 +735,144 @@ const styles = StyleSheet.create({
   title: {
     ...textStyles.tripTitle,
     color: colors.primary,
-    fontSize: 20,
+    fontSize: 22,
   },
   subtitle: {
     ...textStyles.meta,
-    color: colors.textSecondary,
+    color: colors.primary,
     marginTop: 2,
+    fontWeight: "650",  
   },
-  content: {
-    paddingTop: spacing.xs,
-    paddingBottom: spacing.lg,
-  },
-  centrado: {
-    padding: spacing.xl,
+  closeButton: {
+    width: 36,
+    height: 36,
+    borderRadius: radii.pill,
     alignItems: "center",
-    gap: spacing.sm,
+    justifyContent: "center",
+    backgroundColor: colors.surfaceAlt,
+  },
+  scroll: {
+    flexShrink: 1,
+  },
+  scrollContent: {
+    paddingBottom: spacing.lg,
   },
   intro: {
     ...textStyles.meta,
     color: colors.textSecondary,
+    lineHeight: 20,
+  },
+  seccion: {
+    marginTop: spacing.lg,
+    gap: spacing.xs,
+  },
+  labelRow: {
+    flexDirection: "row",
+    alignItems: "baseline",
+    justifyContent: "space-between",
+    gap: spacing.sm,
   },
   label: {
     ...textStyles.label,
     textTransform: "none",
+    letterSpacing: 0.2,
+    fontSize: 13,
     color: colors.primary,
-    marginTop: spacing.md,
-    marginBottom: spacing.xs,
+  },
+  labelDetalle: {
+    ...textStyles.meta,
+    flexShrink: 1,
+    fontSize: 12,
+    color: colors.textSecondary,
   },
   hint: {
     ...textStyles.meta,
-    color: colors.textMuted,
+    fontSize: 12,
+    color: colors.overlay,
+    fontWeight: "650",
+  },
+  selectorDia: {
+    minHeight: 56,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+  },
+  selectorDiaPresionado: {
+    opacity: 0.8,
+  },
+  selectorDiaTexto: {
+    flex: 1,
+    minWidth: 0,
+    marginRight: spacing.sm,
+  },
+  selectorDiaTitulo: {
+    ...textStyles.bodyStrong,
+    color: colors.primary,
+  },
+  selectorDiaDetalle: {
+    ...textStyles.meta,
+    color: colors.textSecondary,
+    marginTop: 2,
+  },
+  listaDias: {
+    maxHeight: 220,
+    marginTop: spacing.xs,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radii.md,
+    backgroundColor: colors.surface,
+    overflow: "hidden",
+  },
+  opcionDia: {
+    minHeight: 52,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
+  opcionDiaActiva: {
+    backgroundColor: colors.primary,
+  },
+  opcionDiaPasada: {
+    opacity: 0.35,
+  },
+  opcionDiaFecha: {
+    flex: 1,
+    minWidth: 0,
+  },
+  opcionDiaNumero: {
+    ...textStyles.bodyStrong,
+    color: colors.primary,
+  },
+  opcionDiaDetalle: {
+    ...textStyles.meta,
+    color: colors.textSecondary,
+    marginTop: 2,
+  },
+  opcionDiaTextoActivo: {
+    color: colors.textInverse,
+  },
+  diaChipPunto: {
+    width: 5,
+    height: 5,
+    borderRadius: 3,
+    marginTop: 3,
+    backgroundColor: "transparent",
+  },
+  diaChipPuntoLleno: {
+    backgroundColor: colors.primary,
+  },
+  diaChipPuntoActivo: {
+    backgroundColor: colors.accent,
   },
   chipsRow: {
     flexDirection: "row",
@@ -624,7 +881,7 @@ const styles = StyleSheet.create({
   },
   chip: {
     paddingHorizontal: spacing.sm,
-    paddingVertical: 7,
+    paddingVertical: 8,
     borderRadius: radii.pill,
     borderWidth: 1,
     borderColor: colors.border,
@@ -633,9 +890,6 @@ const styles = StyleSheet.create({
   chipActive: {
     backgroundColor: colors.primary,
     borderColor: colors.primary,
-  },
-  chipDisabled: {
-    opacity: 0.4,
   },
   chipText: {
     fontSize: 13,
@@ -649,10 +903,11 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "flex-end",
     gap: spacing.sm,
-    marginTop: spacing.sm,
+    marginTop: spacing.xs,
   },
   horaCol: {
     flex: 1,
+    gap: spacing.xxs,
   },
   flecha: {
     marginBottom: 18,
@@ -668,20 +923,32 @@ const styles = StyleSheet.create({
     textAlign: "center",
     ...textStyles.bodyStrong,
   },
-  contextLoader: {
-    marginTop: spacing.md,
+  indicacionInput: {
+    minHeight: 84,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radii.md,
+    backgroundColor: colors.surface,
+    padding: spacing.md,
+    color: colors.textPrimary,
+    ...textStyles.body,
+    fontSize: 14,
+  },
+  indicacionFooter: {
+    flexDirection: "row",
+    justifyContent: "space-between",
   },
   infoBox: {
     flexDirection: "row",
     alignItems: "center",
     gap: spacing.xs,
-    marginTop: spacing.md,
     padding: spacing.sm,
     borderRadius: radii.sm,
     backgroundColor: colors.surfaceAlt,
   },
   infoText: {
     ...textStyles.meta,
+    fontSize: 13,
     color: colors.textSecondary,
     flex: 1,
   },
@@ -689,7 +956,6 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: spacing.xs,
-    marginTop: spacing.sm,
     paddingVertical: spacing.xs,
   },
   linkText: {
@@ -701,29 +967,71 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "flex-start",
     gap: spacing.xs,
-    marginTop: spacing.sm,
     padding: spacing.sm,
     borderRadius: radii.sm,
     backgroundColor: colors.warningSurface,
   },
   avisoTexto: {
     ...textStyles.meta,
+    fontSize: 13,
     color: colors.warning,
     flex: 1,
   },
-  contador: {
-    ...textStyles.meta,
-    color: colors.textMuted,
-    marginTop: spacing.md,
-  },
   error: {
     ...textStyles.meta,
+    fontSize: 13,
     color: colors.danger,
-    marginTop: spacing.xs,
     fontWeight: "600",
+  },
+  pie: {
+    paddingTop: spacing.sm,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+    gap: spacing.xs,
+  },
+  contador: {
+    ...textStyles.meta,
+    fontSize: 12,
+    color: colors.textMuted,
+    textAlign: "center",
+  },
+  contadorError: {
+    color: colors.danger,
+    fontWeight: "600",
+  },
+  contadorResultados: {
+    marginTop: spacing.md,
+  },
+  botonIA: {
+    minHeight: 52,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: spacing.xs,
+    paddingHorizontal: spacing.lg,
+    borderRadius: radii.lg,
+    borderWidth: 1,
+    borderColor: colors.accentStrong,
+    backgroundColor: colors.accent,
+  },
+  botonIADeshabilitado: {
+    opacity: 0.5,
+  },
+  botonIAPresionado: {
+    opacity: 0.85,
+    transform: [{ scale: 0.98 }],
+  },
+  botonIATexto: {
+    ...textStyles.button,
+    color: colors.primary,
   },
   submitButton: {
     marginTop: spacing.lg,
+  },
+  centrado: {
+    padding: spacing.xl,
+    alignItems: "center",
+    gap: spacing.sm,
   },
   progresoTexto: {
     ...textStyles.bodyStrong,
@@ -744,48 +1052,5 @@ const styles = StyleSheet.create({
     ...textStyles.meta,
     color: colors.textSecondary,
     textAlign: "center",
-  },
-  diaSelect: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    minHeight: 48,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: radii.md,
-    backgroundColor: colors.surface,
-    paddingHorizontal: spacing.md,
-  },
-  diaSelectAbierto: {
-    borderColor: colors.primary,
-  },
-  diaLista: {
-    marginTop: spacing.xs,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: radii.md,
-    backgroundColor: colors.surface,
-    overflow: "hidden",
-  },
-  diaListaScroll: {
-    maxHeight: 220,
-  },
-  diaOpcion: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingVertical: spacing.sm,
-    paddingHorizontal: spacing.md,
-  },
-  diaOpcionActiva: {
-    backgroundColor: colors.primary,
-  },
-  diaOpcionTexto: {
-    ...textStyles.body,
-    color: colors.textPrimary,
-  },
-  diaOpcionTextoActivo: {
-    color: colors.textInverse,
-    fontWeight: "700",
   },
 });

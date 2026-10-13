@@ -45,7 +45,7 @@ export default function ItinerarioCalendarView({
   onAddActivity,
   onGenerarRuta,
   generandoRutaDayId = null,
-  onSuggestActivities,
+  onSuggestGap,
   sugerenciasPorDia = {},
 }) {
   const { width } = useResponsive();
@@ -77,6 +77,16 @@ export default function ItinerarioCalendarView({
     );
   }, [dias, diaSeleccionadoId]);
 
+  const indiceActual = diaActual && dias ? dias.findIndex((d) => d.dayId === diaActual.dayId) : -1;
+
+  // Mantiene el día elegido centrado en la tira, aunque el viaje tenga muchos días.
+  // Va antes del return temprano: los hooks tienen que ejecutarse siempre en el mismo orden.
+  useEffect(() => {
+    if (!esMobile || indiceActual < 0 || !anchoTira) return;
+    const x = indiceActual * (ANCHO_DIA + SEPARACION_DIA) - (anchoTira - ANCHO_DIA) / 2;
+    tiraRef.current?.scrollTo?.({ x: Math.max(0, x), animated: true });
+  }, [esMobile, indiceActual, anchoTira]);
+
   if (!dias || dias.length === 0) {
     return (
       <View style={styles.sectionCard}>
@@ -87,15 +97,6 @@ export default function ItinerarioCalendarView({
       </View>
     );
   }
-
-  const indiceActual = diaActual && dias ? dias.findIndex((d) => d.dayId === diaActual.dayId) : -1;
-
-  // Mantiene el día elegido centrado en la tira, aunque el viaje tenga muchos días.
-  useEffect(() => {
-    if (!esMobile || indiceActual < 0 || !anchoTira) return;
-    const x = indiceActual * (ANCHO_DIA + SEPARACION_DIA) - (anchoTira - ANCHO_DIA) / 2;
-    tiraRef.current?.scrollTo?.({ x: Math.max(0, x), animated: true });
-  }, [esMobile, indiceActual, anchoTira]);
 
   function irAlDia(delta) {
     const destino = dias[indiceActual + delta];
@@ -183,6 +184,10 @@ export default function ItinerarioCalendarView({
         const actividadesOrdenadas = [...dia.actividades].sort((a, b) =>
           (a.horaInicio ?? "").localeCompare(b.horaInicio ?? "")
         );
+        const sugerirHueco =
+          onSuggestGap && Number.isInteger(dia.dayId)
+            ? (desde, hasta) => onSuggestGap(dia, desde, hasta)
+            : undefined;
 
         return (
           <View key={dia.dayId} style={[styles.celdaWrap, { width: anchoCelda }]}>
@@ -211,6 +216,7 @@ export default function ItinerarioCalendarView({
                     onAdd={onAddActivity ? () => onAddActivity(dia) : undefined}
                     onDelete={onDeleteActivity ? (item) => onDeleteActivity(dia, item) : undefined}
                     onEdit={onEditActivity ? (item) => onEditActivity(dia, item) : undefined}
+                    onSuggestGap={sugerirHueco}
                   />
                 ) : actividadesOrdenadas.length > 0 ? (
                   actividadesOrdenadas.map((actividad) => {
@@ -306,12 +312,6 @@ export default function ItinerarioCalendarView({
                     </Text>
                   </View>
                 ))}
-                {onSuggestActivities && Number.isInteger(dia.dayId) ? (
-                  <Pressable onPress={() => onSuggestActivities(dia)} style={styles.agregarBoton}>
-                    <FontAwesome6 color={colors.primary} name="wand-magic-sparkles" size={11} />
-                    <Text style={styles.agregarTexto}>Sugerir con IA</Text>
-                  </Pressable>
-                ) : null}
 
                 {(() => {
                   const actividadesConUbicacion = (dia.actividades ?? []).filter(

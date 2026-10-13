@@ -4,9 +4,13 @@ import { Image, Linking, Pressable, StyleSheet, Text, View } from "react-native"
 
 import StatusPill from "../ui/StatusPill";
 import { getActivitySuggestionPhotoSource } from "../../services/api";
-import { formatMoney } from "../../utils/money";
 import { colors, radii, spacing, textStyles } from "../../theme/tokens";
 
+const ETIQUETAS_ESTADO = {
+  pendiente: "Pendiente",
+  aceptada: "Aceptada",
+  descartada: "Descartada",
+};
 
 function urlGoogleMaps(sugerencia) {
   const placeId = String(sugerencia.GooglePlaceId || "").replace("google:", "");
@@ -19,6 +23,26 @@ async function abrirUrl(url) {
     await Linking.openURL(url);
   } catch {
   }
+}
+
+function EstadoPill({ estado }) {
+  const nombre = String(estado || "pendiente").toLowerCase();
+
+  if (nombre === "en_votacion") {
+    return (
+      <View style={styles.pillVotacion} testID="suggestion-estado-en-votacion">
+        <FontAwesome6 name="check-to-slot" size={10} color={colors.primary} />
+        <Text style={styles.pillVotacionTexto}>En votación</Text>
+      </View>
+    );
+  }
+
+  const etiqueta = ETIQUETAS_ESTADO[nombre] ?? nombre.charAt(0).toUpperCase() + nombre.slice(1);
+  return (
+    <StatusPill tone={nombre} textStyle={styles.pillText}>
+      {etiqueta}
+    </StatusPill>
+  );
 }
 
 function SuggestionPhoto({ sugerencia }) {
@@ -74,12 +98,10 @@ export default function ActivitySuggestionCard({ sugerencia }) {
         <View style={styles.timePill}>
           <FontAwesome6 name="clock" size={11} color={colors.primary} />
           <Text style={styles.timeText}>
-            {sugerencia.HoraInicio} – {sugerencia.HoraFin}
+            {String(sugerencia.HoraInicio ?? "").slice(0, 5)} – {String(sugerencia.HoraFin ?? "").slice(0, 5)}
           </Text>
         </View>
-        <StatusPill tone="pendiente" textStyle={styles.pillText}>
-          Pendiente
-        </StatusPill>
+        <EstadoPill estado={sugerencia.Estado} />
       </View>
 
       <Text style={styles.title}>{sugerencia.Nombre}</Text>
@@ -176,6 +198,23 @@ const styles = StyleSheet.create({
   },
   pillText: {
     fontSize: 11,
+  },
+  pillVotacion: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    paddingHorizontal: spacing.xs,
+    paddingVertical: 4,
+    borderRadius: radii.pill,
+    borderWidth: 1,
+    borderColor: colors.accentStrong,
+    backgroundColor: colors.accentMuted,
+  },
+  pillVotacionTexto: {
+    ...textStyles.meta,
+    fontSize: 11,
+    fontWeight: "700",
+    color: colors.primary,
   },
   title: {
     ...textStyles.bodyStrong,

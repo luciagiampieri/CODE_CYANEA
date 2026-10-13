@@ -1,4 +1,4 @@
-from sqlalchemy import BigInteger, CheckConstraint, ForeignKey, Integer, String
+from sqlalchemy import BigInteger, CheckConstraint, ForeignKey, Index, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.session import Base
@@ -8,6 +8,7 @@ class Propuesta(Base):
     __tablename__ = "Propuestas"
     __table_args__ = (
         CheckConstraint('TRIM("Texto") <> \'\'', name="CK_Propuestas_Texto"),
+        Index("IX_Propuestas_IdSugerenciaActividad", "IdSugerenciaActividad"),
     )
 
     IdPropuesta: Mapped[int] = mapped_column(BigInteger, primary_key=True)
@@ -24,8 +25,18 @@ class Propuesta(Base):
 
     Texto: Mapped[str] = mapped_column(String(255), nullable=False)
 
-    # Orden de presentacion (estable) dentro de la votacion.
     Orden: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+
+
+    IdSugerenciaActividad: Mapped[int | None] = mapped_column(
+        Integer,
+        ForeignKey(
+            "SugerenciasActividades.IdSugerenciaActividad",
+            name="FK_Propuestas_SugAct_IdSugerencia",
+            ondelete="SET NULL",
+        ),
+        nullable=True,
+    )
 
     Votacion = relationship(
         "Votacion", back_populates="Propuestas", foreign_keys=[IdVotacion]

@@ -19,6 +19,7 @@ import GoogleRegisterScreen from "../screens/GoogleRegisterScreen";
 import DocumentsScreen from "../screens/DocumentsScreen";
 import GuardarInformacionScreen from "../screens/InformationScreen";
 import ExplorePlacesScreen from "../screens/ExplorePlacesScreen";
+import DaySuggestionsScreen from "../screens/DaySuggestionsScreen";
 import EditProfileScreen from "../screens/EditProfileScreen";
 import SettingsScreen from "../screens/SettingScreen";
 import EditDocumentScreen from "../screens/EditDocumentScreen";
@@ -142,8 +143,6 @@ export default function AppNavigator() {
           <Stack.Screen
             name="TripDetail"
             component={TripDetailScreen}
-            // Un viaje distinto abre otra pantalla; el mismo viaje reutiliza la
-            // abierta y solo actualiza los params (p. ej. la pestaña inicial).
             getId={({ params }) => {
               const id = params?.trip?.id ?? params?.trip?.IdViaje;
               return id != null ? String(id) : undefined;
@@ -175,6 +174,15 @@ export default function AppNavigator() {
           <Stack.Screen
             name="ExplorePlaces"
             component={ExplorePlacesScreen}
+            options={{
+              headerShown: false,
+              gestureEnabled: true,
+              animation: "slide_from_right",
+            }}
+          />
+          <Stack.Screen
+            name="SugerenciasDia"
+            component={DaySuggestionsScreen}
             options={{
               headerShown: false,
               gestureEnabled: true,
@@ -242,7 +250,7 @@ export default function AppNavigator() {
           />
         </>
       )}
-      
+
     </Stack.Navigator>
   );
 }

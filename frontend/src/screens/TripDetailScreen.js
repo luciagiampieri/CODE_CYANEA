@@ -81,7 +81,7 @@ import {
   getChecklists,
   deleteChecklist,
   toggleChecklistCompletada,
-  getActivitySuggestions, 
+  getActivitySuggestions,
 } from "../services/api";
 import { colors, radii, spacing, surfaces, textStyles } from "../theme/tokens";
 
@@ -109,7 +109,8 @@ import { getRouteHint } from "../utils/routeMessages";
 import { formatMoney } from "../utils/money";
 import { centerInScroll } from "../utils/scrollHelpers";
 import ActivitySuggestionsScreen from "./ActivitySuggestionsScreen"; // SUGERENCIAS
-import ActivitySuggestionCard from "../components/trip/ActivitySuggestionCard"; // SUGERENCIAS
+import DaySuggestionsSection from "../components/trip/DaySuggestionsSection"; // SUGERENCIAS (US 90)
+import TripAssistantButton from "../components/assistant/TripAssistantButton"; // SUGERENCIAS
 
 import { appAlert } from "../components/ui/AppDialog";
 
@@ -231,6 +232,14 @@ function formatFechaHoraCierre(dateString) {
     hour: "2-digit",
     minute: "2-digit",
   }).format(date);
+}
+
+// Fecha local de hoy en formato YYYY-MM-DD (sin pasar por UTC).
+function hoyLocalISO() {
+  const ahora = new Date();
+  const mes = String(ahora.getMonth() + 1).padStart(2, "0");
+  const dia = String(ahora.getDate()).padStart(2, "0");
+  return `${ahora.getFullYear()}-${mes}-${dia}`;
 }
 
 const ESTADO_VOTACION_LABEL = {
@@ -379,9 +388,10 @@ export default function TripDetailScreen({ navigation, route }) {
 
   const [sugerenciasPorDia, setSugerenciasPorDia] = useState({});
   const [sugerenciasDayId, setSugerenciasDayId] = useState(null);
+  const [sugerenciasFranja, setSugerenciasFranja] = useState(null);
   const [showSugerenciasModal, setShowSugerenciasModal] = useState(false);
 
-  // Sugerencias pendientes del viaje, agrupadas por día (las ven todos los participantes).
+  // Sugerencias del viaje, agrupadas por día (las ven todos los participantes).
   const cargarSugerencias = useCallback(async () => {
     if (!trip?.id) return;
     try {
@@ -404,10 +414,30 @@ export default function TripDetailScreen({ navigation, route }) {
     }
   }, [activeTab, cargarSugerencias, trip?.cronograma]);
 
-  function abrirSugerencias(dayId) {
+  // Abre el sheet de sugerencias. `franja` ({ inicio, fin }) llega cuando se toca un
+  // hueco libre del día; desde el FAB va sin franja y el sheet propone el primer hueco.
+  function abrirSugerencias(dayId, franja = null) {
     if (!lock.canEdit("itinerario")) return;
     setSugerenciasDayId(dayId);
+    setSugerenciasFranja(franja);
     setShowSugerenciasModal(true);
+  }
+
+  function cerrarSugerencias() {
+    setShowSugerenciasModal(false);
+    setSugerenciasFranja(null);
+  }
+
+  // US 90: votación creada a partir de sugerencias. Se suma al listado de
+  // votaciones y se recargan las sugerencias (ahora "En votación").
+  function handleVotacionDesdeSugerencias(votacion) {
+    if (votacion) {
+      setVotacionesActivas((prev) => [
+        votacion,
+        ...prev.filter((v) => v.IdVotacion !== votacion.IdVotacion),
+      ]);
+    }
+    cargarSugerencias();
   }
 
   const [comprobanteViendo, setComprobanteViendo] = useState(null);
@@ -1173,8 +1203,15 @@ export default function TripDetailScreen({ navigation, route }) {
               }
               return;
             }
+            // US 90: una votación puede venir de sugerencias (al cancelarla vuelven
+            // a "Pendiente"), así que también se recargan las sugerencias.
             if (mensaje.tipo === "votacion_actualizada") {
               loadVotaciones();
+              cargarSugerencias();
+              return;
+            }
+            if (mensaje.tipo === "sugerencias_actualizadas") {
+              cargarSugerencias();
               return;
             }
             if (mensaje.tipo === "usuario_anonimizado") {
@@ -1304,6 +1341,17 @@ export default function TripDetailScreen({ navigation, route }) {
       };
     });
   }, [trip?.cronograma, trip?.startDate, trip?.endDate]);
+
+  // Día que abre el FAB "Sugerir con IA": el día expandido si todavía no pasó;
+  // si no, el primer día de hoy en adelante. Si el viaje ya terminó, no hay FAB.
+  const diaParaSugerir = useMemo(() => {
+    const hoy = hoyLocalISO();
+    const noPasado = (d) => !d.fechaRaw || String(d.fechaRaw).slice(0, 10) >= hoy;
+    const candidatos = itinerarioDias.filter((d) => Number.isInteger(d.dayId));
+    const expandido = candidatos.find((d) => d.dayId === expandedDayId);
+    if (expandido && noPasado(expandido)) return expandido;
+    return candidatos.find(noPasado) ?? null;
+  }, [itinerarioDias, expandedDayId]);
 
   async function loadVotaciones() {
     if (!trip?.id) return;
@@ -1660,7 +1708,7 @@ export default function TripDetailScreen({ navigation, route }) {
     }
   }
 
-  
+
   async function handleCreateActivity(payload, options = {}) {
     if (!trip?.id || !lock.canEdit("itinerario") || !activityModalDay) return null;
 
@@ -1859,7 +1907,7 @@ export default function TripDetailScreen({ navigation, route }) {
 
   function handleDeleteActivity(dayId, activityId, activityTitle) {
     if (!lock.canEdit("itinerario")) return;
-    
+
     // Usamos el mismo estilo de alerta de confirmación que en documentos
     if (Platform.OS === "web") {
       if (window.confirm(`¿Eliminar actividad?\n\nSe va a eliminar "${activityTitle}" del itinerario. Esta acción no se puede deshacer.`)) {
@@ -1871,10 +1919,10 @@ export default function TripDetailScreen({ navigation, route }) {
         `Se va a eliminar "${activityTitle}" del itinerario. Esta acción no se puede deshacer.`,
         [
           { text: "Cancelar", style: "cancel" },
-          { 
-            text: "Eliminar", 
-            style: "destructive", 
-            onPress: () => ejecutarBorradoActividad(dayId, activityId, activityTitle) 
+          {
+            text: "Eliminar",
+            style: "destructive",
+            onPress: () => ejecutarBorradoActividad(dayId, activityId, activityTitle)
           }
         ]
       );
@@ -1899,7 +1947,7 @@ export default function TripDetailScreen({ navigation, route }) {
     try {
       await deleteActivity(trip.id, dayId, activityId);
       await loadTripDetail();
-      
+
       // Mensaje de éxito unificado con el estilo exacto de documentos
       mostrarAlertaConfirmacion("Éxito", `"${title}" se eliminó correctamente.`);
     } catch (error) {
@@ -2381,6 +2429,8 @@ export default function TripDetailScreen({ navigation, route }) {
                 const { dayId, dayIndex, dayDateText, fechaRaw, actividades, ruta } = day;
                 const isExpanded = expandedDayId === dayId;
                 const esHoy = isTodayISO(fechaRaw);
+                const puedeSugerirEnDia =
+                  lock.canEdit("itinerario") && Number.isInteger(dayId);
 
                 return (
                   <View
@@ -2459,32 +2509,23 @@ export default function TripDetailScreen({ navigation, route }) {
                           onDelete={(item) =>
                             handleDeleteActivity(dayId, item.id, item.title ?? item.Titulo)
                           }
+                          onSuggestGap={
+                            puedeSugerirEnDia
+                              ? (desde, hasta) =>
+                                  abrirSugerencias(dayId, { inicio: desde, fin: hasta })
+                              : undefined
+                          }
                         />
 
-                        {/* SUGERENCIAS */}
-                        {(sugerenciasPorDia[dayId] ?? []).length > 0 ? (
-                          <View style={styles.suggestionsBlock}>
-                            <Text style={styles.suggestionsTitle}>Sugerencias del asistente</Text>
-                            {(sugerenciasPorDia[dayId] ?? []).map((sugerencia) => (
-                              <ActivitySuggestionCard
-                                key={sugerencia.IdSugerenciaActividad}
-                                sugerencia={sugerencia}
-                              />
-                            ))}
-                          </View>
-                        ) : null}
-
-                        {lock.canEdit("itinerario") && Number.isInteger(dayId) ? (
-                          <Pressable
-                            accessibilityRole="button"
-                            onPress={() => abrirSugerencias(dayId)}
-                            style={styles.suggestButton}
-                            testID={`suggest-activities-${dayId}`}
-                          >
-                            <FontAwesome6 color={colors.primary} name="wand-magic-sparkles" size={12} />
-                            <Text style={styles.suggestButtonText}>Sugerir con IA</Text>
-                          </Pressable>
-                        ) : null}
+                        {/* SUGERENCIAS (US 87) + proponer a votación (US 90) */}
+                        <DaySuggestionsSection
+                          tripId={trip?.id}
+                          dia={day}
+                          sugerencias={sugerenciasPorDia[dayId] ?? []}
+                          canPropose={lock.canEdit("votaciones")}
+                          onVotacionCreada={handleVotacionDesdeSugerencias}
+                          onIrAVotar={() => setActiveTab("votar")}
+                        />
 
                         {(() => {
                           const actividadesConUbicacion = actividades.filter(
@@ -2499,24 +2540,36 @@ export default function TripDetailScreen({ navigation, route }) {
                             activitiesWithLocation: actividadesConUbicacion.length,
                             canEdit: lock.canEdit("itinerario"),
                           });
+                          const puedeEditarRuta = puedeGenerarRuta && lock.canEdit("itinerario");
+                          // El botón se pinta de azul cuando hay que generar o cuando el modo
+                          // elegido no coincide con la ruta guardada (hay que regenerar).
+                          const destacarAccion = !ruta || modoSeleccionado !== ruta.modo;
+                          const mostrarCabecera = Boolean(ruta) || puedeEditarRuta;
+
+                          if (!mostrarCabecera && !routeHint) return null;
 
                           return (
                             <View style={styles.routeSection}>
-                              {ruta ? (
-                                <View style={styles.routeSummaryRow}>
-                                  <View style={styles.routeSummary}>
+                              {mostrarCabecera ? (
+                                <View style={styles.routeHeaderRow}>
+                                  <View style={styles.routeHeaderLeft}>
                                     <FontAwesome6
-                                      color={colors.primary}
+                                      color={colors.textSecondary}
                                       name="route"
-                                      size={13}
+                                      size={12}
                                     />
-                                    <Text style={styles.routeSummaryText}>
-                                      {(ruta.distanciaMetros / 1000).toFixed(1)} km ·{" "}
-                                      {Math.round(ruta.duracionSegundos / 60)} min
+                                    <Text style={styles.routeHeaderText}>
+                                      {ruta
+                                        ? `Ruta · ${(ruta.distanciaMetros / 1000).toFixed(1)} km · ${Math.round(
+                                            ruta.duracionSegundos / 60
+                                          )} min`
+                                        : "Ruta del día"}
                                     </Text>
                                   </View>
-                                  {ruta.polilineaCodificada ? (
+                                  {ruta?.polilineaCodificada ? (
                                     <Pressable
+                                      accessibilityRole="button"
+                                      hitSlop={8}
                                       onPress={() =>
                                         setMapaModalData({
                                           dayId,
@@ -2532,9 +2585,7 @@ export default function TripDetailScreen({ navigation, route }) {
                                         name="map-location-dot"
                                         size={12}
                                       />
-                                      <Text style={styles.routeMapToggleText}>
-                                        Ver mapa
-                                      </Text>
+                                      <Text style={styles.routeMapToggleText}>Ver mapa</Text>
                                     </Pressable>
                                   ) : null}
                                 </View>
@@ -2544,14 +2595,16 @@ export default function TripDetailScreen({ navigation, route }) {
                                 <Text style={styles.routeHint}>{routeHint}</Text>
                               ) : null}
 
-                              {puedeGenerarRuta && lock.canEdit("itinerario") ? (
-                                <>
-                                  <View style={styles.modoTransporteWrap}>
+                              {puedeEditarRuta ? (
+                                <View style={styles.routeControls}>
+                                  <View style={styles.segmented}>
                                     {MODOS_RUTA.map((modo) => {
                                       const active = modo.valor === modoSeleccionado;
                                       return (
                                         <Pressable
                                           key={modo.valor}
+                                          accessibilityRole="button"
+                                          accessibilityState={{ selected: active, disabled: generando }}
                                           disabled={generando}
                                           onPress={() =>
                                             setModoTransporteDayId((current) => ({
@@ -2560,23 +2613,19 @@ export default function TripDetailScreen({ navigation, route }) {
                                             }))
                                           }
                                           style={[
-                                            styles.modoChip,
-                                            active && styles.modoChipActive,
+                                            styles.segmentItem,
+                                            active && styles.segmentItemActive,
                                           ]}
                                         >
                                           <FontAwesome6
-                                            color={
-                                              active
-                                                ? colors.textInverse
-                                                : colors.primary
-                                            }
+                                            color={active ? colors.textInverse : colors.primary}
                                             name={modo.icono}
-                                            size={12}
+                                            size={11}
                                           />
                                           <Text
                                             style={[
-                                              styles.modoChipText,
-                                              active && styles.modoChipTextActive,
+                                              styles.segmentText,
+                                              active && styles.segmentTextActive,
                                             ]}
                                           >
                                             {modo.label}
@@ -2587,36 +2636,41 @@ export default function TripDetailScreen({ navigation, route }) {
                                   </View>
 
                                   <Pressable
+                                    accessibilityRole="button"
+                                    accessibilityLabel={ruta ? "Regenerar ruta" : "Generar ruta"}
                                     disabled={generando}
-                                    onPress={() =>
-                                      handleGenerarRuta(dayId, modoSeleccionado)
-                                    }
+                                    onPress={() => handleGenerarRuta(dayId, modoSeleccionado)}
                                     style={[
-                                      styles.addActivityButton,
-                                      generando && styles.addActivityButtonDisabled,
+                                      styles.routeAction,
+                                      destacarAccion && styles.routeActionDestacada,
+                                      generando && styles.routeActionDisabled,
                                     ]}
+                                    testID={`route-action-${dayId}`}
                                   >
                                     {generando ? (
                                       <ActivityIndicator
-                                        color={colors.primary}
+                                        color={destacarAccion ? colors.textInverse : colors.primary}
                                         size="small"
                                       />
                                     ) : (
                                       <FontAwesome6
-                                        color={colors.primary}
-                                        name="route"
-                                        size={12}
+                                        color={destacarAccion ? colors.textInverse : colors.primary}
+                                        name={ruta ? "arrows-rotate" : "route"}
+                                        size={13}
                                       />
                                     )}
-                                    <Text style={styles.addActivityText}>
-                                      {generando
-                                        ? "Generando ruta..."
-                                        : ruta
-                                        ? "Regenerar ruta"
-                                        : "Generar ruta"}
-                                    </Text>
+                                    {!ruta && !generando ? (
+                                      <Text
+                                        style={[
+                                          styles.routeActionText,
+                                          styles.routeActionTextDestacada,
+                                        ]}
+                                      >
+                                        Generar
+                                      </Text>
+                                    ) : null}
                                   </Pressable>
-                                </>
+                                </View>
                               ) : null}
                             </View>
                           );
@@ -2641,8 +2695,11 @@ export default function TripDetailScreen({ navigation, route }) {
               dias={itinerarioDias}
               generandoRutaDayId={generandoRutaDayId}
               onGenerarRuta={lock.canEdit("itinerario") ? handleGenerarRuta : undefined}
-              onSuggestActivities={
-                lock.canEdit("itinerario") ? (day) => abrirSugerencias(day.dayId) : undefined
+              onSuggestGap={
+                lock.canEdit("itinerario")
+                  ? (day, desde, hasta) =>
+                      abrirSugerencias(day.dayId, { inicio: desde, fin: hasta })
+                  : undefined
               }
               sugerenciasPorDia={sugerenciasPorDia}
               onAddActivity={
@@ -2774,7 +2831,7 @@ export default function TripDetailScreen({ navigation, route }) {
           {/* TAB 3: DOCS */}
           {activeTab === "docs" ? (
             <>
-              <View 
+              <View
                 collapsable={false}
                 ref={gastosCardRef}
                 style={styles.sectionCard}
@@ -2820,7 +2877,7 @@ export default function TripDetailScreen({ navigation, route }) {
                 ) : null}
               </View>
 
-              <View 
+              <View
                 collapsable={false}
                 ref={gastosCardRef}
                 style={[styles.sectionCard, { marginTop: spacing.md }]}
@@ -3070,6 +3127,8 @@ export default function TripDetailScreen({ navigation, route }) {
                           : v
                       )
                     );
+                    // US 90: si venía de sugerencias, vuelven a "Pendiente".
+                    cargarSugerencias();
                   } catch (error) {
                     avisar(
                       "No se pudo cancelar",
@@ -3256,7 +3315,7 @@ export default function TripDetailScreen({ navigation, route }) {
                                   />
                                 )}
                               </View>
-                              <Text style={{ color: colors.textPrimary }}>
+                              <Text style={{ color: colors.textPrimary, flex: 1 }}>
                                 {propuesta.Texto}
                               </Text>
                             </Pressable>
@@ -3449,6 +3508,15 @@ export default function TripDetailScreen({ navigation, route }) {
         </View>
       </ScrollView>
 
+      {activeTab === "itinerario" && lock.canEdit("itinerario") && diaParaSugerir ? (
+        <TripAssistantButton
+          label="Sugerir con IA"
+          accessibilityLabel="Sugerir actividades con IA"
+          testID="suggest-activities-fab"
+          onPress={() => abrirSugerencias(diaParaSugerir.dayId)}
+        />
+      ) : null}
+
       {mutatingParticipants ? (
         <View style={styles.loadingWrap}>
           <ActivityIndicator color={colors.primary} size="large" />
@@ -3472,11 +3540,12 @@ export default function TripDetailScreen({ navigation, route }) {
         tripTitle={trip?.title}
         dias={itinerarioDias}
         initialDayId={sugerenciasDayId}
-        onClose={() => setShowSugerenciasModal(false)}
+        initialFranja={sugerenciasFranja}
+        onClose={cerrarSugerencias}
         onGenerado={cargarSugerencias}
         onCrearManual={(dayId) => {
           const dia = itinerarioDias.find((item) => item.dayId === dayId);
-          setShowSugerenciasModal(false);
+          cerrarSugerencias();
           if (dia) {
             setTimeout(
               () =>
@@ -3728,7 +3797,7 @@ export default function TripDetailScreen({ navigation, route }) {
           </View>
         </View>
       </Modal>
-      
+
       <Modal
         animationType="fade"
         transparent={true}
@@ -3889,7 +3958,7 @@ export default function TripDetailScreen({ navigation, route }) {
               <FontAwesome6 name="xmark" size={20} color="#fff" />
             </Pressable>
           </View>
-          
+
           <View style={styles.viewerContent}>
             {comprobanteViendo?.NombreComprobante?.toLowerCase().endsWith('.pdf') ? (
               <View style={{ alignItems: 'center', justifyContent: 'center', padding: 20 }}>
@@ -3913,9 +3982,9 @@ export default function TripDetailScreen({ navigation, route }) {
           </View>
 
           <View style={styles.viewerFooter}>
-            <PrimaryButton 
+            <PrimaryButton
               label={descargandoComprobanteId === comprobanteViendo?.IdGasto ? "Descargando..." : "Descargar comprobante"}
-              icon="download" 
+              icon="download"
               iconPosition="left"
               disabled={descargandoComprobanteId === comprobanteViendo?.IdGasto}
               onPress={() => handleDescargarComprobante(comprobanteViendo)}
@@ -4254,97 +4323,27 @@ const styles = StyleSheet.create({
     paddingTop: spacing.md,
     gap: spacing.md,
   },
-  dayAgendaList: {
-    gap: spacing.md,
-  },
-  agendaItem: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    gap: spacing.md,
-  },
-  agendaIcon: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    backgroundColor: colors.surfaceAlt,
-    alignItems: "center",
-    justifyContent: "center",
-    marginTop: 2,
-  },
-  agendaContent: {
-    flex: 1,
-    minWidth: 0,
-  },
-  agendaActions: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing.xs,
-    flexShrink: 0,
-  },
-  agendaActionButton: {
-    padding: spacing.xs,
-    marginTop: 2,
-  },
-  agendaHeaderRow: {
-    flexDirection: "row",
-    alignItems: "baseline",
-    gap: spacing.sm,
-    flexWrap: "wrap",
-  },
-  agendaTime: {
-    ...textStyles.meta,
-    color: colors.textSecondary,
-  },
-  agendaTitle: {
-    ...textStyles.bodyStrong,
-    color: colors.primary,
-    fontSize: 17,
-  },
-  agendaNote: {
-    ...textStyles.body,
-    color: colors.textSecondary,
-    marginTop: spacing.xxs,
-  },
-  addActivityButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing.xs,
-    alignSelf: "flex-start",
-    marginTop: spacing.xs,
-  },
-  addActivityText: {
-    ...textStyles.bodyStrong,
-    color: colors.primary,
-    fontSize: 13,
-  },
-  addActivityButtonDisabled: {
-    opacity: 0.6,
-  },
   routeSection: {
-    marginTop: spacing.sm,
-    gap: spacing.xs,
+    paddingTop: spacing.sm,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+    gap: spacing.sm,
   },
-  routeSummaryRow: {
+  routeHeaderRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
     gap: spacing.sm,
-    flexWrap: "wrap",
   },
-  routeSummary: {
+  routeHeaderLeft: {
     flexDirection: "row",
     alignItems: "center",
     gap: spacing.xs,
-    backgroundColor: colors.surfaceAlt,
-    borderRadius: radii.pill ?? 999,
-    paddingVertical: 6,
-    paddingHorizontal: spacing.sm,
-    alignSelf: "flex-start",
+    flexShrink: 1,
   },
-  routeSummaryText: {
+  routeHeaderText: {
     ...textStyles.meta,
-    color: colors.primary,
-    fontWeight: "600",
+    color: colors.textSecondary,
   },
   routeMapToggle: {
     flexDirection: "row",
@@ -4360,32 +4359,65 @@ const styles = StyleSheet.create({
     ...textStyles.meta,
     color: colors.textMuted,
   },
-  modoTransporteWrap: {
-    flexDirection: "row",
-    gap: spacing.xs,
-    marginTop: spacing.xs,
-  },
-  modoChip: {
+  routeControls: {
     flexDirection: "row",
     alignItems: "center",
-    gap: spacing.xxs,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: radii.pill ?? 999,
-    backgroundColor: colors.surface,
-    paddingHorizontal: spacing.sm,
+    gap: spacing.xs,
+  },
+  segmented: {
+    flex: 1,
+    flexDirection: "row",
+    padding: 3,
+    borderRadius: radii.pill,
+    backgroundColor: colors.surfaceAlt,
+  },
+  segmentItem: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 4,
     paddingVertical: 6,
+    borderRadius: radii.pill,
   },
-  modoChipActive: {
+  segmentItemActive: {
     backgroundColor: colors.primary,
-    borderColor: colors.primary,
   },
-  modoChipText: {
+  segmentText: {
     ...textStyles.meta,
     color: colors.primary,
     fontWeight: "600",
+    fontSize: 12,
   },
-  modoChipTextActive: {
+  segmentTextActive: {
+    color: colors.textInverse,
+  },
+  routeAction: {
+    minWidth: 36,
+    height: 36,
+    paddingHorizontal: spacing.sm,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 4,
+    borderRadius: radii.pill,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+  },
+  routeActionDestacada: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
+  },
+  routeActionDisabled: {
+    opacity: 0.6,
+  },
+  routeActionText: {
+    ...textStyles.meta,
+    fontWeight: "600",
+    color: colors.primary,
+  },
+  routeActionTextDestacada: {
     color: colors.textInverse,
   },
   sectionStack: {
@@ -4828,26 +4860,4 @@ const styles = StyleSheet.create({
     zIndex: 10,
     width: "100%",
   },
-  suggestionsBlock: {
-    marginTop: spacing.sm,
-    gap: spacing.sm,
-  },
-  suggestionsTitle: {
-    ...textStyles.sectionLabel,
-    color: colors.textMuted,
-    fontSize: 11,
-    letterSpacing: 0.8,
-  },
-  suggestButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing.xs,
-    alignSelf: "flex-start",
-    marginTop: spacing.xs,
-  },
-  suggestButtonText: {
-    ...textStyles.bodyStrong,
-    color: colors.primary,
-    fontSize: 13,
-  },  
 });
