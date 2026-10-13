@@ -28,8 +28,6 @@ _MESES = (
 
 @dataclass
 class VotacionDesdeSugerencias:
-    """Datos ya validados para crear la votación."""
-
     sugerencias: list[SugerenciaActividad]
     titulo: str
     fecha_cierre: datetime
@@ -99,7 +97,6 @@ def texto_propuesta(sugerencia: SugerenciaActividad) -> str:
 
 
 def titulo_predefinido(fecha: date | None, hora_inicio: time, hora_fin: time) -> str:
-    """Título por defecto con el día y la franja horaria (CA 3)."""
     franja = f"de {_hhmm(hora_inicio)} a {_hhmm(hora_fin)}"
     if fecha is None:
         return f"¿Qué hacemos {franja}?"
@@ -107,18 +104,18 @@ def titulo_predefinido(fecha: date | None, hora_inicio: time, hora_fin: time) ->
 
 
 def validar_fecha_cierre(
-    fecha_cierre: datetime, fecha_dia: date | None, hora_inicio_franja: time
+    fecha_cierre: datetime, fecha_dia: date | None, hora_primera_actividad: time
 ) -> datetime:
     cierre = _aware(fecha_cierre)
     if cierre <= datetime.now(timezone.utc):
         _rechazar("La fecha y hora de cierre debe ser posterior a la fecha y hora actual.")
 
     if fecha_dia is not None:
-        inicio_franja = datetime.combine(fecha_dia, hora_inicio_franja, tzinfo=cierre.tzinfo)
-        if cierre >= inicio_franja:
+        inicio = datetime.combine(fecha_dia, hora_primera_actividad, tzinfo=cierre.tzinfo)
+        if cierre >= inicio:
             _rechazar(
-                "La votación tiene que cerrar antes del inicio de la franja horaria "
-                f"({_hhmm(hora_inicio_franja)} del {fecha_dia.strftime('%d/%m/%Y')})."
+                "La votación tiene que cerrar antes del inicio de la primera actividad propuesta "
+                f"({_hhmm(hora_primera_actividad)} del {fecha_dia.strftime('%d/%m/%Y')})."
             )
     return cierre
 
@@ -131,18 +128,13 @@ def preparar_votacion(
     titulo: str | None,
     fecha_cierre: datetime,
 ) -> VotacionDesdeSugerencias:
-    """Valida los CA 2, 3 y 5 y devuelve los datos listos para crear la votación."""
     ids_unicos = list(dict.fromkeys(ids_sugerencias or []))
     if not MINIMO_SUGERENCIAS <= len(ids_unicos) <= MAXIMO_SUGERENCIAS:
         _rechazar("Seleccioná entre dos y cinco sugerencias para proponer a votación.")
 
-
     sugerencias = db.scalars(
         select(SugerenciaActividad)
-        .options(
-            selectinload(SugerenciaActividad.Estado),
-            selectinload(SugerenciaActividad.Solicitud),
-        )
+        .options(selectinload(SugerenciaActividad.Estado))
         .where(
             SugerenciaActividad.IdSugerenciaActividad.in_(ids_unicos),
             SugerenciaActividad.IdViaje == id_viaje,
@@ -162,17 +154,22 @@ def preparar_votacion(
     if any(_nombre_estado(s) != ESTADO_PENDIENTE for s in ordenadas):
         _rechazar('Solo se pueden proponer sugerencias en estado "Pendiente".')
 
-    franjas = {
-        (s.IdDiaCronograma, s.Solicitud.HoraInicio, s.Solicitud.HoraFin) for s in ordenadas
-    }
-    if len(franjas) > 1:
-        _rechazar("Las sugerencias tienen que ser del mismo día y de la misma franja horaria.")
+    if len({s.IdDiaCronograma for s in ordenadas}) > 1:
+        _rechazar("Las sugerencias tienen que ser del mismo día.")
 
-    id_dia, hora_inicio, hora_fin = next(iter(franjas))
-    fecha_dia = obtener_fecha_dia(db, id_dia)
-    cierre = validar_fecha_cierre(fecha_cierre, fecha_dia, hora_inicio)
+    inicio_comun = max(s.HoraInicio for s in ordenadas)
+    fin_comun = min(s.HoraFin for s in ordenadas)
+    if inicio_comun >= fin_comun:
+        _rechazar(
+            "Las sugerencias tienen que superponerse en horario para poder votarse como alternativas."
+        )
 
-    titulo_final = (titulo or "").strip() or titulo_predefinido(fecha_dia, hora_inicio, hora_fin)
+    primera = min(s.HoraInicio for s in ordenadas)
+    ultima = max(s.HoraFin for s in ordenadas)
+    fecha_dia = obtener_fecha_dia(db, ordenadas[0].IdDiaCronograma)
+    cierre = validar_fecha_cierre(fecha_cierre, fecha_dia, primera)
+
+    titulo_final = (titulo or "").strip() or titulo_predefinido(fecha_dia, primera, ultima)
     if len(titulo_final) > LARGO_MAXIMO_TITULO:
         _rechazar("El título de la votación no puede superar los 150 caracteres.")
 
@@ -216,15 +213,17 @@ def validar_cierre_editado(db: Session, votacion: Votacion, fecha_cierre: dateti
     ids = ids_sugerencias_de(votacion)
     if not ids:
         return
-    sugerencia = db.get(SugerenciaActividad, ids[0])
-    if sugerencia is None or sugerencia.Solicitud is None:
+    sugerencias = db.scalars(
+        select(SugerenciaActividad).where(SugerenciaActividad.IdSugerenciaActividad.in_(ids))
+    ).all()
+    if not sugerencias:
         return
-    fecha_dia = obtener_fecha_dia(db, sugerencia.IdDiaCronograma)
-    validar_fecha_cierre(fecha_cierre, fecha_dia, sugerencia.Solicitud.HoraInicio)
+    primera = min(s.HoraInicio for s in sugerencias)
+    fecha_dia = obtener_fecha_dia(db, sugerencias[0].IdDiaCronograma)
+    validar_fecha_cierre(fecha_cierre, fecha_dia, primera)
 
 
 def asegurar_sugerencia_modificable(sugerencia: SugerenciaActividad) -> None:
-
     if _nombre_estado(sugerencia) == ESTADO_EN_VOTACION:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,

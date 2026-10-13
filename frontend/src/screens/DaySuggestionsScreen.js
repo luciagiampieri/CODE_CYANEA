@@ -26,33 +26,34 @@ function hhmm(valor) {
   return String(valor ?? "").slice(0, 5);
 }
 
+function aMinutos(valor) {
+  const [h, m] = hhmm(valor).split(":").map(Number);
+  return h * 60 + m;
+}
+
 function esPendiente(sugerencia) {
   return String(sugerencia.Estado ?? "").toLowerCase() === "pendiente";
 }
 
-function agruparPorSolicitud(sugerencias) {
-  const grupos = new Map();
-  sugerencias.forEach((sugerencia) => {
-    const clave = String(sugerencia.IdSolicitud ?? hhmm(sugerencia.HoraInicio));
-    if (!grupos.has(clave)) grupos.set(clave, { clave, items: [] });
-    grupos.get(clave).items.push(sugerencia);
-  });
-  return [...grupos.values()]
-    .map((grupo) => {
-      const items = [...grupo.items].sort((a, b) => hhmm(a.HoraInicio).localeCompare(hhmm(b.HoraInicio)));
-      const inicios = items.map((s) => hhmm(s.HoraInicio)).sort();
-      const fines = items.map((s) => hhmm(s.HoraFin)).sort();
-      return {
-        ...grupo,
-        items,
-        inicio: inicios[0],
-        fin: fines[fines.length - 1],
-        pendientes: items.filter(esPendiente).length,
-      };
-    })
-    .sort((a, b) => a.inicio.localeCompare(b.inicio));
+function interseccion(sugerencias) {
+  if (!sugerencias.length) return null;
+  return {
+    inicio: Math.max(...sugerencias.map((s) => aMinutos(s.HoraInicio))),
+    fin: Math.min(...sugerencias.map((s) => aMinutos(s.HoraFin))),
+  };
 }
 
+function seSuperponeCon(rango, sugerencia) {
+  if (!rango) return true;
+  return Math.max(rango.inicio, aMinutos(sugerencia.HoraInicio)) < Math.min(rango.fin, aMinutos(sugerencia.HoraFin));
+}
+
+function franjaDe(sugerencias) {
+  if (!sugerencias.length) return null;
+  const inicios = sugerencias.map((s) => hhmm(s.HoraInicio)).sort();
+  const fines = sugerencias.map((s) => hhmm(s.HoraFin)).sort();
+  return { inicio: inicios[0], fin: fines[fines.length - 1] };
+}
 
 export default function DaySuggestionsScreen({ navigation, route }) {
   const { tripId, trip, tripTitle, dia, canPropose = false } = route.params ?? {};
@@ -62,7 +63,7 @@ export default function DaySuggestionsScreen({ navigation, route }) {
   const [refrescando, setRefrescando] = useState(false);
   const [error, setError] = useState("");
   const [expandidaId, setExpandidaId] = useState(null);
-  const [grupoSeleccion, setGrupoSeleccion] = useState(null);
+  const [modoSeleccion, setModoSeleccion] = useState(false);
   const [seleccionadas, setSeleccionadas] = useState([]);
   const [avisoLimite, setAvisoLimite] = useState(false);
   const [mostrarSheet, setMostrarSheet] = useState(false);
@@ -88,7 +89,6 @@ export default function DaySuggestionsScreen({ navigation, route }) {
     [tripId, dia?.dayId]
   );
 
-
   useFocusEffect(
     useCallback(() => {
       cargar({ silencioso: yaCargoRef.current });
@@ -96,9 +96,15 @@ export default function DaySuggestionsScreen({ navigation, route }) {
     }, [cargar])
   );
 
-  const grupos = useMemo(() => agruparPorSolicitud(sugerencias), [sugerencias]);
-  const grupoActivo = grupos.find((g) => g.clave === grupoSeleccion) ?? null;
-
+  const ordenadas = useMemo(
+    () =>
+      [...sugerencias].sort(
+        (a, b) =>
+          hhmm(a.HoraInicio).localeCompare(hhmm(b.HoraInicio)) ||
+          hhmm(a.HoraFin).localeCompare(hhmm(b.HoraFin))
+      ),
+    [sugerencias]
+  );
 
   useEffect(() => {
     setSeleccionadas((actuales) =>
@@ -108,21 +114,22 @@ export default function DaySuggestionsScreen({ navigation, route }) {
     );
   }, [sugerencias]);
 
+  const pendientes = ordenadas.filter(esPendiente).length;
+  const elegidas = ordenadas.filter((s) => seleccionadas.includes(s.IdSugerenciaActividad));
+  const rangoComun = interseccion(elegidas);
+  const franjaVotacion = franjaDe(elegidas);
   const puedeContinuar =
     seleccionadas.length >= MINIMO_VOTACION && seleccionadas.length <= MAXIMO_VOTACION;
-  const sugerenciasElegidas = grupoActivo
-    ? grupoActivo.items.filter((s) => seleccionadas.includes(s.IdSugerenciaActividad))
-    : [];
 
-  function empezarSeleccion(grupo) {
-    setGrupoSeleccion(grupo.clave);
+  function empezarSeleccion() {
+    setModoSeleccion(true);
     setSeleccionadas([]);
     setAvisoLimite(false);
     setExpandidaId(null);
   }
 
   function salirDeSeleccion() {
-    setGrupoSeleccion(null);
+    setModoSeleccion(false);
     setSeleccionadas([]);
     setAvisoLimite(false);
   }
@@ -169,72 +176,30 @@ export default function DaySuggestionsScreen({ navigation, route }) {
     ]);
   }
 
-  function renderGrupo(grupo) {
-    const enSeleccion = grupoSeleccion === grupo.clave;
-    const otroEnSeleccion = Boolean(grupoSeleccion) && !enSeleccion;
-    const puedeProponer = canPropose && grupo.pendientes >= MINIMO_VOTACION;
-
+  function renderSugerencia(sugerencia) {
+    const id = sugerencia.IdSugerenciaActividad;
+    if (modoSeleccion) {
+      const seleccionada = seleccionadas.includes(id);
+      const bloqueada =
+        !esPendiente(sugerencia) || (!seleccionada && !seSuperponeCon(rangoComun, sugerencia));
+      return (
+        <SuggestionCompactCard
+          key={id}
+          sugerencia={sugerencia}
+          modoSeleccion
+          seleccionada={seleccionada}
+          bloqueada={bloqueada}
+          onPress={() => alternarSeleccion(sugerencia)}
+        />
+      );
+    }
     return (
-      <View key={grupo.clave} style={[styles.grupo, otroEnSeleccion && styles.grupoApagado]}>
-        <View style={styles.grupoEncabezado}>
-          <View style={styles.grupoTextos}>
-            <Text style={styles.grupoTitulo}>
-              Franja {grupo.inicio} – {grupo.fin}
-            </Text>
-            <Text style={styles.grupoSubtitulo}>
-              {grupo.items.length} {grupo.items.length === 1 ? "sugerencia" : "sugerencias"}
-              {grupo.pendientes !== grupo.items.length
-                ? ` · ${grupo.pendientes} ${grupo.pendientes === 1 ? "pendiente" : "pendientes"}`
-                : ""}
-            </Text>
-          </View>
-
-          {puedeProponer && !grupoSeleccion ? (
-            <Pressable
-              accessibilityRole="button"
-              onPress={() => empezarSeleccion(grupo)}
-              style={({ pressed }) => [styles.botonProponer, pressed && styles.presionado]}
-              testID={`proponer-votacion-${grupo.clave}`}
-            >
-              <FontAwesome6 name="check-to-slot" size={12} color={colors.primary} />
-              <Text style={styles.botonProponerTexto}>Proponer a votación</Text>
-            </Pressable>
-          ) : null}
-        </View>
-
-        {enSeleccion ? (
-          <Text style={styles.ayudaSeleccion}>
-            Elegí entre {MINIMO_VOTACION} y {MAXIMO_VOTACION} sugerencias pendientes.
-          </Text>
-        ) : null}
-
-        <View style={styles.lista}>
-          {grupo.items.map((sugerencia) => {
-            const id = sugerencia.IdSugerenciaActividad;
-            if (enSeleccion) {
-              return (
-                <SuggestionCompactCard
-                  key={id}
-                  sugerencia={sugerencia}
-                  modoSeleccion
-                  seleccionada={seleccionadas.includes(id)}
-                  bloqueada={!esPendiente(sugerencia)}
-                  onPress={() => alternarSeleccion(sugerencia)}
-                />
-              );
-            }
-            return (
-              <SuggestionCompactCard
-                key={id}
-                sugerencia={sugerencia}
-                expandida={expandidaId === id}
-                bloqueada={otroEnSeleccion}
-                onPress={() => setExpandidaId((actual) => (actual === id ? null : id))}
-              />
-            );
-          })}
-        </View>
-      </View>
+      <SuggestionCompactCard
+        key={id}
+        sugerencia={sugerencia}
+        expandida={expandidaId === id}
+        onPress={() => setExpandidaId((actual) => (actual === id ? null : id))}
+      />
     );
   }
 
@@ -254,7 +219,7 @@ export default function DaySuggestionsScreen({ navigation, route }) {
         </View>
       );
     }
-    if (sugerencias.length === 0) {
+    if (ordenadas.length === 0) {
       return (
         <View style={styles.estadoVacio}>
           <FontAwesome6 name="wand-magic-sparkles" size={22} color={colors.textMuted} />
@@ -270,11 +235,35 @@ export default function DaySuggestionsScreen({ navigation, route }) {
     }
     return (
       <>
+        <View style={styles.encabezado}>
+          <View style={styles.encabezadoTextos}>
+            <Text style={styles.encabezadoTitulo}>
+              {ordenadas.length} {ordenadas.length === 1 ? "sugerencia" : "sugerencias"}
+            </Text>
+            <Text style={styles.encabezadoSubtitulo}>
+              {pendientes} {pendientes === 1 ? "pendiente" : "pendientes"}
+            </Text>
+          </View>
+          {canPropose && pendientes >= MINIMO_VOTACION && !modoSeleccion ? (
+            <Pressable
+              accessibilityRole="button"
+              onPress={empezarSeleccion}
+              style={({ pressed }) => [styles.botonProponer, pressed && styles.presionado]}
+              testID="proponer-votacion"
+            >
+              <FontAwesome6 name="check-to-slot" size={12} color={colors.primary} />
+              <Text style={styles.botonProponerTexto}>Proponer a votación</Text>
+            </Pressable>
+          ) : null}
+        </View>
+
         <Text style={styles.intro}>
-          Las sugerencias quedan pendientes y las ve todo el grupo. Tocá una para ver el detalle
-          {canPropose ? ", o proponé varias de la misma franja a votación." : "."}
+          {modoSeleccion
+            ? `Elegí entre ${MINIMO_VOTACION} y ${MAXIMO_VOTACION} sugerencias pendientes que se superpongan en horario: el grupo va a votar cuál hacer.`
+            : "Las sugerencias quedan pendientes y las ve todo el grupo. Tocá una para ver el detalle."}
         </Text>
-        {grupos.map(renderGrupo)}
+
+        <View style={styles.lista}>{ordenadas.map(renderSugerencia)}</View>
       </>
     );
   }
@@ -304,7 +293,7 @@ export default function DaySuggestionsScreen({ navigation, route }) {
 
       <ScrollView
         style={styles.scroll}
-        contentContainerStyle={[styles.scrollContent, grupoSeleccion && styles.scrollConBarra]}
+        contentContainerStyle={[styles.scrollContent, modoSeleccion && styles.scrollConBarra]}
         refreshControl={
           <RefreshControl
             refreshing={refrescando}
@@ -319,7 +308,7 @@ export default function DaySuggestionsScreen({ navigation, route }) {
         <View style={styles.contenido}>{renderContenido()}</View>
       </ScrollView>
 
-      {grupoSeleccion ? (
+      {modoSeleccion ? (
         <View style={styles.barra}>
           <View style={styles.barraInterior}>
             <View style={styles.barraTextos}>
@@ -328,8 +317,10 @@ export default function DaySuggestionsScreen({ navigation, route }) {
               </Text>
               {avisoLimite ? (
                 <Text style={styles.barraAviso}>Podés proponer hasta {MAXIMO_VOTACION} sugerencias.</Text>
-              ) : seleccionadas.length === 1 ? (
-                <Text style={styles.barraAyuda}>Elegí al menos una más.</Text>
+              ) : franjaVotacion ? (
+                <Text style={styles.barraAyuda}>
+                  Votación de {franjaVotacion.inicio} a {franjaVotacion.fin}
+                </Text>
               ) : null}
             </View>
             <Pressable
@@ -362,8 +353,8 @@ export default function DaySuggestionsScreen({ navigation, route }) {
         onClose={() => setMostrarSheet(false)}
         tripId={tripId}
         dia={dia}
-        franja={grupoActivo ? { inicio: grupoActivo.inicio, fin: grupoActivo.fin } : null}
-        sugerencias={sugerenciasElegidas}
+        franja={franjaVotacion}
+        sugerencias={elegidas}
         onCreada={handleCreada}
       />
     </ScreenContainer>
@@ -423,38 +414,32 @@ const styles = StyleSheet.create({
   cargando: {
     marginTop: spacing.xl,
   },
-  intro: {
-    ...textStyles.meta,
-    fontSize: 13,
-    lineHeight: 19,
-    color: colors.textSecondary,
-  },
-  grupo: {
-    marginTop: spacing.lg,
-    gap: spacing.xs,
-  },
-  grupoApagado: {
-    opacity: 0.6,
-  },
-  grupoEncabezado: {
+  encabezado: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
     gap: spacing.sm,
     flexWrap: "wrap",
   },
-  grupoTextos: {
+  encabezadoTextos: {
     flexShrink: 1,
   },
-  grupoTitulo: {
+  encabezadoTitulo: {
     ...textStyles.bodyStrong,
     fontSize: 15,
     color: colors.primary,
   },
-  grupoSubtitulo: {
+  encabezadoSubtitulo: {
     ...textStyles.meta,
     fontSize: 12,
     color: colors.textSecondary,
+  },
+  intro: {
+    ...textStyles.meta,
+    fontSize: 13,
+    lineHeight: 19,
+    color: colors.textSecondary,
+    marginTop: spacing.sm,
   },
   botonProponer: {
     flexDirection: "row",
@@ -473,13 +458,9 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     color: colors.primary,
   },
-  ayudaSeleccion: {
-    ...textStyles.meta,
-    fontSize: 12,
-    color: colors.textSecondary,
-  },
   lista: {
     gap: spacing.xs,
+    marginTop: spacing.md,
   },
   estadoVacio: {
     alignItems: "center",
