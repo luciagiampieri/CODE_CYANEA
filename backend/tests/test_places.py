@@ -777,3 +777,135 @@ def test_schedule_trip_place_rechaza_formatos_de_hora_invalidos(
 
     assert response.status_code == 422
     assert response.json()["detail"] == "horaInicio debe tener formato HH:MM"
+
+# ---------------------------------------------------------------------------
+# Buscar ubicaciones: solo dentro del destino (provincia o país)
+# ---------------------------------------------------------------------------
+
+VIEWPORT_CORDOBA = {
+    "low": {"latitude": -35.0, "longitude": -65.8},
+    "high": {"latitude": -29.5, "longitude": -61.8},
+}
+REGION_CIUDAD_CORDOBA = {
+    "country": "Argentina",
+    "admin_area": "Córdoba",
+    "lat": -31.42,
+    "lng": -64.18,
+    "name": "Córdoba",
+}
+
+
+@pytest.fixture()
+def places_falso(monkeypatch):
+    """Autocomplete y Text Search falsos; registra las consultas de límites."""
+    fake_client = _FakePlacesAutocompleteClient()
+    consultas = []
+    respuesta = {"places": [{"id": "prov", "viewport": VIEWPORT_CORDOBA}]}
+
+    async def text_search(payload, field_mask):
+        consultas.append((payload["textQuery"], field_mask))
+        if isinstance(respuesta.get("error"), Exception):
+            raise respuesta["error"]
+        return respuesta
+
+    monkeypatch.setattr(places_service.settings, "google_maps_api_key", "test-key")
+    monkeypatch.setattr(places_service, "_get_client", lambda: fake_client)
+    monkeypatch.setattr(places_service, "_google_places_text_search", text_search)
+    monkeypatch.setattr(places_service, "_region_bounds_cache", {})
+    monkeypatch.setattr(places_service, "_region_center_cache", {})
+    return {"client": fake_client, "consultas": consultas, "respuesta": respuesta}
+
+
+def _autocompletar(regiones):
+    return asyncio.run(places_service.autocomplete_trip_places("museo", allowed_regions=regiones, limit=6))
+
+
+def test_autocomplete_destino_ciudad_restringe_a_su_provincia(places_falso):
+    _autocompletar([REGION_CIUDAD_CORDOBA])
+
+    payload = places_falso["client"].payloads[0]
+    assert payload["locationRestriction"] == {"rectangle": VIEWPORT_CORDOBA}
+    assert "locationBias" not in payload
+    assert places_falso["consultas"][0][0] == "Córdoba, Argentina"
+    assert "places.viewport" in places_falso["consultas"][0][1]
+
+
+def test_autocomplete_destino_sin_provincia_restringe_al_pais(places_falso):
+    places_falso["respuesta"]["places"] = [
+        {"id": "ar", "viewport": {"low": {"latitude": -55.1, "longitude": -73.6}, "high": {"latitude": -21.8, "longitude": -53.6}}}
+    ]
+
+    _autocompletar([{"country": "Argentina", "admin_area": None, "lat": -34.6, "lng": -58.4, "name": "Argentina"}])
+
+    assert places_falso["consultas"][0][0] == "Argentina"
+    assert "locationRestriction" in places_falso["client"].payloads[0]
+
+
+def test_autocomplete_varios_destinos_busca_en_cada_uno(places_falso):
+    mendoza = {"country": "Argentina", "admin_area": "Mendoza", "lat": -32.89, "lng": -68.83, "name": "Mendoza"}
+    places_falso["respuesta"]["places"] = [
+        {"id": "x", "viewport": {"low": {"latitude": -38.0, "longitude": -70.0}, "high": {"latitude": -29.0, "longitude": -61.0}}}
+    ]
+
+    _autocompletar([REGION_CIUDAD_CORDOBA, mendoza])
+
+    assert [c[0] for c in places_falso["consultas"]] == ["Córdoba, Argentina", "Mendoza, Argentina"]
+    assert all("locationRestriction" in p for p in places_falso["client"].payloads)
+
+
+def test_autocomplete_sin_limites_vuelve_a_priorizar_cerca_del_destino(places_falso):
+    places_falso["respuesta"]["places"] = []
+
+    _autocompletar([REGION_CIUDAD_CORDOBA])
+
+    payload = places_falso["client"].payloads[0]
+    assert "locationRestriction" not in payload
+    assert payload["locationBias"]["circle"]["center"] == {"latitude": -31.42, "longitude": -64.18}
+
+
+def test_autocomplete_si_falla_la_consulta_de_limites_no_restringe(places_falso):
+    places_falso["respuesta"]["error"] = RuntimeError("Places caído")
+
+    suggestions = _autocompletar([REGION_CIUDAD_CORDOBA])
+
+    assert len(suggestions) == 1
+    assert "locationRestriction" not in places_falso["client"].payloads[0]
+
+
+def test_limites_que_no_contienen_al_destino_se_descartan(places_falso):
+    # Google resolvió "Córdoba" en España: el destino (Argentina) queda afuera.
+    places_falso["respuesta"]["places"] = [
+        {"id": "es", "viewport": {"low": {"latitude": 37.0, "longitude": -5.6}, "high": {"latitude": 38.7, "longitude": -4.0}}}
+    ]
+
+    assert asyncio.run(places_service.resolve_region_bounds(REGION_CIUDAD_CORDOBA)) is None
+
+
+def test_limites_se_guardan_en_cache(places_falso):
+    asyncio.run(places_service.resolve_region_bounds(REGION_CIUDAD_CORDOBA))
+    asyncio.run(places_service.resolve_region_bounds(REGION_CIUDAD_CORDOBA))
+
+    assert len(places_falso["consultas"]) == 1
+
+
+def test_limites_sin_pais_no_consulta(places_falso):
+    assert asyncio.run(places_service.resolve_region_bounds({"country": None, "name": "X"})) is None
+    assert places_falso["consultas"] == []
+
+
+@pytest.mark.parametrize(
+    "lat,lng,dentro",
+    [(65.0, -175.0, True), (65.0, 175.0, True), (65.0, 0.0, False)],
+)
+def test_punto_en_rectangulo_que_cruza_el_antimeridiano(lat, lng, dentro):
+    rectangulo = {"low": {"latitude": 50.0, "longitude": 170.0}, "high": {"latitude": 72.0, "longitude": -129.0}}
+
+    assert places_service._punto_en_rectangulo(lat, lng, rectangulo) is dentro
+
+
+@pytest.mark.parametrize(
+    "viewport",
+    [None, {}, {"low": {"latitude": 1}}, {"low": {"latitude": 5, "longitude": 1}, "high": {"latitude": 1, "longitude": 2}}],
+)
+def test_viewport_invalido_se_ignora(viewport):
+    assert places_service._viewport_valido(viewport) is None

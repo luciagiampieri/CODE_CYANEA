@@ -163,19 +163,28 @@ async def autocomplete_trip_places(
         if session_token:
             payload["sessionToken"] = session_token
 
-        centro = await resolve_region_center(region) if region else None
-        lat, lng = centro if centro else (None, None)
+        # Solo se sugieren lugares dentro del destino: su provincia/estado si se
+        # conoce (un destino ciudad trae lugares de toda su provincia) o, si no,
+        # su país. Si no se pueden obtener los límites, se cae al comportamiento
+        # anterior: priorizar (sin restringir) 50 km alrededor del destino.
+        limites = await resolve_region_bounds(region) if region else None
 
-        if lat is not None and lng is not None:
-            payload["locationBias"] = {
-                "circle": {
-                    "center": {
-                        "latitude": lat,
-                        "longitude": lng,
-                    },
-                    "radius": 50000.0,
+        if limites is not None:
+            payload["locationRestriction"] = {"rectangle": limites}
+        else:
+            centro = await resolve_region_center(region) if region else None
+            lat, lng = centro if centro else (None, None)
+
+            if lat is not None and lng is not None:
+                payload["locationBias"] = {
+                    "circle": {
+                        "center": {
+                            "latitude": lat,
+                            "longitude": lng,
+                        },
+                        "radius": 50000.0,
+                    }
                 }
-            }
 
         response = await client.post(
             GOOGLE_PLACES_AUTOCOMPLETE_URL,
@@ -810,6 +819,76 @@ def get_trip_allowed_regions(viaje) -> list[dict[str, str | float | None]]:
 
 
 _region_center_cache: dict[tuple, tuple[float, float] | None] = {}
+_region_bounds_cache: dict[tuple, dict | None] = {}
+
+
+def _viewport_valido(viewport: dict | None) -> dict | None:
+    """Convierte el `viewport` de Places (New) en un rectángulo para
+    `locationRestriction`. Devuelve None si falta algún dato."""
+    if not isinstance(viewport, dict):
+        return None
+    low, high = viewport.get("low") or {}, viewport.get("high") or {}
+    try:
+        rectangulo = {
+            "low": {"latitude": float(low["latitude"]), "longitude": float(low["longitude"])},
+            "high": {"latitude": float(high["latitude"]), "longitude": float(high["longitude"])},
+        }
+    except (KeyError, TypeError, ValueError):
+        return None
+    if rectangulo["low"]["latitude"] >= rectangulo["high"]["latitude"]:
+        return None
+    return rectangulo
+
+
+def _punto_en_rectangulo(lat: float, lng: float, rectangulo: dict) -> bool:
+    low, high = rectangulo["low"], rectangulo["high"]
+    if not (low["latitude"] <= lat <= high["latitude"]):
+        return False
+    if low["longitude"] <= high["longitude"]:
+        return low["longitude"] <= lng <= high["longitude"]
+    # El rectángulo cruza el antimeridiano (p. ej. Fiyi o Alaska).
+    return lng >= low["longitude"] or lng <= high["longitude"]
+
+
+async def resolve_region_bounds(region: dict) -> dict | None:
+    """Límites (rectángulo) de la zona en la que se buscan lugares de un destino.
+
+    Si el destino tiene provincia/estado se usan los de esa provincia, así un
+    destino ciudad trae lugares de toda su provincia; si no, los del país. Se
+    obtienen del `viewport` de Google Places y se guardan en caché en memoria.
+    Devuelve None si no se pueden obtener (la búsqueda no se restringe)."""
+    pais = region.get("country")
+    if not pais or not settings.google_maps_api_key:
+        return None
+
+    provincia = region.get("admin_area")
+    consulta = f"{provincia}, {pais}" if provincia else str(pais)
+    clave = (consulta.casefold(),)
+    if clave in _region_bounds_cache:
+        return _region_bounds_cache[clave]
+
+    limites = None
+    try:
+        data = await _google_places_text_search(
+            {"textQuery": consulta, "languageCode": "es", "maxResultCount": 1},
+            field_mask="places.id,places.viewport",
+        )
+        places = data.get("places") or []
+        limites = _viewport_valido(places[0].get("viewport")) if places else None
+
+        # Si el destino tiene coordenadas y quedan fuera de los límites
+        # encontrados, Google resolvió otra zona: mejor no restringir.
+        lat, lng = region.get("lat"), region.get("lng")
+        if limites and lat is not None and lng is not None:
+            if not _punto_en_rectangulo(float(lat), float(lng), limites):
+                limites = None
+    except Exception as error:
+        print("No se pudieron obtener los límites del destino:", consulta, error)
+        limites = None
+
+    _region_bounds_cache[clave] = limites
+    return limites
+
 
 
 async def resolve_region_center(region: dict) -> tuple[float, float] | None:
@@ -965,7 +1044,7 @@ def _calculate_popularity_score(rating: float | None, user_ratings_total: int | 
 
 
 async def obtener_detalles_lugar(place_id: str) -> Optional[Dict[str, Any]]:
-    """Consulta la API v1 (New) de Google Places para obtener horarios y nombre."""
+    """Consulta la API v1 (New) de Google Places para obtener nombre, estado y horarios."""
     if not settings.google_maps_api_key:
         return None
 
@@ -974,7 +1053,7 @@ async def obtener_detalles_lugar(place_id: str) -> Optional[Dict[str, Any]]:
     
     headers = {
         "X-Goog-Api-Key": settings.google_maps_api_key,
-        "X-Goog-FieldMask": "id,displayName,currentOpeningHours,regularOpeningHours"
+        "X-Goog-FieldMask": "id,displayName,businessStatus,currentOpeningHours,regularOpeningHours"
     }
     params = {"languageCode": "es"}
 
@@ -991,7 +1070,9 @@ async def obtener_detalles_lugar(place_id: str) -> Optional[Dict[str, Any]]:
         return {
             "name": data.get("displayName", {}).get("text"),
             "current_opening_hours": current_hours,
-            "opening_hours": regular_hours
+            "opening_hours": regular_hours,
+            # OPERATIONAL, CLOSED_TEMPORARILY (p. ej. reformas) o CLOSED_PERMANENTLY.
+            "business_status": data.get("businessStatus"),
         }
     except Exception as e:
         print("🚨 Error al obtener detalles del lugar para horarios:", e)

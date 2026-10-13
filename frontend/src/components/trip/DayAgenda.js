@@ -193,6 +193,20 @@ export default function DayAgenda({
                   </Text>
                 ) : null}
 
+                {/* 5) Advertencia de horario aceptada al registrar la actividad */}
+                {item.advertenciaHorario ? (
+                  <View style={styles.metaRow} testID={`agenda-schedule-warning-${id}`}>
+                    <FontAwesome6 name="clock" size={10} color={COLOR_WARNING} />
+                    <Text
+                      style={[styles.metaText, styles.warningText]}
+                      numberOfLines={abierto ? undefined : 2}
+                      accessibilityLabel={`Advertencia de horario: ${item.advertenciaHorario}`}
+                    >
+                      {item.advertenciaHorario}
+                    </Text>
+                  </View>
+                ) : null}
+
                 {entrada.seSuperpone ? (
                   <View style={styles.metaRow}>
                     <FontAwesome6 name="triangle-exclamation" size={10} color={COLOR_WARNING} />

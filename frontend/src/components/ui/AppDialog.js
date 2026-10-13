@@ -74,11 +74,19 @@ export function appAlert(...args) {
  */
 export function DialogHost({ root = false }) {
   const [cola, setCola] = useState([]);
-  const colaRef = useRef(cola);
-  colaRef.current = cola;
+  // Copia sincrónica de la cola. Se actualiza en el momento de encolar (no al
+  // renderizar) porque un diálogo puede encolarse en el mismo instante en que
+  // este modal se cierra (p. ej. se cierra "Validando horarios" y se abre la
+  // advertencia): ese render nunca ocurre y, sin esta copia, el diálogo se perdía.
+  const colaRef = useRef([]);
+
+  function actualizarCola(cambio) {
+    colaRef.current = cambio(colaRef.current);
+    setCola(colaRef.current);
+  }
 
   useEffect(() => {
-    const host = { encolar: (dialogo) => setCola((prev) => [...prev, dialogo]) };
+    const host = { encolar: (dialogo) => actualizarCola((prev) => [...prev, dialogo]) };
     if (root) {
       hayRoot = true;
       pila.unshift(host); // el root siempre queda en la base
@@ -91,6 +99,7 @@ export function DialogHost({ root = false }) {
       if (root) hayRoot = false;
       // Si el modal se cierra con diálogos pendientes, pasan al de abajo.
       const pendientes = colaRef.current;
+      colaRef.current = [];
       const siguiente = hostActual();
       if (siguiente && pendientes.length > 0) pendientes.forEach((d) => siguiente.encolar(d));
     };
@@ -99,7 +108,7 @@ export function DialogHost({ root = false }) {
   const actual = cola[0];
 
   function cerrar(callback) {
-    setCola((prev) => prev.slice(1));
+    actualizarCola((prev) => prev.slice(1));
     // Se ejecuta después de cerrar para que, si el callback abre otro
     // diálogo o navega, no choque con el que se está cerrando.
     if (callback) setTimeout(callback, 0);

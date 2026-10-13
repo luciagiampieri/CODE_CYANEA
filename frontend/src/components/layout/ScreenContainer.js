@@ -10,11 +10,14 @@ export default function ScreenContainer({
   fullWidth = false,
   contentStyle,
   style,
+  // Bordes donde se respeta el área segura. Los buscadores a pantalla completa
+  // omiten "top" porque su encabezado azul ya cubre la barra de estado.
+  edges,
 }) {
   const { contentWidth } = useResponsive();
 
   return (
-    <SafeAreaView style={[styles.safeArea, style]}>
+    <SafeAreaView style={[styles.safeArea, style]} edges={edges}>
       <View style={styles.outer}>
         <View
           style={[

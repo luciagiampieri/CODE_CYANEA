@@ -19,10 +19,26 @@ class ActividadRead(BaseModel):
     icono: str = Field("location-dot", alias="Icono")
     # Aviso informativo (no bloqueante) cuando no se pudo verificar el horario del lugar.
     avisoHorario: str | None = Field(None, alias="AvisoHorario")
+    # Advertencia de horario aceptada por el usuario; se muestra marcada en el itinerario.
+    tipoAdvertenciaHorario: str | None = Field(None, alias="TipoAdvertenciaHorario")
+    advertenciaHorario: str | None = Field(None, alias="AdvertenciaHorario")
 
     class Config:
         from_attributes = True
         populate_by_name = True
+
+TipoAdvertenciaHorarioLiteral = Literal[
+    "fuera_de_horario", "cerrado_dia", "cerrado_temporalmente", "cerrado_permanentemente"
+]
+
+
+class AdvertenciaHorarioAceptada(BaseModel):
+    """Advertencia que el usuario vio y decidió ignorar (`ignorar_advertencia=true`).
+    Se guarda en la actividad para marcarla en el itinerario."""
+
+    tipo: TipoAdvertenciaHorarioLiteral
+    resumen: str = Field(..., min_length=1, max_length=300)
+
 
 class ActividadCreate(BaseModel):
     nombre: str = Field(..., min_length=1, max_length=150)
@@ -31,6 +47,7 @@ class ActividadCreate(BaseModel):
     horaInicio: time_type
     horaFin: time_type
     icono: str = Field(default="location-dot", max_length=50)
+    advertenciaHorario: AdvertenciaHorarioAceptada | None = None
 
     @model_validator(mode="after")
     def validate_horarios(self):
@@ -70,6 +87,7 @@ class ActividadUpdate(BaseModel):
     horaInicio: time_type
     horaFin: time_type
     icono: str = Field(default="location-dot", max_length=50)
+    advertenciaHorario: AdvertenciaHorarioAceptada | None = None
 
     @model_validator(mode="after")
     def validate_horarios(self):
@@ -84,6 +102,12 @@ class AdvertenciaHorario(BaseModel):
     mensaje: str
     horariosApertura: str | None = None
     nombreLugar: str | None = None
+    # fuera_de_horario | cerrado_dia | cerrado_temporalmente | cerrado_permanentemente
+    tipo: str | None = None
+    # Cuándo vuelve a abrir (solo `cerrado_dia`), p. ej. "martes 08/12 de 09:00 a 18:00".
+    proximaApertura: str | None = None
+    # Texto corto que se reenvía al confirmar y queda marcado en el itinerario.
+    resumen: str | None = None
 
 class RutaDiariaRead(BaseModel):
     idRutaDiaria: int = Field(..., alias="IdRutaDiaria")
@@ -382,4 +406,4 @@ class TripSentInvitationRead(BaseModel):
 
 class LeaveTripRequest(BaseModel):
     confirmar: bool 
-    nuevoAdministradorId: Optional[int] = None
+    nuevoAdministradorId: Optional[int] = None

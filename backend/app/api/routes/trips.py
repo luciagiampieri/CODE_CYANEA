@@ -229,7 +229,32 @@ def _respuesta_advertencia(analisis: dict) -> dict:
         "mensaje": analisis.get("mensaje") or "",
         "horariosApertura": analisis.get("horarios_apertura") or None,
         "nombreLugar": analisis.get("nombre_lugar"),
+        "tipo": analisis.get("tipo"),
+        "proximaApertura": analisis.get("proxima_apertura"),
+        "resumen": analisis.get("resumen"),
     }
+
+
+def _id_lugar_actividad(actividad: ActividadItinerario) -> int | None:
+    """IdLugarInteres efectivo de la actividad (directo o vía el lugar guardado del viaje)."""
+    if actividad.IdLugarInteres is not None:
+        return actividad.IdLugarInteres
+    if actividad.LugarInteresViaje is not None:
+        return actividad.LugarInteresViaje.IdLugarInteres
+    return None
+
+
+def _cambia_lugar_actividad(actividad: ActividadItinerario, payload: ActividadUpdate) -> bool:
+    """Indica si la edición cambia el lugar turístico de la actividad.
+
+    Sin ubicación asociada el lugar se infiere del nombre, así que en ese caso
+    un cambio de nombre cuenta como cambio de lugar."""
+    lugar_actual = _id_lugar_actividad(actividad)
+    if payload.idLugarInteres != lugar_actual:
+        return True
+    if lugar_actual is None:
+        return payload.nombre.strip().casefold() != (actividad.Nombre or "").strip().casefold()
+    return False
 
 
 def _build_actividad_read(actividad: ActividadItinerario) -> ActividadRead:
@@ -247,6 +272,8 @@ def _build_actividad_read(actividad: ActividadItinerario) -> ActividadRead:
         HoraInicio=actividad.HoraInicio,
         HoraFin=actividad.HoraFin,
         Icono=actividad.Icono,
+        TipoAdvertenciaHorario=actividad.TipoAdvertenciaHorario,
+        AdvertenciaHorario=actividad.AdvertenciaHorario,
     )
 
 async def _notificar_viaje_actualizado(viaje: Viaje, message: str) -> None:
@@ -1089,6 +1116,10 @@ async def create_activity(
         HoraFin=payload.horaFin,
         Icono=payload.icono,
     )
+    # El usuario vio la advertencia y registró igual: queda marcada en el itinerario.
+    if ignorar_advertencia and payload.advertenciaHorario is not None:
+        actividad.TipoAdvertenciaHorario = payload.advertenciaHorario.tipo
+        actividad.AdvertenciaHorario = payload.advertenciaHorario.resumen.strip()
     db.add(actividad)
     db.commit()
     db.refresh(actividad)
@@ -1153,20 +1184,6 @@ async def update_activity(
             detail="El día del cronograma no existe en este viaje.",
         )
 
-    analisis = await analizar_horario_actividad(
-        db=db,
-        nombre_actividad=payload.nombre,
-        fecha=dia.Fecha,
-        hora_inicio=payload.horaInicio,
-        hora_fin=payload.horaFin,
-        id_lugar_interes=payload.idLugarInteres,
-        ignorar_advertencia=ignorar_advertencia,
-        destinos=_destinos_contexto(viaje),
-    )
-
-    if analisis.get("advertencia"):
-        return _respuesta_advertencia(analisis)
-
     actividad = db.scalar(
         select(ActividadItinerario).where(
             ActividadItinerario.IdActividad == activity_id,
@@ -1178,6 +1195,48 @@ async def update_activity(
             status_code=404,
             detail="La actividad no existe en este día del itinerario.",
         )
+
+    cambia_lugar = _cambia_lugar_actividad(actividad, payload)
+    cambia_horario = (
+        payload.horaInicio != actividad.HoraInicio or payload.horaFin != actividad.HoraFin
+    )
+    # Si el usuario ya aceptó una advertencia y no cambia el lugar, no se le vuelve
+    # a mostrar: el análisis corre en silencio solo para mantener la marca al día.
+    advertencia_ya_aceptada = actividad.TipoAdvertenciaHorario is not None and not cambia_lugar
+
+    tipo_advertencia = actividad.TipoAdvertenciaHorario
+    texto_advertencia = actividad.AdvertenciaHorario
+    analisis: dict = {"advertencia": False}
+
+    if ignorar_advertencia:
+        if payload.advertenciaHorario is not None:
+            tipo_advertencia = payload.advertenciaHorario.tipo
+            texto_advertencia = payload.advertenciaHorario.resumen.strip()
+        elif cambia_lugar:
+            tipo_advertencia = texto_advertencia = None
+    elif advertencia_ya_aceptada and not cambia_horario:
+        pass  # Mismo lugar y mismo horario: la marca sigue vigente sin consultar nada.
+    else:
+        analisis = await analizar_horario_actividad(
+            db=db,
+            nombre_actividad=payload.nombre,
+            fecha=dia.Fecha,
+            hora_inicio=payload.horaInicio,
+            hora_fin=payload.horaFin,
+            id_lugar_interes=payload.idLugarInteres,
+            destinos=_destinos_contexto(viaje),
+        )
+        if analisis.get("advertencia"):
+            if not advertencia_ya_aceptada:
+                return _respuesta_advertencia(analisis)
+            tipo_advertencia = analisis.get("tipo")
+            texto_advertencia = analisis.get("resumen")
+            analisis = {"advertencia": False}
+        elif analisis.get("compatible"):
+            tipo_advertencia = texto_advertencia = None
+        elif cambia_lugar:
+            # Lugar nuevo sin horarios verificables: la marca anterior ya no aplica.
+            tipo_advertencia = texto_advertencia = None
 
     lugar = None
 
@@ -1214,6 +1273,8 @@ async def update_activity(
     actividad.HoraInicio = payload.horaInicio
     actividad.HoraFin = payload.horaFin
     actividad.Icono = payload.icono
+    actividad.TipoAdvertenciaHorario = tipo_advertencia
+    actividad.AdvertenciaHorario = texto_advertencia
 
     db.commit()
     db.refresh(actividad)

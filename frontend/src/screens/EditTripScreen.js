@@ -1,4 +1,4 @@
-import { useContext, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { FontAwesome6 } from "@expo/vector-icons";
 import {
     ActivityIndicator,
@@ -16,13 +16,12 @@ import {
     TouchableOpacity,
     TouchableWithoutFeedback,
     Keyboard,
-    StatusBar,
 } from "react-native";
-import { SafeAreaInsetsContext } from "react-native-safe-area-context";
 import Modal from "../components/ui/AppModal";
 
 import ScreenContainer from "../components/layout/ScreenContainer";
 import IconCircleButton from "../components/ui/IconCircleButton";
+import SearchPickerHeader, { SEARCH_PICKER_EDGES } from "../components/ui/SearchPickerHeader";
 import MetricCard from "../components/ui/MetricCard";
 import PrimaryButton from "../components/ui/PrimaryButton";
 import AICoverGenerator from "../components/trip/AICoverGenerator";
@@ -264,12 +263,7 @@ function DestinationPickerModal({
   const query = search.trim();
   const tooShort = query.length < 2;
   const count = selectedDestinations.length;
-  const [searchFocused, setSearchFocused] = useState(false);
 
-  // El modal se abre a pantalla completa, por encima de la barra de estado / notch: se respeta el margen superior.
-  // Sin SafeAreaProvider (p. ej. en tests) el contexto es null: se asume margen 0.
-  const insets = useContext(SafeAreaInsetsContext) || { top: 0 };
-  const topInset = Math.max(insets.top, Platform.OS === "android" ? StatusBar.currentHeight || 0 : 0);
 
   // Con el teclado abierto el pie se compacta (el contenido sube con KeyboardAvoidingView).
   const [keyboardVisible, setKeyboardVisible] = useState(false);
@@ -311,57 +305,21 @@ function DestinationPickerModal({
   }, [count, visible]);
 
   return (
-    <Modal visible={visible} animationType="slide" onRequestClose={onClose} transparent={false}>
-      <ScreenContainer fullWidth padded={false}>
+    <Modal statusBarTranslucent visible={visible} animationType="slide" onRequestClose={onClose} transparent={false}>
+      <ScreenContainer fullWidth padded={false} edges={SEARCH_PICKER_EDGES}>
         <KeyboardAvoidingView style={styles.flex} behavior="padding">
           {/* View intermedia: TouchableWithoutFeedback necesita un hijo nativo para detectar el toque fuera del teclado. */}
           <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
             <View style={styles.flex}>
               {/* ENCABEZADO: volver, título, "Listo" y buscador */}
-              <View style={[styles.dpHeader, keyboardVisible && styles.dpHeaderCompact, { paddingTop: Math.max(spacing.lg, topInset + spacing.sm) }]}>
-                <View style={styles.dpHeaderRow}>
-                  <IconCircleButton icon="arrow-left" onPress={onClose} tone="light" />
-                  <View style={styles.dpTitleWrap} pointerEvents="none">
-                    <Text style={styles.dpTitle}>Agregar destino</Text>
-                  </View>
-                </View>
-
-                {!keyboardVisible && search.length === 0 ? (
-                  <Text style={styles.dpHeaderHint}>¿A dónde vas? Buscá una ciudad o un país.</Text>
-                ) : (
-                  <View style={styles.dpHeaderGap} />
-                )}
-
-                <View style={[styles.dpSearch, searchFocused && styles.dpSearchFocused]}>
-                  <FontAwesome6 name="magnifying-glass" size={15} color={colors.primary} />
-                  <TextInput
-                    value={search}
-                    onChangeText={onSearchChange}
-                    onFocus={() => setSearchFocused(true)}
-                    onBlur={() => setSearchFocused(false)}
-                    placeholder="Ej: Bariloche, Roma, Chile..."
-                    placeholderTextColor={colors.textMuted}
-                    style={styles.dpSearchInput}
-                    autoFocus
-                    autoCorrect={false}
-                    returnKeyType="done"
-                    blurOnSubmit
-                    onSubmitEditing={Keyboard.dismiss}
-                  />
-                  {resolving ? (
-                    <ActivityIndicator size="small" color={colors.primary} />
-                  ) : search.length > 0 ? (
-                    <Pressable
-                      onPress={() => onSearchChange("")}
-                      hitSlop={10}
-                      accessibilityRole="button"
-                      accessibilityLabel="Borrar búsqueda"
-                    >
-                      <FontAwesome6 name="circle-xmark" size={17} color={colors.textMuted} />
-                    </Pressable>
-                  ) : null}
-                </View>
-              </View>
+              <SearchPickerHeader
+                title="Agregar destino"
+                onBack={onClose}
+                value={search}
+                onChangeText={onSearchChange}
+                placeholder="Ej: Bariloche, Roma, Chile..."
+                loading={resolving}
+              />
 
               <View style={styles.dpBody}>
                 {error ? (
@@ -2092,57 +2050,6 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
     marginTop: 2,
   },
-  dpHeader: {
-    backgroundColor: colors.primary,
-    paddingHorizontal: spacing.lg,
-    paddingBottom: spacing.lg,
-    borderBottomLeftRadius: 28,
-    borderBottomRightRadius: 28,
-  },
-  dpHeaderRow: {
-    minHeight: 44,
-    justifyContent: "center",
-    alignItems: "flex-start",
-  },
-  dpTitleWrap: {
-    position: "absolute",
-    left: 0,
-    right: 0,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  dpTitle: {
-    ...textStyles.tripTitle,
-    color: colors.textInverse,
-    fontSize: 20,
-  },
-  dpHeaderHint: {
-    ...textStyles.body,
-    color: colors.textInverse,
-    opacity: 0.85,
-    marginTop: spacing.sm,
-    marginBottom: spacing.sm,
-  },
-  dpSearch: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    minHeight: 54,
-    borderRadius: radii.lg,
-    borderWidth: 2,
-    borderColor: "transparent",
-    backgroundColor: colors.surface,
-    paddingHorizontal: spacing.md,
-  },
-  dpSearchFocused: {
-    borderColor: colors.accent || colors.surface,
-  },
-  dpSearchInput: {
-    flex: 1,
-    ...textStyles.body,
-    color: colors.textPrimary,
-    paddingVertical: 10,
-  },
   dpBody: {
     flex: 1,
     minHeight: 0,
@@ -2479,12 +2386,6 @@ const styles = StyleSheet.create({
   },
   dpFooterKeyboard: {
     paddingBottom: spacing.sm,
-  },
-  dpHeaderCompact: {
-    paddingBottom: spacing.sm,
-  },
-  dpHeaderGap: {
-    height: spacing.xs,
   },
   dpStripRow: {
     flexDirection: "row",

@@ -180,7 +180,9 @@ export default function DayTimeGrid({ actividades = [], fecha, canEdit = false, 
               return (
                 <Pressable
                   key={b.item.id}
-                  accessibilityLabel={`${b.item.title}, ${b.start}${b.end ? ` a ${b.end}` : ""}`}
+                  accessibilityLabel={`${b.item.title}, ${b.start}${b.end ? ` a ${b.end}` : ""}${
+                    b.item.advertenciaHorario ? `. Advertencia: ${b.item.advertenciaHorario}` : ""
+                  }`}
                   disabled={!canEdit}
                   onLongPress={canEdit ? () => onDelete?.(b.item) : undefined}
                   onPress={() => onEdit?.(b.item)}
@@ -211,6 +213,14 @@ export default function DayTimeGrid({ actividades = [], fecha, canEdit = false, 
                       <Text numberOfLines={lineasTitulo} style={[styles.bloqueTexto, { color: tipo.texto }]}>
                         {b.item.title}
                       </Text>
+                      {b.item.advertenciaHorario ? (
+                        <FontAwesome6
+                          color={colors.warning}
+                          name="triangle-exclamation"
+                          size={10}
+                          testID={`timegrid-schedule-warning-${b.item.id}`}
+                        />
+                      ) : null}
                       {enCurso && b.columnas === 1 ? (
                         <View style={[styles.etiqueta, { backgroundColor: tipo.acento }]}>
                           <Text style={styles.etiquetaTexto}>AHORA</Text>
