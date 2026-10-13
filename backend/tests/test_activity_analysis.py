@@ -105,11 +105,11 @@ class ExternosFalsos:
     def sin_llamadas(self):
         return not (self.llamadas_gemini or self.llamadas_busqueda or self.llamadas_detalles)
 
-    async def extraer_nombre(self, nombre_actividad, contexto_destino=None):
+    async def extraer_nombre(self, nombre_actividad, contexto_destino=None, lanzar_si_falla=False):
         self.llamadas_gemini.append(nombre_actividad)
         self.contextos_gemini.append(contexto_destino)
         if self.error_en == "gemini":
-            raise RuntimeError("Gemini caído")
+            raise servicio.GeminiNoDisponible("HTTP 503")
         return self.nombre_inferido
 
     async def buscar_lugar(self, query):
@@ -471,7 +471,7 @@ def test_cp1_cp2_nombre_identificable_sin_ubicacion_busca_el_lugar(db_session, e
     assert externos.llamadas_gemini == [NOMBRE_ACTIVIDAD]
     assert externos.llamadas_busqueda == [NOMBRE_LUGAR]
     assert externos.llamadas_detalles == ["ChIJ-por-nombre"]
-    assert resultado == {"advertencia": False}
+    assert resultado == {"advertencia": False, "compatible": True}
 
 
 def test_cp3_ubicacion_asociada_es_la_referencia_principal(db_session, externos, lugar_interes):
@@ -493,7 +493,7 @@ def test_ubicacion_inexistente_cae_al_analisis_por_nombre(db_session, externos):
 def test_cp4_horario_dentro_de_apertura_no_advierte(db_session, externos):
     resultado = _analizar(db_session, hora_inicio=time(9, 0), hora_fin=time(18, 0))
 
-    assert resultado == {"advertencia": False}
+    assert resultado == {"advertencia": False, "compatible": True}
 
 
 def test_cp5_horario_fuera_de_apertura_advierte_con_los_horarios(db_session, externos):
@@ -509,7 +509,8 @@ def test_cp6_dia_cerrado_advierte_que_no_hay_horarios_ese_dia(db_session, extern
     resultado = _analizar(db_session, fecha=DOMINGO)
 
     assert resultado["advertencia"] is True
-    assert "no cuenta con horarios de apertura para este día" in resultado["mensaje"]
+    assert resultado["tipo"] == "cerrado_dia"
+    assert "está cerrado el domingo" in resultado["mensaje"]
 
 
 @pytest.mark.parametrize(
@@ -591,7 +592,7 @@ def test_ignorar_advertencia_no_consulta_ningun_servicio(db_session, externos):
     assert externos.sin_llamadas
 
 
-@pytest.mark.parametrize("componente", ["gemini", "busqueda", "detalles"])
+@pytest.mark.parametrize("componente", ["busqueda", "detalles"])
 def test_cp10_error_externo_permite_registrar_normalmente(db_session, externos, componente):
     externos.error_en = componente
 
@@ -607,7 +608,7 @@ def test_con_destinos_contextualiza_gemini_y_busca_en_los_destinos(db_session, e
     assert externos.llamadas_busqueda == [NOMBRE_LUGAR]
     assert externos.destinos_busqueda == [DESTINOS]
     assert externos.llamadas_detalles == ["ChIJ-por-nombre"]
-    assert resultado == {"advertencia": False}
+    assert resultado == {"advertencia": False, "compatible": True}
 
 
 def test_sin_destinos_busca_el_lugar_sin_contexto(db_session, externos):
@@ -659,7 +660,7 @@ def test_horario_especial_fuera_de_la_ventana_cae_a_los_horarios_regulares(db_se
     compatible = _analizar(db_session, fecha=fecha, hora_inicio=time(15), hora_fin=time(16))
     incompatible = _analizar(db_session, fecha=fecha, hora_inicio=time(19), hora_fin=time(20))
 
-    assert compatible == {"advertencia": False}
+    assert compatible == {"advertencia": False, "compatible": True}
     assert incompatible["advertencia"] is True
     assert incompatible["horarios_apertura"] == "09:00 - 18:00"
 
@@ -857,6 +858,7 @@ def test_obtener_detalles_lugar_devuelve_el_nombre_y_los_horarios(monkeypatch, p
         "name": "Museo",
         "current_opening_hours": actuales,
         "opening_hours": _horario_lunes(),
+        "business_status": None,
     }
     pedido = pedidos[0]
     assert pedido.method == "GET"
@@ -890,7 +892,12 @@ def test_obtener_detalles_lugar_sin_horarios_devuelve_none_en_los_horarios(monke
 
     resultado = asyncio.run(place_search_module.obtener_detalles_lugar("ChIJ-123"))
 
-    assert resultado == {"name": "Museo", "current_opening_hours": None, "opening_hours": None}
+    assert resultado == {
+        "name": "Museo",
+        "current_opening_hours": None,
+        "opening_hours": None,
+        "business_status": None,
+    }
 
 
 @pytest.mark.parametrize("status_http", [403, 404, 500])
@@ -1217,7 +1224,7 @@ def test_cp9_create_con_ignorar_advertencia_guarda_la_actividad_sin_analizar(
     assert _cantidad_actividades(db_session, dia_cronograma) == 1
 
 
-@pytest.mark.parametrize("componente", ["gemini", "busqueda", "detalles"])
+@pytest.mark.parametrize("componente", ["busqueda", "detalles"])
 def test_cp10_create_con_error_externo_registra_normalmente(
     client, db_session, auth_headers, viaje_con_admin, dia_cronograma, externos, componente
 ):
@@ -1633,3 +1640,564 @@ def test_destinos_contexto_arma_nombre_pais_provincia_y_coordenadas():
 
 def test_destinos_contexto_sin_destinos_devuelve_lista_vacia():
     assert trips_module._destinos_contexto(SimpleNamespace(Destinos=None)) == []
+
+
+# ---------------------------------------------------------------------------
+# Lugar cerrado ese día: cuándo vuelve a abrir
+# ---------------------------------------------------------------------------
+
+
+def _horario_lunes_y_miercoles():
+    return _horarios(_periodo(1, "0900", "1800"), _periodo(3, "1000", "1300"), _periodo(3, "1500", "2000"))
+
+
+def test_cerrado_ese_dia_informa_la_proxima_apertura_con_horarios_regulares():
+    # Martes (weekday 1): el próximo día que abre es el miércoles, con horario partido.
+    resultado = validar_intervalo_horario(
+        time(10), time(12), 1, _horario_lunes_y_miercoles(), fecha=date(2026, 12, 8)
+    )
+
+    assert resultado["tipo"] == "cerrado_dia"
+    proxima = resultado["proxima_apertura"]
+    assert proxima["dia_texto"] == "miércoles 09/12"
+    assert proxima["horarios_legibles"] == "de 10:00 a 13:00 y de 15:00 a 20:00"
+
+
+def test_cerrado_ese_dia_sin_fecha_informa_solo_el_dia_de_la_semana():
+    resultado = validar_intervalo_horario(time(10), time(12), 6, _horario_lunes())
+
+    assert resultado["proxima_apertura"]["dia_texto"] == "lunes"
+
+
+def test_cerrado_ese_dia_da_la_vuelta_a_la_semana():
+    # Solo abre los lunes; la actividad es lunes pero en otro horario no aplica:
+    # un martes debe encontrar el lunes siguiente (6 días después).
+    resultado = validar_intervalo_horario(time(10), time(12), 1, _horario_lunes(), fecha=date(2026, 12, 8))
+
+    assert resultado["proxima_apertura"]["dia_texto"] == "lunes 14/12"
+
+
+def test_cerrado_ese_dia_con_horarios_actuales_busca_dentro_de_la_ventana():
+    manana = HOY + timedelta(days=1)
+    datos = _horarios(_periodo_fechado(manana, "1000", "1600"))
+
+    resultado = validar_intervalo_horario(time(10), time(12), HOY.weekday(), datos, fecha=HOY, hoy=HOY)
+
+    assert resultado["tipo"] == "cerrado_dia"
+    assert resultado["proxima_apertura"]["fecha"] == manana
+    assert resultado["proxima_apertura"]["horarios"] == "10:00 - 16:00"
+
+
+def test_fuera_de_horario_se_tipifica():
+    resultado = validar_intervalo_horario(time(17), time(19), 0, _horario_lunes())
+
+    assert resultado["tipo"] == "fuera_de_horario"
+
+
+def test_analisis_dia_cerrado_dice_cuando_vuelve_a_abrir(db_session, externos):
+    resultado = _analizar(db_session, fecha=MARTES)
+
+    assert resultado["advertencia"] is True
+    assert resultado["tipo"] == "cerrado_dia"
+    assert resultado["proxima_apertura"] == "lunes 14/12 de 09:00 a 18:00"
+    assert "cerrado el martes 08/12" in resultado["mensaje"]
+    assert "Vuelve a abrir el lunes 14/12 de 09:00 a 18:00" in resultado["mensaje"]
+    assert resultado["resumen"] == "Cerrado el martes 08/12 · abre el lunes 14/12 (de 09:00 a 18:00)"
+
+
+def test_analisis_dia_cerrado_con_horarios_actuales_completa_con_los_regulares(db_session, externos):
+    # Los horarios actuales no cubren cuándo reabre: se usan los regulares.
+    externos.detalles = {
+        "name": NOMBRE_LUGAR,
+        "current_opening_hours": _horarios(_periodo_fechado(HOY + timedelta(days=1), "1000", "1600")),
+        "opening_hours": _horarios(_periodo(_dia_google(HOY + timedelta(days=3)), "0800", "1200")),
+    }
+    fecha = HOY + timedelta(days=2)
+
+    resultado = _analizar(db_session, fecha=fecha)
+
+    assert resultado["tipo"] == "cerrado_dia"
+    esperado = HOY + timedelta(days=3)
+    assert resultado["proxima_apertura"].endswith(f"{esperado:%d/%m} de 08:00 a 12:00")
+
+
+def test_analisis_fuera_de_horario_arma_un_resumen_para_el_itinerario(db_session, externos):
+    resultado = _analizar(db_session, hora_inicio=time(17), hora_fin=time(19))
+
+    assert resultado["tipo"] == "fuera_de_horario"
+    assert resultado["resumen"] == "Fuera del horario del lugar (09:00 a 18:00)"
+
+
+# ---------------------------------------------------------------------------
+# Lugar cerrado temporalmente (reformas) o definitivamente
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "estado,tipo,texto",
+    [
+        ("CLOSED_TEMPORARILY", "cerrado_temporalmente", "cerrado temporalmente"),
+        ("CLOSED_PERMANENTLY", "cerrado_permanentemente", "cerrado definitivamente"),
+    ],
+)
+def test_lugar_cerrado_por_estado_advierte_aunque_el_horario_sea_compatible(
+    db_session, externos, estado, tipo, texto
+):
+    externos.detalles = {**externos.detalles, "business_status": estado}
+
+    resultado = _analizar(db_session, hora_inicio=time(10), hora_fin=time(12))
+
+    assert resultado["advertencia"] is True
+    assert resultado["tipo"] == tipo
+    assert texto in resultado["mensaje"]
+    assert NOMBRE_LUGAR in resultado["mensaje"]
+
+
+def test_cerrado_temporalmente_menciona_reformas(db_session, externos):
+    externos.detalles = {**externos.detalles, "business_status": "CLOSED_TEMPORARILY"}
+
+    resultado = _analizar(db_session)
+
+    assert "reformas" in resultado["mensaje"]
+    assert "reformas" in resultado["resumen"]
+
+
+def test_lugar_operativo_valida_horarios_normalmente(db_session, externos):
+    externos.detalles = {**externos.detalles, "business_status": "OPERATIONAL"}
+
+    assert _analizar(db_session) == {"advertencia": False, "compatible": True}
+
+
+def test_obtener_detalles_lugar_devuelve_el_estado_del_lugar(monkeypatch, places_configurado):
+    pedidos = []
+
+    def handler(request):
+        pedidos.append(request)
+        return httpx.Response(
+            200, json={"id": "ChIJ-123", "displayName": {"text": "Museo"}, "businessStatus": "CLOSED_TEMPORARILY"}
+        )
+
+    _parchear_httpx(monkeypatch, handler)
+
+    resultado = asyncio.run(place_search_module.obtener_detalles_lugar("ChIJ-123"))
+
+    assert resultado["business_status"] == "CLOSED_TEMPORARILY"
+    assert "businessStatus" in pedidos[0].headers["x-goog-fieldmask"]
+
+
+def test_endpoint_create_devuelve_tipo_proxima_apertura_y_resumen(
+    client, db_session, auth_headers, viaje_con_admin, externos
+):
+    viaje, _ = viaje_con_admin
+    martes = DiaCronograma(IdViaje=viaje.IdViaje, Fecha=date(2026, 12, 8), IndiceDia=2)
+    db_session.add(martes)
+    db_session.commit()
+
+    body = _crear(client, viaje, martes, auth_headers).json()
+
+    assert body["advertencia"] is True
+    assert body["tipo"] == "cerrado_dia"
+    assert body["proximaApertura"] == "lunes 14/12 de 09:00 a 18:00"
+    assert body["resumen"].startswith("Cerrado el martes 08/12")
+
+
+# ---------------------------------------------------------------------------
+# La advertencia aceptada queda marcada en el itinerario
+# ---------------------------------------------------------------------------
+
+ADVERTENCIA_ACEPTADA = {"tipo": "fuera_de_horario", "resumen": "Fuera del horario del lugar (09:00 a 18:00)"}
+
+
+def test_create_confirmado_guarda_la_advertencia_en_la_actividad(
+    client, db_session, auth_headers, viaje_con_admin, dia_cronograma, externos
+):
+    viaje, _ = viaje_con_admin
+
+    response = _crear(
+        client,
+        viaje,
+        dia_cronograma,
+        auth_headers,
+        _payload(horaInicio="17:00:00", horaFin="19:00:00", advertenciaHorario=ADVERTENCIA_ACEPTADA),
+        ignorar_advertencia="true",
+    )
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["TipoAdvertenciaHorario"] == "fuera_de_horario"
+    assert body["AdvertenciaHorario"] == ADVERTENCIA_ACEPTADA["resumen"]
+    actividad = db_session.query(ActividadItinerario).one()
+    assert actividad.TipoAdvertenciaHorario == "fuera_de_horario"
+
+
+def test_create_sin_advertencia_no_marca_la_actividad(
+    client, db_session, auth_headers, viaje_con_admin, dia_cronograma, externos
+):
+    viaje, _ = viaje_con_admin
+
+    body = _crear(client, viaje, dia_cronograma, auth_headers).json()
+
+    assert body["TipoAdvertenciaHorario"] is None
+    assert body["AdvertenciaHorario"] is None
+
+
+def test_create_rechaza_un_tipo_de_advertencia_desconocido(
+    client, db_session, auth_headers, viaje_con_admin, dia_cronograma, externos
+):
+    viaje, _ = viaje_con_admin
+
+    response = _crear(
+        client,
+        viaje,
+        dia_cronograma,
+        auth_headers,
+        _payload(advertenciaHorario={"tipo": "otro", "resumen": "x"}),
+        ignorar_advertencia="true",
+    )
+
+    assert response.status_code == 422
+
+
+def test_el_detalle_del_viaje_expone_la_advertencia_marcada(
+    client, db_session, auth_headers, viaje_con_admin, dia_cronograma, actividad_existente
+):
+    viaje, _ = viaje_con_admin
+    actividad_existente.TipoAdvertenciaHorario = "cerrado_dia"
+    actividad_existente.AdvertenciaHorario = "Cerrado el lunes 07/12"
+    db_session.commit()
+
+    response = client.get(f"/api/v1/trips/{viaje.IdViaje}", headers=auth_headers)
+
+    assert response.status_code == 200
+    actividades = [
+        act for dia in response.json()["Cronograma"] for act in (dia.get("Actividades") or dia.get("actividades") or [])
+    ]
+    assert actividades[0]["AdvertenciaHorario"] == "Cerrado el lunes 07/12"
+    assert actividades[0]["TipoAdvertenciaHorario"] == "cerrado_dia"
+
+
+# ---------------------------------------------------------------------------
+# Edición: la advertencia aceptada no se vuelve a mostrar salvo que cambie el lugar
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture()
+def actividad_advertida(db_session, actividad_existente, lugar_interes):
+    actividad_existente.IdLugarInteres = lugar_interes.IdLugarInteres
+    actividad_existente.HoraInicio = time(17)
+    actividad_existente.HoraFin = time(19)
+    actividad_existente.TipoAdvertenciaHorario = "fuera_de_horario"
+    actividad_existente.AdvertenciaHorario = "Fuera del horario del lugar (09:00 a 18:00)"
+    db_session.commit()
+    db_session.refresh(actividad_existente)
+    return actividad_existente
+
+
+def _payload_advertida(lugar, **cambios):
+    base = {
+        "nombre": "Visita original",
+        "idLugarInteres": lugar.IdLugarInteres,
+        "horaInicio": "17:00:00",
+        "horaFin": "19:00:00",
+    }
+    base.update(cambios)
+    return base
+
+
+def test_editar_sin_cambiar_lugar_ni_horario_no_vuelve_a_advertir_ni_consulta(
+    client, db_session, auth_headers, viaje_con_admin, dia_cronograma, actividad_advertida, lugar_interes, externos
+):
+    viaje, _ = viaje_con_admin
+
+    response = _modificar(
+        client, viaje, dia_cronograma, actividad_advertida, auth_headers,
+        _payload_advertida(lugar_interes, nombre="Visita con otro nombre", descripcion="Llevar entradas"),
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert "advertencia" not in body
+    assert body["Nombre"] == "Visita con otro nombre"
+    assert body["TipoAdvertenciaHorario"] == "fuera_de_horario"
+    assert externos.sin_llamadas
+
+
+def test_editar_el_horario_sin_cambiar_lugar_no_advierte_pero_actualiza_la_marca(
+    client, db_session, auth_headers, viaje_con_admin, dia_cronograma, actividad_advertida, lugar_interes, externos
+):
+    viaje, _ = viaje_con_admin
+
+    response = _modificar(
+        client, viaje, dia_cronograma, actividad_advertida, auth_headers,
+        _payload_advertida(lugar_interes, horaInicio="07:00:00", horaFin="08:00:00"),
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert "advertencia" not in body
+    assert body["HoraInicio"] == "07:00:00"
+    assert body["TipoAdvertenciaHorario"] == "fuera_de_horario"
+    assert body["AdvertenciaHorario"] == "Fuera del horario del lugar (09:00 a 18:00)"
+
+
+def test_editar_a_un_horario_compatible_quita_la_marca(
+    client, db_session, auth_headers, viaje_con_admin, dia_cronograma, actividad_advertida, lugar_interes, externos
+):
+    viaje, _ = viaje_con_admin
+
+    body = _modificar(
+        client, viaje, dia_cronograma, actividad_advertida, auth_headers,
+        _payload_advertida(lugar_interes, horaInicio="10:00:00", horaFin="12:00:00"),
+    ).json()
+
+    assert body["TipoAdvertenciaHorario"] is None
+    assert body["AdvertenciaHorario"] is None
+
+
+def test_editar_el_horario_si_no_se_puede_verificar_conserva_la_marca(
+    client, db_session, auth_headers, viaje_con_admin, dia_cronograma, actividad_advertida, lugar_interes, externos
+):
+    viaje, _ = viaje_con_admin
+    externos.error_en = "detalles"
+
+    body = _modificar(
+        client, viaje, dia_cronograma, actividad_advertida, auth_headers,
+        _payload_advertida(lugar_interes, horaInicio="10:00:00", horaFin="12:00:00"),
+    ).json()
+
+    assert body["TipoAdvertenciaHorario"] == "fuera_de_horario"
+
+
+def test_editar_cambiando_el_lugar_vuelve_a_advertir(
+    client, db_session, auth_headers, viaje_con_admin, dia_cronograma, actividad_advertida, externos
+):
+    viaje, _ = viaje_con_admin
+    otro = LugarInteres(GooglePlaceId="ChIJ-otro", Nombre="Otro museo", Direccion="Calle 1", Lat=0.0, Lng=0.0)
+    db_session.add(otro)
+    db_session.commit()
+
+    response = _modificar(
+        client, viaje, dia_cronograma, actividad_advertida, auth_headers, _payload_advertida(otro)
+    )
+
+    body = response.json()
+    assert body["advertencia"] is True
+    assert externos.llamadas_detalles == ["ChIJ-otro"]
+    db_session.refresh(actividad_advertida)
+    assert actividad_advertida.IdLugarInteres != otro.IdLugarInteres
+
+
+def test_editar_cambiando_el_lugar_a_uno_compatible_quita_la_marca(
+    client, db_session, auth_headers, viaje_con_admin, dia_cronograma, actividad_advertida, externos
+):
+    viaje, _ = viaje_con_admin
+    otro = LugarInteres(GooglePlaceId="ChIJ-otro", Nombre="Otro museo", Direccion="Calle 1", Lat=0.0, Lng=0.0)
+    db_session.add(otro)
+    db_session.commit()
+    externos.detalles = {"name": "Otro museo", "opening_hours": _horarios(_periodo(1, "1600", "2200"))}
+
+    body = _modificar(
+        client, viaje, dia_cronograma, actividad_advertida, auth_headers, _payload_advertida(otro)
+    ).json()
+
+    assert body["IdLugarInteres"] == otro.IdLugarInteres
+    assert body["TipoAdvertenciaHorario"] is None
+
+
+def test_editar_cambiando_el_lugar_y_confirmando_guarda_la_nueva_advertencia(
+    client, db_session, auth_headers, viaje_con_admin, dia_cronograma, actividad_advertida, externos
+):
+    viaje, _ = viaje_con_admin
+    otro = LugarInteres(GooglePlaceId="ChIJ-otro", Nombre="Otro museo", Direccion="Calle 1", Lat=0.0, Lng=0.0)
+    db_session.add(otro)
+    db_session.commit()
+    nueva = {"tipo": "cerrado_temporalmente", "resumen": "Cerrado temporalmente (reformas u otro motivo)"}
+
+    body = _modificar(
+        client, viaje, dia_cronograma, actividad_advertida, auth_headers,
+        _payload_advertida(otro, advertenciaHorario=nueva),
+        ignorar_advertencia="true",
+    ).json()
+
+    assert body["TipoAdvertenciaHorario"] == "cerrado_temporalmente"
+    assert body["AdvertenciaHorario"] == nueva["resumen"]
+
+
+def test_editar_una_actividad_sin_advertencia_previa_sigue_advirtiendo(
+    client, db_session, auth_headers, viaje_con_admin, dia_cronograma, actividad_existente, externos
+):
+    """Solo se omite el aviso que el usuario ya aceptó; un conflicto nuevo se informa."""
+    viaje, _ = viaje_con_admin
+
+    body = _modificar(
+        client, viaje, dia_cronograma, actividad_existente, auth_headers,
+        _payload(nombre="Visita original", horaInicio="17:00:00", horaFin="19:00:00"),
+    ).json()
+
+    assert body["advertencia"] is True
+
+
+def test_sin_ubicacion_cambiar_el_nombre_cuenta_como_cambio_de_lugar(
+    client, db_session, auth_headers, viaje_con_admin, dia_cronograma, actividad_existente, externos
+):
+    viaje, _ = viaje_con_admin
+    actividad_existente.HoraInicio = time(17)
+    actividad_existente.HoraFin = time(19)
+    actividad_existente.TipoAdvertenciaHorario = "fuera_de_horario"
+    actividad_existente.AdvertenciaHorario = "Fuera del horario del lugar (09:00 a 18:00)"
+    db_session.commit()
+
+    mismo_nombre = _modificar(
+        client, viaje, dia_cronograma, actividad_existente, auth_headers,
+        _payload(nombre="  visita ORIGINAL ", horaInicio="17:00:00", horaFin="19:00:00"),
+    ).json()
+    assert "advertencia" not in mismo_nombre
+    assert externos.sin_llamadas
+
+    otro_nombre = _modificar(
+        client, viaje, dia_cronograma, actividad_existente, auth_headers,
+        _payload(nombre="Cena en el puerto", horaInicio="17:00:00", horaFin="19:00:00"),
+    ).json()
+    assert otro_nombre["advertencia"] is True
+
+
+# ---------------------------------------------------------------------------
+# Gemini no disponible (p. ej. 503): búsqueda directa en Google Places
+# ---------------------------------------------------------------------------
+
+
+def test_si_gemini_falla_busca_en_places_con_el_nombre_de_la_actividad(db_session, externos):
+    externos.error_en = "gemini"
+
+    resultado = _analizar(db_session, hora_inicio=time(17), hora_fin=time(19))
+
+    assert externos.llamadas_busqueda == [NOMBRE_ACTIVIDAD]
+    assert resultado["advertencia"] is True
+    assert resultado["tipo"] == "fuera_de_horario"
+
+
+def test_si_gemini_falla_la_busqueda_directa_usa_los_destinos_del_viaje(db_session, externos):
+    externos.error_en = "gemini"
+
+    _analizar(db_session, destinos=DESTINOS)
+
+    assert externos.llamadas_busqueda == [NOMBRE_ACTIVIDAD]
+    assert externos.destinos_busqueda == [DESTINOS]
+
+
+def test_si_gemini_falla_y_el_horario_es_compatible_no_advierte(db_session, externos):
+    externos.error_en = "gemini"
+
+    assert _analizar(db_session) == {"advertencia": False, "compatible": True}
+
+
+def test_si_gemini_falla_y_places_no_encuentra_el_lugar_registra_con_aviso(db_session, externos):
+    externos.error_en = "gemini"
+    externos.place_id = None
+
+    resultado = _analizar(db_session, hora_inicio=time(17), hora_fin=time(19))
+
+    assert resultado == {"advertencia": False, "aviso": servicio.MENSAJE_NO_VERIFICADO}
+
+
+def test_si_gemini_falla_y_el_lugar_no_tiene_horarios_registra_con_aviso(db_session, externos):
+    externos.error_en = "gemini"
+    externos.detalles = {"name": NOMBRE_LUGAR}
+
+    resultado = _analizar(db_session, hora_inicio=time(17), hora_fin=time(19))
+
+    assert resultado == {"advertencia": False, "aviso": servicio.MENSAJE_NO_VERIFICADO}
+
+
+def test_si_gemini_falla_y_places_tampoco_responde_registra_con_aviso(db_session, externos, monkeypatch):
+    externos.error_en = "gemini"
+
+    async def busqueda_caida(*args, **kwargs):
+        raise RuntimeError("Places caído")
+
+    monkeypatch.setattr(servicio, "buscar_lugar_por_nombre", busqueda_caida)
+
+    resultado = _analizar(db_session, hora_inicio=time(17), hora_fin=time(19))
+
+    assert resultado == {"advertencia": False, "aviso": servicio.MENSAJE_NO_VERIFICADO}
+
+
+def test_si_gemini_falla_descarta_un_lugar_que_no_coincide_con_la_actividad(db_session, externos):
+    """'Cena con amigos' puede devolver cualquier restaurante: no se advierte sobre un lugar equivocado."""
+    externos.error_en = "gemini"
+    externos.detalles = {"name": "Parrilla Don Julio", "opening_hours": _horario_lunes()}
+
+    resultado = _analizar(db_session, nombre_actividad="Cena con amigos", hora_inicio=time(20), hora_fin=time(22))
+
+    assert resultado == {"advertencia": False, "aviso": servicio.MENSAJE_NO_VERIFICADO}
+
+
+@pytest.mark.parametrize(
+    "lugar,actividad,coincide",
+    [
+        ("Museo Nacional de Bellas Artes", "Visita al Museo Nacional de Bellas Artes", True),
+        ("Teatro Colón", "Ir al teatro colon", True),
+        ("Parrilla Don Julio", "Cena con amigos", False),
+        ("Café Tortoni", "Desayuno en el Tortoni", True),
+        (None, "Visita al museo", False),
+    ],
+)
+def test_nombre_coincide_con_actividad(lugar, actividad, coincide):
+    assert servicio._nombre_coincide_con_actividad(lugar, actividad) is coincide
+
+
+def test_si_gemini_dice_que_no_es_un_lugar_no_busca_en_places(db_session, externos):
+    """Una respuesta válida de Gemini ("no es un lugar concreto") no es una falla."""
+    externos.nombre_inferido = None
+
+    assert _analizar(db_session) == {"advertencia": False}
+    assert externos.llamadas_busqueda == []
+
+
+def test_create_con_gemini_caido_advierte_si_places_encuentra_el_lugar(
+    client, db_session, auth_headers, viaje_con_admin, dia_cronograma, externos
+):
+    viaje, _ = viaje_con_admin
+    externos.error_en = "gemini"
+
+    body = _crear(
+        client, viaje, dia_cronograma, auth_headers, _payload(horaInicio="17:00:00", horaFin="19:00:00")
+    ).json()
+
+    assert body["advertencia"] is True
+    assert _cantidad_actividades(db_session, dia_cronograma) == 0
+
+
+def test_create_con_gemini_caido_y_sin_horarios_registra_normalmente(
+    client, db_session, auth_headers, viaje_con_admin, dia_cronograma, externos
+):
+    viaje, _ = viaje_con_admin
+    externos.error_en = "gemini"
+    externos.place_id = None
+
+    response = _crear(
+        client, viaje, dia_cronograma, auth_headers, _payload(horaInicio="17:00:00", horaFin="19:00:00")
+    )
+
+    assert response.status_code == 201
+    assert response.json()["AvisoHorario"] == servicio.MENSAJE_NO_VERIFICADO
+    assert _cantidad_actividades(db_session, dia_cronograma) == 1
+
+
+@pytest.mark.parametrize("status_http", [429, 500, 503])
+def test_gemini_con_lanzar_si_falla_lanza_gemini_no_disponible(monkeypatch, gemini_configurado, status_http):
+    _parchear_httpx(monkeypatch, lambda request: httpx.Response(status_http, json={}))
+
+    with pytest.raises(servicio.GeminiNoDisponible):
+        asyncio.run(extraer_nombre_lugar_con_gemini(NOMBRE_ACTIVIDAD, lanzar_si_falla=True))
+
+
+def test_gemini_con_lanzar_si_falla_y_respuesta_no_lugar_devuelve_none(monkeypatch, gemini_configurado):
+    cuerpo = {
+        "candidates": [
+            {"content": {"parts": [{"text": json.dumps({"es_lugar_concreto": False, "nombre_lugar": None})}]}}
+        ]
+    }
+    _parchear_httpx(monkeypatch, lambda request: httpx.Response(200, json=cuerpo))
+
+    assert asyncio.run(extraer_nombre_lugar_con_gemini("Cena con amigos", lanzar_si_falla=True)) is None

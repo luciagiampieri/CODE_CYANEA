@@ -12,7 +12,7 @@
  * La búsqueda del lugar (por nombre o por ubicación asociada) la hace el backend: el frontend
  * debe enviarle el nombre de la actividad y, si hay, el idLugarInteres.
  */
-import { Alert, Platform } from "react-native";
+import { Alert, Dimensions, Platform, StyleSheet } from "react-native";
 import { act, fireEvent, render, waitFor } from "@testing-library/react-native";
 
 import AddActivityScreen from "../screens/AddActivityScreen";
@@ -998,5 +998,267 @@ describe("US 98 - estado de carga durante el análisis", () => {
     await act(async () => {
       deferred.resolve({ advertencia: false });
     });
+  });
+});
+describe("Advertencias de lugar cerrado (día, reformas, definitivo)", () => {
+  it("si el lugar está cerrado ese día, muestra cuándo vuelve a abrir", async () => {
+    const onSubmit = jest.fn().mockResolvedValue({
+      advertencia: true,
+      tipo: "cerrado_dia",
+      nombreLugar: "Museo del Prado",
+      mensaje:
+        "Museo del Prado está cerrado el lunes 07/12. Vuelve a abrir el martes 08/12 de 10:00 a 20:00. Se sugiere cambiar el día de la actividad.",
+      proximaApertura: "martes 08/12 de 10:00 a 20:00",
+      resumen: "Cerrado el lunes 07/12 · abre el martes 08/12 (de 10:00 a 20:00)",
+    });
+
+    await renderYEnviar(onSubmit);
+
+    await waitFor(() => expect(window.confirm).toHaveBeenCalled());
+    const mensaje = mensajeDelConfirm();
+    expect(mensaje).toContain("El lugar está cerrado ese día");
+    expect(mensaje).toContain("Vuelve a abrir el martes 08/12 de 10:00 a 20:00");
+    expect(mensaje).toContain("Cancelar: modificar la actividad.");
+    expect(mensaje).not.toContain("Horario del establecimiento:");
+  });
+
+  it("si el lugar está cerrado temporalmente (reformas) lo avisa", async () => {
+    const onSubmit = jest.fn().mockResolvedValue({
+      advertencia: true,
+      tipo: "cerrado_temporalmente",
+      nombreLugar: "Teatro Colón",
+      mensaje: "Teatro Colón figura como cerrado temporalmente (por ejemplo, por reformas o mantenimiento).",
+      resumen: "Cerrado temporalmente (reformas u otro motivo)",
+    });
+
+    await renderYEnviar(onSubmit);
+
+    await waitFor(() => expect(window.confirm).toHaveBeenCalled());
+    const mensaje = mensajeDelConfirm();
+    expect(mensaje).toContain("El lugar está cerrado temporalmente");
+    expect(mensaje).toContain("por reformas");
+  });
+
+  it("si el lugar cerró definitivamente lo avisa", async () => {
+    const onSubmit = jest.fn().mockResolvedValue({
+      advertencia: true,
+      tipo: "cerrado_permanentemente",
+      nombreLugar: "Bar Viejo",
+      mensaje: "Bar Viejo figura como cerrado definitivamente.",
+      resumen: "Cerrado definitivamente",
+    });
+
+    await renderYEnviar(onSubmit);
+
+    await waitFor(() => expect(window.confirm).toHaveBeenCalled());
+    expect(mensajeDelConfirm()).toContain("El lugar cerró definitivamente");
+  });
+
+  it("al confirmar reenvía la advertencia para que quede marcada en el itinerario", async () => {
+    const onSubmit = jest
+      .fn()
+      .mockResolvedValueOnce({
+        advertencia: true,
+        tipo: "cerrado_dia",
+        mensaje: "Cerrado el lunes 07/12.",
+        resumen: "Cerrado el lunes 07/12",
+      })
+      .mockResolvedValueOnce({ advertencia: false });
+    window.confirm.mockReturnValue(true);
+
+    await renderYEnviar(onSubmit);
+
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(2));
+    const [payload, opciones] = onSubmit.mock.calls[1];
+    expect(opciones).toEqual({ ignorarAdvertencia: true });
+    expect(payload.advertenciaHorario).toEqual({ tipo: "cerrado_dia", resumen: "Cerrado el lunes 07/12" });
+    // El primer envío (con análisis) no lleva advertencia.
+    expect(onSubmit.mock.calls[0][0].advertenciaHorario).toBeUndefined();
+  });
+
+  it("en nativo, para lugares cerrados el botón de cancelar es 'Modificar actividad'", async () => {
+    const spy = jest.spyOn(Alert, "alert").mockImplementation(() => {});
+    Platform.OS = "android";
+    const onSubmit = jest.fn().mockResolvedValue({
+      advertencia: true,
+      tipo: "cerrado_temporalmente",
+      mensaje: "Cerrado temporalmente.",
+      resumen: "Cerrado temporalmente (reformas u otro motivo)",
+    });
+
+    await renderEdicionYEnviar(onSubmit);
+
+    await waitFor(() => expect(Alert.alert).toHaveBeenCalled());
+    const [titulo, , botones] = Alert.alert.mock.calls[0];
+    expect(titulo).toBe("El lugar está cerrado temporalmente");
+    expect(botones.map((b) => b.text)).toEqual(["Modificar actividad", "Guardar igual"]);
+    spy.mockRestore();
+  });
+});
+
+describe("En el celular, el cartel aparece al terminar de validar horarios", () => {
+  // Se monta el DialogHost real de la app (como en App.js) en lugar de espiar Alert.alert.
+  const { DialogHost } = require("../components/ui/AppDialog");
+
+  beforeEach(() => {
+    Platform.OS = "android";
+  });
+
+  async function editarConHost(onSubmit) {
+    const utils = await render(
+      <>
+        <DialogHost root />
+        <AddActivityScreen {...baseProps} onSubmit={onSubmit} activityToEdit={actividadEditable} />
+      </>
+    );
+    return utils;
+  }
+
+  it("'Validando horarios' es una capa del formulario, no un Modal aparte", async () => {
+    const deferred = crearDeferred();
+    const onSubmit = jest.fn().mockReturnValue(deferred.promise);
+    const utils = await editarConHost(onSubmit);
+
+    await pressSubmit(utils, "Guardar cambios");
+
+    const capa = utils.getByTestId("validando-horarios");
+    expect(capa.type).not.toBe("Modal");
+    await act(async () => deferred.resolve({ advertencia: false }));
+  });
+
+  it("muestra la advertencia de horario y permite guardar igual", async () => {
+    const onSubmit = jest
+      .fn()
+      .mockResolvedValueOnce({
+        advertencia: true,
+        tipo: "fuera_de_horario",
+        nombreLugar: "Restó La Cyanea",
+        horariosApertura: "12:00 - 16:00",
+        resumen: "Fuera del horario del lugar (12:00 a 16:00)",
+      })
+      .mockResolvedValueOnce({ advertencia: false });
+    const utils = await editarConHost(onSubmit);
+
+    await pressSubmit(utils, "Guardar cambios");
+
+    await waitFor(() => expect(utils.getByText("Revisá el horario de tu actividad")).toBeTruthy());
+    expect(utils.queryByTestId("validando-horarios")).toBeNull();
+
+    await act(async () => {
+      fireEvent.press(utils.getByText("Guardar igual"));
+      jest.runAllTimers?.();
+    });
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(2));
+    expect(onSubmit.mock.calls[1][1]).toEqual({ ignorarAdvertencia: true });
+  });
+
+  it("si el horario es correcto muestra el cartel de éxito", async () => {
+    const onSubmit = jest.fn().mockResolvedValue({ advertencia: false });
+    const utils = await editarConHost(onSubmit);
+
+    await pressSubmit(utils, "Guardar cambios");
+
+    await waitFor(() => expect(utils.getByText("Actividad editada correctamente.")).toBeTruthy());
+    expect(utils.queryByTestId("validando-horarios")).toBeNull();
+  });
+});
+
+describe("Ubicación del cartel 'Validando horarios'", () => {
+  it("ocupa toda la pantalla y centra el cartel", async () => {
+    const deferred = crearDeferred();
+    const onSubmit = jest.fn().mockReturnValue(deferred.promise);
+    const utils = await render(
+      <AddActivityScreen {...baseProps} onSubmit={onSubmit} activityToEdit={actividadEditable} />
+    );
+
+    await pressSubmit(utils, "Guardar cambios");
+
+    const estilo = StyleSheet.flatten(utils.getByTestId("validando-horarios").props.style);
+    const { width, height } = Dimensions.get("window");
+    expect(estilo).toMatchObject({
+      position: "absolute",
+      top: 0,
+      left: 0,
+      width,
+      height,
+      justifyContent: "center",
+      alignItems: "center",
+    });
+    await act(async () => deferred.resolve({ advertencia: false }));
+  });
+});
+
+describe("Buscador de ubicación (mismo diseño que el de destinos)", () => {
+  it("al abrirlo muestra el encabezado común y un mensaje de ayuda", async () => {
+    const utils = await render(<AddActivityScreen {...baseProps} />);
+
+    await press(utils, "Seleccionar ubicación");
+
+    expect(utils.getByPlaceholderText("Buscar un lugar...")).toBeTruthy();
+    expect(utils.getByLabelText("Volver")).toBeTruthy();
+    expect(utils.getByText("Buscá el lugar de la actividad")).toBeTruthy();
+  });
+
+  it("muestra los resultados con nombre y dirección", async () => {
+    searchTripPlaces.mockResolvedValue([
+      { placeId: "p1", name: "Museo del Prado", address: "Calle Ruiz de Alarcón, Madrid" },
+    ]);
+    const utils = await render(<AddActivityScreen {...baseProps} />);
+
+    await press(utils, "Seleccionar ubicación");
+    await act(async () => {
+      fireEvent.changeText(utils.getByPlaceholderText("Buscar un lugar..."), "Museo");
+    });
+
+    await waitFor(() => expect(utils.getByText("Museo del Prado")).toBeTruthy());
+    expect(utils.getByText("Calle Ruiz de Alarcón, Madrid")).toBeTruthy();
+    expect(utils.getByText("Resultados · tocá para elegir")).toBeTruthy();
+  });
+
+  it("sin resultados lo indica", async () => {
+    searchTripPlaces.mockResolvedValue([]);
+    const utils = await render(<AddActivityScreen {...baseProps} />);
+
+    await press(utils, "Seleccionar ubicación");
+    await act(async () => {
+      fireEvent.changeText(utils.getByPlaceholderText("Buscar un lugar..."), "Zzzz");
+    });
+
+    await waitFor(() => expect(utils.getByText("Sin resultados")).toBeTruthy());
+  });
+
+  it("la ubicación elegida muestra solo el nombre, sin la calle debajo", async () => {
+    const utils = await render(
+      <AddActivityScreen
+        {...baseProps}
+        activityToEdit={{
+          ...actividadEditable,
+          lugarInteres: { id: 9, name: "Restó La Cyanea", address: "Av. Siempre Viva 742" },
+        }}
+      />
+    );
+
+    expect(utils.getByText("Restó La Cyanea")).toBeTruthy();
+    expect(utils.queryByText("Av. Siempre Viva 742")).toBeNull();
+  });
+});
+
+describe("Campo de ubicación", () => {
+  it("con una ubicación elegida muestra el botón de eliminar y la quita", async () => {
+    const utils = await render(
+      <AddActivityScreen {...baseProps} activityToEdit={actividadEditable} />
+    );
+
+    expect(utils.getByText("Restó La Cyanea")).toBeTruthy();
+    await act(async () => fireEvent.press(utils.getByLabelText("Quitar ubicación")));
+
+    expect(utils.queryByLabelText("Quitar ubicación")).toBeNull();
+    expect(utils.getByText("Seleccionar ubicación")).toBeTruthy();
+  });
+
+  it("sin ubicación no muestra el botón de eliminar", async () => {
+    const utils = await render(<AddActivityScreen {...baseProps} />);
+
+    expect(utils.queryByLabelText("Quitar ubicación")).toBeNull();
   });
 });

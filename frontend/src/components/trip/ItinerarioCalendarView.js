@@ -251,6 +251,15 @@ export default function ItinerarioCalendarView({
                             Se superpone con otra actividad
                           </Text>
                         ) : null}
+                        {actividad.advertenciaHorario ? (
+                          <Text
+                            numberOfLines={2}
+                            style={styles.actividadSolapadaTexto}
+                            testID={`calendar-schedule-warning-${actividad.id}`}
+                          >
+                            {actividad.advertenciaHorario}
+                          </Text>
+                        ) : null}
 
                         {onEditActivity || onDeleteActivity ? (
                           <View style={styles.actividadAcciones}>

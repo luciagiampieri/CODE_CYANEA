@@ -15,6 +15,7 @@ import {
   TouchableOpacity,
   FlatList,
   Animated,
+  useWindowDimensions,
 } from "react-native";
 import Modal from "../components/ui/AppModal";
 import { FontAwesome6 } from "@expo/vector-icons";
@@ -27,8 +28,12 @@ import {
 } from "../services/api";
 import { colors, radii, spacing, textStyles } from "../theme/tokens";
 import ScreenContainer from "../components/layout/ScreenContainer";
+import SearchPickerHeader, { SEARCH_PICKER_EDGES } from "../components/ui/SearchPickerHeader";
 
 import { appAlert } from "../components/ui/AppDialog";
+
+// Mismo celeste suave que el buscador de destinos.
+const COLOR_SOFT = colors.primarySoft ? `${colors.primarySoft}33` : "#eef2ff";
 
 function mostrarAlertaConfirmacion(titulo, mensaje, onAceptar) {
     if (Platform.OS === "web") {
@@ -86,6 +91,8 @@ export default function AddActivityScreen({
     activityToEdit = null,
     onCancelEdit,
 }) {
+    // Tamaño de la pantalla para que "Validando horarios" la cubra entera y quede centrado.
+    const pantalla = useWindowDimensions();
     const [nombre, setNombre] = useState("");
     const [descripcion, setDescripcion] = useState("");
     const [horaInicio, setHoraInicio] = useState("");
@@ -361,8 +368,23 @@ export default function AddActivityScreen({
         await enviarActividad();
     }
     
+    // Tipos que devuelve el backend: fuera_de_horario | cerrado_dia |
+    // cerrado_temporalmente | cerrado_permanentemente.
     function construirMensajeAdvertencia(datos) {
         const lugar = datos.nombreLugar || `el lugar de ${datos.nombreActividad}`;
+        const cierre = activityToEdit
+            ? "Podés modificar la actividad o guardarla igualmente."
+            : "Podés modificar la actividad o registrarla igualmente.";
+
+        if (
+            datos.tipo === "cerrado_dia" ||
+            datos.tipo === "cerrado_temporalmente" ||
+            datos.tipo === "cerrado_permanentemente"
+        ) {
+            // El backend ya arma el texto completo (cuándo reabre, reformas, etc.).
+            return `${datos.mensaje || `Detectamos que ${lugar} está cerrado.`}\n\n${cierre}`;
+        }
+
         let mensaje = `Detectamos que ${lugar} no se encuentra abierto durante el horario seleccionado.`;
 
         if (datos.horariosApertura) {
@@ -380,26 +402,41 @@ export default function AddActivityScreen({
         return mensaje;
     }
 
+    function tituloAdvertencia(tipo) {
+        if (tipo === "cerrado_dia") return "El lugar está cerrado ese día";
+        if (tipo === "cerrado_temporalmente") return "El lugar está cerrado temporalmente";
+        if (tipo === "cerrado_permanentemente") return "El lugar cerró definitivamente";
+        return "Revisá el horario de tu actividad";
+    }
+
     function mostrarAdvertenciaHorario(datos) {
-        const titulo = "Revisá el horario de tu actividad";
+        const titulo = tituloAdvertencia(datos.tipo);
         const mensaje = construirMensajeAdvertencia(datos);
         const textoConfirmar = activityToEdit ? "Guardar igual" : "Registrar igual";
+        const esFueraDeHorario = datos.tipo === "fuera_de_horario" || !datos.tipo;
+        const textoModificar = esFueraDeHorario ? "Modificar horario" : "Modificar actividad";
+        const accionModificarWeb = esFueraDeHorario ? "modificar el horario" : "modificar la actividad";
+        // Se reenvía al confirmar para que la advertencia quede marcada en el itinerario.
+        const advertenciaHorario = datos.tipo && datos.resumen
+            ? { tipo: datos.tipo, resumen: datos.resumen }
+            : null;
+        const confirmar = () => enviarActividad({ ignorarAdvertencia: true, advertenciaHorario });
 
         if (Platform.OS === "web") {
             const confirmado = window.confirm(
-                `${titulo}\n\n${mensaje}\n\nAceptar: ${textoConfirmar.toLowerCase()}. Cancelar: modificar el horario.`
+                `${titulo}\n\n${mensaje}\n\nAceptar: ${textoConfirmar.toLowerCase()}. Cancelar: ${accionModificarWeb}.`
             );
-            if (confirmado) enviarActividad({ ignorarAdvertencia: true });
+            if (confirmado) confirmar();
             return;
         }
 
         appAlert(titulo, mensaje, [
-            { text: "Modificar horario", style: "cancel" },
-            { text: textoConfirmar, onPress: () => enviarActividad({ ignorarAdvertencia: true }) },
+            { text: textoModificar, style: "cancel" },
+            { text: textoConfirmar, onPress: confirmar },
         ]);
     }
 
-    async function enviarActividad({ ignorarAdvertencia = false } = {}) {
+    async function enviarActividad({ ignorarAdvertencia = false, advertenciaHorario = null } = {}) {
         if (submittingRef.current) return;
         submittingRef.current = true;
 
@@ -422,6 +459,7 @@ export default function AddActivityScreen({
                     horaFin: `${horaFin}:00`,
                     icono,
                     idLugarInteres: ubicacion?.id || null,
+                    ...(ignorarAdvertencia && advertenciaHorario ? { advertenciaHorario } : {}),
                 },
                 { ignorarAdvertencia }
             );
@@ -434,6 +472,8 @@ export default function AddActivityScreen({
                 mostrarAdvertenciaHorario({
                     mensaje: resultado.mensaje ?? "",
                     horariosApertura: resultado.horariosApertura ?? "",
+                    tipo: resultado.tipo ?? null,
+                    resumen: resultado.resumen ?? null,
                     nombreLugar: resultado.nombreLugar ?? ubicacion?.name ?? "",
                     nombreActividad: nombre.trim(),
                     horarioActividad: `${horaInicio} a ${horaFin}`,
@@ -635,7 +675,12 @@ export default function AddActivityScreen({
                                                     {ubicacion ? ubicacion.name : "Seleccionar ubicación"}
                                                 </Text>
                                             </View>
-                                            <FontAwesome6 name="chevron-down" size={14} color={colors.overlay} />
+                                            {/* Con una ubicación elegida, en el lugar de la flecha va el botón de eliminar */}
+                                            {ubicacion ? (
+                                                <View style={styles.removeLocationSpacer} />
+                                            ) : (
+                                                <FontAwesome6 name="chevron-down" size={14} color={colors.overlay} />
+                                            )}
                                         </TouchableOpacity>
 
                                         {ubicacion ? (
@@ -649,12 +694,6 @@ export default function AddActivityScreen({
                                             </Pressable>
                                         ) : null}
                                     </View>
-
-                                    {ubicacion?.address ? (
-                                        <Text style={styles.locationAddressHint} numberOfLines={1} ellipsizeMode="tail">
-                                            {ubicacion.address}
-                                        </Text>
-                                    ) : null}
 
                                     <Text style={styles.label}>Descripción (opcional)</Text>
                                     <View 
@@ -704,20 +743,6 @@ export default function AddActivityScreen({
                                         </View>
                                         <FontAwesome6 name="chevron-down" size={14} color={colors.overlay} />
                                     </TouchableOpacity>
-
-                                    {analizando ? (
-                                        <Modal transparent animationType="fade" visible={analizando}>
-                                            <View style={styles.popupOverlay}>
-                                                <View style={styles.popupCard}>
-                                                    <ActivityIndicator size="large" color={colors.primary} />
-                                                    <Text style={styles.popupTitle}>Validando horarios</Text>
-                                                    <Text style={styles.popupText}>
-                                                        Estamos validando los horarios del lugar. Esto puede demorar unos segundos.
-                                                    </Text>
-                                                </View>
-                                            </View>
-                                        </Modal>
-                                    ) : null}
 
                                     <PrimaryButton
                                         label={
@@ -784,87 +809,100 @@ export default function AddActivityScreen({
                             </View>
                         )}
 
-                        <Modal
+                        <Modal statusBarTranslucent
                             animationType="slide"
                             visible={showLocationPicker}
                             onRequestClose={closeLocationPicker}
                         >
-                            <ScreenContainer fullWidth padded={false}>
+                            <ScreenContainer fullWidth padded={false} edges={SEARCH_PICKER_EDGES}>
                                 <KeyboardAvoidingView
                                     style={{ flex: 1 }}
                                     behavior={Platform.OS === "ios" ? "padding" : undefined}
                                 >
-                                    <View style={styles.locationHeader}>
-                                        <TouchableOpacity onPress={closeLocationPicker} hitSlop={12} style={styles.locationHeaderSide}>
-                                            <FontAwesome6 name="chevron-left" size={16} color={colors.primary} />
-                                        </TouchableOpacity>
-                                        <Text style={styles.modalTitleC}>Seleccionar ubicación</Text>
-                                        <View style={styles.locationHeaderSide} />
-                                    </View>
+                                    <SearchPickerHeader
+                                        title="Seleccionar ubicación"
+                                        onBack={closeLocationPicker}
+                                        value={locationQuery}
+                                        onChangeText={setLocationQuery}
+                                        placeholder="Buscar un lugar..."
+                                        loading={searchingLocations}
+                                    />
 
                                     <View style={styles.locationBody}>
-                                        <View style={styles.searchBox}>
-                                            <FontAwesome6 name="magnifying-glass" size={14} color={colors.overlay} />
-                                            <TextInput
-                                                value={locationQuery}
-                                                onChangeText={setLocationQuery}
-                                                placeholder="Buscar un lugar..."
-                                                placeholderTextColor={colors.overlay}
-                                                style={styles.searchInput}
-                                                autoFocus
-                                                returnKeyType="search"
-                                            />
-                                            {searchingLocations ? (
-                                                <ActivityIndicator size="small" color={colors.primary} />
-                                            ) : locationQuery.length > 0 ? (
-                                                <Pressable onPress={() => setLocationQuery("")} hitSlop={10}>
-                                                    <FontAwesome6 name="circle-xmark" size={16} color={colors.overlay} />
-                                                </Pressable>
-                                            ) : null}
-                                        </View>
-
-                                        <FlatList
-                                            data={locationResults}
-                                            keyExtractor={(place) => place.placeId}
-                                            keyboardShouldPersistTaps="handled"
-                                            showsVerticalScrollIndicator={false}
-                                            style={{ flex: 1 }}
-                                            renderItem={({ item: place, index }) => {
-                                                const esElUltimo = index === locationResults.length - 1;
-                                                return (
+                                        {locationQuery.trim().length < 2 ? (
+                                            <View style={styles.locationIdle}>
+                                                <View style={styles.locationIdleIcon}>
+                                                    <FontAwesome6 name="map-location-dot" size={22} color={colors.primary} />
+                                                </View>
+                                                <Text style={styles.locationIdleTitle}>Buscá el lugar de la actividad</Text>
+                                                <Text style={styles.locationIdleText}>
+                                                    Escribí al menos 2 letras del nombre de un lugar: un museo, un restaurante, un parque...
+                                                </Text>
+                                            </View>
+                                        ) : searchingLocations && locationResults.length === 0 ? (
+                                            <View style={styles.locationList}>
+                                                {[0, 1, 2].map((n) => (
+                                                    <View key={n} style={[styles.locationSkeletonRow, { opacity: 1 - n * 0.2 }]}>
+                                                        <View style={styles.locationSkeletonCircle} />
+                                                        <View style={{ flex: 1 }}>
+                                                            <View style={styles.locationSkeletonLong} />
+                                                            <View style={styles.locationSkeletonShort} />
+                                                        </View>
+                                                    </View>
+                                                ))}
+                                            </View>
+                                        ) : locationResults.length > 0 ? (
+                                            <FlatList
+                                                data={locationResults}
+                                                keyExtractor={(place) => place.placeId}
+                                                keyboardShouldPersistTaps="handled"
+                                                keyboardDismissMode="on-drag"
+                                                showsVerticalScrollIndicator={false}
+                                                style={{ flex: 1 }}
+                                                contentContainerStyle={styles.locationList}
+                                                ListHeaderComponent={
+                                                    <Text style={styles.locationResultsLabel}>Resultados · tocá para elegir</Text>
+                                                }
+                                                ItemSeparatorComponent={() => <View style={{ height: 6 }} />}
+                                                renderItem={({ item: place }) => (
                                                     <TouchableOpacity
-                                                        style={[styles.modalItemC, esElUltimo && { borderBottomWidth: 0 }]}
+                                                        style={styles.locationItem}
                                                         onPress={() => handleSelectLocation(place)}
                                                         disabled={savingLocation}
+                                                        activeOpacity={0.7}
+                                                        accessibilityRole="button"
+                                                        accessibilityLabel={`Elegir ${place.name}`}
                                                     >
-                                                        <View style={{ flexDirection: "row", alignItems: "center", flex: 1 }}>
-                                                            <FontAwesome6
-                                                                name="location-dot"
-                                                                size={15}
-                                                                color={colors.primary}
-                                                                style={{ marginRight: 12, width: 24, textAlign: "center" }}
-                                                            />
-                                                            <View style={{ flex: 1 }}>
-                                                                <Text style={styles.modalItemTextC} numberOfLines={1} ellipsizeMode="tail">
-                                                                    {place.name}
-                                                                </Text>
-                                                                <Text style={styles.locationResultAddress} numberOfLines={1} ellipsizeMode="tail">
+                                                        <View style={styles.locationItemIcon}>
+                                                            <FontAwesome6 name="location-dot" size={14} color={colors.primary} />
+                                                        </View>
+                                                        <View style={{ flex: 1 }}>
+                                                            <Text style={styles.locationItemName} numberOfLines={1} ellipsizeMode="tail">
+                                                                {place.name}
+                                                            </Text>
+                                                            {place.address ? (
+                                                                <Text style={styles.locationItemSub} numberOfLines={1} ellipsizeMode="tail">
                                                                     {place.address}
                                                                 </Text>
-                                                            </View>
+                                                            ) : null}
                                                         </View>
-                                                        <FontAwesome6 name="chevron-right" size={12} color={colors.overlay} />
+                                                        <View style={styles.locationItemAction}>
+                                                            <FontAwesome6 name="plus" size={12} color={colors.primary} />
+                                                        </View>
                                                     </TouchableOpacity>
-                                                );
-                                            }}
-                                            ListEmptyComponent={
-                                                locationQuery.trim().length < 2 ? (
-                                                    <Text style={styles.emptyTextC}>Escribí el nombre de un lugar para buscarlo.</Text>
-                                                ) : searchingLocations ? null : hasSearchedLocations ? (
-                                                    <Text style={styles.emptyTextC}>No se encontraron lugares para "{locationQuery.trim()}".</Text>
-                                                ) : null
-                                            }
-                                        />
+                                                )}
+                                            />
+                                        ) : hasSearchedLocations && !searchingLocations ? (
+                                            <View style={styles.locationIdle}>
+                                                <View style={styles.locationIdleIcon}>
+                                                    <FontAwesome6 name="magnifying-glass" size={20} color={colors.textMuted} />
+                                                </View>
+                                                <Text style={styles.locationIdleTitle}>Sin resultados</Text>
+                                                <Text style={styles.locationIdleText}>
+                                                    No encontramos lugares para "{locationQuery.trim()}". Probá con otro nombre.
+                                                </Text>
+                                            </View>
+                                        ) : null}
 
                                         {savingLocation ? (
                                             <View style={styles.savingRow}>
@@ -912,6 +950,26 @@ export default function AddActivityScreen({
                     </View>
                 </View>
             </KeyboardAvoidingView>
+
+            {/* "Validando horarios" se dibuja como capa de este modal y NO como un Modal
+                aparte: al terminar el análisis se abre enseguida el diálogo de advertencia
+                o de éxito, y en Android/iOS un Modal nuevo no se muestra si se abre mientras
+                otro Modal se está cerrando. Va fuera del KeyboardAvoidingView y ocupa toda
+                la pantalla para quedar siempre centrada, como el popup anterior. */}
+            {analizando ? (
+                <View
+                    style={[styles.popupLayer, { width: pantalla.width, height: pantalla.height }]}
+                    testID="validando-horarios"
+                >
+                    <View style={styles.popupCard}>
+                        <ActivityIndicator size="large" color={colors.primary} />
+                        <Text style={styles.popupTitle}>Validando horarios</Text>
+                        <Text style={styles.popupText}>
+                            Estamos validando los horarios del lugar. Esto puede demorar unos segundos.
+                        </Text>
+                    </View>
+                </View>
+            ) : null}
         </Modal>
     );
 }
@@ -1110,20 +1168,17 @@ const styles = StyleSheet.create({
         position: "relative",
         justifyContent: "center",
     },
+    removeLocationSpacer: {
+        width: 24,
+    },
     removeLocationButton: {
         position: "absolute",
-        right: 36,
+        right: 4,
         height: 48,
         width: 40,
         alignItems: "center",
         justifyContent: "center",
         zIndex: 2,
-    },
-    locationAddressHint: {
-        ...textStyles.meta,
-        color: colors.textSecondary,
-        marginTop: spacing.xxs,
-        marginLeft: spacing.xxs,
     },
     modalOverlayC: {
         position: "absolute",
@@ -1178,35 +1233,6 @@ const styles = StyleSheet.create({
         color: colors.primary,
         fontWeight: "700",
     },
-    emptyTextC: {
-        ...textStyles.meta,
-        color: colors.textSecondary,
-        textAlign: "center",
-        paddingVertical: spacing.lg,
-    },
-    searchBox: {
-        minHeight: 48,
-        borderWidth: 1,
-        borderColor: colors.border,
-        borderRadius: radii.md,
-        backgroundColor: colors.surface,
-        paddingHorizontal: spacing.md,
-        flexDirection: "row",
-        alignItems: "center",
-        gap: 10,
-        marginBottom: spacing.sm,
-    },
-    searchInput: {
-        flex: 1,
-        color: colors.textPrimary,
-        paddingVertical: 8,
-        ...textStyles.body,
-    },
-    locationResultAddress: {
-        ...textStyles.meta,
-        color: colors.textSecondary,
-        marginTop: 2,
-    },
     savingRow: {
         flexDirection: "row",
         alignItems: "center",
@@ -1218,26 +1244,121 @@ const styles = StyleSheet.create({
         ...textStyles.meta,
         color: colors.textSecondary,
     },
-    locationHeader: {
-        flexDirection: "row",
-        alignItems: "center",
-        justifyContent: "space-between",
-        paddingHorizontal: spacing.lg,
-        paddingTop: spacing.md,
-        paddingBottom: spacing.sm,
-        borderBottomWidth: 1,
-        borderBottomColor: colors.border,
-    },
-    locationHeaderSide: {
-        width: 40,
-    },
+    // Buscador de ubicación: mismo diseño que el buscador de destinos del viaje.
     locationBody: {
         flex: 1,
+        minHeight: 0,
+        backgroundColor: colors.background,
+    },
+    locationList: {
         paddingHorizontal: spacing.lg,
         paddingTop: spacing.md,
+        paddingBottom: spacing.lg,
     },
-    popupOverlay: {
-        flex: 1,
+    locationResultsLabel: {
+        ...textStyles.label,
+        textTransform: "none",
+        color: colors.textSecondary,
+        marginBottom: spacing.sm,
+    },
+    locationItem: {
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 12,
+        minHeight: 56,
+        paddingHorizontal: spacing.sm + 4,
+        paddingVertical: 6,
+        borderWidth: 1.5,
+        borderColor: colors.border,
+        borderRadius: radii.md,
+        backgroundColor: colors.surface,
+    },
+    locationItemIcon: {
+        width: 38,
+        height: 38,
+        borderRadius: 19,
+        alignItems: "center",
+        justifyContent: "center",
+        backgroundColor: COLOR_SOFT,
+    },
+    locationItemName: {
+        ...textStyles.bodyStrong,
+        color: colors.textPrimary,
+        fontWeight: "500",
+    },
+    locationItemSub: {
+        ...textStyles.meta,
+        color: colors.textSecondary,
+        marginTop: 2,
+    },
+    locationItemAction: {
+        width: 32,
+        height: 32,
+        borderRadius: 16,
+        alignItems: "center",
+        justifyContent: "center",
+        backgroundColor: COLOR_SOFT,
+    },
+    locationIdle: {
+        alignItems: "center",
+        gap: spacing.xs,
+        paddingHorizontal: spacing.lg,
+        paddingTop: spacing.xl,
+    },
+    locationIdleIcon: {
+        width: 60,
+        height: 60,
+        borderRadius: 30,
+        alignItems: "center",
+        justifyContent: "center",
+        backgroundColor: COLOR_SOFT,
+    },
+    locationIdleTitle: {
+        ...textStyles.bodyStrong,
+        color: colors.textPrimary,
+        fontSize: 16,
+        textAlign: "center",
+    },
+    locationIdleText: {
+        ...textStyles.meta,
+        color: colors.textSecondary,
+        textAlign: "center",
+    },
+    locationSkeletonRow: {
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 12,
+        minHeight: 64,
+        paddingHorizontal: spacing.sm + 4,
+        marginBottom: 8,
+        borderRadius: radii.md,
+        backgroundColor: colors.surface,
+    },
+    locationSkeletonCircle: {
+        width: 38,
+        height: 38,
+        borderRadius: 19,
+        backgroundColor: colors.surfaceMuted,
+    },
+    locationSkeletonLong: {
+        width: "60%",
+        height: 12,
+        borderRadius: 6,
+        backgroundColor: colors.surfaceMuted,
+    },
+    locationSkeletonShort: {
+        width: "35%",
+        height: 10,
+        borderRadius: 5,
+        marginTop: 8,
+        backgroundColor: colors.surfaceMuted,
+    },
+    popupLayer: {
+        position: "absolute",
+        top: 0,
+        left: 0,
+        zIndex: 10,
+        elevation: 10,
         backgroundColor: "rgba(0, 0, 0, 0.5)",
         justifyContent: "center",
         alignItems: "center",

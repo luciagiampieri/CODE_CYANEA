@@ -25,6 +25,63 @@ _MINUTOS_SEMANA = 7 * _MINUTOS_DIA
 # Google Places (New) cubre los próximos 7 días (hoy incluido) en currentOpeningHours.
 _DIAS_VENTANA_HORARIO_ACTUAL = 7
 
+_DIAS_SEMANA_ES = ("lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo")
+
+# Tipos de advertencia de horario. Se devuelven al frontend y se persisten en
+# `ActividadesItinerario.TipoAdvertenciaHorario` cuando el usuario la confirma.
+TIPO_FUERA_DE_HORARIO = "fuera_de_horario"
+TIPO_CERRADO_DIA = "cerrado_dia"
+TIPO_CERRADO_TEMPORALMENTE = "cerrado_temporalmente"
+TIPO_CERRADO_PERMANENTEMENTE = "cerrado_permanentemente"
+TIPOS_ADVERTENCIA = (
+    TIPO_FUERA_DE_HORARIO,
+    TIPO_CERRADO_DIA,
+    TIPO_CERRADO_TEMPORALMENTE,
+    TIPO_CERRADO_PERMANENTEMENTE,
+)
+
+# `businessStatus` de Google Places (New).
+_ESTADOS_CERRADO = {
+    "CLOSED_TEMPORARILY": TIPO_CERRADO_TEMPORALMENTE,
+    "CLOSED_PERMANENTLY": TIPO_CERRADO_PERMANENTEMENTE,
+}
+
+
+class GeminiNoDisponible(Exception):
+    """Gemini no pudo responder (sin API key, error HTTP como 503, red o respuesta ilegible).
+
+    Se distingue de la respuesta válida "no es un lugar concreto" (que devuelve None)
+    para que el análisis pueda buscar el lugar por otra vía."""
+
+
+# Palabras genéricas de actividades que no sirven para confirmar que el lugar
+# encontrado en Google Places corresponde a la actividad.
+_PALABRAS_GENERICAS = {
+    "visita", "visitar", "ir", "al", "a", "la", "el", "los", "las", "de", "del", "en", "con", "y",
+    "cena", "cenar", "almuerzo", "almorzar", "desayuno", "desayunar", "merienda", "comida", "comer",
+    "paseo", "pasear", "recorrido", "recorrer", "tour", "excursion", "salida", "entrada", "compras",
+    "noche", "tarde", "manana", "dia", "amigos", "grupo", "familia", "por", "para", "un", "una",
+}
+
+
+def _normalizar_palabras(texto: str) -> set[str]:
+    import unicodedata
+
+    sin_tildes = "".join(
+        c for c in unicodedata.normalize("NFD", texto.lower()) if unicodedata.category(c) != "Mn"
+    )
+    palabras = "".join(c if c.isalnum() else " " for c in sin_tildes).split()
+    return {p for p in palabras if len(p) >= 3 and p not in _PALABRAS_GENERICAS}
+
+
+def _nombre_coincide_con_actividad(nombre_lugar: Optional[str], nombre_actividad: str) -> bool:
+    """La búsqueda directa por el nombre de la actividad puede devolver cualquier
+    lugar (p. ej. "Cena con amigos" -> un restaurante al azar). Solo se acepta si
+    comparte al menos una palabra significativa con la actividad."""
+    if not nombre_lugar:
+        return False
+    return bool(_normalizar_palabras(nombre_lugar) & _normalizar_palabras(nombre_actividad))
+
 
 def obtener_dia_semana(fecha_str: str) -> int:
     dt = datetime.strptime(fecha_str, "%Y-%m-%d")
@@ -34,15 +91,26 @@ def obtener_dia_semana(fecha_str: str) -> int:
 async def extraer_nombre_lugar_con_gemini(
     nombre_actividad: str,
     contexto_destino: Optional[str] = None,
+    lanzar_si_falla: bool = False,
 ) -> Optional[str]:
     """Extrae el nombre de un lugar concreto usando Gemini a través de la API REST oficial de Google AI Studio.
 
     `contexto_destino` (por ejemplo "Orlando, Estados Unidos") ayuda a desambiguar
-    nombres como "Animal Kingdom"."""
+    nombres como "Animal Kingdom".
+
+    Devuelve None si la actividad no se refiere a un lugar concreto. Si Gemini
+    falla devuelve None, salvo con `lanzar_si_falla=True`, que lanza
+    `GeminiNoDisponible` para que quien llama pueda usar otra vía."""
+
+    def _fallo(motivo: str) -> None:
+        if lanzar_si_falla:
+            raise GeminiNoDisponible(motivo)
+        return None
+
     api_key = getattr(settings, "gemini_api_key", None) or getattr(settings, "GEMINI_API_KEY", None)
     if not api_key:
         logger.warning("Análisis de horarios: GEMINI_API_KEY no configurada.")
-        return None
+        return _fallo("GEMINI_API_KEY no configurada")
 
     model = getattr(settings, "ai_receipt_model", "gemini-2.5-flash")
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
@@ -82,21 +150,24 @@ async def extraer_nombre_lugar_con_gemini(
         async with httpx.AsyncClient(timeout=30.0, verify=False) as client:
             response = await client.post(url, headers={"x-goog-api-key": api_key}, json=payload)
         if response.status_code != 200:
+            # 503 = modelo saturado, 429 = cuota; ambos son temporales del lado de Google.
             logger.warning("Gemini respondió %s al extraer el lugar de la actividad.", response.status_code)
-            return None
+            return _fallo(f"HTTP {response.status_code}")
         data = response.json()
         candidatos = data.get("candidates") or []
         if not candidatos:
-            return None
+            return _fallo("respuesta sin candidatos")
         partes = (candidatos[0].get("content") or {}).get("parts") or []
         texto = "".join(p.get("text", "") for p in partes if not p.get("thought")).strip()
 
         resultado = json.loads(texto)
-        if isinstance(resultado, dict) and resultado.get("es_lugar_concreto"):
-            nombre = resultado.get("nombre_lugar")
-            return nombre.strip() if isinstance(nombre, str) and nombre.strip() else None
     except Exception as error:
         logger.warning("No se pudo extraer el lugar de la actividad con Gemini: %s", error)
+        return _fallo(str(error))
+
+    if isinstance(resultado, dict) and resultado.get("es_lugar_concreto"):
+        nombre = resultado.get("nombre_lugar")
+        return nombre.strip() if isinstance(nombre, str) and nombre.strip() else None
     return None
 
 
@@ -186,6 +257,65 @@ def _fmt(minutos: int) -> str:
     return f"{minutos // 60:02d}:{minutos % 60:02d}"
 
 
+def _tramos_del_dia(intervalos: list[tuple[int, int]]) -> list[tuple[int, int]]:
+    """Tramos de apertura que se solapan con el día (eje 0 = medianoche)."""
+    return [
+        (max(apertura, 0), cierre)
+        for apertura, cierre in intervalos
+        if cierre > 0 and apertura < _MINUTOS_DIA
+    ]
+
+
+def _texto_tramos(tramos: list[tuple[int, int]]) -> str:
+    return ", ".join(f"{_fmt(apertura)} - {_fmt(cierre)}" for apertura, cierre in tramos)
+
+
+def _texto_tramos_legible(tramos: list[tuple[int, int]]) -> str:
+    partes = [f"de {_fmt(apertura)} a {_fmt(cierre)}" for apertura, cierre in tramos]
+    if len(partes) == 1:
+        return partes[0]
+    return ", ".join(partes[:-1]) + " y " + partes[-1]
+
+
+def _texto_dia(dia_semana: int, fecha: Optional[date]) -> str:
+    nombre = _DIAS_SEMANA_ES[dia_semana % 7]
+    return f"{nombre} {fecha:%d/%m}" if fecha is not None else nombre
+
+
+def _proxima_apertura(
+    periods: list[dict],
+    dia_semana: int,
+    fecha: Optional[date],
+    usa_fechas: bool,
+    hoy: Optional[date] = None,
+) -> Optional[Dict[str, Any]]:
+    """Busca el primer día posterior a la actividad en el que el lugar abre.
+
+    Con horarios regulares alcanza con recorrer la semana siguiente. Con
+    horarios actuales (fechados) solo se puede mirar dentro de la ventana de
+    7 días que publica Google."""
+    for desfase in range(1, 8):
+        dia = (dia_semana + desfase) % 7
+        fecha_dia = fecha + timedelta(days=desfase) if fecha is not None else None
+        if usa_fechas:
+            hoy_ref = hoy or date.today()
+            if fecha_dia is None or fecha_dia >= hoy_ref + timedelta(days=_DIAS_VENTANA_HORARIO_ACTUAL):
+                return None
+        intervalos = _intervalos_en_eje(periods, dia, fecha_dia if usa_fechas else None)
+        if intervalos is None:
+            return None
+        tramos = _tramos_del_dia(intervalos)
+        if tramos:
+            return {
+                "dia_semana": dia,
+                "fecha": fecha_dia,
+                "dia_texto": _texto_dia(dia, fecha_dia),
+                "horarios": _texto_tramos(tramos),
+                "horarios_legibles": _texto_tramos_legible(tramos),
+            }
+    return None
+
+
 def validar_intervalo_horario(
     hora_inicio_act: time,
     hora_fin_act: time,
@@ -259,30 +389,29 @@ def validar_intervalo_horario(
 
     # Tramos que se solapan con el día de la actividad,
     # para poder mostrarlos al usuario.
-    del_dia = [
-        (max(apertura, 0), cierre)
-        for apertura, cierre in intervalos
-        if cierre > 0 and apertura < _MINUTOS_DIA
-    ]
+    del_dia = _tramos_del_dia(intervalos)
 
     if not del_dia:
+        # El lugar no abre ese día: se informa cuándo vuelve a abrir.
         return {
             "verificado": True,
             "incompatible": True,
+            "tipo": TIPO_CERRADO_DIA,
+            "proxima_apertura": _proxima_apertura(
+                periods, dia_semana, fecha, fecha_efectiva is not None, hoy
+            ),
             "mensaje": (
                 "El establecimiento no cuenta con horarios de apertura "
                 "para este día."
             ),
         }
 
-    horarios_str = ", ".join(
-        f"{_fmt(apertura)} - {_fmt(cierre)}"
-        for apertura, cierre in del_dia
-    )
+    horarios_str = _texto_tramos(del_dia)
 
     return {
         "verificado": True,
         "incompatible": True,
+        "tipo": TIPO_FUERA_DE_HORARIO,
         "horarios_apertura": horarios_str,
         "mensaje": (
             "El horario planificado se encuentra fuera del horario de apertura. "
@@ -290,6 +419,70 @@ def validar_intervalo_horario(
             "Se sugiere modificar el horario de la actividad."
         ),
     }
+
+
+def construir_advertencia(
+    resultado: Dict[str, Any],
+    nombre_lugar: Optional[str],
+    fecha: date,
+) -> Dict[str, Any]:
+    """Arma la advertencia que ve el usuario.
+
+    - `mensaje`: texto completo para el diálogo de confirmación.
+    - `resumen`: texto corto que queda marcado en el itinerario si el usuario
+      registra la actividad igualmente.
+    """
+    tipo = resultado.get("tipo") or TIPO_FUERA_DE_HORARIO
+    lugar = nombre_lugar or "El lugar"
+    dia_actividad = _texto_dia(fecha.weekday(), fecha)
+    advertencia: Dict[str, Any] = {
+        "advertencia": True,
+        "tipo": tipo,
+        "nombre_lugar": nombre_lugar,
+        "horarios_apertura": resultado.get("horarios_apertura", ""),
+    }
+
+    if tipo == TIPO_CERRADO_TEMPORALMENTE:
+        advertencia["mensaje"] = (
+            f"{lugar} figura como cerrado temporalmente (por ejemplo, por reformas o "
+            "mantenimiento). Puede que reabra antes de tu visita, pero conviene "
+            "confirmarlo antes de ir."
+        )
+        advertencia["resumen"] = "Cerrado temporalmente (reformas u otro motivo)"
+        return advertencia
+
+    if tipo == TIPO_CERRADO_PERMANENTEMENTE:
+        advertencia["mensaje"] = (
+            f"{lugar} figura como cerrado definitivamente. "
+            "Te sugerimos elegir otro lugar para esta actividad."
+        )
+        advertencia["resumen"] = "Cerrado definitivamente"
+        return advertencia
+
+    if tipo == TIPO_CERRADO_DIA:
+        proxima = resultado.get("proxima_apertura")
+        mensaje = f"{lugar} está cerrado el {dia_actividad}."
+        resumen = f"Cerrado el {dia_actividad}"
+        if proxima:
+            mensaje += f" Vuelve a abrir el {proxima['dia_texto']} {proxima['horarios_legibles']}."
+            resumen += f" · abre el {proxima['dia_texto']} ({proxima['horarios_legibles']})"
+            advertencia["proxima_apertura"] = f"{proxima['dia_texto']} {proxima['horarios_legibles']}"
+        else:
+            mensaje += " No encontramos cuándo vuelve a abrir."
+        mensaje += " Se sugiere cambiar el día de la actividad."
+        advertencia["mensaje"] = mensaje
+        advertencia["resumen"] = resumen
+        return advertencia
+
+    # Fuera de horario: se conserva el mensaje del validador (incluye horarios).
+    advertencia["mensaje"] = resultado.get("mensaje") or ""
+    horarios = advertencia["horarios_apertura"]
+    advertencia["resumen"] = (
+        f"Fuera del horario del lugar ({horarios.replace(' - ', ' a ')})"
+        if horarios
+        else "Fuera del horario del lugar"
+    )
+    return advertencia
 
 
 def _contexto_destino_texto(destinos: Optional[list[dict]]) -> Optional[str]:
@@ -332,6 +525,11 @@ async def analizar_horario_actividad(
 
     place_id = None
     nombre_busqueda = None
+    # True cuando Gemini no respondió y se buscó el lugar directamente con el nombre
+    # de la actividad. En ese caso, si no se consiguen los horarios, se registra
+    # normalmente informando que no se pudieron verificar.
+    busqueda_directa = False
+    no_verificado = {"advertencia": False, "aviso": MENSAJE_NO_VERIFICADO}
 
     try:
         # (2) La ubicación asociada manualmente es la referencia principal.
@@ -346,9 +544,19 @@ async def analizar_horario_actividad(
         # (3) Sin ubicación utilizable: se infiere el lugar desde el nombre de la actividad.
         if not place_id:
             if not nombre_busqueda:
-                nombre_busqueda = await extraer_nombre_lugar_con_gemini(
-                    nombre_actividad, _contexto_destino_texto(destinos)
-                )
+                try:
+                    nombre_busqueda = await extraer_nombre_lugar_con_gemini(
+                        nombre_actividad, _contexto_destino_texto(destinos), lanzar_si_falla=True
+                    )
+                except Exception as error:
+                    # Gemini no disponible (p. ej. 503): se busca en Google Places con
+                    # el nombre de la actividad tal cual.
+                    logger.warning(
+                        "Gemini no disponible (%s); se busca el lugar en Google Places con el nombre de la actividad.",
+                        error,
+                    )
+                    busqueda_directa = True
+                    nombre_busqueda = (nombre_actividad or "").strip() or None
             if nombre_busqueda:
                 if destinos:
                     place_id = await place_search.buscar_lugar_en_destinos(nombre_busqueda, destinos)
@@ -356,18 +564,36 @@ async def analizar_horario_actividad(
                     place_id = await buscar_lugar_por_nombre(nombre_busqueda)
     except Exception as error:
         logger.warning("Error identificando el lugar de la actividad: %s", error)
-        return {"advertencia": False}  # Criterio 12
+        return no_verificado if busqueda_directa else {"advertencia": False}  # Criterio 12
 
     if not place_id:
-        return {"advertencia": False}  # Criterio 10: lugar no identificado
+        # Criterio 10: lugar no identificado.
+        return no_verificado if busqueda_directa else {"advertencia": False}
 
     try:
         details = await obtener_detalles_lugar(place_id)
         if not details:
-            return {"advertencia": False}  # Criterio 12 (error/sin respuesta de Google)
+            # Criterio 12 (error/sin respuesta de Google)
+            return no_verificado if busqueda_directa else {"advertencia": False}
 
         dia_sem = fecha_obj.weekday()
         nombre_lugar = details.get("name")
+
+        if busqueda_directa and not _nombre_coincide_con_actividad(nombre_lugar, nombre_actividad):
+            # Sin Gemini no hay certeza de que el resultado sea el lugar de la actividad:
+            # mejor no advertir sobre un lugar equivocado.
+            logger.info(
+                "Búsqueda directa descartada: '%s' no coincide con la actividad '%s'.",
+                nombre_lugar,
+                nombre_actividad,
+            )
+            return no_verificado
+
+        # (4) Lugar cerrado temporal (reformas, mantenimiento, etc.) o definitivamente:
+        # se avisa antes de mirar horarios, que Google suele seguir publicando.
+        tipo_cierre = _ESTADOS_CERRADO.get(details.get("business_status") or "")
+        if tipo_cierre:
+            return construir_advertencia({"tipo": tipo_cierre}, nombre_lugar, fecha_obj)
 
         # (5) Primero los horarios actuales (con fechas especiales); si no cubren
         # la fecha o no existen, los regulares.
@@ -386,14 +612,21 @@ async def analizar_horario_actividad(
             return {"advertencia": False, "aviso": MENSAJE_NO_VERIFICADO}
 
         if resultado.get("incompatible"):
-            return {
-                "advertencia": True,
-                "mensaje": resultado.get("mensaje"),
-                "horarios_apertura": resultado.get("horarios_apertura", ""),
-                "nombre_lugar": nombre_lugar,
-            }
+            if resultado.get("tipo") == TIPO_CERRADO_DIA and not resultado.get("proxima_apertura"):
+                # Los horarios actuales solo cubren 7 días: si no alcanzan para saber
+                # cuándo reabre, se busca en los horarios regulares.
+                regulares = details.get("opening_hours") or {}
+                if regulares.get("periods"):
+                    try:
+                        resultado["proxima_apertura"] = _proxima_apertura(
+                            regulares["periods"], dia_sem, fecha_obj, False
+                        )
+                    except Exception:  # pragma: no cover - dato opcional
+                        pass
+            return construir_advertencia(resultado, nombre_lugar, fecha_obj)
     except Exception as error:
         logger.warning("Error consultando los horarios del lugar: %s", error)
-        return {"advertencia": False}  # Criterio 12
+        return no_verificado if busqueda_directa else {"advertencia": False}  # Criterio 12
 
-    return {"advertencia": False}
+    # Horario verificado y compatible: permite limpiar una advertencia previa.
+    return {"advertencia": False, "compatible": True}

@@ -1323,6 +1323,9 @@ export default function TripDetailScreen({ navigation, route }) {
           title: act.nombre ?? act.Nombre,
           note: act.descripcion ?? act.Descripcion,
           icon: act.icono ?? act.Icono ?? "location-dot",
+          // Advertencia de horario aceptada al registrar/editar (se marca en el itinerario).
+          tipoAdvertenciaHorario: act.tipoAdvertenciaHorario ?? act.TipoAdvertenciaHorario ?? null,
+          advertenciaHorario: act.advertenciaHorario ?? act.AdvertenciaHorario ?? null,
         };
       });
       const actividades = day.items ?? actividadesBackend;
