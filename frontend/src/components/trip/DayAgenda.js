@@ -2,7 +2,9 @@ import { useMemo, useState } from "react";
 import { FontAwesome6 } from "@expo/vector-icons";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
+import GapSuggestChip from "./GapSuggestChip";
 import { buildAgenda, getPlaceName, isTodayISO } from "../../utils/agenda";
+import { aHora, aMinutos } from "../../utils/huecosLibres";
 import { colors, radii, spacing, textStyles } from "../../theme/tokens";
 
 const COLOR_SOFT = colors.primarySoft ? `${colors.primarySoft}33` : "#eef2ff";
@@ -12,15 +14,14 @@ const COLOR_WARNING = colors.warning || "#B45309";
 const ACTIVIDADES_INICIALES = 5;
 const NOTA_LARGA = 60;
 const TITULO_LARGO = 38;
+const FIN_DIA_SUGERENCIAS = 23 * 60;
+const MINUTOS_MINIMOS_HUECO = 60;
 
-/**
- * Agenda de un día, pensada para pantallas chicas: cada actividad ocupa pocas líneas.
- *   1) horario + duración (y las acciones a la derecha)
- *   2) nombre
- *   3) lugar (una línea)
- *   4) nota (una línea; al tocar la tarjeta se abre todo)
- * El ícono va dentro de la tarjeta; un riel con puntos une las actividades. Si el día es hoy, marca la que está en curso.
- */
+function redondearACuartoDeHora(minutos) {
+  return Math.ceil(minutos / 15) * 15;
+}
+
+
 export default function DayAgenda({
   actividades = [],
   fecha,
@@ -28,6 +29,7 @@ export default function DayAgenda({
   onAdd,
   onEdit,
   onDelete,
+  onSuggestGap,
 }) {
   const [mostrarTodas, setMostrarTodas] = useState(false);
   const [detallesAbiertos, setDetallesAbiertos] = useState({});
@@ -62,8 +64,24 @@ export default function DayAgenda({
     );
   }
 
+  const ahora = new Date();
+  const minutosAhora = ahora.getHours() * 60 + ahora.getMinutes();
+  const puedeSugerir = canEdit && typeof onSuggestGap === "function";
+
   const ocultas = Math.max(0, agenda.length - ACTIVIDADES_INICIALES);
   const visibles = mostrarTodas || ocultas === 0 ? agenda : agenda.slice(0, ACTIVIDADES_INICIALES);
+
+  const finUltima = agenda.reduce((maximo, entrada) => {
+    const fin = aMinutos(entrada.end);
+    return fin != null && fin > maximo ? fin : maximo;
+  }, -1);
+  const inicioHuecoFinal =
+    finUltima < 0 ? null : hoy ? Math.max(finUltima, redondearACuartoDeHora(minutosAhora)) : finUltima;
+  const minutosHuecoFinal = inicioHuecoFinal == null ? 0 : FIN_DIA_SUGERENCIAS - inicioHuecoFinal;
+  const mostrarHuecoFinal =
+    puedeSugerir &&
+    (ocultas === 0 || mostrarTodas) &&
+    minutosHuecoFinal >= MINUTOS_MINIMOS_HUECO;
 
   return (
     <View>
@@ -84,6 +102,17 @@ export default function DayAgenda({
         if (entrada.start && entrada.end) horario = `${entrada.start} – ${entrada.end}`;
         else if (entrada.start) horario = `Desde las ${entrada.start}`;
 
+        const anterior = posicion > 0 ? agenda[posicion - 1] : null;
+        const huecoDesdeMin = aMinutos(anterior?.end);
+        const huecoHastaMin = aMinutos(entrada.start);
+        const huecoMinutos =
+          huecoDesdeMin != null && huecoHastaMin != null ? huecoHastaMin - huecoDesdeMin : 0;
+        const huecoPasado = hoy && huecoHastaMin != null && huecoHastaMin <= minutosAhora;
+        const sugerirHueco =
+          puedeSugerir && huecoMinutos > 0 && !huecoPasado
+            ? () => onSuggestGap(anterior.end, entrada.start)
+            : undefined;
+
         return (
           <View key={id}>
             {entrada.huecoLibre ? (
@@ -91,7 +120,14 @@ export default function DayAgenda({
                 <View style={styles.rail}>
                   <View style={styles.railLine} />
                 </View>
-                <Text style={styles.gapText}>{entrada.huecoLibre} libres</Text>
+                <GapSuggestChip
+                  etiqueta={`${entrada.huecoLibre} libres`}
+                  minutos={huecoMinutos}
+                  onPress={sugerirHueco}
+                  textStyle={styles.gapText}
+                  style={styles.gapChip}
+                  testID={`agenda-gap-${id}`}
+                />
               </View>
             ) : null}
 
@@ -109,7 +145,6 @@ export default function DayAgenda({
                 testID={`agenda-detail-${id}`}
                 style={[styles.card, enCurso && styles.cardNow, !esUltima && styles.cardSpacing]}
               >
-                {/* 1) Horario, duración, estado y acciones */}
                 <View style={styles.cardTop}>
                   <View style={[styles.iconBubble, enCurso && styles.iconBubbleNow]}>
                     <FontAwesome6
@@ -171,12 +206,10 @@ export default function DayAgenda({
                   ) : null}
                 </View>
 
-                {/* 2) Nombre */}
                 <Text style={styles.title} numberOfLines={abierto ? undefined : 2}>
                   {titulo}
                 </Text>
 
-                {/* 3) Lugar */}
                 {lugar ? (
                   <View style={styles.metaRow}>
                     <FontAwesome6 name="location-dot" size={10} color={colors.textMuted} />
@@ -186,7 +219,6 @@ export default function DayAgenda({
                   </View>
                 ) : null}
 
-                {/* 4) Nota */}
                 {nota ? (
                   <Text style={styles.note} numberOfLines={abierto ? undefined : 1}>
                     {nota}
@@ -206,6 +238,19 @@ export default function DayAgenda({
           </View>
         );
       })}
+
+      {mostrarHuecoFinal ? (
+        <View style={[styles.row, styles.gapFinalRow]}>
+          <View style={styles.rail} />
+          <GapSuggestChip
+            etiqueta={`Libre desde las ${aHora(inicioHuecoFinal)}`}
+            minutos={minutosHuecoFinal}
+            onPress={() => onSuggestGap(aHora(inicioHuecoFinal), aHora(FIN_DIA_SUGERENCIAS))}
+            style={styles.gapChip}
+            testID="agenda-gap-final"
+          />
+        </View>
+      ) : null}
 
       {ocultas > 0 ? (
         <Pressable
@@ -401,6 +446,14 @@ const styles = StyleSheet.create({
     color: colors.textMuted,
     fontSize: 11,
     fontStyle: "italic",
+  },
+  gapChip: {
+    flex: 1,
+    marginLeft: spacing.xs,
+    marginVertical: 4,
+  },
+  gapFinalRow: {
+    marginTop: 6,
   },
   moreButton: {
     flexDirection: "row",

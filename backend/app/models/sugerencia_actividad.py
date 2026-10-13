@@ -42,6 +42,7 @@ class SolicitudSugerenciaActividad(Base):
             "IdDiaCronograma",
             unique=True,
             postgresql_where=text("\"Estado\" = 'en_proceso'"),
+            sqlite_where=text("\"Estado\" = 'en_proceso'"),
         ),
         Index("IX_SolSugAct_Viaje_Fecha", "IdViaje", "FechaSolicitud"),
     )

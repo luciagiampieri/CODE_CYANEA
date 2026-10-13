@@ -74,7 +74,11 @@ router = APIRouter()
 DURACION_MINIMA_FRANJA_MINUTOS = 60
 DISTANCIAS_PERMITIDAS_KM = (5, 15, 30)
 SEGUNDOS_SOLICITUD_ABANDONADA = 90
-ESTADOS_QUE_CUENTAN = ("en_proceso", "completada", "sin_resultados")  
+ESTADOS_QUE_CUENTAN = ("en_proceso", "completada", "sin_resultados")
+
+# Estados de sugerencia que se muestran en el itinerario y que la IA no debe repetir.
+# "en_votacion" se agregó en la US 90 (proponer sugerencias al grupo mediante votación).
+ESTADOS_SUGERENCIA_VISIBLES = ("pendiente", "en_votacion")
 
 # Formato del nombre de foto que devuelve Google Places (New): places/<id>/photos/<ref>.
 PATRON_FOTO = re.compile(r"^places/[A-Za-z0-9_-]+/photos/[A-Za-z0-9_-]+$")
@@ -185,7 +189,9 @@ def _estado_pendiente(db: Session) -> EstadoSugerenciaActividad:
     return estado
 
 
-def _serializar(sugerencia: SugerenciaActividad, estado: str = "pendiente") -> SugerenciaActividadRead:
+def _serializar(sugerencia: SugerenciaActividad, estado: str | None = None) -> SugerenciaActividadRead:
+    if estado is None:
+        estado = sugerencia.Estado.Nombre if sugerencia.Estado is not None else "pendiente"
     return SugerenciaActividadRead(
         IdSugerenciaActividad=sugerencia.IdSugerenciaActividad,
         IdSolicitud=sugerencia.IdSolicitudSugerenciaActividad,
@@ -248,13 +254,15 @@ def listar_sugerencias_pendientes(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
 ):
+    """Sugerencias visibles del viaje: pendientes y en votación (US 90)."""
     require_trip_access(get_trip_with_relations(db, trip_id), current_user)
     filas = db.scalars(
         select(SugerenciaActividad)
         .join(SugerenciaActividad.Estado)
+        .options(selectinload(SugerenciaActividad.Estado))
         .where(
             SugerenciaActividad.IdViaje == trip_id,
-            EstadoSugerenciaActividad.Nombre == "pendiente",
+            EstadoSugerenciaActividad.Nombre.in_(ESTADOS_SUGERENCIA_VISIBLES),
         )
         .order_by(SugerenciaActividad.IdDiaCronograma, SugerenciaActividad.HoraInicio)
     ).all()
@@ -354,6 +362,7 @@ async def solicitar_sugerencias(
 
     if payload.DistanciaMaximaKm is not None and payload.DistanciaMaximaKm not in DISTANCIAS_PERMITIDAS_KM:
         raise _error(400, "La distancia de búsqueda seleccionada no es válida.", SLOT_INVALID)
+    # Distancia elegida por el usuario en el sheet (5, 15 o 30 km); si no llega, la de configuración.
     max_km = float(payload.DistanciaMaximaKm or settings.ai_suggestions_max_distance_km)
 
     dia: DiaCronograma | None = next(
@@ -382,7 +391,6 @@ async def solicitar_sugerencias(
             SLOT_FULL,
         )
 
-
     limite = settings.ai_suggestions_daily_limit
     if _contar_solicitudes_hoy(db, trip_id) >= limite:
         raise _error(
@@ -391,6 +399,10 @@ async def solicitar_sugerencias(
             "viaje. Podés intentar mañana o crear las actividades manualmente.",
             SUGGESTION_LIMIT_REACHED,
         )
+
+    # Se valida antes de llamar a la IA: si falta el dato maestro no se gasta una
+    # llamada ni queda una solicitud trabada "en_proceso".
+    estado_pendiente = _estado_pendiente(db)
 
     nombres_prohibidos = nombres_a_ocultar(p.Usuario for p in viaje.Participantes)
     grupo = combinar_preferencias(preferencias, nombres_prohibidos)
@@ -434,15 +446,16 @@ async def solicitar_sugerencias(
         for lugar in (_lugar_de(a) for a in actividades_viaje)
         if lugar is not None
     }
-    pendientes_previas = db.scalars(
+    # No repetir lugares ya sugeridos que siguen pendientes o están en votación.
+    previas_visibles = db.scalars(
         select(SugerenciaActividad.GooglePlaceId)
         .join(SugerenciaActividad.Estado)
         .where(
             SugerenciaActividad.IdViaje == trip_id,
-            EstadoSugerenciaActividad.Nombre == "pendiente",
+            EstadoSugerenciaActividad.Nombre.in_(ESTADOS_SUGERENCIA_VISIBLES),
         )
     ).all()
-    excluidos |= {normalizar_id(pid) for pid in pendientes_previas}
+    excluidos |= {normalizar_id(pid) for pid in previas_visibles}
 
     max_resultados = max(1, min(settings.ai_suggestions_max_results, 5))
     contexto_ia = {
@@ -462,7 +475,7 @@ async def solicitar_sugerencias(
         },
         "cantidad_maxima": max_resultados,
         "indicacion_para_esta_busqueda": indicacion or None,
-        "distancia_maxima_km": settings.ai_suggestions_max_distance_km,
+        "distancia_maxima_km": max_km,
         "moneda": "ARS",
     }
     reglas = ReglasValidacion(
@@ -472,7 +485,7 @@ async def solicitar_sugerencias(
         place_ids_excluidos=excluidos,
         presupuesto_maximo=grupo["presupuesto_promedio"],
         puntos_referencia=puntos_referencia,
-        max_km=settings.ai_suggestions_max_distance_km,
+        max_km=max_km,
         max_resultados=max_resultados,
         destino_nombre=destino_nombre,
         centro_busqueda=centro_busqueda,
@@ -500,7 +513,7 @@ async def solicitar_sugerencias(
     )
     db.add(solicitud)
     try:
-        db.commit()  
+        db.commit()
     except IntegrityError:
         db.rollback()
         raise _error(
@@ -509,6 +522,15 @@ async def solicitar_sugerencias(
             REQUEST_IN_PROGRESS,
         )
     id_solicitud = solicitud.IdSolicitudSugerenciaActividad
+
+    logger.debug(
+        "Solicitud de sugerencias %s: destino=%r centro=%s max_km=%s presupuesto=%s",
+        id_solicitud,
+        destino_nombre,
+        centro_busqueda,
+        max_km,
+        grupo["presupuesto_promedio"],
+    )
 
     try:
         crudo = await suggester.sugerir(contexto_ia)
@@ -533,13 +555,12 @@ async def solicitar_sugerencias(
             LimiteDiario=limite,
         )
 
-    estado = _estado_pendiente(db)
     filas = [
         SugerenciaActividad(
             IdSolicitudSugerenciaActividad=id_solicitud,
             IdViaje=trip_id,
             IdDiaCronograma=id_dia,
-            IdEstadoSugerenciaActividad=estado.IdEstadoSugerenciaActividad,
+            IdEstadoSugerenciaActividad=estado_pendiente.IdEstadoSugerenciaActividad,
             Nombre=s.nombre,
             Descripcion=s.descripcion,
             HoraInicio=_a_hora(s.inicio),
@@ -569,7 +590,7 @@ async def solicitar_sugerencias(
 
     return ResultadoSugerenciasRead(
         IdSolicitud=id_solicitud,
-        Sugerencias=[_serializar(fila) for fila in filas],
+        Sugerencias=[_serializar(fila, "pendiente") for fila in filas],
         Mensaje=None,
         SolicitudesRestantes=_restantes(db, trip_id),
         LimiteDiario=limite,

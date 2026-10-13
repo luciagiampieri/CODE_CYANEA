@@ -5,10 +5,7 @@ import { Directory, File, Paths, UploadType } from "expo-file-system";
 const AUTH_TOKEN_KEY = "auth_token";
 const BACKEND_PORT = 8000;
 
-// Durante el desarrollo, Expo informa desde qué dirección (IP:puerto) sirve
-// el código a la app. El backend corre en esa misma computadora, así que se
-// usa esa IP con el puerto del backend. Así la app encuentra el backend en
-// cualquier red, sin escribir la IP en el .env.
+
 export function resolveDevServerHost(constants = Constants) {
   const hostUri =
     constants?.expoConfig?.hostUri ??
@@ -19,8 +16,6 @@ export function resolveDevServerHost(constants = Constants) {
   if (!hostUri) return null;
 
   const host = String(hostUri).split("/")[0].split(":")[0];
-  // Con túnel (--tunnel) el host es público y no expone el puerto del
-  // backend, así que no sirve para armar la URL.
   if (!host || host.endsWith(".exp.direct") || host.endsWith(".ngrok.io")) return null;
   return host;
 }
@@ -30,8 +25,6 @@ export function resolveApiBaseUrl({
   platformOS = Platform.OS,
   constants = Constants,
 } = {}) {
-  // 1. Una URL explícita en el .env siempre tiene prioridad (backend
-  //    desplegado, emulador de Android, etc.).
   if (envUrl) {
     return envUrl;
   }
@@ -39,14 +32,12 @@ export function resolveApiBaseUrl({
     return `${window.location.protocol}//${window.location.hostname}:${BACKEND_PORT}/api/v1`;
   }
 
-  // 2. En el celular, la misma computadora que sirve el código con Expo.
   const devHost = resolveDevServerHost(constants);
   if (devHost) {
     return `http://${devHost}:${BACKEND_PORT}/api/v1`;
   }
 
-  // 3. Sin servidor de desarrollo detectado: emulador de Android o la propia
-  //    computadora.
+
   if (platformOS === "android") {
     return `http://10.0.2.2:${BACKEND_PORT}/api/v1`;
   }
@@ -1689,4 +1680,16 @@ export async function getActivitySuggestionPhotoSource(tripId, sugerenciaId) {
     return { uri: URL.createObjectURL(await response.blob()) };
   }
   return { uri: url, headers };
+}
+
+export async function createVotacionDesdeSugerencias(payload) {
+  const response = await fetch(`${API_BASE_URL}/votaciones/desde-sugerencias`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(await authHeaders()),
+    },
+    body: JSON.stringify(payload),
+  });
+  return parseResponse(response, "No se pudo crear la votación");
 }

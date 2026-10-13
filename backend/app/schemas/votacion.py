@@ -55,6 +55,18 @@ class VotacionCreate(BaseModel):
         return fecha
 
 
+class VotacionDesdeSugerenciasCreate(BaseModel):
+
+    idViaje: int
+    idsSugerencias: list[int] = Field(default_factory=list)
+    nombre: str | None = Field(
+        default=None,
+        max_length=150,
+        description="Título editable; si llega vacío se usa el título predefinido.",
+    )
+    fechaCierre: datetime
+
+
 class VotacionUpdate(BaseModel):
     nombre: str | None = Field(default=None, min_length=1, max_length=150)
     fechaCierre: datetime | None = None
@@ -108,6 +120,9 @@ class VotacionUpdate(BaseModel):
 class PropuestaRead(BaseModel):
     IdPropuesta: int
     Texto: str
+    IdSugerenciaActividad: int | None = Field(
+        default=None, description="Sugerencia de origen (solo votaciones desde sugerencias)"
+    )
 
     class Config:
         from_attributes = True
@@ -147,6 +162,7 @@ class ResultadoPropuesta(BaseModel):
     Votantes: list[VotanteResultado] = Field(
         default_factory=list, description="Quien voto esta opcion y cuando (para 'Ver votos')"
     )
+    IdSugerenciaActividad: int | None = None
 
 
 class VotacionResultados(BaseModel):

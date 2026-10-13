@@ -2,6 +2,7 @@
 
 Independientes del proveedor de IA: toda respuesta pasa por acá antes de llegar al
 usuario (RNF-32). Una sugerencia que no cumple una regla se descarta sola, sin mostrarse.
+Los motivos de descarte se registran en nivel DEBUG para poder diagnosticar.
 """
 
 from __future__ import annotations
@@ -34,13 +35,14 @@ logger = logging.getLogger(__name__)
 
 MONTO_MAXIMO = Decimal("9999999999.99")
 UMBRAL_SIMILITUD_NOMBRE = 0.5
+LARGO_MINIMO_SIGLA = 3
 _PALABRAS_VACIAS = {"de", "del", "la", "el", "los", "las", "y", "e", "en", "a", "the", "of"}
 
 
 @dataclass
 class ActividadDia:
     nombre: str
-    inicio: int  
+    inicio: int
     fin: int
     place_id: str | None = None
     lat: float | None = None
@@ -63,14 +65,14 @@ class ReglasValidacion:
 
 @dataclass
 class LugarEncontrado:
-    place_id: str 
+    place_id: str
     nombre: str
     direccion: str
     lat: float
     lng: float
     categoria: str | None = None
-    sitio_web: str | None = None  
-    foto_ref: str | None = None  
+    sitio_web: str | None = None
+    foto_ref: str | None = None
 
 
 @dataclass
@@ -94,6 +96,14 @@ class SugerenciaValida:
 Buscador = Callable[[str, "tuple[float, float] | None", float], Awaitable[list[LugarEncontrado]]]
 
 
+def _descartar(nombre: str, motivo: str) -> None:
+    logger.debug("Sugerencia descartada '%s': %s", nombre, motivo)
+
+
+def _hhmm(minutos: int) -> str:
+    return f"{minutos // 60:02d}:{minutos % 60:02d}"
+
+
 def validar_esquema(crudo: dict) -> RespuestaSugerenciasIA:
     try:
         return RespuestaSugerenciasIA.model_validate(crudo)
@@ -114,14 +124,31 @@ def distancia_km(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
     return 2 * radio * math.asin(math.sqrt(a))
 
 
-def _tokens(texto: str) -> set[str]:
+def _lista_tokens(texto: str) -> list[str]:
+    """Palabras significativas del texto, en orden, sin acentos ni palabras vacías."""
     sin_acentos = "".join(
         c for c in unicodedata.normalize("NFKD", texto.lower()) if not unicodedata.combining(c)
     )
-    return {t for t in re.findall(r"[a-z0-9]+", sin_acentos) if t not in _PALABRAS_VACIAS}
+    return [t for t in re.findall(r"[a-z0-9]+", sin_acentos) if t not in _PALABRAS_VACIAS]
+
+
+def _tokens(texto: str) -> set[str]:
+    return set(_lista_tokens(texto))
+
+
+def _es_sigla(posible_sigla: str, nombre_completo: str) -> bool:
+    """True si `posible_sigla` es la sigla de `nombre_completo`
+    (por ejemplo "MALBA" y "Museo de Arte Latinoamericano de Buenos Aires")."""
+    sigla = _lista_tokens(posible_sigla)
+    palabras = _lista_tokens(nombre_completo)
+    if len(sigla) != 1 or len(sigla[0]) < LARGO_MINIMO_SIGLA or len(palabras) < 2:
+        return False
+    return sigla[0] == "".join(palabra[0] for palabra in palabras)
 
 
 def similitud_nombres(a: str, b: str) -> float:
+    if _es_sigla(a, b) or _es_sigla(b, a):
+        return 1.0
     ta, tb = _tokens(a), _tokens(b)
     if not ta or not tb:
         return 0.0
@@ -133,25 +160,37 @@ def _validar_item(item: SugerenciaIA, reglas: ReglasValidacion) -> SugerenciaVal
     lugar = " ".join(item.lugar_nombre.split())
     motivo = item.motivo.strip()
     if not nombre or not lugar or not motivo:
+        _descartar(nombre or "(sin nombre)", "falta nombre, lugar o motivo")
         return None
 
     inicio, fin = parsear_hhmm(item.hora_inicio), parsear_hhmm(item.hora_fin)
     if inicio is None or fin is None or fin <= inicio:
+        _descartar(nombre, f"horario inválido ({item.hora_inicio} – {item.hora_fin})")
         return None
     if fin - inicio < MIN_DURACION_MINUTOS:
+        _descartar(nombre, f"dura menos de {MIN_DURACION_MINUTOS} min ({_hhmm(inicio)} – {_hhmm(fin)})")
         return None
     if inicio < reglas.franja_inicio or fin > reglas.franja_fin:
+        _descartar(
+            nombre,
+            f"fuera de la franja ({_hhmm(inicio)} – {_hhmm(fin)} vs "
+            f"{_hhmm(reglas.franja_inicio)} – {_hhmm(reglas.franja_fin)})",
+        )
         return None
     if any(superpone(inicio, fin, a.inicio, a.fin) for a in reglas.actividades):
+        _descartar(nombre, f"se superpone con otra actividad ({_hhmm(inicio)} – {_hhmm(fin)})")
         return None
 
     try:
         costo = item.costo_estimado_ars.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
     except (InvalidOperation, AttributeError):
+        _descartar(nombre, f"costo inválido ({item.costo_estimado_ars!r})")
         return None
     if costo < 0 or costo > MONTO_MAXIMO:
+        _descartar(nombre, f"costo fuera de rango ({costo})")
         return None
     if reglas.presupuesto_maximo is not None and costo > reglas.presupuesto_maximo:
+        _descartar(nombre, f"supera el presupuesto del grupo ({costo} > {reglas.presupuesto_maximo})")
         return None
 
     return SugerenciaValida(
@@ -166,16 +205,31 @@ def _validar_item(item: SugerenciaIA, reglas: ReglasValidacion) -> SugerenciaVal
 
 
 def _cumple_distancia(lat: float, lng: float, reglas: ReglasValidacion) -> bool:
-    return all(
+    """El lugar tiene que estar a menos de `max_km` de ALGUNA actividad del día (o del
+    destino si el día está vacío), como lo explica el sheet: "Desde tus actividades del
+    día o el destino"."""
+    if not reglas.puntos_referencia:
+        return True
+    return any(
         distancia_km(lat, lng, p_lat, p_lng) <= reglas.max_km
         for p_lat, p_lng in reglas.puntos_referencia
     )
+
+
+def _distancia_minima(lat: float, lng: float, reglas: ReglasValidacion) -> float | None:
+    if not reglas.puntos_referencia:
+        return None
+    return min(distancia_km(lat, lng, p_lat, p_lng) for p_lat, p_lng in reglas.puntos_referencia)
 
 
 def _elegir_lugar(
     candidata: SugerenciaValida, lugares: list[LugarEncontrado], reglas: ReglasValidacion
 ) -> SugerenciaValida | None:
     """Devuelve la sugerencia completada con el lugar de Google que mejor coincide."""
+    if not lugares:
+        _descartar(candidata.nombre, f"Google Places no encontró '{candidata.lugar_pedido}'")
+        return None
+
     mejores = sorted(
         (
             (similitud_nombres(candidata.lugar_pedido, lugar.nombre), lugar)
@@ -184,10 +238,23 @@ def _elegir_lugar(
         key=lambda par: par[0],
         reverse=True,
     )
+    motivos: list[str] = []
     for similitud, lugar in mejores:
         if similitud < UMBRAL_SIMILITUD_NOMBRE:
+            motivos.append(
+                f"'{lugar.nombre}' no coincide con '{candidata.lugar_pedido}' (similitud {similitud:.2f})"
+            )
             break
-        if not lugar.direccion or not _cumple_distancia(lugar.lat, lugar.lng, reglas):
+        if not lugar.direccion:
+            motivos.append(f"'{lugar.nombre}' no tiene dirección")
+            continue
+        if not _cumple_distancia(lugar.lat, lugar.lng, reglas):
+            minima = _distancia_minima(lugar.lat, lugar.lng, reglas)
+            motivos.append(
+                f"'{lugar.nombre}' queda lejos ({minima:.1f} km > {reglas.max_km} km)"
+                if minima is not None
+                else f"'{lugar.nombre}' no cumple la distancia"
+            )
             continue
         return replace(
             candidata,
@@ -199,6 +266,8 @@ def _elegir_lugar(
             sitio_web=lugar.sitio_web,
             foto_ref=lugar.foto_ref,
         )
+
+    _descartar(candidata.nombre, "; ".join(motivos) or "ningún lugar de Google sirvió")
     return None
 
 
@@ -257,6 +326,7 @@ async def filtrar_sugerencias(
     buscador: Buscador,
     segundos_disponibles: float,
 ) -> list[SugerenciaValida]:
+    logger.debug("La IA devolvió %s sugerencias", len(respuesta.sugerencias))
     candidatas = [
         valida
         for valida in (_validar_item(item, reglas) for item in respuesta.sugerencias)
@@ -278,7 +348,7 @@ async def filtrar_sugerencias(
                     ),
                     timeout=segundos_disponibles,
                 )
-            except Exception as error:  
+            except Exception as error:
                 logger.warning("No se pudo validar el lugar '%s': %s", candidata.lugar_pedido, error)
                 return None
         return _elegir_lugar(candidata, lugares, reglas)
@@ -293,11 +363,15 @@ async def filtrar_sugerencias(
             continue
         id_lugar = normalizar_id(sugerencia.place_id)
         if id_lugar in ids_usados:
+            _descartar(sugerencia.nombre, f"el lugar '{sugerencia.lugar_nombre}' ya está en el viaje o repetido")
             continue
         if any(superpone(sugerencia.inicio, sugerencia.fin, e.inicio, e.fin) for e in elegidas):
+            _descartar(sugerencia.nombre, "se superpone con otra sugerencia elegida")
             continue
         ids_usados.add(id_lugar)
         elegidas.append(sugerencia)
         if len(elegidas) >= reglas.max_resultados:
             break
+
+    logger.debug("Sugerencias válidas después de filtrar: %s", len(elegidas))
     return elegidas

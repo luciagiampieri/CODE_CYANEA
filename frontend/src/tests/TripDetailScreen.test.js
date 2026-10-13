@@ -1247,7 +1247,7 @@ describe("Tab Itinerario: agenda por día", () => {
     const { findByText, queryByText } = await abrirItinerario(crearTrip("2099-12-01"));
 
     expect(await findByText("Día 1 · 2 actividades")).toBeTruthy();
-    expect(queryByText(/09:00–17:30/)).toBeNull();
+    expect(queryByText(/09:00 – 17:30/)).toBeNull();
   });
 
   test("el día abierto muestra cada actividad con su nombre y su horario", async () => {
