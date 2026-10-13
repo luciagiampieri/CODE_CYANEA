@@ -145,6 +145,35 @@ class ParticipanteDivisionRead(BaseModel):
     MontoAsignado: Decimal
 
 
+class GastoPosibleDuplicadoRead(BaseModel):
+    """Gasto existente que podría ser el mismo pago que se está registrando (US 95).
+
+    Trae los mismos datos que muestra el detalle de un gasto (US 79), para que
+    la advertencia lo presente igual: nombre, monto, fecha, categoría, pagador,
+    quién lo registró y cuándo, tipo de división y participantes.
+    """
+
+    IdGasto: int
+    Nombre: str
+    Monto: Decimal
+    MontoOriginal: Decimal
+    MonedaOriginal: str
+    MonedaViaje: str
+    FechaGasto: date
+    IdCategoria: int
+    NombreCategoria: str
+    IdPagador: int
+    IdUsuarioPagador: int
+    NombrePagador: str
+    NombreCreador: Optional[str] = None
+    # Cuándo se cargó: ayuda a decidir si es el mismo pago (por ejemplo, un
+    # doble toque o dos personas cargando lo mismo al mismo tiempo).
+    FechaCreacion: datetime
+    EsCompartido: bool
+    TipoDivision: Optional[TipoDivisionEnum] = None
+    Participantes: list[ParticipanteDivisionRead]
+
+
 class GastoDetalleRead(BaseModel):
     """Detalle de un gasto para consultarlo o precargar su edición (US 79).
 

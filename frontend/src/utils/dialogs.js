@@ -26,6 +26,9 @@ export function confirmar({
   textoConfirmar = "Confirmar",
   textoCancelar = "Cancelar",
   destructivo = false,
+  // Fuerza el ícono y color del diálogo ("warning", "info", ...); si no se
+  // indica, AppDialog lo deduce del título.
+  tipo,
 }) {
   if (Platform.OS === "web") {
     return Promise.resolve(window.confirm(`${titulo}\n\n${mensaje}`));
@@ -42,7 +45,7 @@ export function confirmar({
           onPress: () => resolve(true),
         },
       ],
-      { cancelable: true, onDismiss: () => resolve(false) }
+      { cancelable: true, onDismiss: () => resolve(false), ...(tipo ? { tipo } : {}) }
     );
   });
 }
