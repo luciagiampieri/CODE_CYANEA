@@ -1,15 +1,14 @@
 import { FontAwesome6 } from "@expo/vector-icons";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 
-import MapCanvas from "../map/MapCanvas";
 import DayTimeGrid from "./DayTimeGrid";
+import DayRouteSection from "./DayRouteSection";
+import DaySuggestionsSection from "./DaySuggestionsSection";
 import useResponsive from "../../hooks/useResponsive";
 import { colors, radii, spacing, surfaces, textStyles } from "../../theme/tokens";
 import { calcularActividadesSolapadas } from "../../utils/itinerarioOverlaps";
 import { isTodayISO } from "../../utils/agenda";
-import { buildRouteMarkers } from "../../utils/routeMarkers";
-import { getRouteHint } from "../../utils/routeMessages";
 
 const ANCHO_MINIMO_COLUMNA = 240;
 const MAXIMO_COLUMNAS = 4;
@@ -32,33 +31,30 @@ function partesDeFecha(fechaRaw) {
   return { semana: DIAS_SEMANA[fecha.getDay()], numero: String(fecha.getDate()) };
 }
 
-const MODOS_RUTA = [
-  { valor: "walking", label: "Caminando", icono: "person-walking" },
-  { valor: "driving", label: "Auto", icono: "car" },
-  { valor: "bicycling", label: "Bici", icono: "person-biking" },
-];
+function modoPorDefecto(dayId, ruta) {
+  return ruta?.modo ?? "walking";
+}
 
 export default function ItinerarioCalendarView({
   dias,
+  tripId,
+  canPropose = false,
   onEditActivity,
   onDeleteActivity,
   onAddActivity,
   onGenerarRuta,
   generandoRutaDayId = null,
+  resolverModo = modoPorDefecto,
+  onCambiarModo,
+  onVerMapa,
   onSuggestGap,
   sugerenciasPorDia = {},
 }) {
   const { width } = useResponsive();
-  const [diaConMapaVisible, setDiaConMapaVisible] = useState(null);
-  const [modoTransporteDayId, setModoTransporteDayId] = useState({});
   const [diaSeleccionadoId, setDiaSeleccionadoId] = useState(null);
   const esMobile = width < ANCHO_MOBILE;
   const tiraRef = useRef(null);
   const [anchoTira, setAnchoTira] = useState(0);
-
-  function resolverModoDelDia(dayId, ruta) {
-    return modoTransporteDayId[dayId] ?? ruta?.modo ?? "walking";
-  }
 
   const columnas = useMemo(() => {
     const anchoDisponible = Math.max(width - spacing.lg * 2, ANCHO_MINIMO_COLUMNA);
@@ -79,8 +75,6 @@ export default function ItinerarioCalendarView({
 
   const indiceActual = diaActual && dias ? dias.findIndex((d) => d.dayId === diaActual.dayId) : -1;
 
-  // Mantiene el día elegido centrado en la tira, aunque el viaje tenga muchos días.
-  // Va antes del return temprano: los hooks tienen que ejecutarse siempre en el mismo orden.
   useEffect(() => {
     if (!esMobile || indiceActual < 0 || !anchoTira) return;
     const x = indiceActual * (ANCHO_DIA + SEPARACION_DIA) - (anchoTira - ANCHO_DIA) / 2;
@@ -178,266 +172,153 @@ export default function ItinerarioCalendarView({
           })}
         </ScrollView>
       ) : null}
-    <View style={esMobile ? undefined : styles.grid}>
-      {diasVisibles.map((dia) => {
-        const solapadas = calcularActividadesSolapadas(dia.actividades);
-        const actividadesOrdenadas = [...dia.actividades].sort((a, b) =>
-          (a.horaInicio ?? "").localeCompare(b.horaInicio ?? "")
-        );
-        const sugerirHueco =
-          onSuggestGap && Number.isInteger(dia.dayId)
-            ? (desde, hasta) => onSuggestGap(dia, desde, hasta)
-            : undefined;
+      <View style={esMobile ? undefined : styles.grid}>
+        {diasVisibles.map((dia) => {
+          const solapadas = calcularActividadesSolapadas(dia.actividades);
+          const actividadesOrdenadas = [...dia.actividades].sort((a, b) =>
+            (a.horaInicio ?? "").localeCompare(b.horaInicio ?? "")
+          );
+          const sugerirHueco =
+            onSuggestGap && Number.isInteger(dia.dayId)
+              ? (desde, hasta) => onSuggestGap(dia, desde, hasta)
+              : undefined;
 
-        return (
-          <View key={dia.dayId} style={[styles.celdaWrap, { width: anchoCelda }]}>
-            <View style={styles.celda}>
-              <View style={styles.celdaHeader}>
-                <View style={styles.celdaIndice}>
-                  <Text style={styles.celdaIndiceTexto}>{dia.dayIndex}</Text>
-                </View>
-                <View style={styles.celdaTituloWrap}>
-                  <Text numberOfLines={1} style={styles.celdaTitulo}>
-                    {dia.dayDateTextCorta || dia.dayDateText}
-                  </Text>
-                  <Text style={styles.celdaSubtitulo}>
-                    Día {dia.dayIndex}
-                    {isTodayISO(dia.fechaRaw) ? " · Hoy" : ""}
-                  </Text>
-                </View>
-              </View>
-
-              <View style={styles.celdaAgenda}>
-                {esMobile ? (
-                  <DayTimeGrid
-                    actividades={dia.actividades}
-                    canEdit={Boolean(onEditActivity)}
-                    fecha={dia.fechaRaw}
-                    onAdd={onAddActivity ? () => onAddActivity(dia) : undefined}
-                    onDelete={onDeleteActivity ? (item) => onDeleteActivity(dia, item) : undefined}
-                    onEdit={onEditActivity ? (item) => onEditActivity(dia, item) : undefined}
-                    onSuggestGap={sugerirHueco}
-                  />
-                ) : actividadesOrdenadas.length > 0 ? (
-                  actividadesOrdenadas.map((actividad) => {
-                    const seSolapa = solapadas.has(actividad.id);
-                    return (
-                      <Pressable
-                        key={actividad.id}
-                        disabled={!onEditActivity}
-                        onPress={() => onEditActivity?.(dia, actividad)}
-                        style={[styles.actividad, seSolapa && styles.actividadSolapada]}
-                      >
-                        <View style={styles.actividadHeaderRow}>
-                          <FontAwesome6
-                            color={seSolapa ? colors.warning : colors.primary}
-                            name={actividad.icon ?? "location-dot"}
-                            size={12}
-                          />
-                          <Text style={styles.actividadHora}>{actividad.time}</Text>
-                          {seSolapa ? (
-                            <FontAwesome6
-                              color={colors.warning}
-                              name="triangle-exclamation"
-                              size={11}
-                            />
-                          ) : null}
-                        </View>
-                        <Text numberOfLines={2} style={styles.actividadTitulo}>
-                          {actividad.title}
-                        </Text>
-                        {seSolapa ? (
-                          <Text style={styles.actividadSolapadaTexto}>
-                            Se superpone con otra actividad
-                          </Text>
-                        ) : null}
-                        {actividad.advertenciaHorario ? (
-                          <Text
-                            numberOfLines={2}
-                            style={styles.actividadSolapadaTexto}
-                            testID={`calendar-schedule-warning-${actividad.id}`}
-                          >
-                            {actividad.advertenciaHorario}
-                          </Text>
-                        ) : null}
-
-                        {onEditActivity || onDeleteActivity ? (
-                          <View style={styles.actividadAcciones}>
-                            {onEditActivity ? (
-                              <Pressable
-                                accessibilityLabel={`Editar ${actividad.title}`}
-                                hitSlop={8}
-                                onPress={() => onEditActivity(dia, actividad)}
-                                style={styles.actividadAccionBoton}
-                              >
-                                <FontAwesome6 color={colors.primary} name="pen" size={11} />
-                              </Pressable>
-                            ) : null}
-                            {onDeleteActivity ? (
-                              <Pressable
-                                accessibilityLabel={`Eliminar ${actividad.title}`}
-                                hitSlop={8}
-                                onPress={() => onDeleteActivity(dia, actividad)}
-                                style={styles.actividadAccionBoton}
-                              >
-                                <FontAwesome6 color={colors.textMuted} name="trash" size={11} />
-                              </Pressable>
-                            ) : null}
-                          </View>
-                        ) : null}
-                      </Pressable>
-                    );
-                  })
-                ) : (
-                  <Text style={styles.sinActividades}>Sin actividades agendadas.</Text>
-                )}
-
-                {onAddActivity && !esMobile ? (
-                  <Pressable onPress={() => onAddActivity(dia)} style={styles.agregarBoton}>
-                    <FontAwesome6 color={colors.primary} name="plus" size={11} />
-                    <Text style={styles.agregarTexto}>Agregar</Text>
-                  </Pressable>
-                ) : null}
-
-                {(sugerenciasPorDia?.[dia.dayId] ?? []).map((sugerencia) => (
-                  <View key={sugerencia.IdSugerenciaActividad} style={styles.actividad}>
-                    <View style={styles.actividadHeaderRow}>
-                      <FontAwesome6 color={colors.primary} name="wand-magic-sparkles" size={11} />
-                      <Text style={styles.actividadHora}>
-                        {sugerencia.HoraInicio} - {sugerencia.HoraFin} · Sugerencia pendiente
-                      </Text>
-                    </View>
-                    <Text numberOfLines={2} style={styles.actividadTitulo}>
-                      {sugerencia.Nombre}
+          return (
+            <View key={dia.dayId} style={[styles.celdaWrap, { width: anchoCelda }]}>
+              <View style={styles.celda}>
+                <View style={styles.celdaHeader}>
+                  <View style={styles.celdaIndice}>
+                    <Text style={styles.celdaIndiceTexto}>{dia.dayIndex}</Text>
+                  </View>
+                  <View style={styles.celdaTituloWrap}>
+                    <Text numberOfLines={1} style={styles.celdaTitulo}>
+                      {dia.dayDateTextCorta || dia.dayDateText}
+                    </Text>
+                    <Text style={styles.celdaSubtitulo}>
+                      Día {dia.dayIndex}
+                      {isTodayISO(dia.fechaRaw) ? " · Hoy" : ""}
                     </Text>
                   </View>
-                ))}
+                </View>
 
-                {(() => {
-                  const actividadesConUbicacion = (dia.actividades ?? []).filter(
-                    (item) => item.idLugarInteres || item.lugarInteres
-                  );
-                  const puedeGenerarRuta = actividadesConUbicacion.length >= 2;
-                  const generando = generandoRutaDayId === dia.dayId;
-                  const routeMarkers = buildRouteMarkers(dia.actividades, dia.ruta);
-                  const mapaVisible = diaConMapaVisible === dia.dayId;
-                  const modoSeleccionado = resolverModoDelDia(dia.dayId, dia.ruta);
-
-                  return (
-                    <View style={styles.routeSection}>
-                      {dia.ruta ? (
-                        <View style={styles.routeSummaryRow}>
-                          <View style={styles.routeSummary}>
-                            <FontAwesome6 color={colors.primary} name="route" size={11} />
-                            <Text style={styles.routeSummaryText}>
-                              {(dia.ruta.distanciaMetros / 1000).toFixed(1)} km ·{" "}
-                              {Math.round(dia.ruta.duracionSegundos / 60)} min
-                            </Text>
-                          </View>
-                          {dia.ruta.polilineaCodificada ? (
-                            <Pressable
-                              onPress={() =>
-                                setDiaConMapaVisible((current) =>
-                                  current === dia.dayId ? null : dia.dayId
-                                )
-                              }
-                              style={styles.routeMapToggle}
-                            >
+                <View style={styles.celdaAgenda}>
+                  {esMobile ? (
+                    <DayTimeGrid
+                      actividades={dia.actividades}
+                      canEdit={Boolean(onEditActivity)}
+                      fecha={dia.fechaRaw}
+                      onAdd={onAddActivity ? () => onAddActivity(dia) : undefined}
+                      onDelete={onDeleteActivity ? (item) => onDeleteActivity(dia, item) : undefined}
+                      onEdit={onEditActivity ? (item) => onEditActivity(dia, item) : undefined}
+                      onSuggestGap={sugerirHueco}
+                    />
+                  ) : actividadesOrdenadas.length > 0 ? (
+                    actividadesOrdenadas.map((actividad) => {
+                      const seSolapa = solapadas.has(actividad.id);
+                      return (
+                        <Pressable
+                          key={actividad.id}
+                          disabled={!onEditActivity}
+                          onPress={() => onEditActivity?.(dia, actividad)}
+                          style={[styles.actividad, seSolapa && styles.actividadSolapada]}
+                        >
+                          <View style={styles.actividadHeaderRow}>
+                            <FontAwesome6
+                              color={seSolapa ? colors.warning : colors.primary}
+                              name={actividad.icon ?? "location-dot"}
+                              size={12}
+                            />
+                            <Text style={styles.actividadHora}>{actividad.time}</Text>
+                            {seSolapa ? (
                               <FontAwesome6
-                                color={colors.primary}
-                                name={mapaVisible ? "chevron-up" : "map-location-dot"}
-                                size={10}
+                                color={colors.warning}
+                                name="triangle-exclamation"
+                                size={11}
                               />
-                              <Text style={styles.routeMapToggleText}>
-                                {mapaVisible ? "Ocultar" : "Ver mapa"}
-                              </Text>
-                            </Pressable>
-                          ) : null}
-                        </View>
-                      ) : null}
-
-                      {dia.ruta && mapaVisible ? (
-                        <View style={styles.routeMapWrap}>
-                          <MapCanvas
-                            initialCenter={
-                              routeMarkers[0]
-                                ? { lat: routeMarkers[0].lat, lng: routeMarkers[0].lng }
-                                : undefined
-                            }
-                            markers={routeMarkers}
-                            routePolyline={dia.ruta.polilineaCodificada}
-                          />
-                        </View>
-                      ) : null}
-
-                      {(() => {
-                        const routeHint = getRouteHint({
-                          hasRoute: Boolean(dia.ruta),
-                          activitiesWithLocation: actividadesConUbicacion.length,
-                          canEdit: typeof onGenerarRuta === "function",
-                        });
-                        return routeHint ? (
-                          <Text style={styles.routeHint}>{routeHint}</Text>
-                        ) : null;
-                      })()}
-
-                      {puedeGenerarRuta && onGenerarRuta ? (
-                        <>
-                          <View style={styles.modoTransporteWrap}>
-                            {MODOS_RUTA.map((modo) => {
-                              const active = modo.valor === modoSeleccionado;
-                              return (
-                                <Pressable
-                                  key={modo.valor}
-                                  disabled={generando}
-                                  onPress={() =>
-                                    setModoTransporteDayId((current) => ({
-                                      ...current,
-                                      [dia.dayId]: modo.valor,
-                                    }))
-                                  }
-                                  style={[styles.modoChip, active && styles.modoChipActive]}
-                                >
-                                  <FontAwesome6
-                                    color={active ? colors.textInverse : colors.primary}
-                                    name={modo.icono}
-                                    size={10}
-                                  />
-                                  <Text
-                                    style={[styles.modoChipText, active && styles.modoChipTextActive]}
-                                  >
-                                    {modo.label}
-                                  </Text>
-                                </Pressable>
-                              );
-                            })}
+                            ) : null}
                           </View>
-
-                          <Pressable
-                            disabled={generando}
-                            onPress={() => onGenerarRuta?.(dia.dayId, modoSeleccionado)}
-                            style={[styles.agregarBoton, generando && styles.agregarBotonDisabled]}
-                          >
-                            {generando ? (
-                              <ActivityIndicator color={colors.primary} size="small" />
-                            ) : (
-                              <FontAwesome6 color={colors.primary} name="route" size={11} />
-                            )}
-                            <Text style={styles.agregarTexto}>
-                              {generando ? "Generando..." : dia.ruta ? "Regenerar ruta" : "Generar ruta"}
+                          <Text numberOfLines={2} style={styles.actividadTitulo}>
+                            {actividad.title}
+                          </Text>
+                          {seSolapa ? (
+                            <Text style={styles.actividadSolapadaTexto}>
+                              Se superpone con otra actividad
                             </Text>
-                          </Pressable>
-                        </>
-                      ) : null}
-                    </View>
-                  );
-                })()}
+                          ) : null}
+                          {actividad.advertenciaHorario ? (
+                            <Text
+                              numberOfLines={2}
+                              style={styles.actividadSolapadaTexto}
+                              testID={`calendar-schedule-warning-${actividad.id}`}
+                            >
+                              {actividad.advertenciaHorario}
+                            </Text>
+                          ) : null}
+
+                          {onEditActivity || onDeleteActivity ? (
+                            <View style={styles.actividadAcciones}>
+                              {onEditActivity ? (
+                                <Pressable
+                                  accessibilityLabel={`Editar ${actividad.title}`}
+                                  hitSlop={8}
+                                  onPress={() => onEditActivity(dia, actividad)}
+                                  style={styles.actividadAccionBoton}
+                                >
+                                  <FontAwesome6 color={colors.primary} name="pen" size={11} />
+                                </Pressable>
+                              ) : null}
+                              {onDeleteActivity ? (
+                                <Pressable
+                                  accessibilityLabel={`Eliminar ${actividad.title}`}
+                                  hitSlop={8}
+                                  onPress={() => onDeleteActivity(dia, actividad)}
+                                  style={styles.actividadAccionBoton}
+                                >
+                                  <FontAwesome6 color={colors.textMuted} name="trash" size={11} />
+                                </Pressable>
+                              ) : null}
+                            </View>
+                          ) : null}
+                        </Pressable>
+                      );
+                    })
+                  ) : (
+                    <Text style={styles.sinActividades}>Sin actividades agendadas.</Text>
+                  )}
+
+                  {onAddActivity && !esMobile ? (
+                    <Pressable onPress={() => onAddActivity(dia)} style={styles.agregarBoton}>
+                      <FontAwesome6 color={colors.primary} name="plus" size={11} />
+                      <Text style={styles.agregarTexto}>Agregar</Text>
+                    </Pressable>
+                  ) : null}
+
+                  <DaySuggestionsSection
+                    tripId={tripId}
+                    dia={dia}
+                    sugerencias={sugerenciasPorDia?.[dia.dayId] ?? []}
+                    canPropose={canPropose}
+                  />
+
+                  <DayRouteSection
+                    dayId={dia.dayId}
+                    actividades={dia.actividades ?? []}
+                    ruta={dia.ruta}
+                    canEdit={typeof onGenerarRuta === "function"}
+                    modoSeleccionado={resolverModo(dia.dayId, dia.ruta)}
+                    generando={generandoRutaDayId === dia.dayId}
+                    onCambiarModo={(modo) => onCambiarModo?.(dia.dayId, modo)}
+                    onGenerar={
+                      onGenerarRuta ? (modo) => onGenerarRuta(dia.dayId, modo) : undefined
+                    }
+                    onVerMapa={onVerMapa}
+                  />
+                </View>
               </View>
             </View>
-          </View>
-        );
-      })}
-    </View>
+          );
+        })}
+      </View>
     </View>
   );
 }
@@ -560,7 +441,7 @@ const styles = StyleSheet.create({
     fontSize: 11,
   },
   celdaAgenda: {
-    gap: spacing.xs,
+    gap: spacing.sm,
   },
   actividad: {
     backgroundColor: colors.surfaceMuted,
@@ -620,83 +501,6 @@ const styles = StyleSheet.create({
     ...textStyles.bodyStrong,
     color: colors.primary,
     fontSize: 12,
-  },
-  agregarBotonDisabled: {
-    opacity: 0.6,
-  },
-  routeSection: {
-    marginTop: spacing.xs,
-    gap: spacing.xxs,
-  },
-  routeSummaryRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: spacing.xs,
-    flexWrap: "wrap",
-  },
-  routeSummary: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-    backgroundColor: colors.surfaceAlt,
-    borderRadius: radii.pill ?? 999,
-    paddingVertical: 4,
-    paddingHorizontal: spacing.xs,
-  },
-  routeSummaryText: {
-    ...textStyles.meta,
-    color: colors.primary,
-    fontSize: 11,
-    fontWeight: "600",
-  },
-  routeMapToggle: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-  },
-  routeMapToggleText: {
-    ...textStyles.meta,
-    color: colors.primary,
-    fontSize: 11,
-    fontWeight: "600",
-  },
-  routeMapWrap: {
-    marginTop: spacing.xxs,
-  },
-  routeHint: {
-    ...textStyles.meta,
-    color: colors.textMuted,
-    fontSize: 11,
-  },
-  modoTransporteWrap: {
-    flexDirection: "row",
-    gap: 4,
-    marginTop: spacing.xxs,
-  },
-  modoChip: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 3,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: radii.pill ?? 999,
-    backgroundColor: colors.surface,
-    paddingHorizontal: 6,
-    paddingVertical: 3,
-  },
-  modoChipActive: {
-    backgroundColor: colors.primary,
-    borderColor: colors.primary,
-  },
-  modoChipText: {
-    ...textStyles.meta,
-    color: colors.primary,
-    fontSize: 10,
-    fontWeight: "600",
-  },
-  modoChipTextActive: {
-    color: colors.textInverse,
   },
   sectionCard: {
     ...surfaces.card,

@@ -70,7 +70,7 @@ describe("HU 23 - ItinerarioCalendarView", () => {
         "Todavía no hay recorrido para este día. Elegí cómo se van a mover y generalo para verlo en el mapa."
       )
     ).toBeTruthy();
-    expect(getByText("Generar ruta")).toBeTruthy();
+    expect(getByText("Generar")).toBeTruthy();
     expect(queryByText("Ver mapa")).toBeNull();
   });
 
@@ -96,7 +96,9 @@ describe("HU 23 - ItinerarioCalendarView", () => {
     expect(queryByText("Ver mapa")).toBeNull();
   });
 
-  it("permite visualizar el mapa cuando la ruta ya existe", async () => {
+    it("permite visualizar el mapa cuando la ruta ya existe", async () => {
+    const onVerMapa = jest.fn();
+
     const { getByText, queryByText } = await render(
       <ItinerarioCalendarView
         dias={[
@@ -112,14 +114,18 @@ describe("HU 23 - ItinerarioCalendarView", () => {
             },
           },
         ]}
+        onVerMapa={onVerMapa}
       />
     );
 
     fireEvent.press(getByText("Ver mapa"));
 
-    await waitFor(() => {
-      expect(getByText("Mapa renderizado")).toBeTruthy();
-    });
+    expect(onVerMapa).toHaveBeenCalledWith(
+      expect.objectContaining({
+        dayId: 2,
+        ruta: expect.objectContaining({ polilineaCodificada: "abc123" }),
+      })
+    );
     expect(
       queryByText(
         "Todavía no hay recorrido para este día. Elegí cómo se van a mover y generalo para verlo en el mapa."
@@ -127,6 +133,7 @@ describe("HU 23 - ItinerarioCalendarView", () => {
     ).toBeNull();
   });
 
+  
   it("en solo lectura no muestra agregar, editar, eliminar ni generar ruta", async () => {
     const { queryByText, queryByLabelText, getByText } = await render(
       <ItinerarioCalendarView

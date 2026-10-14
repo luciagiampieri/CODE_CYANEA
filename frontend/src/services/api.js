@@ -1717,3 +1717,15 @@ export async function createVotacionDesdeSugerencias(payload) {
   });
   return parseResponse(response, "No se pudo crear la votación");
 }
+
+export async function elegirGanadoraEmpate(idVotacion, idPropuesta) {
+  const response = await fetch(`${API_BASE_URL}/votaciones/${idVotacion}/desempate`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(await authHeaders()),
+    },
+    body: JSON.stringify({ idPropuesta }),
+  });
+  return parseResponse(response, "No se pudo elegir la propuesta ganadora");
+}

@@ -142,6 +142,22 @@ class VotacionRead(BaseModel):
     )
     IdCreador: int = Field(..., description="Id del usuario que creo la votacion")
 
+
+    EsDeSugerencias: bool = False
+    EstadoResolucion: str | None = Field(
+        default=None,
+        description=(
+            "null (sin procesar), 'incorporada', 'empate', 'sin_votos', "
+            "'dia_inexistente' o 'empate_vencido'"
+        ),
+    )
+    FechaLimiteDesempate: datetime | None = Field(
+        default=None, description="Hasta cuándo puede elegir el creador en caso de empate"
+    )
+    IdPropuestasEmpatadas: list[int] = Field(
+        default_factory=list, description="Propuestas entre las que elegir (solo en empate)"
+    )
+
     class Config:
         from_attributes = True
         populate_by_name = True

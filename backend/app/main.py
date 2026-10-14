@@ -1,8 +1,7 @@
 import os
 import time
 
-# El servidor corre en UTC: forzamos hora argentina para que date.today()
-# y datetime.now() den la fecha local en todo el backend.
+
 os.environ["TZ"] = "America/Argentina/Buenos_Aires"
 if hasattr(time, "tzset"):
     time.tzset()
@@ -19,14 +18,20 @@ from app.services.notifications.activity_reminders import (
     start_activity_reminders_scheduler,
     stop_activity_reminders_scheduler,
 )
+from app.services.resolucion_votaciones import (
+    start_resolucion_votaciones_scheduler,
+    stop_resolucion_votaciones_scheduler,
+)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     activity_reminders_task = start_activity_reminders_scheduler()
+    resolucion_votaciones_task = start_resolucion_votaciones_scheduler()
     try:
         yield
     finally:
+        await stop_resolucion_votaciones_scheduler(resolucion_votaciones_task)
         await stop_activity_reminders_scheduler(activity_reminders_task)
 
 
@@ -47,7 +52,6 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
-    # Permite que el front web lea el código de error (p. ej. TRIP_FINISHED).
     expose_headers=["X-Error-Code"],
 )
 
