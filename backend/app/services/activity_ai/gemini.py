@@ -49,7 +49,7 @@ class GeminiActivitySuggester:
     def _armar_pedido(self, model: str, contexto: dict) -> dict:
         generation_config: dict = {
             "responseMimeType": "application/json",
-            "responseJsonSchema": construir_esquema_json(contexto.get("cantidad_maxima", 5)),
+            "responseJsonSchema": construir_esquema_json(contexto.get("cantidad_candidatas", 10)),
             "temperature": 0.6,
         }
         razonamiento = _config_razonamiento(model)
