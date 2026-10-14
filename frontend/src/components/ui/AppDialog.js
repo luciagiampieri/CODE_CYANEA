@@ -42,6 +42,8 @@ const TIPOS = {
 // dibuja en el último de la pila: así queda anidado dentro del modal que está
 // arriba de todo y no detrás de él (un Modal hermano abierto desde App.js
 // queda tapado por el modal visible en Android nueva arquitectura y en iOS).
+const LARGO_MAXIMO_EN_FILA = 14;
+
 let hayRoot = false;
 const pila = [];
 
@@ -66,6 +68,9 @@ export function appAlert(...args) {
     // Sin el host de App.js (tests): se reenvían los argumentos tal cual a Alert.alert.
     return Alert.alert(...args);
   }
+  // `opciones.confirmacion`: texto de una acción que ya se completó ("Actividad
+  // registrada correctamente."), que se muestra en una franja verde propia arriba del
+  // diálogo para que no se mezcle con el contenido principal.
   host.encolar({ titulo, mensaje, botones, opciones: opciones || {} });
 }
 
@@ -140,12 +145,21 @@ export function DialogHost({ root = false }) {
     ...botones.filter((b) => b.style === "cancel"),
     ...botones.filter((b) => b.style !== "cancel"),
   ];
-  const enColumna = ordenados.length > 2;
+  // Con más de dos botones, o si algún texto no entra en media fila (por ejemplo
+  // "Reservar en OpenTable"), van uno debajo del otro para no cortar el texto.
+  const enColumna = ordenados.length > 2 || ordenados.some((b) => String(b.text || "").length > LARGO_MAXIMO_EN_FILA);
 
   return (
     <Modal visible transparent animationType="fade" statusBarTranslucent onRequestClose={alTocarFuera}>
       <Pressable style={styles.overlay} onPress={alTocarFuera}>
         <Pressable style={styles.card} onPress={(e) => e.stopPropagation()} accessibilityRole="alert">
+          {opciones.confirmacion ? (
+            <View style={styles.confirmacion} accessibilityRole="text">
+              <FontAwesome6 name="circle-check" size={14} color={colors.success} solid />
+              <Text style={styles.confirmacionTexto}>{opciones.confirmacion}</Text>
+            </View>
+          ) : null}
+
           <View style={[styles.iconWrap, { backgroundColor: estilo.fondo }]}>
             <FontAwesome6 name={estilo.icon} size={26} color={estilo.color} />
           </View>
@@ -216,6 +230,25 @@ const styles = StyleSheet.create({
     paddingBottom: spacing.md,
     alignItems: "center",
     ...shadows.floating,
+  },
+  confirmacion: {
+    alignSelf: "stretch",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: spacing.xs,
+    backgroundColor: colors.successSurface,
+    borderRadius: radii.sm,
+    paddingVertical: spacing.xs,
+    paddingHorizontal: spacing.sm,
+    marginBottom: spacing.md,
+  },
+  confirmacionTexto: {
+    ...textStyles.bodyStrong,
+    fontSize: 14,
+    color: colors.success,
+    flexShrink: 1,
+    textAlign: "center",
   },
   iconWrap: {
     width: 56,

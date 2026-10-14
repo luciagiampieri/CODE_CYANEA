@@ -12,6 +12,11 @@ from app.models.lugar_interes import LugarInteres
 from app.services import place_search
 from app.services.place_search import obtener_detalles_lugar, buscar_lugar_por_nombre
 from app.core.config import settings
+from app.services.entradas_ai.tipos import (
+    LUGAR_IDENTIFICADO,
+    LUGAR_INEXISTENTE,
+    LUGAR_NO_DETERMINADO,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -505,13 +510,25 @@ async def analizar_horario_actividad(
     id_lugar_interes: int | None = None,
     ignorar_advertencia: bool = False,
     destinos: Optional[list[dict]] = None,
+    contexto_lugar: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """Analiza si el horario de la actividad es compatible con el del lugar.
 
     Devuelve siempre un dict. `advertencia=True` solo ante una incompatibilidad
     comprobada; cualquier error o falta de datos permite registrar normalmente.
     `aviso` (opcional) informa que no se pudo verificar la disponibilidad horaria.
+
+    Si se pasa `contexto_lugar` (un dict), se completa con el establecimiento
+    identificado para que otros análisis lo reutilicen sin repetir las llamadas
+    a Gemini y Google Places (recomendación de entradas y reservas):
+    - `estado`: `identificado`, `sin_lugar` (Gemini indicó que la actividad no es
+      un lugar concreto) o `no_determinado` (error, sin resultados o sin análisis).
+    - `place_id` y `detalles` (lo que devolvió `obtener_detalles_lugar`) cuando
+      el lugar quedó identificado.
     """
+    if contexto_lugar is not None:
+        contexto_lugar["estado"] = LUGAR_NO_DETERMINADO
+
     if ignorar_advertencia:
         return {"advertencia": False}
 
@@ -548,6 +565,9 @@ async def analizar_horario_actividad(
                     nombre_busqueda = await extraer_nombre_lugar_con_gemini(
                         nombre_actividad, _contexto_destino_texto(destinos), lanzar_si_falla=True
                     )
+                    if not nombre_busqueda and contexto_lugar is not None and id_lugar_interes is None:
+                        # Respuesta válida de Gemini: la actividad no es un lugar concreto.
+                        contexto_lugar["estado"] = LUGAR_INEXISTENTE
                 except Exception as error:
                     # Gemini no disponible (p. ej. 503): se busca en Google Places con
                     # el nombre de la actividad tal cual.
@@ -588,6 +608,9 @@ async def analizar_horario_actividad(
                 nombre_actividad,
             )
             return no_verificado
+
+        if contexto_lugar is not None:
+            contexto_lugar.update(estado=LUGAR_IDENTIFICADO, place_id=place_id, detalles=details)
 
         # (4) Lugar cerrado temporal (reformas, mantenimiento, etc.) o definitivamente:
         # se avisa antes de mirar horarios, que Google suele seguir publicando.

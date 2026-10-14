@@ -367,8 +367,10 @@ export async function saveActivityLocation(tripId, payload) {
   );
 }
 
-export async function scheduleTripPlace(tripId, tripPlaceId, payload) {
-  const response = await fetch(`${API_BASE_URL}/trips/${tripId}/places/${tripPlaceId}/schedule`, {
+// Igual que createActivity: el backend valida horarios y analiza entradas/reservas.
+// `options.ignorarAdvertencia` confirma el alta aunque haya advertencia de horario.
+export async function scheduleTripPlace(tripId, tripPlaceId, payload, options = {}) {
+  const response = await fetch(`${API_BASE_URL}/trips/${tripId}/places/${tripPlaceId}/schedule${activityWarningQuery(options)}`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",

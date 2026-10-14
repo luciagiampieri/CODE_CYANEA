@@ -36,6 +36,7 @@ from app.schemas.trip import (
     ActividadUbicacionCreate,
     ActividadUpdate,
     AdvertenciaHorario,
+    RecomendacionEntradas,
     TripAdminRead,
     TripCreate,
     TripDetailRead,
@@ -88,6 +89,7 @@ from app.services.cover_ai import (
     generate_cover_image,
 )
 from app.services.activity_analysis_service import analizar_horario_actividad
+from app.services.entradas_ai import EvaluacionEntradas, evaluar_entradas, normalizar_place_id
 
 ROUTE_GENERATION_AVAILABLE = True
 try:
@@ -223,7 +225,7 @@ def _destinos_contexto(viaje) -> list[dict]:
     ]
 
 
-def _respuesta_advertencia(analisis: dict) -> dict:
+def _respuesta_advertencia(analisis: dict, entradas: EvaluacionEntradas | None = None) -> dict:
     return {
         "advertencia": True,
         "mensaje": analisis.get("mensaje") or "",
@@ -232,7 +234,32 @@ def _respuesta_advertencia(analisis: dict) -> dict:
         "tipo": analisis.get("tipo"),
         "proximaApertura": analisis.get("proxima_apertura"),
         "resumen": analisis.get("resumen"),
+        # Recomendación de entradas/reservas para mostrar si el usuario confirma.
+        "recomendacionEntradas": entradas.recomendacion if entradas else None,
+        "googlePlaceIdEntradas": entradas.place_id_guardado if entradas else None,
     }
+
+
+async def _evaluar_entradas_actividad(
+    place_id_guardado: str | None,
+    contexto_lugar: dict,
+    payload: ActividadCreate | ActividadUpdate,
+    ignorar_advertencia: bool,
+) -> EvaluacionEntradas:
+    """Recomendación de entradas y reservas reutilizando el lugar que identificó la
+    validación de horarios (US 98).
+
+    Con `ignorar_advertencia` el análisis de horarios no corre (el usuario confirma
+    una advertencia ya mostrada, que incluyó la recomendación): se conserva el lugar
+    analizado que devolvió esa advertencia para no volver a recomendar."""
+    if ignorar_advertencia:
+        confirmado = normalizar_place_id(payload.googlePlaceIdEntradas)
+        return EvaluacionEntradas(None, confirmado or place_id_guardado)
+    return await evaluar_entradas(place_id_guardado, contexto_lugar)
+
+
+def _recomendacion_read(entradas: EvaluacionEntradas) -> RecomendacionEntradas | None:
+    return RecomendacionEntradas(**entradas.recomendacion) if entradas.recomendacion else None
 
 
 def _id_lugar_actividad(actividad: ActividadItinerario) -> int | None:
@@ -1078,6 +1105,7 @@ async def create_activity(
     if dia is None:
         raise HTTPException(status_code=404, detail="El día del cronograma no existe en este viaje.")
 
+    contexto_lugar: dict = {}
     analisis = await analizar_horario_actividad(
         db=db,
         nombre_actividad=payload.nombre,
@@ -1087,10 +1115,11 @@ async def create_activity(
         id_lugar_interes=payload.idLugarInteres,
         ignorar_advertencia=ignorar_advertencia,
         destinos=_destinos_contexto(viaje),
+        contexto_lugar=contexto_lugar,
     )
 
     if analisis.get("advertencia"):
-        return _respuesta_advertencia(analisis)
+        return _respuesta_advertencia(analisis, await evaluar_entradas(None, contexto_lugar))
 
     lugar = None
 
@@ -1107,6 +1136,8 @@ async def create_activity(
                 detail="El lugar de interés seleccionado no existe.",
             )
 
+    entradas = await _evaluar_entradas_actividad(None, contexto_lugar, payload, ignorar_advertencia)
+
     actividad = ActividadItinerario(
         IdDiaCronograma=dia.IdDiaCronograma,
         Nombre=payload.nombre.strip(),
@@ -1115,6 +1146,7 @@ async def create_activity(
         HoraInicio=payload.horaInicio,
         HoraFin=payload.horaFin,
         Icono=payload.icono,
+        GooglePlaceIdEntradas=entradas.place_id_guardado,
     )
     # El usuario vio la advertencia y registró igual: queda marcada en el itinerario.
     if ignorar_advertencia and payload.advertenciaHorario is not None:
@@ -1135,6 +1167,8 @@ async def create_activity(
     })
     # Aviso solo para quien registra: no se pudo verificar el horario (no bloquea).
     resultado.avisoHorario = analisis.get("aviso")
+    # Recomendación de entradas/reservas solo para quien registra (no bloquea).
+    resultado.recomendacionEntradas = _recomendacion_read(entradas)
 
     await _sincronizar_y_notificar_ruta(db, dia, trip_id)
     await dispatch_trip_notification(
@@ -1207,6 +1241,8 @@ async def update_activity(
     tipo_advertencia = actividad.TipoAdvertenciaHorario
     texto_advertencia = actividad.AdvertenciaHorario
     analisis: dict = {"advertencia": False}
+    # Lo completa el análisis de horarios con el lugar identificado (si corre).
+    contexto_lugar: dict = {}
 
     if ignorar_advertencia:
         if payload.advertenciaHorario is not None:
@@ -1225,10 +1261,14 @@ async def update_activity(
             hora_fin=payload.horaFin,
             id_lugar_interes=payload.idLugarInteres,
             destinos=_destinos_contexto(viaje),
+            contexto_lugar=contexto_lugar,
         )
         if analisis.get("advertencia"):
             if not advertencia_ya_aceptada:
-                return _respuesta_advertencia(analisis)
+                return _respuesta_advertencia(
+                    analisis,
+                    await evaluar_entradas(actividad.GooglePlaceIdEntradas, contexto_lugar),
+                )
             tipo_advertencia = analisis.get("tipo")
             texto_advertencia = analisis.get("resumen")
             analisis = {"advertencia": False}
@@ -1253,6 +1293,10 @@ async def update_activity(
                 detail="El lugar de interés no existe.",
             )
 
+    entradas = await _evaluar_entradas_actividad(
+        actividad.GooglePlaceIdEntradas, contexto_lugar, payload, ignorar_advertencia
+    )
+
     actividad.Nombre = payload.nombre.strip()
     if payload.idLugarInteres is not None:
         actividad.IdLugarInteres = payload.idLugarInteres if lugar else None
@@ -1275,6 +1319,7 @@ async def update_activity(
     actividad.Icono = payload.icono
     actividad.TipoAdvertenciaHorario = tipo_advertencia
     actividad.AdvertenciaHorario = texto_advertencia
+    actividad.GooglePlaceIdEntradas = entradas.place_id_guardado
 
     db.commit()
     db.refresh(actividad)
@@ -1290,6 +1335,7 @@ async def update_activity(
         },
     )
     resultado.avisoHorario = analisis.get("aviso")
+    resultado.recomendacionEntradas = _recomendacion_read(entradas)
 
     await _sincronizar_y_notificar_ruta(db, dia, trip_id)
     await dispatch_trip_notification(

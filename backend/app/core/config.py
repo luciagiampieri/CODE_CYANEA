@@ -95,6 +95,21 @@ class Settings(BaseSettings):
     ai_assistant_fallback_model: str | None = None
     ai_assistant_timeout_seconds: float = 20.0
 
+    # Recomendación de entradas y reservas de actividades (sitio oficial + Gemini)
+    ai_entradas_enabled: bool = True
+    # Vacíos: se usan AI_RECEIPT_MODEL y AI_RECEIPT_FALLBACK_MODEL.
+    ai_entradas_model: str | None = None
+    ai_entradas_fallback_model: str | None = None
+    ai_entradas_timeout_seconds: float = 12.0
+    entradas_sitio_timeout_seconds: float = 6.0
+    entradas_sitio_max_paginas: int = 3
+    entradas_timeout_total_seconds: float = 20.0
+    entradas_cache_ttl_seconds: int = 6 * 60 * 60
+    # Respaldo con la búsqueda de Google integrada en Gemini cuando el sitio oficial
+    # no se puede leer o no confirma nada. Requiere facturación activa en Gemini.
+    ai_entradas_busqueda_google: bool = True
+    ai_entradas_busqueda_timeout_seconds: float = 15.0
+
     expense_edit_lock_ttl_seconds: int = 120
 
     model_config = SettingsConfigDict(

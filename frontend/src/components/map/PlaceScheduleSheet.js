@@ -21,6 +21,8 @@ import { FontAwesome6 } from "@expo/vector-icons";
 
 import PrimaryButton from "../ui/PrimaryButton";
 import { colors, radii, spacing, textStyles } from "../../theme/tokens";
+import { recomendacionDeRespuesta } from "../../utils/recomendacionEntradas";
+import { mostrarAdvertenciaHorario, mostrarRecomendacionEntradas } from "../../utils/dialogosActividad";
 
 const ICON_OPTIONS = [
   { name: "plane", label: "Vuelo" },
@@ -230,25 +232,68 @@ export default function PlaceScheduleSheet({ days = [], onClose, onSubmit, place
       return;
     }
 
+    await enviar({
+      dayId,
+      dayIndex: dayOptions.find((day) => day.id === dayId)?.index ?? null,
+      nombre: nombre.trim(),
+      descripcion: descripcion.trim() || null,
+      // Antes se mandaba `${hora}:00`: si la hora ya traía segundos quedaba
+      // "10:00:00:00" y el backend respondía "horaInicio debe tener formato HH:MM".
+      horaInicio: inicio,
+      horaFin: fin,
+      icono,
+    });
+  }
+
+  // Mismo flujo que al registrar una actividad desde el itinerario: validación de
+  // horarios (US 98) y recomendación de entradas o reservas.
+  async function enviar(datos, { ignorarAdvertencia = false, recomendacionPrevia = null } = {}) {
     try {
       setSubmitting(true);
       setError("");
-      await onSubmit({
-        dayId,
-        dayIndex: dayOptions.find((day) => day.id === dayId)?.index ?? null,
-        nombre: nombre.trim(),
-        descripcion: descripcion.trim() || null,
-        // Antes se mandaba `${hora}:00`: si la hora ya traía segundos quedaba
-        // "10:00:00:00" y el backend respondía "horaInicio debe tener formato HH:MM".
-        horaInicio: inicio,
-        horaFin: fin,
-        icono,
-      });
+      const resultado = await onSubmit(datos, { ignorarAdvertencia, recomendacionPrevia });
+      setSubmitting(false);
+
+      if (resultado?.advertencia === true) {
+        const advertenciaHorario =
+          resultado.tipo && resultado.resumen ? { tipo: resultado.tipo, resumen: resultado.resumen } : null;
+        const recomendacion = recomendacionDeRespuesta(resultado);
+        mostrarAdvertenciaHorario(
+          {
+            mensaje: resultado.mensaje ?? "",
+            horariosApertura: resultado.horariosApertura ?? "",
+            tipo: resultado.tipo ?? null,
+            nombreLugar: resultado.nombreLugar ?? place?.name ?? "",
+            nombreActividad: datos.nombre,
+            horarioActividad: `${datos.horaInicio} a ${datos.horaFin}`,
+          },
+          {
+            onConfirmar: () =>
+              enviar(
+                {
+                  ...datos,
+                  ...(advertenciaHorario ? { advertenciaHorario } : {}),
+                  ...(resultado.googlePlaceIdEntradas ? { googlePlaceIdEntradas: resultado.googlePlaceIdEntradas } : {}),
+                },
+                { ignorarAdvertencia: true, recomendacionPrevia: recomendacion }
+              ),
+          }
+        );
+        return;
+      }
+
+      const recomendacion = recomendacionDeRespuesta(resultado) || (ignorarAdvertencia ? recomendacionPrevia : null);
+      if (recomendacion) {
+        mostrarRecomendacionEntradas(recomendacion, {
+          mensajeExito: "Actividad agregada al itinerario.",
+          onCerrar: onClose,
+        });
+        return;
+      }
       onClose();
     } catch (submitError) {
-      setError(submitError.message || "No se pudo agregar el lugar al itinerario.");
-    } finally {
       setSubmitting(false);
+      setError(submitError.message || "No se pudo agregar el lugar al itinerario.");
     }
   }
 

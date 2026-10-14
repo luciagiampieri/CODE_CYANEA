@@ -58,3 +58,117 @@ describe("PlaceScheduleSheet - formato de horas", () => {
     );
   });
 });
+describe("PlaceScheduleSheet - horarios y recomendación de entradas (igual que al registrar una actividad)", () => {
+  const { Alert, Linking } = require("react-native");
+
+  const recomendacion = {
+    tipo: "ENTRADAS_ANTICIPADAS",
+    mensaje: "Te recomendamos comprar las entradas antes de tu visita para asegurarte el ingreso.",
+    nombreLugar: "Museo de Bellas Artes",
+    urlSitioOficial: "https://www.bellasartes.gob.ar/",
+    urlAccion: "https://www.bellasartes.gob.ar/entradas",
+    verificada: true,
+  };
+
+  const advertencia = {
+    advertencia: true,
+    tipo: "fuera_de_horario",
+    mensaje: "",
+    horariosApertura: "11:00 - 19:00",
+    resumen: "Fuera del horario del lugar (11:00 a 19:00)",
+    nombreLugar: "Museo de Bellas Artes",
+    recomendacionEntradas: recomendacion,
+    googlePlaceIdEntradas: "ChIJbellas",
+  };
+
+  beforeEach(() => {
+    Platform.OS = "android";
+    jest.spyOn(Alert, "alert").mockImplementation(() => {});
+    jest.spyOn(Linking, "openURL").mockResolvedValue(true);
+  });
+
+  afterEach(() => {
+    Alert.alert.mockRestore();
+    Linking.openURL.mockRestore();
+    Platform.OS = "web";
+  });
+
+  async function renderYAgregar(onSubmit, onClose = jest.fn()) {
+    Platform.OS = "web";
+    const utils = await render(
+      <PlaceScheduleSheet days={days} place={place} visible onClose={onClose} onSubmit={onSubmit} />
+    );
+    await elegirHoras(utils, "09:00", "10:00");
+    Platform.OS = "android";
+    await agregar(utils);
+    return { utils, onClose };
+  }
+
+  it("muestra la recomendación con la confirmación separada y el enlace oficial", async () => {
+    const onSubmit = jest.fn().mockResolvedValue({ IdActividad: 5, RecomendacionEntradas: recomendacion });
+    const { onClose } = await renderYAgregar(onSubmit);
+
+    await waitFor(() => expect(Alert.alert).toHaveBeenCalled());
+    const [titulo, mensaje, botones, opciones] = Alert.alert.mock.calls[0];
+    expect(titulo).toBe("Comprá las entradas antes");
+    expect(opciones.confirmacion).toBe("Actividad agregada al itinerario.");
+    expect(mensaje).toContain("Museo de Bellas Artes");
+    expect(botones.map((b) => b.text)).toEqual(["Entendido", "Comprar entradas"]);
+    expect(onClose).not.toHaveBeenCalled();
+
+    await act(async () => {
+      await botones[1].onPress();
+    });
+    expect(Linking.openURL).toHaveBeenCalledWith("https://www.bellasartes.gob.ar/entradas");
+    expect(onClose).toHaveBeenCalled();
+  });
+
+  it("sin recomendación se cierra sin diálogos", async () => {
+    const onSubmit = jest.fn().mockResolvedValue({ IdActividad: 5, RecomendacionEntradas: null });
+    const { onClose } = await renderYAgregar(onSubmit);
+
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
+    expect(Alert.alert).not.toHaveBeenCalled();
+  });
+
+  it("fuera de horario: advierte, y al confirmar reenvía con la advertencia y el lugar analizado", async () => {
+    const onSubmit = jest
+      .fn()
+      .mockResolvedValueOnce(advertencia)
+      .mockResolvedValueOnce({ IdActividad: 5, RecomendacionEntradas: null });
+    const { onClose } = await renderYAgregar(onSubmit);
+
+    await waitFor(() => expect(Alert.alert).toHaveBeenCalled());
+    const [titulo, mensaje, botones] = Alert.alert.mock.calls[0];
+    expect(titulo).toBe("Revisá el horario de tu actividad");
+    expect(mensaje).toContain("Horario del establecimiento: 11:00 a 19:00");
+    expect(botones.map((b) => b.text)).toEqual(["Modificar horario", "Registrar igual"]);
+    expect(onClose).not.toHaveBeenCalled();
+
+    await act(async () => {
+      await botones[1].onPress();
+    });
+
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(2));
+    expect(onSubmit.mock.calls[1][0]).toEqual(
+      expect.objectContaining({
+        advertenciaHorario: { tipo: "fuera_de_horario", resumen: "Fuera del horario del lugar (11:00 a 19:00)" },
+        googlePlaceIdEntradas: "ChIJbellas",
+      })
+    );
+    expect(onSubmit.mock.calls[1][1]).toEqual(expect.objectContaining({ ignorarAdvertencia: true }));
+    // La recomendación llegó con la advertencia: se muestra después de guardar.
+    await waitFor(() => expect(Alert.alert).toHaveBeenCalledTimes(2));
+    expect(Alert.alert.mock.calls[1][0]).toBe("Comprá las entradas antes");
+  });
+
+  it("'Modificar horario' deja el formulario abierto sin reenviar", async () => {
+    const onSubmit = jest.fn().mockResolvedValue(advertencia);
+    const { onClose } = await renderYAgregar(onSubmit);
+
+    await waitFor(() => expect(Alert.alert).toHaveBeenCalled());
+    expect(Alert.alert.mock.calls[0][2][0].onPress).toBeUndefined();
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+    expect(onClose).not.toHaveBeenCalled();
+  });
+});

@@ -859,6 +859,10 @@ def test_obtener_detalles_lugar_devuelve_el_nombre_y_los_horarios(monkeypatch, p
         "current_opening_hours": actuales,
         "opening_hours": _horario_lunes(),
         "business_status": None,
+        # Campos que reutiliza la recomendación de entradas y reservas.
+        "website_uri": None,
+        "types": [],
+        "primary_type": None,
     }
     pedido = pedidos[0]
     assert pedido.method == "GET"
@@ -897,6 +901,9 @@ def test_obtener_detalles_lugar_sin_horarios_devuelve_none_en_los_horarios(monke
         "current_opening_hours": None,
         "opening_hours": None,
         "business_status": None,
+        "website_uri": None,
+        "types": [],
+        "primary_type": None,
     }
 
 

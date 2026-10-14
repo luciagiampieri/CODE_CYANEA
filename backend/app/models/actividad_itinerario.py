@@ -43,11 +43,9 @@ class ActividadItinerario(Base):
     HoraInicio: Mapped[time] = mapped_column(Time(), nullable=False)
     HoraFin: Mapped[time] = mapped_column(Time(), nullable=False)
     Icono: Mapped[str] = mapped_column(String(50), nullable=False, default="location-dot")
-    # Advertencia de horario que el usuario aceptó al registrar/editar la actividad
-    # (lugar cerrado ese día, fuera de horario, cerrado temporal o definitivamente).
-    # Queda marcada en el itinerario; NULL si no hay incompatibilidad conocida.
     TipoAdvertenciaHorario: Mapped[str | None] = mapped_column(String(30), nullable=True)
     AdvertenciaHorario: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    GooglePlaceIdEntradas: Mapped[str | None] = mapped_column(String(255), nullable=True)
     FechaCreacion: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),

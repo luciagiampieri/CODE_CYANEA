@@ -128,3 +128,21 @@ describe("AppDialog", () => {
     expect(inferirTipo("Sin conexión")).toBe("info");
   });
 });
+describe("AppDialog con confirmación", () => {
+  it("muestra la confirmación en una franja propia, separada del mensaje", async () => {
+    const { DialogHost, appAlert } = require("../components/ui/AppDialog");
+    const { render: renderizar, act: actuar } = require("@testing-library/react-native");
+    const utils = await renderizar(<DialogHost root />);
+
+    await actuar(async () => {
+      appAlert("Comprá las entradas antes", "Museo del Prado", [{ text: "Entendido" }], {
+        tipo: "info",
+        confirmacion: "Actividad registrada correctamente.",
+      });
+    });
+
+    expect(utils.getByText("Actividad registrada correctamente.")).toBeTruthy();
+    expect(utils.getByText("Comprá las entradas antes")).toBeTruthy();
+    expect(utils.getByText("Museo del Prado")).toBeTruthy();
+  });
+});

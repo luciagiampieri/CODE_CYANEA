@@ -6,6 +6,40 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 from app.schemas.usuario import UsuarioRead
 from app.schemas.place import TripPlaceRead
 
+TipoRecomendacionEntradasLiteral = Literal[
+    "RESERVA", "ENTRADAS_ANTICIPADAS", "ENTRADAS_PRESENCIALES", "RESERVA_DISPONIBLE"
+]
+
+
+class RecomendacionEntradas(BaseModel):
+    """Recomendación verificada en el sitio oficial del lugar (reservar, comprar
+    entradas por anticipado o comprarlas en el lugar). Solo se envía a quien
+    registra o modifica la actividad; no bloquea el registro."""
+
+    tipo: TipoRecomendacionEntradasLiteral
+    mensaje: str
+    nombreLugar: str | None = None
+    googlePlaceId: str | None = None
+    # Sitio web oficial del establecimiento.
+    urlSitioOficial: str | None = None
+    # Enlace oficial específico para reservar o comprar (si existe).
+    urlAccion: str | None = None
+    # Enlace a mostrar: el específico o, si no hay, el sitio oficial.
+    urlRecomendada: str | None = None
+    # Se informa cuando no se pudo obtener ningún enlace oficial.
+    avisoEnlace: str | None = None
+    # Plataforma de reservas de terceros (OpenTable, Resy...) enlazada desde el sitio
+    # oficial. No es un enlace oficial: el frontend lo muestra aclarando la plataforma.
+    urlReservaExterna: str | None = None
+    plataformaReserva: str | None = None
+    # Fragmento del sitio oficial que respalda la recomendación y página de origen.
+    evidencia: str | None = None
+    # Evidencia en español (traducida si el sitio está en otro idioma), para mostrar.
+    evidenciaEs: str | None = None
+    fuenteEvidencia: str | None = None
+    verificada: bool = True
+
+
 class ActividadRead(BaseModel):
     idActividad: int = Field(..., alias="IdActividad")
     idLugarInteres: int | None = Field(None, alias="IdLugarInteres")
@@ -22,22 +56,15 @@ class ActividadRead(BaseModel):
     # Advertencia de horario aceptada por el usuario; se muestra marcada en el itinerario.
     tipoAdvertenciaHorario: str | None = Field(None, alias="TipoAdvertenciaHorario")
     advertenciaHorario: str | None = Field(None, alias="AdvertenciaHorario")
+    # Recomendación de entradas o reservas (solo en la respuesta de alta/edición).
+    recomendacionEntradas: RecomendacionEntradas | None = Field(None, alias="RecomendacionEntradas")
 
     class Config:
         from_attributes = True
         populate_by_name = True
 
-TipoAdvertenciaHorarioLiteral = Literal[
-    "fuera_de_horario", "cerrado_dia", "cerrado_temporalmente", "cerrado_permanentemente"
-]
-
-
-class AdvertenciaHorarioAceptada(BaseModel):
-    """Advertencia que el usuario vio y decidió ignorar (`ignorar_advertencia=true`).
-    Se guarda en la actividad para marcarla en el itinerario."""
-
-    tipo: TipoAdvertenciaHorarioLiteral
-    resumen: str = Field(..., min_length=1, max_length=300)
+# Definidas en un módulo propio para poder usarlas también desde `schemas.place`.
+from app.schemas.advertencia import AdvertenciaHorarioAceptada, TipoAdvertenciaHorarioLiteral  # noqa: E402,F401
 
 
 class ActividadCreate(BaseModel):
@@ -48,6 +75,10 @@ class ActividadCreate(BaseModel):
     horaFin: time_type
     icono: str = Field(default="location-dot", max_length=50)
     advertenciaHorario: AdvertenciaHorarioAceptada | None = None
+    # Lugar ya analizado para entradas/reservas que devolvió la advertencia de
+    # horario (`AdvertenciaHorario.googlePlaceIdEntradas`). Se reenvía al confirmar
+    # con `ignorar_advertencia=true`, cuando el análisis no vuelve a ejecutarse.
+    googlePlaceIdEntradas: str | None = Field(default=None, max_length=255)
 
     @model_validator(mode="after")
     def validate_horarios(self):
@@ -88,6 +119,10 @@ class ActividadUpdate(BaseModel):
     horaFin: time_type
     icono: str = Field(default="location-dot", max_length=50)
     advertenciaHorario: AdvertenciaHorarioAceptada | None = None
+    # Lugar ya analizado para entradas/reservas que devolvió la advertencia de
+    # horario (`AdvertenciaHorario.googlePlaceIdEntradas`). Se reenvía al confirmar
+    # con `ignorar_advertencia=true`, cuando el análisis no vuelve a ejecutarse.
+    googlePlaceIdEntradas: str | None = Field(default=None, max_length=255)
 
     @model_validator(mode="after")
     def validate_horarios(self):
@@ -108,6 +143,11 @@ class AdvertenciaHorario(BaseModel):
     proximaApertura: str | None = None
     # Texto corto que se reenvía al confirmar y queda marcado en el itinerario.
     resumen: str | None = None
+    # Recomendación de entradas o reservas del mismo lugar, para mostrarla cuando
+    # el usuario confirme el registro.
+    recomendacionEntradas: RecomendacionEntradas | None = None
+    # Lugar analizado para entradas/reservas; el frontend lo reenvía al confirmar.
+    googlePlaceIdEntradas: str | None = None
 
 class RutaDiariaRead(BaseModel):
     idRutaDiaria: int = Field(..., alias="IdRutaDiaria")
