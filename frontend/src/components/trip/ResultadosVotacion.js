@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, Pressable, ScrollView, Image } from "react-native";
+import { View, Text, StyleSheet, Pressable, ScrollView, Image, ActivityIndicator } from "react-native";
 import Modal from "../ui/AppModal";
 import { FontAwesome6 } from "@expo/vector-icons";
 import { colors, radii, spacing, textStyles } from "../../theme/tokens";
@@ -20,6 +20,19 @@ function formatFechaVoto(dateString) {
     }).format(date);
 }
 
+function formatFechaLimite(dateString) {
+    if (!dateString) return "";
+    const date = new Date(dateString);
+    if (Number.isNaN(date.getTime())) return "";
+
+    return new Intl.DateTimeFormat("es-AR", {
+        day: "2-digit",
+        month: "short",
+        hour: "2-digit",
+        minute: "2-digit",
+    }).format(date);
+}
+
 
 const ESTADO_VOTACION_LABEL = {
     abierta: "Activa",
@@ -28,7 +41,26 @@ const ESTADO_VOTACION_LABEL = {
 };
 
 
-export default function ResultadosVotacion({ resultados, mostrarGanador = true, totalParticipantes, titulo}) {
+function AvisoResolucion({ icono, color, fondo, children }) {
+    return (
+        <View style={[styles.aviso, { backgroundColor: fondo }]}>
+            <FontAwesome6 name={icono} size={13} color={color} style={{ marginTop: 2 }} />
+            <Text style={[styles.avisoTexto, { color }]}>{children}</Text>
+        </View>
+    );
+}
+
+
+export default function ResultadosVotacion({
+    resultados,
+    mostrarGanador = true,
+    totalParticipantes,
+    titulo,
+    votacion = null,
+    puedeDesempatar = false,
+    eligiendo = false,
+    onElegirGanadora,
+}) {
     const [detalleVisible, setDetalleVisible] = useState(false);
     if (!resultados) return null;
 
@@ -40,20 +72,150 @@ export default function ResultadosVotacion({ resultados, mostrarGanador = true, 
         typeof totalParticipantes === "number"
             ? `${TotalVotantes} de ${totalParticipantes} participantes votaron`
             : `${TotalVotantes} ${TotalVotantes === 1 ? "persona votó" : "personas votaron"}`;
-    
+
+    const esDeSugerencias =
+        Boolean(votacion?.EsDeSugerencias) ||
+        (votacion?.Propuestas ?? []).some((p) => p.IdSugerenciaActividad) ||
+        Resultados.some((r) => r.IdSugerenciaActividad);
+    const estadoResolucion = votacion?.EstadoResolucion ?? null;
+    const empatadas = votacion?.IdPropuestasEmpatadas ?? [];
+    const fechaLimiteTexto = formatFechaLimite(votacion?.FechaLimiteDesempate);
+    const fechaLimite = votacion?.FechaLimiteDesempate ? new Date(votacion.FechaLimiteDesempate) : null;
+    const plazoVigente = !fechaLimite || fechaLimite > new Date();
+
+    function renderResolucion() {
+        if (!mostrarGanador || !esDeSugerencias || resultados.Estado === "cancelada") return null;
+
+        if (!estadoResolucion) {
+            return (
+                <AvisoResolucion
+                    icono="hourglass-half"
+                    color={colors.textSecondary}
+                    fondo={colors.surfaceAlt || "#f1f5f9"}
+                >
+                    Procesando el resultado de la votación. Puede tardar unos minutos.
+                </AvisoResolucion>
+            );
+        }
+
+        if (estadoResolucion === "incorporada") {
+            return (
+                <AvisoResolucion
+                    icono="circle-check"
+                    color={colors.success || "#16a34a"}
+                    fondo={colors.successSurface || "#dcf3dd"}
+                >
+                    La propuesta ganadora se agregó al itinerario.
+                </AvisoResolucion>
+            );
+        }
+
+        if (estadoResolucion === "sin_votos") {
+            return (
+                <AvisoResolucion
+                    icono="rotate-left"
+                    color={colors.textSecondary}
+                    fondo={colors.surfaceAlt || "#f1f5f9"}
+                >
+                    Como nadie votó, las sugerencias volvieron a quedar pendientes en el itinerario.
+                </AvisoResolucion>
+            );
+        }
+
+        if (estadoResolucion === "dia_inexistente") {
+            return (
+                <AvisoResolucion
+                    icono="calendar-xmark"
+                    color={colors.danger || "#dc2626"}
+                    fondo={colors.dangerSurface || "#fdecec"}
+                >
+                    No se agregó ninguna actividad porque ese día ya no está en el cronograma del viaje.
+                </AvisoResolucion>
+            );
+        }
+
+        if (estadoResolucion === "empate_vencido" || (estadoResolucion === "empate" && !plazoVigente)) {
+            return (
+                <AvisoResolucion
+                    icono="clock"
+                    color={colors.textSecondary}
+                    fondo={colors.surfaceAlt || "#f1f5f9"}
+                >
+                    No se eligió una ganadora a tiempo, así que las sugerencias se descartaron.
+                </AvisoResolucion>
+            );
+        }
+
+        if (estadoResolucion === "empate") {
+            const plazo = fechaLimiteTexto ? ` antes del ${fechaLimiteTexto}` : "";
+
+            if (!puedeDesempatar) {
+                return (
+                    <AvisoResolucion
+                        icono="scale-balanced"
+                        color={colors.warning || "#b45309"}
+                        fondo={colors.warningSurface || "#fff4e0"}
+                    >
+                        Hubo un empate. Quien creó la votación tiene que elegir cuál se agrega al itinerario{plazo}.
+                    </AvisoResolucion>
+                );
+            }
+
+            const opciones = Resultados.filter((r) => empatadas.includes(r.IdPropuesta));
+            return (
+                <View style={styles.desempate}>
+                    <View style={styles.desempateHeader}>
+                        <FontAwesome6 name="scale-balanced" size={13} color={colors.warning || "#b45309"} />
+                        <Text style={styles.desempateTitulo}>Hubo un empate</Text>
+                    </View>
+                    <Text style={styles.desempateTexto}>
+                        Como creaste la votación, elegí cuál se agrega al itinerario{plazo}. Las demás se van a descartar.
+                    </Text>
+                    {opciones.map((r) => (
+                        <Pressable
+                            key={r.IdPropuesta}
+                            disabled={eligiendo}
+                            onPress={() => onElegirGanadora?.(r)}
+                            style={({ pressed }) => [
+                                styles.desempateOpcion,
+                                (pressed || eligiendo) && { opacity: 0.6 },
+                            ]}
+                            testID={`elegir-ganadora-${r.IdPropuesta}`}
+                        >
+                            <Text style={styles.desempateOpcionTexto}>{r.Texto}</Text>
+                            {eligiendo ? (
+                                <ActivityIndicator size="small" color={colors.primary} />
+                            ) : (
+                                <View style={styles.desempateBoton}>
+                                    <FontAwesome6 name="plus" size={10} color={colors.textInverse} />
+                                    <Text style={styles.desempateBotonTexto}>Agregar</Text>
+                                </View>
+                            )}
+                        </Pressable>
+                    ))}
+                </View>
+            );
+        }
+
+        return null;
+    }
+
     if (TotalVotos === 0) {
         return (
-            <Text style={{ color: colors.textMuted, fontSize: 13 }}>
-                {mostrarGanador
-                    ? "Esta votación finalizó sin votos registrados."
-                    : "Todavía nadie votó en esta votación."}
-            </Text>
+            <View style={{ gap: 10 }}>
+                <Text style={{ color: colors.textMuted, fontSize: 13 }}>
+                    {mostrarGanador
+                        ? "Esta votación finalizó sin votos registrados."
+                        : "Todavía nadie votó en esta votación."}
+                </Text>
+                {renderResolucion()}
+            </View>
         );
     }
 
     return (
         <View style={{ gap: 10 }}>
-            {mostrarGanador && Empate && (
+            {mostrarGanador && Empate && !esDeSugerencias && (
                 <Text style={{ color: colors.warning || "#b45309", fontWeight: "700", fontSize: 13 }}>
                     ⚖️ Hubo un empate entre {IdPropuestasGanadoras.length} propuestas.
                 </Text>
@@ -87,7 +249,7 @@ export default function ResultadosVotacion({ resultados, mostrarGanador = true, 
                             ]}
                         />
                         <View style={styles.content}>
-                            <Text style={{ color: colors.textPrimary, fontWeight: esGanadora ? "800" : "500" }}>
+                            <Text style={{ color: colors.textPrimary, fontWeight: esGanadora ? "800" : "500", flex: 1, marginRight: 8 }}>
                                 {esGanadora ? "🏆 " : ""}
                                 {r.Texto}
                             </Text>
@@ -105,6 +267,8 @@ export default function ResultadosVotacion({ resultados, mostrarGanador = true, 
                     </View>
                 );
             })}
+
+            {renderResolucion()}
 
             <Pressable
                 onPress={() => setDetalleVisible(true)}
@@ -183,18 +347,18 @@ export default function ResultadosVotacion({ resultados, mostrarGanador = true, 
                             <ScrollView style={{ maxHeight: 420 }} showsVerticalScrollIndicator={false}>
                                 {Resultados.map((r) => {
                                     const esGanadora = ganadoras.includes(r.IdPropuesta);
-                                    
+
                                     return (
                                         <View key={r.IdPropuesta} style={styles.opcionBloque}>
                                             <View style={styles.opcionHeaderRow}>
                                                 <Text style={styles.opcionTitulo}>{r.Texto}</Text>
-                                                <View 
+                                                <View
                                                     style={[
-                                                        styles.opcionVotosBadge, 
+                                                        styles.opcionVotosBadge,
                                                         { backgroundColor: esGanadora ? (colors.successSurface || "#dcf3dd") : (colors.surfaceAlt || "#f1f5f9") }
                                                     ]}
                                                 >
-                                                    <Text 
+                                                    <Text
                                                         style={[
                                                             styles.opcionVotosBadgeText,
                                                             { color: esGanadora ? (colors.success || "#16a34a") : (colors.textSecondary || "#475569") }
@@ -210,9 +374,9 @@ export default function ResultadosVotacion({ resultados, mostrarGanador = true, 
                                                 <View key={votante.IdUsuario} style={styles.votanteRow}>
                                                     <View style={styles.votanteAvatar}>
                                                         {votante.FotoUrl || votante.fotoUrl ? (
-                                                            <Image 
-                                                                source={{ uri: votante.FotoUrl || votante.fotoUrl }} 
-                                                                style={{ width: 28, height: 28, borderRadius: 14 }} 
+                                                            <Image
+                                                                source={{ uri: votante.FotoUrl || votante.fotoUrl }}
+                                                                style={{ width: 28, height: 28, borderRadius: 14 }}
                                                             />
                                                         ) : (
                                                             <Text style={styles.votanteAvatarText}>
@@ -229,14 +393,14 @@ export default function ResultadosVotacion({ resultados, mostrarGanador = true, 
                                             ))
                                         ) : (
                                             <Text style={styles.sinVotos}>
-                                                {resultados.Estado === "abierta" 
-                                                    ? "Nadie votó esta opción todavía." 
+                                                {resultados.Estado === "abierta"
+                                                    ? "Nadie votó esta opción todavía."
                                                     : "Nadie votó esta opción."}
                                             </Text>
                                         )}
                                     </View>
                                 );
-                            })}    
+                            })}
                             </ScrollView>
                         </View>
                     </View>
@@ -265,6 +429,74 @@ const styles = StyleSheet.create({
         flexDirection: "row",
         alignItems: "center",
         justifyContent: "space-between",
+    },
+    aviso: {
+        flexDirection: "row",
+        alignItems: "flex-start",
+        gap: 8,
+        padding: spacing.sm,
+        borderRadius: radii.sm,
+    },
+    avisoTexto: {
+        flex: 1,
+        fontSize: 13,
+        fontWeight: "600",
+        lineHeight: 18,
+    },
+    desempate: {
+        gap: 8,
+        padding: spacing.sm,
+        borderRadius: radii.md,
+        borderWidth: 1,
+        borderColor: colors.warning || "#b45309",
+        backgroundColor: colors.warningSurface || "#fff4e0",
+    },
+    desempateHeader: {
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 6,
+    },
+    desempateTitulo: {
+        ...textStyles.bodyStrong,
+        fontSize: 14,
+        color: colors.warning || "#b45309",
+    },
+    desempateTexto: {
+        ...textStyles.meta,
+        fontSize: 13,
+        color: colors.textSecondary,
+        lineHeight: 18,
+    },
+    desempateOpcion: {
+        flexDirection: "row",
+        alignItems: "center",
+        justifyContent: "space-between",
+        gap: 8,
+        padding: spacing.sm,
+        borderRadius: radii.sm,
+        borderWidth: 1,
+        borderColor: colors.border,
+        backgroundColor: colors.surface,
+    },
+    desempateOpcionTexto: {
+        flex: 1,
+        color: colors.textPrimary,
+        fontSize: 13,
+        fontWeight: "600",
+    },
+    desempateBoton: {
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 4,
+        paddingHorizontal: 10,
+        paddingVertical: 6,
+        borderRadius: radii.pill ?? 999,
+        backgroundColor: colors.primary,
+    },
+    desempateBotonTexto: {
+        color: colors.textInverse,
+        fontSize: 12,
+        fontWeight: "700",
     },
     modalOverlay: {
         flex: 1,

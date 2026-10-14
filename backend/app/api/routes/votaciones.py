@@ -4,6 +4,7 @@ from typing import List
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
 from pydantic import BaseModel
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
 from app.api.deps import get_current_user
@@ -25,7 +26,7 @@ from app.schemas.votacion import (
     VotacionUpdate,
     VotanteResultado,
 )
-from app.services import sugerencias_votacion
+from app.services import resolucion_votaciones, sugerencias_votacion
 from app.services.notifications import NotificationType, TripNotificationEvent, dispatch_trip_notification
 from app.services.trip_access import get_trip_with_relations, require_trip_access, require_trip_edit_access, require_trip_not_finished, is_trip_finished
 
@@ -74,6 +75,12 @@ def _build_votacion_read(
 
     propuestas = sorted(votacion.Propuestas, key=lambda p: (p.Orden, p.IdPropuesta))
 
+    empatadas: list[int] = []
+    if votacion.EstadoResolucion == resolucion_votaciones.RESOLUCION_EMPATE:
+        empatadas = resolucion_votaciones.propuestas_ganadoras(
+            resolucion_votaciones.contar_votos(db, votacion)
+        )
+
     return VotacionRead(
         IdVotacion=votacion.IdVotacion,
         IdCreador=votacion.IdCreador,
@@ -91,6 +98,13 @@ def _build_votacion_read(
             for p in propuestas
         ],
         FechaCancelacion=_aware(votacion.FechaCancelacion) if votacion.FechaCancelacion else None,
+        EsDeSugerencias=bool(votacion.EsDeSugerencias)
+        or sugerencias_votacion.es_votacion_de_sugerencias(votacion),        
+        EstadoResolucion=votacion.EstadoResolucion,
+        FechaLimiteDesempate=(
+            _aware(votacion.FechaLimiteDesempate) if votacion.FechaLimiteDesempate else None
+        ),
+        IdPropuestasEmpatadas=empatadas,
     )
 
 
@@ -310,6 +324,8 @@ async def crear_votacion_desde_sugerencias(
             for s in datos.sugerencias
         ],
     )
+    votacion.EsDeSugerencias = True
+    votacion.IdDiaCronograma = datos.sugerencias[0].IdDiaCronograma
 
     sugerencias_votacion.marcar_en_votacion(db, datos.sugerencias)
 
@@ -529,6 +545,55 @@ def emitir_voto(
     )
 
     return {"detail": "Voto registrado correctamente. ¡Gracias por participar!"}
+
+
+class DesempateRequest(BaseModel):
+    idPropuesta: int
+
+
+@router.post("/{id_votacion}/desempate", response_model=VotacionRead)
+async def elegir_ganadora_empate(
+    id_votacion: int,
+    payload: DesempateRequest,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> VotacionRead:
+    votacion = db.scalar(
+        select(Votacion)
+        .options(selectinload(Votacion.Propuestas))
+        .where(Votacion.IdVotacion == id_votacion)
+    )
+    if votacion is None:
+        raise HTTPException(status_code=404, detail="La votación no existe.")
+
+    viaje = require_trip_edit_access(
+        get_trip_with_relations(db, votacion.IdViaje),
+        current_user,
+    )
+    require_trip_not_finished(viaje, "el itinerario")
+
+    try:
+        resultado = resolucion_votaciones.resolver_desempate(
+            db, votacion, payload.idPropuesta, current_user.IdUsuario
+        )
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="La votación ya fue resuelta.")
+
+    await resolucion_votaciones.notificar_resultado(db, resultado)
+
+    if resultado.tipo == resolucion_votaciones.RESOLUCION_DIA_INEXISTENTE:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "El día del cronograma ya no existe porque cambiaron las fechas del viaje. "
+                "No se agregó ninguna actividad y las sugerencias se descartaron."
+            ),
+        )
+
+    db.refresh(votacion)
+    return _build_votacion_read(db, votacion, current_user.IdUsuario, viaje)
 
 
 @router.post("/{id_votacion}/cancelar", response_model=VotacionRead)
