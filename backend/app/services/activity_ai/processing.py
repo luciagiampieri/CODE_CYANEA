@@ -2,7 +2,10 @@
 
 Independientes del proveedor de IA: toda respuesta pasa por acá antes de llegar al
 usuario (RNF-32). Una sugerencia que no cumple una regla se descarta sola, sin mostrarse.
-Los motivos de descarte se registran en nivel DEBUG para poder diagnosticar.
+Los motivos de descarte se registran en nivel INFO para poder diagnosticar.
+
+Las sugerencias son ALTERNATIVAS entre sí: pueden superponerse entre ellas, pero nunca
+con las actividades existentes del día.
 """
 
 from __future__ import annotations
@@ -97,7 +100,7 @@ Buscador = Callable[[str, "tuple[float, float] | None", float], Awaitable[list[L
 
 
 def _descartar(nombre: str, motivo: str) -> None:
-    logger.debug("Sugerencia descartada '%s': %s", nombre, motivo)
+    logger.info("Sugerencia descartada '%s': %s", nombre, motivo)
 
 
 def _hhmm(minutos: int) -> str:
@@ -326,7 +329,10 @@ async def filtrar_sugerencias(
     buscador: Buscador,
     segundos_disponibles: float,
 ) -> list[SugerenciaValida]:
-    logger.debug("La IA devolvió %s sugerencias", len(respuesta.sugerencias))
+    logger.info("La IA devolvió %s sugerencias", len(respuesta.sugerencias))
+    if reglas.max_resultados <= 0:
+        return []
+
     candidatas = [
         valida
         for valida in (_validar_item(item, reglas) for item in respuesta.sugerencias)
@@ -355,7 +361,8 @@ async def filtrar_sugerencias(
 
     resueltas = await asyncio.gather(*(resolver(c) for c in candidatas))
 
-    # Reglas que dependen del conjunto: lugares repetidos y superposición entre sugerencias.
+    # Regla que depende del conjunto: lugares repetidos (en el viaje, en pendientes o en
+    # esta misma tanda). Las sugerencias SÍ pueden superponerse entre sí: son alternativas.
     elegidas: list[SugerenciaValida] = []
     ids_usados = set(reglas.place_ids_excluidos)
     for sugerencia in resueltas:
@@ -365,13 +372,14 @@ async def filtrar_sugerencias(
         if id_lugar in ids_usados:
             _descartar(sugerencia.nombre, f"el lugar '{sugerencia.lugar_nombre}' ya está en el viaje o repetido")
             continue
-        if any(superpone(sugerencia.inicio, sugerencia.fin, e.inicio, e.fin) for e in elegidas):
-            _descartar(sugerencia.nombre, "se superpone con otra sugerencia elegida")
-            continue
         ids_usados.add(id_lugar)
         elegidas.append(sugerencia)
         if len(elegidas) >= reglas.max_resultados:
             break
 
-    logger.debug("Sugerencias válidas después de filtrar: %s", len(elegidas))
+    logger.info(
+        "Sugerencias válidas después de filtrar: %s de %s",
+        len(elegidas),
+        len(respuesta.sugerencias),
+    )
     return elegidas

@@ -36,20 +36,23 @@ function pad(numero) {
   return String(Math.abs(numero)).padStart(2, "0");
 }
 
+function esFechaValida(fecha) {
+  return fecha instanceof Date && !Number.isNaN(fecha.getTime());
+}
+
 function partesFecha(fechaRaw) {
   const [y, m, d] = String(fechaRaw ?? "").slice(0, 10).split("-").map(Number);
   return y && m && d ? { y, m, d } : null;
 }
 
-// Inicio de la franja en la hora local del dispositivo.
 export function inicioDeFranja(fechaRaw, hora) {
   const fecha = partesFecha(fechaRaw);
   const [h, mi] = hhmm(hora).split(":").map(Number);
-  if (!fecha || Number.isNaN(h) || Number.isNaN(mi)) return null;
-  return new Date(fecha.y, fecha.m - 1, fecha.d, h, mi, 0, 0);
+  if (!fecha || !Number.isFinite(h) || !Number.isFinite(mi)) return null;
+  const inicio = new Date(fecha.y, fecha.m - 1, fecha.d, h, mi, 0, 0);
+  return esFechaValida(inicio) ? inicio : null;
 }
 
-// Mismo formato que el título predefinido del backend.
 export function tituloPredefinido(fechaRaw, franja) {
   const rango = franja ? `de ${franja.inicio} a ${franja.fin}` : "";
   const fecha = partesFecha(fechaRaw);
@@ -58,10 +61,8 @@ export function tituloPredefinido(fechaRaw, franja) {
   return `¿Qué hacemos el ${diaSemana} ${fecha.d} de ${MESES[fecha.m - 1]} ${rango}?`;
 }
 
-// Por defecto, una hora antes del inicio de la franja. Si no hay tanto margen,
-// a mitad de camino entre ahora y el inicio. Null si la franja ya empezó.
 export function cierrePorDefecto(inicio, ahora = new Date()) {
-  if (!inicio) return null;
+  if (!esFechaValida(inicio)) return null;
   const margen = inicio.getTime() - ahora.getTime();
   if (margen <= 60 * 1000) return null;
   const unaHoraAntes = new Date(inicio.getTime() - 60 * 60 * 1000);
@@ -71,8 +72,6 @@ export function cierrePorDefecto(inicio, ahora = new Date()) {
   return mitad > ahora ? mitad : null;
 }
 
-// ISO con el offset del dispositivo (ej. 2026-10-11T13:00:00-03:00): el backend
-// usa ese offset para comparar el cierre con el inicio de la franja.
 export function toISOConOffset(fecha) {
   const offset = -fecha.getTimezoneOffset();
   const signo = offset >= 0 ? "+" : "-";
@@ -91,13 +90,13 @@ function textoCosto(sugerencia) {
 }
 
 function textoFechaCorta(fecha) {
+  if (!esFechaValida(fecha)) return "";
   return new Intl.DateTimeFormat("es-AR", {
     weekday: "short",
     day: "2-digit",
     month: "short",
   }).format(fecha);
 }
-
 
 export default function ProposeSuggestionsVoteScreen({
   visible,
@@ -133,33 +132,37 @@ export default function ProposeSuggestionsVoteScreen({
     setGuardando(false);
   }, [visible]);
 
+  if (!visible || !franja) return null;
+
   const errorTitulo = !titulo.trim() ? "El título es obligatorio." : null;
   let errorCierre = null;
-  if (!fechaCierre) {
+  if (!esFechaValida(fechaCierre)) {
     errorCierre = "La franja ya empezó o está por empezar: no queda tiempo para votar.";
   } else if (fechaCierre <= new Date()) {
     errorCierre = "La fecha y hora de cierre tiene que ser posterior a ahora.";
   } else if (inicio && fechaCierre >= inicio) {
-    errorCierre = `La votación tiene que cerrar antes de las ${franja?.inicio} del ${textoFechaCorta(inicio)}.`;
+    errorCierre = `La votación tiene que cerrar antes de las ${franja.inicio} del ${textoFechaCorta(inicio)}.`;
   }
 
-  const base = fechaCierre ?? new Date();
+  const base = esFechaValida(fechaCierre) ? fechaCierre : new Date();
   const horaTexto = `${pad(base.getHours())}:${pad(base.getMinutes())}`;
-  const fechaTexto = fechaCierre ? textoFechaCorta(fechaCierre) : "Elegí una fecha";
+  const fechaTexto = esFechaValida(fechaCierre) ? textoFechaCorta(fechaCierre) : "Elegí una fecha";
 
   function cambiarFecha(ymd) {
     if (!ymd) return;
     const [year, month, day] = ymd.split("-").map(Number);
+    if (!year || !month || !day) return;
     const nueva = new Date(base);
     nueva.setFullYear(year, month - 1, day);
     nueva.setSeconds(0, 0);
-    setFechaCierre(nueva);
+    if (esFechaValida(nueva)) setFechaCierre(nueva);
   }
 
   function cambiarHora(horas, minutos) {
+    if (!Number.isFinite(horas) || !Number.isFinite(minutos)) return;
     const nueva = new Date(base);
     nueva.setHours(horas, minutos, 0, 0);
-    setFechaCierre(nueva);
+    if (esFechaValida(nueva)) setFechaCierre(nueva);
   }
 
   function handleTimeChange(event, seleccionada) {
@@ -204,11 +207,9 @@ export default function ProposeSuggestionsVoteScreen({
             <View style={styles.headerRow}>
               <View style={styles.headerTexts}>
                 <Text style={styles.title}>Proponer a votación</Text>
-                {franja ? (
-                  <Text style={styles.subtitle}>
-                    Día {dia?.dayIndex} · {franja.inicio} – {franja.fin}
-                  </Text>
-                ) : null}
+                <Text style={styles.subtitle}>
+                  Día {dia?.dayIndex} · {franja.inicio} – {franja.fin}
+                </Text>
               </View>
               <Pressable
                 accessibilityLabel="Cerrar"
@@ -349,7 +350,7 @@ export default function ProposeSuggestionsVoteScreen({
                   <Text style={styles.error}>{errorCierre}</Text>
                 ) : inicio ? (
                   <Text style={styles.hint}>
-                    Tiene que cerrar antes de las {franja?.inicio} del {textoFechaCorta(inicio)}.
+                    Tiene que cerrar antes de las {franja.inicio} del {textoFechaCorta(inicio)}.
                   </Text>
                 ) : null}
               </View>

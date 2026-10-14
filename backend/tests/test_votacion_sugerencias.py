@@ -5,7 +5,6 @@ import pytest
 from fastapi import HTTPException
 
 from app.core.security import create_access_token, hash_password
-from app.models.propuesta import Propuesta
 from app.models.sugerencia_actividad import (
     EstadoSugerenciaActividad,
     SolicitudSugerenciaActividad,
@@ -36,13 +35,11 @@ def estados_sugerencias(db_session):
 
 @pytest.fixture(autouse=True)
 def fecha_del_dia(monkeypatch):
-    """Evita depender del armado del cronograma: el día de las sugerencias es FECHA_DIA."""
     monkeypatch.setattr(sugerencias_votacion, "obtener_fecha_dia", lambda db, id_dia: FECHA_DIA)
 
 
 @pytest.fixture(autouse=True)
 def notificaciones(monkeypatch):
-    """Registra las notificaciones despachadas en lugar de enviarlas."""
     eventos = []
 
     async def _dispatch_falso(db, evento, *args, **kwargs):
@@ -185,7 +182,7 @@ def test_proponer_seis_sugerencias_falla(
     assert _cantidad_votaciones(db_session) == 0
 
 
-def test_proponer_sugerencias_de_franjas_distintas_falla(
+def test_proponer_sugerencias_con_horarios_que_no_se_superponen_falla(
     client, db_session, auth_headers, viaje_con_admin, usuario_activo, estados_sugerencias
 ):
     viaje, _ = viaje_con_admin
@@ -207,8 +204,43 @@ def test_proponer_sugerencias_de_franjas_distintas_falla(
     )
 
     assert respuesta.status_code == 400
-    assert "misma franja" in respuesta.json()["detail"]
+    assert "superponerse" in respuesta.json()["detail"]
     assert _cantidad_votaciones(db_session) == 0
+
+
+def test_proponer_sugerencias_de_distintas_solicitudes_que_se_superponen_crea_la_votacion(
+    client, db_session, auth_headers, viaje_con_admin, usuario_activo, estados_sugerencias
+):
+    viaje, _ = viaje_con_admin
+    ids_manana = _crear_sugerencias(
+        db_session,
+        viaje,
+        usuario_activo,
+        estados_sugerencias,
+        1,
+        hora_inicio=time(10, 0),
+        hora_fin=time(12, 0),
+    )
+    ids_mediodia = _crear_sugerencias(
+        db_session,
+        viaje,
+        usuario_activo,
+        estados_sugerencias,
+        1,
+        hora_inicio=time(11, 0),
+        hora_fin=time(13, 0),
+    )
+
+    respuesta = client.post(
+        URL_DESDE_SUGERENCIAS,
+        json=_payload(viaje, ids_manana + ids_mediodia),
+        headers=auth_headers,
+    )
+
+    assert respuesta.status_code == 201, respuesta.text
+    cuerpo = respuesta.json()
+    assert len(cuerpo["Propuestas"]) == 2
+    assert "de 10:00 a 13:00" in cuerpo["Titulo"]
 
 
 def test_proponer_una_sugerencia_aceptada_falla(
@@ -249,7 +281,7 @@ def test_fecha_de_cierre_anterior_a_ahora_falla(
     assert _cantidad_votaciones(db_session) == 0
 
 
-def test_fecha_de_cierre_posterior_al_inicio_de_la_franja_falla(
+def test_fecha_de_cierre_posterior_al_inicio_de_la_primera_actividad_falla(
     client, db_session, auth_headers, viaje_con_admin, usuario_activo, estados_sugerencias
 ):
     viaje, _ = viaje_con_admin
@@ -263,7 +295,7 @@ def test_fecha_de_cierre_posterior_al_inicio_de_la_franja_falla(
     )
 
     assert respuesta.status_code == 400
-    assert "antes del inicio de la franja" in respuesta.json()["detail"]
+    assert "antes del inicio" in respuesta.json()["detail"]
     assert _cantidad_votaciones(db_session) == 0
 
 

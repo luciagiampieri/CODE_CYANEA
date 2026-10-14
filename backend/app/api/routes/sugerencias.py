@@ -1,6 +1,7 @@
 import logging
 import re
 import time as reloj
+from dataclasses import replace
 from datetime import datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -74,7 +75,17 @@ router = APIRouter()
 DURACION_MINIMA_FRANJA_MINUTOS = 60
 DISTANCIAS_PERMITIDAS_KM = (5, 15, 30)
 SEGUNDOS_SOLICITUD_ABANDONADA = 90
-ESTADOS_QUE_CUENTAN = ("en_proceso", "completada", "sin_resultados")
+# Las solicitudes sin resultados no cuentan para el límite diario (como las fallidas).
+ESTADOS_QUE_CUENTAN = ("en_proceso", "completada")
+
+# Si después de filtrar quedan menos que esto, se reintenta una vez con la IA.
+MIN_SUGERENCIAS_DESEADAS = 3
+
+# Si el día no tiene actividades con lugar, se buscan en los días vecinos (±1, luego ±2).
+DIAS_VECINOS_MAXIMOS = 2
+MAX_DIRECCIONES_REFERENCIA = 5
+
+NO_LOCATION_REFERENCE = "NO_LOCATION_REFERENCE"
 
 # Estados de sugerencia que se muestran en el itinerario y que la IA no debe repetir.
 # "en_votacion" se agregó en la US 90 (proponer sugerencias al grupo mediante votación).
@@ -87,6 +98,10 @@ URL_FOTO_GOOGLE = "https://places.googleapis.com/v1/{nombre}/media"
 MENSAJE_SIN_PREFERENCIAS = (
     "Ningún participante configuró sus preferencias de planificación. Podés continuar y "
     "el asistente usará criterios generales."
+)
+MENSAJE_SIN_REFERENCIA = (
+    "Tu viaje tiene varios destinos y no sabemos dónde van a estar ese día. Agregá al menos "
+    "una actividad con lugar en ese día (o en uno cercano) y volvé a pedir sugerencias."
 )
 
 
@@ -176,6 +191,51 @@ def _lugar_de(actividad: ActividadItinerario):
     return None
 
 
+def _coordenadas_validas(lugar) -> bool:
+    """Descarta lugares sin coordenadas o con (0, 0): el asistente del chat crea lugares
+    "aproximados" así cuando no encuentra el lugar real, y romperían las distancias."""
+    if lugar is None or lugar.Lat is None or lugar.Lng is None:
+        return False
+    return not (float(lugar.Lat) == 0.0 and float(lugar.Lng) == 0.0)
+
+
+def _referencia_de_actividades(
+    actividades: list[ActividadItinerario],
+) -> tuple[list[tuple[float, float]], list[str]]:
+    """Coordenadas y direcciones de los lugares de las actividades (sin repetir direcciones)."""
+    puntos: list[tuple[float, float]] = []
+    direcciones: list[str] = []
+    for actividad in actividades:
+        lugar = _lugar_de(actividad)
+        if not _coordenadas_validas(lugar):
+            continue
+        puntos.append((float(lugar.Lat), float(lugar.Lng)))
+        direccion = (lugar.Direccion or "").strip()
+        if direccion and direccion not in direcciones:
+            direcciones.append(direccion)
+    return puntos, direcciones
+
+
+def _referencia_dias_cercanos(
+    viaje, dia: DiaCronograma, actividades_viaje: list[ActividadItinerario]
+) -> tuple[list[tuple[float, float]], list[str]]:
+    """Si el día está vacío, se asume que el grupo está cerca de donde estuvo (o va a estar)
+    los días vecinos: primero ±1 día, después ±2."""
+    por_dia: dict[int, list[ActividadItinerario]] = {}
+    for actividad in actividades_viaje:
+        por_dia.setdefault(actividad.IdDiaCronograma, []).append(actividad)
+
+    for distancia in range(1, DIAS_VECINOS_MAXIMOS + 1):
+        cercanos = [
+            d for d in viaje.Cronograma if abs((d.Fecha - dia.Fecha).days) == distancia
+        ]
+        actividades = [a for d in cercanos for a in por_dia.get(d.IdDiaCronograma, [])]
+        puntos, direcciones = _referencia_de_actividades(actividades)
+        if puntos:
+            return puntos, direcciones
+    return [], []
+
+
 def _estado_pendiente(db: Session) -> EstadoSugerenciaActividad:
     estado = db.scalar(
         select(EstadoSugerenciaActividad).where(EstadoSugerenciaActividad.Nombre == "pendiente")
@@ -226,23 +286,31 @@ def _cerrar_solicitud(
     db.commit()
 
 
-def _elegir_destino(viaje, puntos_dia: list[tuple[float, float]]) -> tuple[str, float | None, float | None]:
-    """Destino de referencia: el más cercano a las actividades del día; si el día está vacío,
-    el primero del viaje."""
+def _elegir_destino(viaje, puntos: list[tuple[float, float]]) -> tuple[str, float | None, float | None]:
+    """Destino de referencia: el más cercano a los puntos de referencia (actividades del día
+    o de días vecinos); si no hay puntos, el primero del viaje."""
     destinos = [rel.Destino for rel in viaje.Destinos if rel.Destino is not None]
     if not destinos:
         return viaje.Titulo, None, None
 
     elegido = destinos[0]
-    if puntos_dia:
-        lat_c = sum(p[0] for p in puntos_dia) / len(puntos_dia)
-        lng_c = sum(p[1] for p in puntos_dia) / len(puntos_dia)
+    if puntos:
+        lat_c = sum(p[0] for p in puntos) / len(puntos)
+        lng_c = sum(p[1] for p in puntos) / len(puntos)
         con_coordenadas = [d for d in destinos if d.Lat is not None and d.Lng is not None]
         if con_coordenadas:
             elegido = min(con_coordenadas, key=lambda d: distancia_km(lat_c, lng_c, d.Lat, d.Lng))
 
-    nombre = f"{elegido.Nombre}, {elegido.Pais}" if getattr(elegido, "Pais", None) else elegido.Nombre
-    return nombre, elegido.Lat, elegido.Lng
+    nombre = (elegido.Nombre or "").strip()
+    pais = (getattr(elegido, "Pais", None) or "").strip()
+    # Evita "España, España" cuando el destino es directamente el país.
+    if pais and pais.lower() != nombre.lower():
+        nombre = f"{nombre}, {pais}"
+    return nombre or viaje.Titulo, elegido.Lat, elegido.Lng
+
+
+def _segundos_restantes(inicio_total: float) -> float:
+    return settings.ai_suggestions_total_timeout_seconds - (reloj.monotonic() - inicio_total)
 
 
 @router.get(
@@ -391,6 +459,22 @@ async def solicitar_sugerencias(
             SLOT_FULL,
         )
 
+    # ¿Dónde va a estar el grupo ese día? Primero las actividades del propio día; si no hay,
+    # las de los días vecinos; si tampoco, el destino del viaje.
+    puntos_referencia, direcciones_referencia = _referencia_de_actividades(actividades_dia)
+    origen_referencia = "actividades del día"
+    if not puntos_referencia:
+        puntos_referencia, direcciones_referencia = _referencia_dias_cercanos(
+            viaje, dia, actividades_viaje
+        )
+        origen_referencia = "actividades de días cercanos"
+
+    destinos_viaje = [rel.Destino for rel in viaje.Destinos if rel.Destino is not None]
+    if not puntos_referencia and len(destinos_viaje) > 1:
+        # Con varios destinos y sin ninguna actividad cerca no hay forma de saber en cuál
+        # está el grupo: se avisa antes de crear la solicitud (no descuenta del límite).
+        raise _error(409, MENSAJE_SIN_REFERENCIA, NO_LOCATION_REFERENCE)
+
     limite = settings.ai_suggestions_daily_limit
     if _contar_solicitudes_hoy(db, trip_id) >= limite:
         raise _error(
@@ -408,14 +492,11 @@ async def solicitar_sugerencias(
     grupo = combinar_preferencias(preferencias, nombres_prohibidos)
     indicacion = sanitizar_texto((payload.Indicacion or "")[:300], nombres_prohibidos)[:300]
 
-    puntos_dia: list[tuple[float, float]] = []
     existentes_ia = []
     existentes_reglas: list[ActividadDia] = []
     for actividad in actividades_dia:
         lugar = _lugar_de(actividad)
         inicio_a, fin_a = minutos_de(actividad.HoraInicio), minutos_de(actividad.HoraFin)
-        if lugar is not None:
-            puntos_dia.append((lugar.Lat, lugar.Lng))
         existentes_reglas.append(
             ActividadDia(
                 nombre=actividad.Nombre,
@@ -435,10 +516,11 @@ async def solicitar_sugerencias(
             }
         )
 
-    destino_nombre, destino_lat, destino_lng = _elegir_destino(viaje, puntos_dia)
-    puntos_referencia = puntos_dia or (
-        [(destino_lat, destino_lng)] if destino_lat is not None and destino_lng is not None else []
-    )
+    destino_nombre, destino_lat, destino_lng = _elegir_destino(viaje, puntos_referencia)
+    if not puntos_referencia:
+        origen_referencia = "destino del viaje"
+        if destino_lat is not None and destino_lng is not None:
+            puntos_referencia = [(destino_lat, destino_lng)]
     centro_busqueda = puntos_referencia[0] if puntos_referencia else None
 
     excluidos = {
@@ -460,6 +542,13 @@ async def solicitar_sugerencias(
     max_resultados = max(1, min(settings.ai_suggestions_max_results, 5))
     contexto_ia = {
         "destino": destino_nombre,
+        "zona_de_referencia": {
+            "origen": origen_referencia,
+            "direcciones": [
+                sanitizar_texto(d, nombres_prohibidos)
+                for d in direcciones_referencia[:MAX_DIRECCIONES_REFERENCIA]
+            ],
+        },
         "fecha": dia.Fecha.isoformat(),
         "franja": {"inicio": hhmm(franja_inicio), "fin": hhmm(franja_fin)},
         "huecos_libres": [f"{hhmm(i)}-{hhmm(f)}" for i, f in huecos],
@@ -474,6 +563,9 @@ async def solicitar_sugerencias(
             "consideraciones_adicionales": grupo["consideraciones"],
         },
         "cantidad_maxima": max_resultados,
+        # Se piden el doble de candidatas porque varias se descartan en las validaciones.
+        "cantidad_candidatas": max_resultados * 2,
+        "lugares_a_evitar": [],
         "indicacion_para_esta_busqueda": indicacion or None,
         "distancia_maxima_km": max_km,
         "moneda": "ARS",
@@ -523,20 +615,57 @@ async def solicitar_sugerencias(
         )
     id_solicitud = solicitud.IdSolicitudSugerenciaActividad
 
-    logger.debug(
-        "Solicitud de sugerencias %s: destino=%r centro=%s max_km=%s presupuesto=%s",
+    logger.info(
+        "Solicitud de sugerencias %s: destino=%r referencia=%s (%s puntos) centro=%s "
+        "max_km=%s presupuesto=%s huecos=%s",
         id_solicitud,
         destino_nombre,
+        origen_referencia,
+        len(puntos_referencia),
         centro_busqueda,
         max_km,
         grupo["presupuesto_promedio"],
+        contexto_ia["huecos_libres"],
     )
 
     try:
         crudo = await suggester.sugerir(contexto_ia)
         respuesta = validar_esquema(crudo)
-        segundos = max(3.0, settings.ai_suggestions_total_timeout_seconds - (reloj.monotonic() - inicio_total))
+        segundos = max(3.0, _segundos_restantes(inicio_total))
         validas = await filtrar_sugerencias(respuesta, reglas, buscar_lugares_google, segundos)
+
+        # Reintento: solo si quedaron pocas y hay tiempo para otra llamada completa (RNF-34).
+        if (
+            len(validas) < MIN_SUGERENCIAS_DESEADAS
+            and _segundos_restantes(inicio_total) > settings.ai_suggestions_timeout_seconds + 3
+        ):
+            logger.info(
+                "Solicitud %s: solo %s sugerencias válidas, se reintenta una vez",
+                id_solicitud,
+                len(validas),
+            )
+            contexto_retry = {
+                **contexto_ia,
+                "lugares_a_evitar": [s.lugar_nombre for s in respuesta.sugerencias],
+            }
+            reglas_retry = replace(
+                reglas,
+                place_ids_excluidos=reglas.place_ids_excluidos
+                | {normalizar_id(s.place_id) for s in validas},
+                max_resultados=max_resultados - len(validas),
+            )
+            try:
+                crudo_retry = await suggester.sugerir(contexto_retry)
+                respuesta_retry = validar_esquema(crudo_retry)
+                segundos_retry = max(3.0, _segundos_restantes(inicio_total))
+                validas += await filtrar_sugerencias(
+                    respuesta_retry, reglas_retry, buscar_lugares_google, segundos_retry
+                )
+            except SuggestionError as error:
+                # Si falla el reintento, se devuelve lo que ya se tenía.
+                logger.warning(
+                    "Solicitud %s: falló el reintento de sugerencias (%s)", id_solicitud, error.code
+                )
     except SuggestionError as error:
         _cerrar_solicitud(db, id_solicitud, "fallida", codigo=error.code)
         raise _error(error.status_code, error.message, error.code)
