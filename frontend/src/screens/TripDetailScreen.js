@@ -97,6 +97,7 @@ import DocumentsScreen from "./DocumentsScreen";
 import EditDocumentScreen from "./EditDocumentScreen";
 import GuardarInformacionScreen from "./InformationScreen";
 import CrearChecklistScreen from "./CreateChecklistScreen";
+import { agregarChecklistSinDuplicar } from "../utils/checklistLista";
 import useItinerarioViewPreference from "../hooks/useItinerarioViewPreference";
 import useResponsive from "../hooks/useResponsive";
 import ItinerarioViewToggle from "../components/trip/ItinerarioViewToggle";
@@ -3659,7 +3660,7 @@ export default function TripDetailScreen({ navigation, route }) {
               prev.map((c) => (c.IdChecklist === checklistGuardado.IdChecklist ? checklistGuardado : c))
             );
           } else {
-            setChecklists((prev) => [checklistGuardado, ...prev]);
+            setChecklists((prev) => agregarChecklistSinDuplicar(prev, checklistGuardado));
           }
         }}
       />

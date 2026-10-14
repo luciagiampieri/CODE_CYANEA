@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
   View,
   Text,
@@ -10,6 +10,9 @@ import {
   TouchableOpacity,
   FlatList,
   ActivityIndicator,
+  KeyboardAvoidingView,
+  Keyboard,
+  Animated,
 } from "react-native";
 import Modal from "../components/ui/AppModal";
 
@@ -48,6 +51,35 @@ function mostrarAlertaConfirmacion(titulo, mensaje, onAceptar) {
       onAceptar ? [{ text: "Aceptar", onPress: onAceptar }] : undefined
     );
   }
+}
+
+/**
+ * Hoja inferior que se dibuja DENTRO del modal del formulario (igual que en
+ * AddGastoScreen). En iOS no se puede abrir un segundo <Modal> encima de otro
+ * que ya está visible: el selector de categorías no aparecía.
+ */
+function SheetOverlay({ visible, onClose, children }) {
+  const slide = useRef(new Animated.Value(320)).current;
+
+  useEffect(() => {
+    if (visible) {
+      Animated.timing(slide, { toValue: 0, duration: 250, useNativeDriver: true }).start();
+    } else {
+      slide.setValue(320);
+    }
+  }, [visible, slide]);
+
+  if (!visible) return null;
+
+  return (
+    <View style={styles.modalOverlayAbsolute}>
+      <Pressable style={StyleSheet.absoluteFill} onPress={onClose} testID="cerrar-selector-categoria" />
+      <Animated.View style={[styles.bottomSheet, { transform: [{ translateY: slide }] }]}>
+        <View style={styles.grabber} />
+        {children}
+      </Animated.View>
+    </View>
+  );
 }
 
 function ResponsablesSelector({ participantes, seleccionados, onToggle }) {
@@ -206,21 +238,44 @@ export default function CrearChecklistScreen({
 
   const categoriaSeleccionada = categorias.find((c) => c.IdCategoriaChecklist === categoria);
 
-  return (
-    <>
-      <Modal animationType="slide" transparent visible={visible} onRequestClose={onClose}>
-        <View style={styles.overlay}>
-          <View style={styles.sheet}>
-            <ScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
-              <View style={styles.headerRow}>
-                <Text style={styles.title}>
-                  {esEdicion ? "Editar tarea" : "Crear tarea"}
-                </Text>
-                <TouchableOpacity onPress={onClose} testID="close-checklist-modal">
-                  <FontAwesome6 name="xmark" size={18} color={colors.textMuted} />
-                </TouchableOpacity>
-              </View>
+  function abrirSelectorCategoria() {
+    Keyboard.dismiss();
+    setModalCategoriaVisible(true);
+  }
 
+  function cerrarFormulario() {
+    Keyboard.dismiss();
+    setModalCategoriaVisible(false);
+    onClose();
+  }
+
+  return (
+    <Modal animationType="slide" transparent visible={visible} onRequestClose={cerrarFormulario}>
+      <View style={styles.overlay}>
+        <Pressable style={StyleSheet.absoluteFill} onPress={() => Keyboard.dismiss()} />
+        <KeyboardAvoidingView
+          style={styles.mainKav}
+          behavior={Platform.OS === "ios" ? "padding" : undefined}
+          pointerEvents="box-none"
+        >
+          <View style={styles.sheet}>
+            <View style={styles.grabber} />
+
+            <View style={styles.headerRow}>
+              <Text style={styles.title}>
+                {esEdicion ? "Editar tarea" : "Crear tarea"}
+              </Text>
+              <TouchableOpacity onPress={cerrarFormulario} hitSlop={10} testID="close-checklist-modal">
+                <FontAwesome6 name="xmark" size={18} color={colors.textMuted} />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView
+              style={styles.mainScroll}
+              keyboardShouldPersistTaps="handled"
+              keyboardDismissMode="on-drag"
+              showsVerticalScrollIndicator={false}
+            >
               <View style={styles.content}>
                 <Text style={styles.label}>Título de la tarea</Text>
                 <View style={[styles.inputBox, errores.nombre && { borderColor: colors.danger }]}>
@@ -235,14 +290,17 @@ export default function CrearChecklistScreen({
                     placeholder="Comprar vuelos de ida y vuelta"
                     placeholderTextColor={colors.overlay}
                     maxLength={NOMBRE_MAX_LENGTH}
+                    returnKeyType="done"
+                    blurOnSubmit
+                    onSubmitEditing={() => Keyboard.dismiss()}
                   />
                 </View>
                 {errores.nombre ? <Text style={styles.error}>{errores.nombre}</Text> : null}
 
                 <Text style={styles.label}>Categoría</Text>
-                <TouchableOpacity 
-                  style={[styles.dropdownButton, errores.categoria && { borderColor: colors.danger }]} 
-                  onPress={() => setModalCategoriaVisible(true)}
+                <TouchableOpacity
+                  style={[styles.dropdownButton, errores.categoria && { borderColor: colors.danger }]}
+                  onPress={abrirSelectorCategoria}
                 >
                   <View style={styles.dropdownLeftContent}>
                     <FontAwesome6
@@ -263,7 +321,10 @@ export default function CrearChecklistScreen({
                 <ResponsablesSelector
                   participantes={participantes}
                   seleccionados={responsablesSeleccionados}
-                  onToggle={toggleResponsable}
+                  onToggle={(id) => {
+                    Keyboard.dismiss();
+                    toggleResponsable(id);
+                  }}
                 />
 
                 <PrimaryButton
@@ -275,68 +336,71 @@ export default function CrearChecklistScreen({
                       : "Crear tarea"
                   }
                   loading={saving}
-                  onPress={handleGuardar}
+                  onPress={() => {
+                    Keyboard.dismiss();
+                    handleGuardar();
+                  }}
                   disabled={saving}
                   style={styles.submitButton}
                 />
               </View>
             </ScrollView>
           </View>
-        </View>
-      </Modal>
+        </KeyboardAvoidingView>
 
-      <Modal visible={modalCategoriaVisible} transparent={true} animationType="fade">
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContainer}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Seleccionar Categoría</Text>
-              <TouchableOpacity onPress={() => setModalCategoriaVisible(false)}>
-                <FontAwesome6 name="xmark" size={20} color={colors.textMuted} />
-              </TouchableOpacity>
-            </View>
-            {loadingCategorias ? (
-              <View style={{ padding: 40, alignItems: "center" }}>
-                <ActivityIndicator size="large" color={colors.primary} />
-              </View>
-            ) : (
-              <FlatList
-                data={categorias}
-                keyExtractor={(item) => item.IdCategoriaChecklist.toString()}
-                renderItem={({ item, index }) => {
-                  const iconoName = ICONOS_CATEGORIAS[item.Nombre] || "tags";
-                  const esActivo = categoria === item.IdCategoriaChecklist;
-                  const esElUltimo = index === categorias.length - 1;
-
-                  return (
-                    <TouchableOpacity
-                      style={[styles.modalItem, esActivo && styles.modalItemActive, esElUltimo && { borderBottomWidth: 0 }]}
-                      onPress={() => {
-                        setCategoria(item.IdCategoriaChecklist);
-                        limpiarError("categoria");
-                        setModalCategoriaVisible(false);
-                      }}
-                    >
-                      <View style={{ flexDirection: "row", alignItems: "center", flex: 1 }}>
-                        <FontAwesome6
-                          name={iconoName}
-                          size={16}
-                          color={esActivo ? colors.primary : "#4b5563"}
-                          style={{ marginRight: 12, width: 24, textAlign: "center" }}
-                        />
-                        <Text style={[styles.modalItemText, esActivo && styles.modalItemTextActive]}>
-                          {item.Nombre}
-                        </Text>
-                      </View>
-                      {esActivo && <FontAwesome6 name="check" size={14} color={colors.primary} />}
-                    </TouchableOpacity>
-                  );
-                }}
-              />
-            )}
+        <SheetOverlay visible={modalCategoriaVisible} onClose={() => setModalCategoriaVisible(false)}>
+          <View style={styles.modalHeader}>
+            <Text style={styles.modalTitle}>Seleccionar Categoría</Text>
+            <TouchableOpacity onPress={() => setModalCategoriaVisible(false)} hitSlop={10}>
+              <FontAwesome6 name="xmark" size={20} color={colors.textMuted} />
+            </TouchableOpacity>
           </View>
-        </View>
-      </Modal>
-    </>
+          {loadingCategorias ? (
+            <View style={{ padding: 40, alignItems: "center" }}>
+              <ActivityIndicator size="large" color={colors.primary} />
+            </View>
+          ) : (
+            <FlatList
+              data={categorias}
+              keyExtractor={(item) => item.IdCategoriaChecklist.toString()}
+              contentContainerStyle={styles.listaCategorias}
+              ListEmptyComponent={
+                <Text style={styles.sinCategorias}>No hay categorías disponibles.</Text>
+              }
+              renderItem={({ item, index }) => {
+                const iconoName = ICONOS_CATEGORIAS[item.Nombre] || "tags";
+                const esActivo = categoria === item.IdCategoriaChecklist;
+                const esElUltimo = index === categorias.length - 1;
+
+                return (
+                  <TouchableOpacity
+                    style={[styles.modalItem, esActivo && styles.modalItemActive, esElUltimo && { borderBottomWidth: 0 }]}
+                    onPress={() => {
+                      setCategoria(item.IdCategoriaChecklist);
+                      limpiarError("categoria");
+                      setModalCategoriaVisible(false);
+                    }}
+                  >
+                    <View style={{ flexDirection: "row", alignItems: "center", flex: 1 }}>
+                      <FontAwesome6
+                        name={iconoName}
+                        size={16}
+                        color={esActivo ? colors.primary : "#4b5563"}
+                        style={{ marginRight: 12, width: 24, textAlign: "center" }}
+                      />
+                      <Text style={[styles.modalItemText, esActivo && styles.modalItemTextActive]}>
+                        {item.Nombre}
+                      </Text>
+                    </View>
+                    {esActivo && <FontAwesome6 name="check" size={14} color={colors.primary} />}
+                  </TouchableOpacity>
+                );
+              }}
+            />
+          )}
+        </SheetOverlay>
+      </View>
+    </Modal>
   );
 }
 
@@ -346,12 +410,29 @@ const styles = StyleSheet.create({
     backgroundColor: colors.overlayStrong || "rgba(9, 19, 45, 0.7)",
     justifyContent: "flex-end",
   },
+  mainKav: {
+    flex: 1,
+    justifyContent: "flex-end",
+  },
   sheet: {
     backgroundColor: colors.surface,
     borderTopLeftRadius: radii.xl || 24,
     borderTopRightRadius: radii.xl || 24,
-    padding: spacing.lg,
-    maxHeight: "90%",
+    paddingTop: spacing.sm,
+    paddingHorizontal: spacing.lg,
+    maxHeight: "92%",
+  },
+  grabber: {
+    alignSelf: "center",
+    width: 40,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: colors.border,
+    marginBottom: spacing.sm,
+  },
+  mainScroll: {
+    flexShrink: 1,
+    minHeight: 0,
   },
   headerRow: {
     flexDirection: "row",
@@ -451,19 +532,32 @@ const styles = StyleSheet.create({
     ...textStyles.body,
     color: colors.textPrimary,
   },
-  modalOverlay: {
-    flex: 1,
+  modalOverlayAbsolute: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
     backgroundColor: "rgba(0,0,0,0.4)",
-    justifyContent: "center",
-    alignItems: "center",
-    padding: 20,
+    justifyContent: "flex-end",
+    elevation: 999,
   },
-  modalContainer: {
+  bottomSheet: {
     backgroundColor: colors.surface,
-    width: "100%",
+    borderTopLeftRadius: radii.xl || 24,
+    borderTopRightRadius: radii.xl || 24,
+    paddingTop: spacing.sm,
+    paddingHorizontal: 20,
     maxHeight: "70%",
-    borderRadius: radii.lg,
-    padding: 20,
+  },
+  listaCategorias: {
+    paddingBottom: spacing.xl,
+  },
+  sinCategorias: {
+    ...textStyles.body,
+    color: colors.textMuted,
+    textAlign: "center",
+    paddingVertical: spacing.lg,
   },
   modalHeader: {
     flexDirection: "row",

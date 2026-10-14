@@ -1,5 +1,5 @@
 import React from "react";
-import { Alert } from "react-native";
+import { Alert, Keyboard } from "react-native";
 import { act, fireEvent, render, waitFor } from "@testing-library/react-native";
 
 import CrearChecklistScreen from "../screens/CreateChecklistScreen";
@@ -58,6 +58,13 @@ async function renderPantallaCargada(props = {}) {
     ).toBeTruthy()
   );
   return utils;
+}
+
+function contarModales(nodo) {
+  if (!nodo) return 0;
+  if (Array.isArray(nodo)) return nodo.reduce((total, hijo) => total + contarModales(hijo), 0);
+  if (typeof nodo !== "object") return 0;
+  return (nodo.type === "Modal" ? 1 : 0) + contarModales(nodo.children);
 }
 
 async function seleccionarCategoria(utils, nombre) {
@@ -174,5 +181,41 @@ describe("US - Gestionar checklist (CreateChecklistScreen)", () => {
     });
 
     expect(mockOnClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("abre el selector de categorías dentro del mismo modal (en iOS no se puede abrir un segundo Modal)", async () => {
+    const utils = await renderPantallaCargada();
+    const dismiss = jest.spyOn(Keyboard, "dismiss");
+
+    await press(utils, "Seleccioná una categoría");
+
+    expect(utils.getByText("Seleccionar Categoría")).toBeTruthy();
+    expect(contarModales(utils.toJSON())).toBe(1);
+    expect(dismiss).toHaveBeenCalled();
+    dismiss.mockRestore();
+  });
+
+  it("cierra el selector de categorías al tocar fuera de la hoja", async () => {
+    const utils = await renderPantallaCargada();
+
+    await press(utils, "Seleccioná una categoría");
+    await act(async () => {
+      fireEvent.press(utils.getByTestId("cerrar-selector-categoria"));
+    });
+
+    expect(utils.queryByText("Seleccionar Categoría")).toBeNull();
+  });
+
+  it("el título cierra el teclado con la tecla Listo", async () => {
+    const utils = await renderPantallaCargada();
+    const input = utils.getByPlaceholderText("Comprar vuelos de ida y vuelta");
+
+    expect(input.props.returnKeyType).toBe("done");
+    const dismiss = jest.spyOn(Keyboard, "dismiss");
+    await act(async () => {
+      fireEvent(input, "submitEditing");
+    });
+    expect(dismiss).toHaveBeenCalled();
+    dismiss.mockRestore();
   });
 });
