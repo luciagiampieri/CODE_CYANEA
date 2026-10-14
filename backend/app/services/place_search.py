@@ -1044,7 +1044,10 @@ def _calculate_popularity_score(rating: float | None, user_ratings_total: int | 
 
 
 async def obtener_detalles_lugar(place_id: str) -> Optional[Dict[str, Any]]:
-    """Consulta la API v1 (New) de Google Places para obtener nombre, estado y horarios."""
+    """Consulta la API v1 (New) de Google Places para obtener nombre, estado y horarios.
+
+    En la misma llamada se piden el sitio web (`websiteUri`) y los tipos del lugar,
+    que usa la recomendación de entradas y reservas sin volver a consultar Google."""
     if not settings.google_maps_api_key:
         return None
 
@@ -1053,7 +1056,10 @@ async def obtener_detalles_lugar(place_id: str) -> Optional[Dict[str, Any]]:
     
     headers = {
         "X-Goog-Api-Key": settings.google_maps_api_key,
-        "X-Goog-FieldMask": "id,displayName,businessStatus,currentOpeningHours,regularOpeningHours"
+        "X-Goog-FieldMask": (
+            "id,displayName,businessStatus,currentOpeningHours,regularOpeningHours,"
+            "websiteUri,types,primaryType"
+        )
     }
     params = {"languageCode": "es"}
 
@@ -1073,6 +1079,10 @@ async def obtener_detalles_lugar(place_id: str) -> Optional[Dict[str, Any]]:
             "opening_hours": regular_hours,
             # OPERATIONAL, CLOSED_TEMPORARILY (p. ej. reformas) o CLOSED_PERMANENTLY.
             "business_status": data.get("businessStatus"),
+            # Sitio web publicado en el perfil del lugar y su clasificación.
+            "website_uri": data.get("websiteUri"),
+            "types": data.get("types") or [],
+            "primary_type": data.get("primaryType"),
         }
     except Exception as e:
         print("🚨 Error al obtener detalles del lugar para horarios:", e)

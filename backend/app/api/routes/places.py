@@ -28,7 +28,9 @@ from app.schemas.place import (
     NearbyPlaceRead,
     NearbyPlacesResponse
 )
-from app.schemas.trip import ActividadRead, RutaDiariaRead
+from app.schemas.trip import ActividadRead, AdvertenciaHorario, RutaDiariaRead
+from app.services.activity_analysis_service import analizar_horario_actividad
+from app.services.entradas_ai import evaluar_entradas
 from app.services.place_search import get_place_details, search_popular_places, get_trip_allowed_regions, search_nearby_places, CATEGORY_TYPE_MAP, autocomplete_trip_places, resolve_trip_place
 from app.services.notifications import NotificationType, TripNotificationEvent, dispatch_trip_notification
 from app.services.route_generation import sincronizar_ruta_tras_cambio_actividad
@@ -561,16 +563,25 @@ def create_trip_place(
 
 @router.post(
     "/trips/{trip_id}/places/{trip_place_id}/schedule",
-    response_model=ActividadRead,
+    response_model=ActividadRead | AdvertenciaHorario,
     status_code=status.HTTP_201_CREATED,
 )
 async def schedule_trip_place(
     trip_id: int,
     trip_place_id: int,
     payload: TripPlaceScheduleCreate,
+    ignorar_advertencia: bool = Query(False),
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
-) -> ActividadRead:
+) -> ActividadRead | AdvertenciaHorario:
+    # Mismas reglas que al registrar una actividad desde el itinerario.
+    from app.api.routes.trips import (
+        _destinos_contexto,
+        _evaluar_entradas_actividad,
+        _recomendacion_read,
+        _respuesta_advertencia,
+    )
+
     viaje = require_trip_edit_access(get_trip_with_relations(db, trip_id), current_user)
     require_trip_not_finished(viaje, "el itinerario")
     _ensure_trip_days(db, trip_id)
@@ -621,6 +632,25 @@ async def schedule_trip_place(
             detail="La hora de fin debe ser posterior a la hora de inicio",
         )
 
+    # Validación de horarios (US 98) y recomendación de entradas o reservas, con el
+    # lugar guardado como ubicación de la actividad.
+    contexto_lugar: dict = {}
+    analisis = await analizar_horario_actividad(
+        db=db,
+        nombre_actividad=payload.nombre,
+        fecha=day.Fecha,
+        hora_inicio=hora_inicio,
+        hora_fin=hora_fin,
+        id_lugar_interes=trip_place.IdLugarInteres,
+        ignorar_advertencia=ignorar_advertencia,
+        destinos=_destinos_contexto(viaje),
+        contexto_lugar=contexto_lugar,
+    )
+    if analisis.get("advertencia"):
+        return _respuesta_advertencia(analisis, await evaluar_entradas(None, contexto_lugar))
+
+    entradas = await _evaluar_entradas_actividad(None, contexto_lugar, payload, ignorar_advertencia)
+
     activity = ActividadItinerario(
         IdDiaCronograma=day.IdDiaCronograma,
         IdLugarInteresViaje=trip_place.IdLugarInteresViaje,
@@ -629,7 +659,12 @@ async def schedule_trip_place(
         HoraInicio=hora_inicio,
         HoraFin=hora_fin,
         Icono=payload.icono,
+        GooglePlaceIdEntradas=entradas.place_id_guardado,
     )
+    # El usuario vio la advertencia y registró igual: queda marcada en el itinerario.
+    if ignorar_advertencia and payload.advertenciaHorario is not None:
+        activity.TipoAdvertenciaHorario = payload.advertenciaHorario.tipo
+        activity.AdvertenciaHorario = payload.advertenciaHorario.resumen.strip()
     db.add(activity)
     db.commit()
     db.refresh(activity)
@@ -643,6 +678,11 @@ async def schedule_trip_place(
             "actividad": result.model_dump(by_alias=True),
         },
     )
+
+    # Solo para quien registra (no se difunde): aviso de horario no verificable y
+    # recomendación de entradas o reservas.
+    result.avisoHorario = analisis.get("aviso")
+    result.recomendacionEntradas = _recomendacion_read(entradas)
 
     await _sincronizar_y_notificar_ruta(db, day, trip_id)
     await dispatch_trip_notification(

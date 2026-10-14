@@ -50,6 +50,7 @@ import {
 } from "../services/api";
 import { colors, radii, shadows, spacing, textStyles } from "../theme/tokens";
 import { getTripLock } from "../utils/tripLock";
+import { recomendacionDeRespuesta } from "../utils/recomendacionEntradas";
 
 // Altura aproximada de buscador + chips; el mapa la usa como padding superior.
 const TOP_OVERLAY_HEIGHT = 124;
@@ -625,14 +626,19 @@ export default function ExplorePlacesScreen({ navigation, route }) {
     if (saved?.kind === "savedPlace") setScheduleTarget(saved);
   }
 
-  async function handleSchedulePlace(payload) {
-    if (!scheduleTarget?.id) return;
+  // Devuelve la respuesta del backend: si trae una advertencia de horario, el
+  // formulario la muestra y no se cierra; si trae una recomendación de entradas o
+  // reservas, el formulario la muestra con la confirmación (sin toast duplicado).
+  async function handleSchedulePlace(payload, options = {}) {
+    if (!scheduleTarget?.id) return null;
     const targetId = scheduleTarget.id;
     setSchedulingPlace(true);
     try {
-      await scheduleTripPlace(tripId, targetId, payload);
+      const resultado = await scheduleTripPlace(tripId, targetId, payload, options);
+      if (resultado?.advertencia === true) return resultado;
+      const conRecomendacion = Boolean(recomendacionDeRespuesta(resultado) || options.recomendacionPrevia);
       setScheduleTarget(null);
-      showToast("Agregado al itinerario");
+      if (!conRecomendacion) showToast("Agregado al itinerario");
       const updatedPlaces = await loadExploreData({ silent: true });
       const updated = updatedPlaces.find((item) => item.id === targetId);
       if (updated) {
@@ -640,6 +646,7 @@ export default function ExplorePlacesScreen({ navigation, route }) {
           current && current.id === targetId ? { ...updated, kind: "savedPlace" } : current
         );
       }
+      return resultado;
     } finally {
       setSchedulingPlace(false);
     }

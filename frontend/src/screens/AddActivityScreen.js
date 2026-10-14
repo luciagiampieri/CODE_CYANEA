@@ -31,6 +31,11 @@ import ScreenContainer from "../components/layout/ScreenContainer";
 import SearchPickerHeader, { SEARCH_PICKER_EDGES } from "../components/ui/SearchPickerHeader";
 
 import { appAlert } from "../components/ui/AppDialog";
+import { recomendacionDeRespuesta } from "../utils/recomendacionEntradas";
+import {
+    mostrarAdvertenciaHorario as mostrarAdvertenciaHorarioActividad,
+    mostrarRecomendacionEntradas,
+} from "../utils/dialogosActividad";
 
 // Mismo celeste suave que el buscador de destinos.
 const COLOR_SOFT = colors.primarySoft ? `${colors.primarySoft}33` : "#eef2ff";
@@ -368,75 +373,32 @@ export default function AddActivityScreen({
         await enviarActividad();
     }
     
-    // Tipos que devuelve el backend: fuera_de_horario | cerrado_dia |
-    // cerrado_temporalmente | cerrado_permanentemente.
-    function construirMensajeAdvertencia(datos) {
-        const lugar = datos.nombreLugar || `el lugar de ${datos.nombreActividad}`;
-        const cierre = activityToEdit
-            ? "Podés modificar la actividad o guardarla igualmente."
-            : "Podés modificar la actividad o registrarla igualmente.";
-
-        if (
-            datos.tipo === "cerrado_dia" ||
-            datos.tipo === "cerrado_temporalmente" ||
-            datos.tipo === "cerrado_permanentemente"
-        ) {
-            // El backend ya arma el texto completo (cuándo reabre, reformas, etc.).
-            return `${datos.mensaje || `Detectamos que ${lugar} está cerrado.`}\n\n${cierre}`;
-        }
-
-        let mensaje = `Detectamos que ${lugar} no se encuentra abierto durante el horario seleccionado.`;
-
-        if (datos.horariosApertura) {
-            mensaje += `\n\nHorario del establecimiento: ${datos.horariosApertura.replace(/ - /g, " a ")}`;
-        } else if (datos.mensaje) {
-            mensaje += `\n\n${datos.mensaje}`;
-        }
-
-        mensaje += `\nHorario de tu actividad: ${datos.horarioActividad}`;
-        mensaje += `\n\n${
-            activityToEdit
-                ? "Podés modificar el horario de la actividad o guardarla igualmente."
-                : "Podés modificar el horario de la actividad o registrarla igualmente."
-        }`;
-        return mensaje;
-    }
-
-    function tituloAdvertencia(tipo) {
-        if (tipo === "cerrado_dia") return "El lugar está cerrado ese día";
-        if (tipo === "cerrado_temporalmente") return "El lugar está cerrado temporalmente";
-        if (tipo === "cerrado_permanentemente") return "El lugar cerró definitivamente";
-        return "Revisá el horario de tu actividad";
-    }
-
     function mostrarAdvertenciaHorario(datos) {
-        const titulo = tituloAdvertencia(datos.tipo);
-        const mensaje = construirMensajeAdvertencia(datos);
-        const textoConfirmar = activityToEdit ? "Guardar igual" : "Registrar igual";
-        const esFueraDeHorario = datos.tipo === "fuera_de_horario" || !datos.tipo;
-        const textoModificar = esFueraDeHorario ? "Modificar horario" : "Modificar actividad";
-        const accionModificarWeb = esFueraDeHorario ? "modificar el horario" : "modificar la actividad";
         // Se reenvía al confirmar para que la advertencia quede marcada en el itinerario.
         const advertenciaHorario = datos.tipo && datos.resumen
             ? { tipo: datos.tipo, resumen: datos.resumen }
             : null;
-        const confirmar = () => enviarActividad({ ignorarAdvertencia: true, advertenciaHorario });
-
-        if (Platform.OS === "web") {
-            const confirmado = window.confirm(
-                `${titulo}\n\n${mensaje}\n\nAceptar: ${textoConfirmar.toLowerCase()}. Cancelar: ${accionModificarWeb}.`
-            );
-            if (confirmado) confirmar();
-            return;
-        }
-
-        appAlert(titulo, mensaje, [
-            { text: textoModificar, style: "cancel" },
-            { text: textoConfirmar, onPress: confirmar },
-        ]);
+        // La recomendación de entradas/reservas llegó con la advertencia: al confirmar el
+        // backend no vuelve a analizar el lugar, así que se muestra esta y se reenvía el
+        // lugar analizado para que no se repita en próximas ediciones.
+        mostrarAdvertenciaHorarioActividad(datos, {
+            esEdicion: Boolean(activityToEdit),
+            onConfirmar: () =>
+                enviarActividad({
+                    ignorarAdvertencia: true,
+                    advertenciaHorario,
+                    googlePlaceIdEntradas: datos.googlePlaceIdEntradas ?? null,
+                    recomendacionPrevia: datos.recomendacion ?? null,
+                }),
+        });
     }
 
-    async function enviarActividad({ ignorarAdvertencia = false, advertenciaHorario = null } = {}) {
+    async function enviarActividad({
+        ignorarAdvertencia = false,
+        advertenciaHorario = null,
+        googlePlaceIdEntradas = null,
+        recomendacionPrevia = null,
+    } = {}) {
         if (submittingRef.current) return;
         submittingRef.current = true;
 
@@ -460,6 +422,7 @@ export default function AddActivityScreen({
                     icono,
                     idLugarInteres: ubicacion?.id || null,
                     ...(ignorarAdvertencia && advertenciaHorario ? { advertenciaHorario } : {}),
+                    ...(ignorarAdvertencia && googlePlaceIdEntradas ? { googlePlaceIdEntradas } : {}),
                 },
                 { ignorarAdvertencia }
             );
@@ -477,6 +440,8 @@ export default function AddActivityScreen({
                     nombreLugar: resultado.nombreLugar ?? ubicacion?.name ?? "",
                     nombreActividad: nombre.trim(),
                     horarioActividad: `${horaInicio} a ${horaFin}`,
+                    googlePlaceIdEntradas: resultado.googlePlaceIdEntradas ?? null,
+                    recomendacion: recomendacionDeRespuesta(resultado),
                 });
                 return;
             }
@@ -484,6 +449,16 @@ export default function AddActivityScreen({
             const mensajeExito = activityToEdit
                 ? "Actividad editada correctamente."
                 : "Actividad registrada correctamente.";
+
+            // Si el sitio oficial confirmó que conviene reservar o comprar entradas, se
+            // informa en el mismo diálogo de confirmación. No bloquea: la actividad ya
+            // quedó guardada y el diálogo solo ofrece el enlace oficial y "Entendido".
+            const recomendacionFinal =
+                recomendacionDeRespuesta(resultado) || (ignorarAdvertencia ? recomendacionPrevia : null);
+            if (recomendacionFinal) {
+                mostrarRecomendacionEntradas(recomendacionFinal, { mensajeExito, onCerrar: resetAndClose });
+                return;
+            }
 
             mostrarAlertaConfirmacion("Éxito", mensajeExito, () => {
                 resetAndClose();

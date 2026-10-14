@@ -66,6 +66,7 @@ class ActividadItinerario(Base):
         ),
         nullable=True,
     )
+    GooglePlaceIdEntradas: Mapped[str | None] = mapped_column(String(255), nullable=True)
     FechaCreacion: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),

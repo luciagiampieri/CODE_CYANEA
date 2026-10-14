@@ -1,6 +1,7 @@
 from datetime import date
 
 from pydantic import BaseModel, Field
+from app.schemas.advertencia import AdvertenciaHorarioAceptada
 
 
 class TripPlaceDayRead(BaseModel):
@@ -100,6 +101,10 @@ class TripPlaceScheduleCreate(BaseModel):
     horaInicio: str
     horaFin: str
     icono: str = Field(default="location-dot", max_length=50)
+    # Igual que al registrar una actividad (US 98 y entradas/reservas): advertencia de
+    # horario confirmada y lugar ya analizado, reenviados con `ignorar_advertencia=true`.
+    advertenciaHorario: AdvertenciaHorarioAceptada | None = None
+    googlePlaceIdEntradas: str | None = Field(default=None, max_length=255)
 
 
 class NearbyPlaceRead(BaseModel):
