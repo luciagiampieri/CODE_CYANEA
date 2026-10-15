@@ -82,7 +82,6 @@ import {
   deleteChecklist,
   toggleChecklistCompletada,
   getActivitySuggestions,
-  elegirGanadoraEmpate,
 } from "../services/api";
 import { colors, radii, spacing, surfaces, textStyles } from "../theme/tokens";
 
@@ -110,12 +109,12 @@ import { getTripLock } from "../utils/tripLock";
 import { getRouteHint } from "../utils/routeMessages";
 import { formatMoney } from "../utils/money";
 import { centerInScroll } from "../utils/scrollHelpers";
-import ActivitySuggestionsScreen from "./ActivitySuggestionsScreen";
-import DaySuggestionsSection from "../components/trip/DaySuggestionsSection";
-import DayRouteSection from "../components/trip/DayRouteSection";
-import TripAssistantButton from "../components/assistant/TripAssistantButton"; 
+import ActivitySuggestionsScreen from "./ActivitySuggestionsScreen"; // SUGERENCIAS
+import DaySuggestionsSection from "../components/trip/DaySuggestionsSection"; // SUGERENCIAS (US 90)
+import TripAssistantButton from "../components/assistant/TripAssistantButton"; // SUGERENCIAS
 
 import { appAlert } from "../components/ui/AppDialog";
+import { avisoTareasAlEliminar } from "../utils/dialogosActividad";
 
 const tabs = [
   { id: "resumen", label: "Resumen", icon: "chart-pie" },
@@ -431,7 +430,8 @@ export default function TripDetailScreen({ navigation, route }) {
     setSugerenciasFranja(null);
   }
 
-
+  // US 90: votación creada a partir de sugerencias. Se suma al listado de
+  // votaciones y se recargan las sugerencias (ahora "En votación").
   function handleVotacionDesdeSugerencias(votacion) {
     if (votacion) {
       setVotacionesActivas((prev) => [
@@ -440,40 +440,6 @@ export default function TripDetailScreen({ navigation, route }) {
       ]);
     }
     cargarSugerencias();
-  }
-
-  const [eligiendoGanadoraId, setEligiendoGanadoraId] = useState(null);
-
-  function elegirGanadora(votacion, propuesta) {
-    confirmar(
-      "Agregar al itinerario",
-      `¿Querés agregar "${propuesta.Texto}" al itinerario? Las demás propuestas se van a descartar.`,
-      async () => {
-        try {
-          setEligiendoGanadoraId(votacion.IdVotacion);
-          const actualizada = await elegirGanadoraEmpate(
-            votacion.IdVotacion,
-            propuesta.IdPropuesta
-          );
-          setVotacionesActivas((prev) =>
-            prev.map((v) =>
-              v.IdVotacion === votacion.IdVotacion ? { ...v, ...actualizada } : v
-            )
-          );
-          cargarSugerencias();
-          loadTripDetail();
-          avisar("¡Listo!", "La actividad se agregó al itinerario.");
-        } catch (error) {
-          avisar(
-            "No se pudo agregar",
-            error.message || "Ocurrió un error al elegir la propuesta ganadora."
-          );
-          loadVotaciones();
-        } finally {
-          setEligiendoGanadoraId(null);
-        }
-      }
-    );
   }
 
   const [comprobanteViendo, setComprobanteViendo] = useState(null);
@@ -1362,6 +1328,8 @@ export default function TripDetailScreen({ navigation, route }) {
           // Advertencia de horario aceptada al registrar/editar (se marca en el itinerario).
           tipoAdvertenciaHorario: act.tipoAdvertenciaHorario ?? act.TipoAdvertenciaHorario ?? null,
           advertenciaHorario: act.advertenciaHorario ?? act.AdvertenciaHorario ?? null,
+          // Tareas pendientes de "Recordármelo": se avisa que se eliminan con la actividad.
+          tareasEntradasPendientes: act.tareasEntradasPendientes ?? act.TareasEntradasPendientes ?? [],
         };
       });
       const actividades = day.items ?? actividadesBackend;
@@ -1751,7 +1719,8 @@ export default function TripDetailScreen({ navigation, route }) {
     let resultado;
     if (payload.id) {
       resultado = await updateActivity(trip.id, activityModalDay.id, payload.id, payload, options);
-      if (resultado?.advertencia) return resultado;
+      // Advertencia de horario o confirmación de eliminar tareas: todavía no se guardó.
+      if (resultado?.advertencia || resultado?.confirmarTareasEntradas) return resultado;
       finalizarEdicionActividad(payload.id);
     } else {
       resultado = await createActivity(trip.id, activityModalDay.id, payload, options);
@@ -1941,46 +1910,68 @@ export default function TripDetailScreen({ navigation, route }) {
     }
   }
 
-  function handleDeleteActivity(dayId, activityId, activityTitle) {
+  // Si la actividad tiene tareas pendientes de "Recordármelo", el mismo aviso dice
+  // que también se eliminan del checklist (las ya hechas se conservan).
+  function handleDeleteActivity(dayId, activityId, activityTitle, tareasPendientes = []) {
     if (!lock.canEdit("itinerario")) return;
+    confirmarBorradoActividad(dayId, activityId, activityTitle, tareasPendientes);
+  }
 
+  function confirmarBorradoActividad(dayId, activityId, activityTitle, tareasPendientes = []) {
+    const conTareas = Array.isArray(tareasPendientes) && tareasPendientes.length > 0;
+    const mensaje =
+      `Se va a eliminar "${activityTitle}" del itinerario.` +
+      avisoTareasAlEliminar(tareasPendientes) +
+      " Esta acción no se puede deshacer.";
+    const eliminar = () =>
+      ejecutarBorradoActividad(dayId, activityId, activityTitle, { confirmarEliminarTareas: conTareas });
+
+    // Usamos el mismo estilo de alerta de confirmación que en documentos
     if (Platform.OS === "web") {
-      if (window.confirm(`¿Eliminar actividad?\n\nSe va a eliminar "${activityTitle}" del itinerario. Esta acción no se puede deshacer.`)) {
-        ejecutarBorradoActividad(dayId, activityId, activityTitle);
+      if (window.confirm(`¿Eliminar actividad?\n\n${mensaje}`)) {
+        eliminar();
       }
     } else {
       appAlert(
         "¿Eliminar actividad?",
-        `Se va a eliminar "${activityTitle}" del itinerario. Esta acción no se puede deshacer.`,
+        mensaje,
         [
           { text: "Cancelar", style: "cancel" },
           {
             text: "Eliminar",
             style: "destructive",
-            onPress: () => ejecutarBorradoActividad(dayId, activityId, activityTitle)
+            onPress: eliminar,
           }
         ]
       );
     }
   }
 
-  async function ejecutarBorradoActividad(dayId, activityId, title) {
+  async function ejecutarBorradoActividad(dayId, activityId, title, opciones = {}) {
     try {
-      await deleteActivity(trip.id, dayId, activityId);
+      await deleteActivity(trip.id, dayId, activityId, opciones);
       await loadTripDetail();
       mostrarAlertaConfirmacion("Éxito", `"${title}" se eliminó correctamente.`);
     } catch (error) {
+      // Alguien agregó una tarea de "Recordármelo" después de cargar el itinerario:
+      // se vuelve a preguntar mostrando qué tarea se elimina.
+      if (error?.detalle?.codigo === "confirmar_tareas_entradas") {
+        confirmarBorradoActividad(dayId, activityId, title, error.detalle.tareas);
+        return;
+      }
       mostrarAlertaConfirmacion("Error", error.message || "Ocurrió un problema al intentar eliminar la actividad.");
     }
   }
 
   async function handleConfirmDeleteActivity() {
     if (!trip?.id || !lock.canEdit("itinerario") || !activityToDelete) return;
-    const { dayId, activityId, title } = activityToDelete;
+    const { dayId, activityId, title, tareasEntradasPendientes } = activityToDelete;
     setActivityToDelete(null);
 
     try {
-      await deleteActivity(trip.id, dayId, activityId);
+      await deleteActivity(trip.id, dayId, activityId, {
+        confirmarEliminarTareas: (tareasEntradasPendientes || []).length > 0,
+      });
       await loadTripDetail();
 
       // Mensaje de éxito unificado con el estilo exacto de documentos
@@ -2542,7 +2533,12 @@ export default function TripDetailScreen({ navigation, route }) {
                             };
                           }}
                           onDelete={(item) =>
-                            handleDeleteActivity(dayId, item.id, item.title ?? item.Titulo)
+                            handleDeleteActivity(
+                              dayId,
+                              item.id,
+                              item.title ?? item.Titulo,
+                              item.tareasEntradasPendientes
+                            )
                           }
                           onSuggestGap={
                             puedeSugerirEnDia
@@ -2552,6 +2548,7 @@ export default function TripDetailScreen({ navigation, route }) {
                           }
                         />
 
+                        {/* SUGERENCIAS (US 87) + proponer a votación (US 90) */}
                         <DaySuggestionsSection
                           tripId={trip?.id}
                           dia={day}
@@ -2561,19 +2558,154 @@ export default function TripDetailScreen({ navigation, route }) {
                           onIrAVotar={() => setActiveTab("votar")}
                         />
 
-                        <DayRouteSection
-                          dayId={dayId}
-                          actividades={actividades}
-                          ruta={ruta}
-                          canEdit={lock.canEdit("itinerario")}
-                          modoSeleccionado={resolverModoDelDia(dayId, ruta)}
-                          generando={generandoRutaDayId === dayId}
-                          onCambiarModo={(modo) =>
-                            setModoTransporteDayId((current) => ({ ...current, [dayId]: modo }))
-                          }
-                          onGenerar={(modo) => handleGenerarRuta(dayId, modo)}
-                          onVerMapa={setMapaModalData}
-                        />
+                        {(() => {
+                          const actividadesConUbicacion = actividades.filter(
+                            (item) => item.idLugarInteres || item.lugarInteres
+                          );
+                          const puedeGenerarRuta = actividadesConUbicacion.length >= 2;
+                          const generando = generandoRutaDayId === dayId;
+                          const routeMarkers = buildRouteMarkers(actividades, ruta);
+                          const modoSeleccionado = resolverModoDelDia(dayId, ruta);
+                          const routeHint = getRouteHint({
+                            hasRoute: Boolean(ruta),
+                            activitiesWithLocation: actividadesConUbicacion.length,
+                            canEdit: lock.canEdit("itinerario"),
+                          });
+                          const puedeEditarRuta = puedeGenerarRuta && lock.canEdit("itinerario");
+                          // El botón se pinta de azul cuando hay que generar o cuando el modo
+                          // elegido no coincide con la ruta guardada (hay que regenerar).
+                          const destacarAccion = !ruta || modoSeleccionado !== ruta.modo;
+                          const mostrarCabecera = Boolean(ruta) || puedeEditarRuta;
+
+                          if (!mostrarCabecera && !routeHint) return null;
+
+                          return (
+                            <View style={styles.routeSection}>
+                              {mostrarCabecera ? (
+                                <View style={styles.routeHeaderRow}>
+                                  <View style={styles.routeHeaderLeft}>
+                                    <FontAwesome6
+                                      color={colors.textSecondary}
+                                      name="route"
+                                      size={12}
+                                    />
+                                    <Text style={styles.routeHeaderText}>
+                                      {ruta
+                                        ? `Ruta · ${(ruta.distanciaMetros / 1000).toFixed(1)} km · ${Math.round(
+                                            ruta.duracionSegundos / 60
+                                          )} min`
+                                        : "Ruta del día"}
+                                    </Text>
+                                  </View>
+                                  {ruta?.polilineaCodificada ? (
+                                    <Pressable
+                                      accessibilityRole="button"
+                                      hitSlop={8}
+                                      onPress={() =>
+                                        setMapaModalData({
+                                          dayId,
+                                          ruta,
+                                          routeMarkers,
+                                          actividadesConUbicacion,
+                                        })
+                                      }
+                                      style={styles.routeMapToggle}
+                                    >
+                                      <FontAwesome6
+                                        color={colors.primary}
+                                        name="map-location-dot"
+                                        size={12}
+                                      />
+                                      <Text style={styles.routeMapToggleText}>Ver mapa</Text>
+                                    </Pressable>
+                                  ) : null}
+                                </View>
+                              ) : null}
+
+                              {routeHint ? (
+                                <Text style={styles.routeHint}>{routeHint}</Text>
+                              ) : null}
+
+                              {puedeEditarRuta ? (
+                                <View style={styles.routeControls}>
+                                  <View style={styles.segmented}>
+                                    {MODOS_RUTA.map((modo) => {
+                                      const active = modo.valor === modoSeleccionado;
+                                      return (
+                                        <Pressable
+                                          key={modo.valor}
+                                          accessibilityRole="button"
+                                          accessibilityState={{ selected: active, disabled: generando }}
+                                          disabled={generando}
+                                          onPress={() =>
+                                            setModoTransporteDayId((current) => ({
+                                              ...current,
+                                              [dayId]: modo.valor,
+                                            }))
+                                          }
+                                          style={[
+                                            styles.segmentItem,
+                                            active && styles.segmentItemActive,
+                                          ]}
+                                        >
+                                          <FontAwesome6
+                                            color={active ? colors.textInverse : colors.primary}
+                                            name={modo.icono}
+                                            size={11}
+                                          />
+                                          <Text
+                                            style={[
+                                              styles.segmentText,
+                                              active && styles.segmentTextActive,
+                                            ]}
+                                          >
+                                            {modo.label}
+                                          </Text>
+                                        </Pressable>
+                                      );
+                                    })}
+                                  </View>
+
+                                  <Pressable
+                                    accessibilityRole="button"
+                                    accessibilityLabel={ruta ? "Regenerar ruta" : "Generar ruta"}
+                                    disabled={generando}
+                                    onPress={() => handleGenerarRuta(dayId, modoSeleccionado)}
+                                    style={[
+                                      styles.routeAction,
+                                      destacarAccion && styles.routeActionDestacada,
+                                      generando && styles.routeActionDisabled,
+                                    ]}
+                                    testID={`route-action-${dayId}`}
+                                  >
+                                    {generando ? (
+                                      <ActivityIndicator
+                                        color={destacarAccion ? colors.textInverse : colors.primary}
+                                        size="small"
+                                      />
+                                    ) : (
+                                      <FontAwesome6
+                                        color={destacarAccion ? colors.textInverse : colors.primary}
+                                        name={ruta ? "arrows-rotate" : "route"}
+                                        size={13}
+                                      />
+                                    )}
+                                    {!ruta && !generando ? (
+                                      <Text
+                                        style={[
+                                          styles.routeActionText,
+                                          styles.routeActionTextDestacada,
+                                        ]}
+                                      >
+                                        Generar
+                                      </Text>
+                                    ) : null}
+                                  </Pressable>
+                                </View>
+                              ) : null}
+                            </View>
+                          );
+                        })()}
                       </View>
                     ) : null}
                   </View>
@@ -2592,13 +2724,6 @@ export default function TripDetailScreen({ navigation, route }) {
           {activeTab === "itinerario" && itinerarioView === "calendario" ? (
             <ItinerarioCalendarView
               dias={itinerarioDias}
-              tripId={trip?.id}
-              canPropose={lock.canEdit("votaciones")}
-              resolverModo={resolverModoDelDia}
-              onCambiarModo={(dayId, modo) =>
-                setModoTransporteDayId((current) => ({ ...current, [dayId]: modo }))
-              }
-              onVerMapa={setMapaModalData}
               generandoRutaDayId={generandoRutaDayId}
               onGenerarRuta={lock.canEdit("itinerario") ? handleGenerarRuta : undefined}
               onSuggestGap={
@@ -2620,7 +2745,12 @@ export default function TripDetailScreen({ navigation, route }) {
               onDeleteActivity={
                 lock.canEdit("itinerario")
                   ? (day, actividad) =>
-                      handleDeleteActivity(day.dayId, actividad.id, actividad.title)
+                      handleDeleteActivity(
+                        day.dayId,
+                        actividad.id,
+                        actividad.title,
+                        actividad.tareasEntradasPendientes
+                      )
                   : undefined
               }
               onEditActivity={
@@ -3169,10 +3299,6 @@ export default function TripDetailScreen({ navigation, route }) {
                               mostrarGanador={esCerrada}
                               totalParticipantes={participantItems.length}
                               titulo={votacion.Titulo}
-                              votacion={votacion}
-                              puedeDesempatar={Boolean(esCreador) && lock.canEdit("votaciones")}
-                              eligiendo={eligiendoGanadoraId === votacion.IdVotacion}
-                              onElegirGanadora={(propuesta) => elegirGanadora(votacion, propuesta)}
                             />
                           );
                         })()

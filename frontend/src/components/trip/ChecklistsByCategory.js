@@ -8,12 +8,14 @@ import {
     ActivityIndicator,
     TextInput,
     Keyboard,
+    Linking,
 } from "react-native";
 import Modal from "../ui/AppModal";
 import { FontAwesome6 } from "@expo/vector-icons";
 
 import { colors, radii, spacing, surfaces, textStyles } from "../../theme/tokens";
 import { centerInScroll } from "../../utils/scrollHelpers";
+import { dominioDe, urlSegura } from "../../utils/recomendacionEntradas";
 
 export const ID_TODAS = "TODAS";
 
@@ -42,6 +44,7 @@ const ICONOS_CATEGORIAS_CHECKLIST = {
     "Seguros": "shield-halved",
     "Finanzas": "money-bill-transfer",
     "Comida": "utensils",
+    "Reservas y entradas": "ticket",
     "Otros": "list-check",
 };
 
@@ -726,6 +729,34 @@ function SeccionCategoria({
     );
 }
 
+// Enlace oficial para comprar entradas o reservar (tareas creadas con "Recordármelo").
+function EnlaceTarea({ url, idChecklist }) {
+    const segura = urlSegura(url);
+    if (!segura) return null;
+    const abrir = async () => {
+        try {
+            await Linking.openURL(segura);
+        } catch {
+            // Sin navegador disponible no hay nada más que hacer.
+        }
+    };
+    return (
+        <Pressable
+            testID={`enlace-checklist-${idChecklist}`}
+            onPress={abrir}
+            accessibilityRole="link"
+            accessibilityLabel={`Abrir ${dominioDe(segura) || "el enlace oficial"}`}
+            hitSlop={6}
+            style={({ pressed }) => [styles.enlaceTarea, pressed && { opacity: 0.6 }]}
+        >
+            <FontAwesome6 name="arrow-up-right-from-square" size={11} color={colors.primary} />
+            <Text style={styles.enlaceTareaTexto} numberOfLines={1}>
+                {dominioDe(segura) || "Abrir enlace"}
+            </Text>
+        </Pressable>
+    );
+}
+
 function ChecklistCard({ tarea, onEditar, onEliminar, onToggle, puedeCompletar, eliminando, tripHasLeft }) {
     const esCompletada = !!tarea.Completada;
     
@@ -747,10 +778,11 @@ function ChecklistCard({ tarea, onEditar, onEliminar, onToggle, puedeCompletar, 
                 <View style={{ flex: 1 }}>
                     <Text
                         style={[styles.cardNombre, { fontSize: 16 }, esCompletada && styles.cardNombreCompletada]}
-                        numberOfLines={1}
+                        numberOfLines={2}
                     >
                         {tarea.Nombre}
                     </Text>
+                    <EnlaceTarea url={tarea.Enlace} idChecklist={tarea.IdChecklist} />
                     {tarea.Responsables?.length > 0 && (
                         <Text style={[styles.cardMeta, { fontSize: 12, marginTop: 2 }]} numberOfLines={1}>
                             Asignada a: {tarea.Responsables.map((r) => r.NombreCompleto.split(" ")[0]).join(", ")}
@@ -1156,6 +1188,20 @@ const styles = StyleSheet.create({
         ...textStyles.meta,
         color: colors.textSecondary,
         marginTop: 2,
+    },
+    enlaceTarea: {
+        flexDirection: "row",
+        alignItems: "center",
+        alignSelf: "flex-start",
+        gap: 6,
+        marginTop: 4,
+        paddingVertical: 2,
+    },
+    enlaceTareaTexto: {
+        ...textStyles.meta,
+        color: colors.primary,
+        fontWeight: "700",
+        textDecorationLine: "underline",
     },
     emptyState: {
         alignItems: "center",

@@ -19,15 +19,15 @@ export const TIPOS_RECOMENDACION = [
 
 const TITULOS = {
   RESERVA: "Reservá antes de ir",
-  ENTRADAS_ANTICIPADAS: "Comprá las entradas antes",
+  ENTRADAS_ANTICIPADAS: "Comprá tus entradas antes",
   ENTRADAS_PRESENCIALES: "Entradas en boletería",
-  RESERVA_DISPONIBLE: "Podés reservar",
+  RESERVA_DISPONIBLE: "Podés reservar tu lugar",
 };
 
 const ICONOS = {
   RESERVA: "calendar-check",
   ENTRADAS_ANTICIPADAS: "ticket",
-  ENTRADAS_PRESENCIALES: "clock",
+  ENTRADAS_PRESENCIALES: "ticket",
   RESERVA_DISPONIBLE: "calendar-plus",
 };
 
@@ -99,7 +99,7 @@ export function accionPrincipal(recomendacion) {
       texto: `Reservar en ${recomendacion.plataformaReserva}`,
       url: recomendacion.urlReservaExterna,
       externa: true,
-      aclaracion: "Plataforma externa enlazada desde el sitio oficial",
+      aclaracion: `La reserva se hace en ${recomendacion.plataformaReserva}, enlazada desde su sitio oficial`,
     };
   }
   if (recomendacion.urlAccion) {
@@ -111,6 +111,14 @@ export function accionPrincipal(recomendacion) {
   return null;
 }
 
+// "Recordármelo" se ofrece cuando hay algo que hacer antes de ir: reservar (sea
+// obligatorio, recomendado o solo posible) o comprar las entradas por anticipado.
+// Comprar en boletería no tiene nada para recordar.
+export function ofreceRecordatorio(recomendacion) {
+  return Boolean(recomendacion) && TIPOS_RECOMENDACION.includes(recomendacion.tipo) &&
+    recomendacion.tipo !== "ENTRADAS_PRESENCIALES";
+}
+
 // El sitio oficial como enlace secundario, si no es ya la acción principal.
 export function enlaceSitioOficial(recomendacion) {
   const url = recomendacion?.urlSitioOficial;
@@ -120,12 +128,12 @@ export function enlaceSitioOficial(recomendacion) {
   return { texto: "Ver sitio oficial", url };
 }
 
-// Texto breve para la tarjeta de la actividad (el título ya dice qué hacer).
+// Texto breve del diálogo (el título ya dice qué hacer y el lugar va aparte).
 const DESCRIPCIONES = {
-  RESERVA: "El sitio oficial indica que conviene reservar con anticipación.",
-  ENTRADAS_ANTICIPADAS: "El sitio oficial recomienda comprar las entradas con anticipación.",
-  ENTRADAS_PRESENCIALES: "Se compran en el lugar. Llegá con tiempo para conseguirlas antes de tu visita.",
-  RESERVA_DISPONIBLE: "El lugar acepta reservas desde su sitio oficial.",
+  RESERVA: "Su sitio oficial recomienda reservar con anticipación.",
+  ENTRADAS_ANTICIPADAS: "Su sitio oficial recomienda sacarlas online antes de ir.",
+  ENTRADAS_PRESENCIALES: "Se compran en el lugar. Llegá con tiempo para conseguirlas.",
+  RESERVA_DISPONIBLE: "Acepta reservas online. No es obligatorio, pero te asegura el lugar.",
 };
 
 export function descripcionCorta(recomendacion) {

@@ -25,7 +25,8 @@ import { colors, radii, spacing, textStyles } from "../theme/tokens";
 
 import { appAlert } from "../components/ui/AppDialog";
 
-const NOMBRE_MAX_LENGTH = 60;
+// Igual que el nombre de las actividades: entran los nombres de lugares largos.
+const NOMBRE_MAX_LENGTH = 150;
 
 const ICONOS_CATEGORIAS = {
   "Documentación": "passport",
@@ -36,6 +37,7 @@ const ICONOS_CATEGORIAS = {
   "Seguros": "shield-halved",
   "Finanzas": "money-bill-transfer",
   "Comida": "utensils",
+  "Reservas y entradas": "ticket",
   "Otros": "list-check",
 };
 

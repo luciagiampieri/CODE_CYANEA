@@ -118,7 +118,7 @@ def test_crear_checklist_persiste_responsables_y_notifica(client, db_session, vi
     "payload",
     [
         {"Nombre": "", "IdCategoriaChecklist": 1},
-        {"Nombre": "x" * 61, "IdCategoriaChecklist": 1},
+        {"Nombre": "x" * 151, "IdCategoriaChecklist": 1},
     ],
 )
 def test_crear_checklist_valida_nombre(client, viaje_con_admin, payload):

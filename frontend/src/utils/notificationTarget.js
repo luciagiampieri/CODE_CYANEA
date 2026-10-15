@@ -1,3 +1,6 @@
+// Pestaña del viaje que abre cada notificación. Se reconoce tanto el payload
+// del push (eventType / notificationType) como el `tipo` que guarda la
+// notificación en la app (lista de la campanita).
 const TAB_POR_EVENTO = {
   activity_created: "itinerario",
   activity_updated: "itinerario",
@@ -9,13 +12,13 @@ const TAB_POR_EVENTO = {
   transfer_reported: "gastos",
   transfer_rejected: "gastos",
   voting_created: "votar",
-  voting_activity_added: "itinerario",
-  voting_tie: "votar",
-  voting_tie_expired: "votar",
-  voting_day_missing: "votar",
+  checklist_task_created: "checklist",
+  checklist_task_assigned: "checklist",
+  checklist_task_deleted: "checklist",
 };
 
 const TAB_POR_TIPO = {
+  // tipo de la notificación (tabla Notificaciones)
   actividad_creada: "itinerario",
   actividad_actualizada: "itinerario",
   actividad_eliminada: "itinerario",
@@ -26,15 +29,16 @@ const TAB_POR_TIPO = {
   transferencia_informada: "gastos",
   transferencia_rechazada: "gastos",
   nueva_votacion: "votar",
+  tarea_entradas_creada: "checklist",
+  tarea_entradas_asignada: "checklist",
+  tarea_entradas_eliminada: "checklist",
   nuevo_administrador: "grupo",
   participante_salio: "grupo",
-  actividad_incorporada_votacion: "itinerario",
-  votacion_empate: "votar",
-  votacion_empate_vencido: "votar",
-  votacion_dia_inexistente: "votar",
+  // notificationType del push
   nuevo_gasto: "gastos",
 };
 
+// Avisos que hablan de a quién transferir: abren Gastos en "Transferencias".
 const VER_TRANSFERENCIAS = new Set([
   "settlement_updated",
   "transfer_reported",
@@ -44,6 +48,7 @@ const VER_TRANSFERENCIAS = new Set([
   "transferencia_rechazada",
 ]);
 
+// Avisos sobre un viaje al que el usuario ya no tiene acceso: no abren nada.
 const TIPOS_SIN_VIAJE = new Set(["invitacion_cancelada"]);
 
 export function resolveNotificationTarget(data = {}) {

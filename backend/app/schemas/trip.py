@@ -40,6 +40,11 @@ class RecomendacionEntradas(BaseModel):
     verificada: bool = True
 
 
+class TareaEntradasResumen(BaseModel):
+    idChecklist: int
+    nombre: str
+
+
 class ActividadRead(BaseModel):
     idActividad: int = Field(..., alias="IdActividad")
     idLugarInteres: int | None = Field(None, alias="IdLugarInteres")
@@ -58,6 +63,11 @@ class ActividadRead(BaseModel):
     advertenciaHorario: str | None = Field(None, alias="AdvertenciaHorario")
     # Recomendación de entradas o reservas (solo en la respuesta de alta/edición).
     recomendacionEntradas: RecomendacionEntradas | None = Field(None, alias="RecomendacionEntradas")
+    # Tareas pendientes del checklist creadas con "Recordármelo" para esta actividad:
+    # al eliminarla se avisa que también se eliminan.
+    tareasEntradasPendientes: list[TareaEntradasResumen] = Field(
+        default_factory=list, alias="TareasEntradasPendientes"
+    )
 
     class Config:
         from_attributes = True
@@ -123,6 +133,9 @@ class ActividadUpdate(BaseModel):
     # horario (`AdvertenciaHorario.googlePlaceIdEntradas`). Se reenvía al confirmar
     # con `ignorar_advertencia=true`, cuando el análisis no vuelve a ejecutarse.
     googlePlaceIdEntradas: str | None = Field(default=None, max_length=255)
+    # Tareas pendientes de "Recordármelo" que el usuario aceptó eliminar al cambiar
+    # el lugar de la actividad (las devolvió `ConfirmacionTareasEntradas`).
+    tareasEntradasAEliminar: list[int] = Field(default_factory=list, max_length=50)
 
     @model_validator(mode="after")
     def validate_horarios(self):
@@ -148,6 +161,16 @@ class AdvertenciaHorario(BaseModel):
     recomendacionEntradas: RecomendacionEntradas | None = None
     # Lugar analizado para entradas/reservas; el frontend lo reenvía al confirmar.
     googlePlaceIdEntradas: str | None = None
+
+class ConfirmacionTareasEntradas(BaseModel):
+    """Respuesta de la edición cuando cambia el lugar de una actividad que tiene
+    tareas pendientes de "Recordármelo": no se guarda nada hasta que el usuario
+    confirme. Para confirmar se reenvía la edición con `tareasEntradasAEliminar`."""
+
+    confirmarTareasEntradas: bool = True
+    mensaje: str
+    tareas: list[TareaEntradasResumen]
+
 
 class RutaDiariaRead(BaseModel):
     idRutaDiaria: int = Field(..., alias="IdRutaDiaria")

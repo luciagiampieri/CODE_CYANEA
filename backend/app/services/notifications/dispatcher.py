@@ -40,6 +40,7 @@ _EMAIL_EVENT_LABELS = {
     NotificationType.TRANSFERENCIA_RECHAZADA: "Transferencia no recibida",
     NotificationType.RECORDATORIO_ACTIVIDAD: "Actividad próxima",
     NotificationType.RECORDATORIO_RESERVA: "Vencimiento de reserva",
+    NotificationType.TAREA_RESERVA_ENTRADAS: "Reservas y entradas",
     NotificationType.PARTICIPANTE_EXPULSADO: "Cambio en el viaje",
     NotificationType.INVITACION_CANCELADA: "Invitación cancelada",
 }

@@ -137,6 +137,7 @@ async function parseResponse(response, fallbackMessage) {
   }
 
   let message = fallbackMessage;
+  let detalle = null;
   try {
     const data = await response.json();
     if (Array.isArray(data.detail)) {
@@ -145,12 +146,19 @@ async function parseResponse(response, fallbackMessage) {
         .join(". ");
     } else if (typeof data.detail === "string") {
       message = data.detail;
+    } else if (data.detail && typeof data.detail === "object") {
+      // Errores con datos para la app (por ejemplo, las tareas que se eliminarían
+      // con una actividad): el texto va en `mensaje` y el resto queda en `detalle`.
+      detalle = data.detail;
+      if (typeof data.detail.mensaje === "string") message = data.detail.mensaje;
     }
   } catch {
     message = fallbackMessage;
   }
 
-  throw buildApiError(message, response.status, response.headers);
+  const error = buildApiError(message, response.status, response.headers);
+  if (detalle) error.detalle = detalle;
+  throw error;
 }
 
 export async function loginUser(email, password) {
@@ -1072,9 +1080,13 @@ export async function updateActivity(tripId, dayId, activityId, payload, options
   return parseResponse(response, "No se pudo actualizar la actividad");
 }
 
-export async function deleteActivity(tripId, dayId, activityId) {
+// `confirmarEliminarTareas`: el usuario ya aceptó que se eliminen las tareas
+// pendientes de "Recordármelo" de la actividad. Sin eso, si tiene alguna, el
+// backend responde 409 con `detalle.codigo = "confirmar_tareas_entradas"`.
+export async function deleteActivity(tripId, dayId, activityId, { confirmarEliminarTareas = false } = {}) {
+  const query = confirmarEliminarTareas ? "?confirmar_eliminar_tareas=true" : "";
   const response = await fetch(
-    `${API_BASE_URL}/trips/${tripId}/days/${dayId}/activities/${activityId}`,
+    `${API_BASE_URL}/trips/${tripId}/days/${dayId}/activities/${activityId}${query}`,
     {
       method: "DELETE",
       headers: await authHeaders(),
@@ -1298,6 +1310,21 @@ export async function deleteRepositorioItem(tripId, itemId) {
     headers: await authHeaders(),
   });
   return parseResponse(response, "No se pudo eliminar la información");
+}
+
+// "Recordármelo" en la recomendación de entradas o reservas de una actividad: crea
+// la tarea en el checklist con el enlace oficial. Si ya existía, la devuelve
+// (`creada: false`).
+export async function crearTareaEntradas(tripId, activityId, { tipo, enlace = null, nombreLugar = null }) {
+  const response = await fetch(`${API_BASE_URL}/trips/${tripId}/activities/${activityId}/tarea-entradas`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(await authHeaders()),
+    },
+    body: JSON.stringify({ tipo, enlace, nombreLugar }),
+  });
+  return parseResponse(response, "No se pudo agregar la tarea al checklist");
 }
 
 export async function getChecklistCategories() {
@@ -1716,16 +1743,4 @@ export async function createVotacionDesdeSugerencias(payload) {
     body: JSON.stringify(payload),
   });
   return parseResponse(response, "No se pudo crear la votación");
-}
-
-export async function elegirGanadoraEmpate(idVotacion, idPropuesta) {
-  const response = await fetch(`${API_BASE_URL}/votaciones/${idVotacion}/desempate`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      ...(await authHeaders()),
-    },
-    body: JSON.stringify({ idPropuesta }),
-  });
-  return parseResponse(response, "No se pudo elegir la propuesta ganadora");
 }

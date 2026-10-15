@@ -34,6 +34,7 @@ import { appAlert } from "../components/ui/AppDialog";
 import { recomendacionDeRespuesta } from "../utils/recomendacionEntradas";
 import {
     mostrarAdvertenciaHorario as mostrarAdvertenciaHorarioActividad,
+    mostrarConfirmacionTareasEntradas,
     mostrarRecomendacionEntradas,
 } from "../utils/dialogosActividad";
 
@@ -373,7 +374,7 @@ export default function AddActivityScreen({
         await enviarActividad();
     }
     
-    function mostrarAdvertenciaHorario(datos) {
+    function mostrarAdvertenciaHorario(datos, tareasEntradasAEliminar = []) {
         // Se reenvía al confirmar para que la advertencia quede marcada en el itinerario.
         const advertenciaHorario = datos.tipo && datos.resumen
             ? { tipo: datos.tipo, resumen: datos.resumen }
@@ -389,6 +390,7 @@ export default function AddActivityScreen({
                     advertenciaHorario,
                     googlePlaceIdEntradas: datos.googlePlaceIdEntradas ?? null,
                     recomendacionPrevia: datos.recomendacion ?? null,
+                    tareasEntradasAEliminar,
                 }),
         });
     }
@@ -398,6 +400,8 @@ export default function AddActivityScreen({
         advertenciaHorario = null,
         googlePlaceIdEntradas = null,
         recomendacionPrevia = null,
+        // Tareas de "Recordármelo" que el usuario aceptó eliminar al cambiar el lugar.
+        tareasEntradasAEliminar = [],
     } = {}) {
         if (submittingRef.current) return;
         submittingRef.current = true;
@@ -423,6 +427,7 @@ export default function AddActivityScreen({
                     idLugarInteres: ubicacion?.id || null,
                     ...(ignorarAdvertencia && advertenciaHorario ? { advertenciaHorario } : {}),
                     ...(ignorarAdvertencia && googlePlaceIdEntradas ? { googlePlaceIdEntradas } : {}),
+                    ...(tareasEntradasAEliminar.length > 0 ? { tareasEntradasAEliminar } : {}),
                 },
                 { ignorarAdvertencia }
             );
@@ -430,6 +435,16 @@ export default function AddActivityScreen({
             setSubmitting(false);
             setAnalizando(false);
             submittingRef.current = false;
+
+            // Cambia el lugar de una actividad con tareas pendientes de "Recordármelo":
+            // no se guardó nada. Si confirma, se reenvía aceptando eliminarlas; si
+            // cancela, el formulario sigue abierto con sus cambios.
+            if (resultado?.confirmarTareasEntradas === true) {
+                mostrarConfirmacionTareasEntradas(resultado, {
+                    onConfirmar: (ids) => enviarActividad({ tareasEntradasAEliminar: ids }),
+                });
+                return;
+            }
 
             if (resultado?.advertencia === true) {
                 mostrarAdvertenciaHorario({
@@ -442,7 +457,7 @@ export default function AddActivityScreen({
                     horarioActividad: `${horaInicio} a ${horaFin}`,
                     googlePlaceIdEntradas: resultado.googlePlaceIdEntradas ?? null,
                     recomendacion: recomendacionDeRespuesta(resultado),
-                });
+                }, tareasEntradasAEliminar);
                 return;
             }
 
@@ -452,11 +467,23 @@ export default function AddActivityScreen({
 
             // Si el sitio oficial confirmó que conviene reservar o comprar entradas, se
             // informa en el mismo diálogo de confirmación. No bloquea: la actividad ya
-            // quedó guardada y el diálogo solo ofrece el enlace oficial y "Entendido".
+            // quedó guardada y el diálogo ofrece el enlace oficial, "Recordármelo"
+            // (tarea en el checklist) y "Ahora no".
             const recomendacionFinal =
                 recomendacionDeRespuesta(resultado) || (ignorarAdvertencia ? recomendacionPrevia : null);
             if (recomendacionFinal) {
-                mostrarRecomendacionEntradas(recomendacionFinal, { mensajeExito, onCerrar: resetAndClose });
+                // La actividad ya está guardada: el formulario se cierra y la
+                // recomendación aparece sobre el itinerario, no sobre el formulario.
+                const recordatorio = {
+                    tripId,
+                    activityId: resultado?.IdActividad ?? resultado?.idActividad ?? activityToEdit?.id,
+                };
+                resetAndClose();
+                mostrarRecomendacionEntradas(recomendacionFinal, {
+                    // Corto: va en la franja verde, al lado de la cruz para cerrar.
+                    mensajeExito: activityToEdit ? "Actividad editada" : "Actividad registrada",
+                    recordatorio,
+                });
                 return;
             }
 

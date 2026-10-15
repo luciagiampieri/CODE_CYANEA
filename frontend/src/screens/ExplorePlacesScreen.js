@@ -1100,6 +1100,7 @@ export default function ExplorePlacesScreen({ navigation, route }) {
         onClose={() => setScheduleTarget(null)}
         onSubmit={handleSchedulePlace}
         place={scheduleTarget}
+        tripId={tripId}
         visible={!!scheduleTarget}
       />
     </ScreenContainer>

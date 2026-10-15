@@ -6,8 +6,9 @@
  *   - `recomendacionEntradas` + `googlePlaceIdEntradas` dentro de la advertencia de horario.
  * Se muestra solo al registrar o modificar la actividad, en el diálogo de mensajes de
  * la app (`appAlert`, el mismo del "Éxito"; en los tests delega en `Alert.alert`): el
- * mensaje de éxito, qué conviene hacer y los botones "Entendido" y la acción en línea
- * (comprar, reservar o ver el sitio oficial). No queda nada en el itinerario.
+ * mensaje de éxito, qué conviene hacer y los botones "Ahora no" ("Entendido" si no hay
+ * nada para recordar), "Recordármelo" y la acción en línea (comprar, reservar o ver el
+ * sitio oficial). "Recordármelo" se prueba en RecordarTareaEntradas.test.js.
  */
 import { Alert, Linking, Platform } from "react-native";
 import { act, fireEvent, render, waitFor } from "@testing-library/react-native";
@@ -108,6 +109,10 @@ function dialogo() {
   return { titulo, mensaje, botones, opciones: opciones || {}, textos: (botones || []).map((b) => b.text) };
 }
 
+function boton(texto) {
+  return dialogo().botones.find((b) => b.text === texto);
+}
+
 /* ----------------------------- helpers ----------------------------- */
 
 async function elegirHora(utils, indice, valor) {
@@ -177,9 +182,9 @@ describe("normalizarRecomendacion", () => {
 
   it("arma títulos, descripciones, acción principal y enlace al sitio", () => {
     expect(tituloRecomendacion("RESERVA")).toBe("Reservá antes de ir");
-    expect(tituloRecomendacion("ENTRADAS_ANTICIPADAS")).toBe("Comprá las entradas antes");
+    expect(tituloRecomendacion("ENTRADAS_ANTICIPADAS")).toBe("Comprá tus entradas antes");
     expect(tituloRecomendacion("ENTRADAS_PRESENCIALES")).toBe("Entradas en boletería");
-    expect(tituloRecomendacion("RESERVA_DISPONIBLE")).toBe("Podés reservar");
+    expect(tituloRecomendacion("RESERVA_DISPONIBLE")).toBe("Podés reservar tu lugar");
     expect(descripcionCorta({ tipo: "ENTRADAS_PRESENCIALES" })).toContain("Llegá con tiempo");
 
     const compra = normalizarRecomendacion(recomendacion());
@@ -223,16 +228,33 @@ describe("Recomendación al registrar o modificar la actividad", () => {
     await registrar(onSubmit);
 
     await waitFor(() => expect(Alert.alert).toHaveBeenCalled());
-    const { titulo, mensaje, textos, opciones } = dialogo();
-    expect(titulo).toBe("Comprá las entradas antes");
+    const { titulo, mensaje, textos, opciones, botones } = dialogo();
+    expect(titulo).toBe("Comprá tus entradas antes");
     // La confirmación de guardado va en su propia franja, separada de la recomendación.
-    expect(opciones.confirmacion).toBe("Actividad registrada correctamente.");
+    expect(opciones.confirmacion).toBe("Actividad registrada");
     expect(mensaje).not.toContain("Actividad registrada correctamente.");
-    expect(mensaje).toContain("Museo del Prado");
-    expect(mensaje).toContain("El sitio oficial recomienda comprar las entradas con anticipación.");
-    expect(textos).toEqual(["Entendido", "Comprar entradas"]);
+    // El lugar va en una píldora con ícono, no mezclado con el texto.
+    expect(opciones.etiqueta).toEqual({ icono: "location-dot", texto: "Museo del Prado" });
+    expect(opciones.icono).toBe("ticket");
+    expect(mensaje).toBe(
+      "Su sitio oficial recomienda sacarlas online antes de ir."
+    );
+    // "Ahora no" es la cruz del diálogo; quedan la compra (principal) y "Recordármelo" (con borde).
+    expect(opciones.botonCerrar).toBe(true);
+    expect(textos).toEqual(["Ahora no", "Recordármelo", "Comprar entradas"]);
+    expect(botones[0].style).toBe("cancel");
+    expect(botones[1]).toEqual(expect.objectContaining({ icono: "bell", variante: "contorno" }));
+    expect(botones[2].icono).toBe("arrow-up-right-from-square");
     // Reemplaza al aviso de éxito: un solo mensaje.
     expect(window.alert).not.toHaveBeenCalled();
+  });
+
+  it("la recomendación aparece con el formulario ya cerrado (la actividad está guardada)", async () => {
+    const onSubmit = jest.fn().mockResolvedValue(actividadGuardada(recomendacion()));
+    await registrar(onSubmit);
+    await waitFor(() => expect(Alert.alert).toHaveBeenCalled());
+
+    expect(baseProps.onClose).toHaveBeenCalledTimes(1);
   });
 
   it("CP9: el botón de la acción abre el enlace oficial y cierra el formulario", async () => {
@@ -241,20 +263,20 @@ describe("Recomendación al registrar o modificar la actividad", () => {
     await waitFor(() => expect(Alert.alert).toHaveBeenCalled());
 
     await act(async () => {
-      await dialogo().botones[1].onPress();
+      await boton("Comprar entradas").onPress();
     });
 
     expect(Linking.openURL).toHaveBeenCalledWith("https://entradas.museodelprado.es/comprar");
     expect(baseProps.onClose).toHaveBeenCalled();
   });
 
-  it("CP14: 'Entendido' cierra sin abrir nada", async () => {
+  it("CP14: 'Ahora no' cierra sin abrir nada", async () => {
     const onSubmit = jest.fn().mockResolvedValue(actividadGuardada(recomendacion()));
     await registrar(onSubmit);
     await waitFor(() => expect(Alert.alert).toHaveBeenCalled());
 
     await act(async () => {
-      dialogo().botones[0].onPress();
+      boton("Ahora no").onPress?.();
     });
 
     expect(Linking.openURL).not.toHaveBeenCalled();
@@ -270,7 +292,7 @@ describe("Recomendación al registrar o modificar la actividad", () => {
 
     await waitFor(() => expect(Alert.alert).toHaveBeenCalled());
     expect(dialogo().titulo).toBe("Reservá antes de ir");
-    expect(dialogo().textos).toEqual(["Entendido", "Reservar"]);
+    expect(dialogo().textos).toEqual(["Ahora no", "Recordármelo", "Reservar"]);
   });
 
   it("CP3/CP5: boletería ofrece ver el sitio oficial", async () => {
@@ -283,7 +305,9 @@ describe("Recomendación al registrar o modificar la actividad", () => {
     await waitFor(() => expect(Alert.alert).toHaveBeenCalled());
     expect(dialogo().titulo).toBe("Entradas en boletería");
     expect(dialogo().mensaje).toContain("Llegá con tiempo");
-    expect(dialogo().textos).toEqual(["Entendido", "Ver sitio oficial"]);
+    // Nada para recordar: "Entendido" es el principal y el sitio oficial va con borde.
+    expect(dialogo().textos).toEqual(["Ver sitio oficial", "Entendido"]);
+    expect(dialogo().opciones.botonCerrar).toBe(false);
   });
 
   it("restaurante con OpenTable: nombra la plataforma y aclara que es externa", async () => {
@@ -291,18 +315,18 @@ describe("Recomendación al registrar o modificar la actividad", () => {
     await registrar(onSubmit, { nombre: "Cena en Hard Rock" });
     await waitFor(() => expect(Alert.alert).toHaveBeenCalled());
 
-    expect(dialogo().titulo).toBe("Podés reservar");
-    expect(dialogo().mensaje).toContain("Plataforma externa enlazada desde el sitio oficial.");
-    expect(dialogo().textos).toEqual(["Entendido", "Reservar en OpenTable"]);
+    expect(dialogo().titulo).toBe("Podés reservar tu lugar");
+    expect(dialogo().mensaje).toContain("La reserva se hace en OpenTable, enlazada desde su sitio oficial.");
+    expect(dialogo().textos).toEqual(["Ahora no", "Recordármelo", "Reservar en OpenTable"]);
     await act(async () => {
-      await dialogo().botones[1].onPress();
+      await boton("Reservar en OpenTable").onPress();
     });
     expect(Linking.openURL).toHaveBeenCalledWith(
       "https://www.opentable.com/hard-rock-cafe-reservations-orlando?restref=213622"
     );
   });
 
-  it("sin ningún enlace oficial muestra el aviso y solo 'Entendido'", async () => {
+  it("sin ningún enlace oficial muestra el aviso y ofrece recordarlo sin enlace", async () => {
     const onSubmit = jest.fn().mockResolvedValue(
       actividadGuardada(recomendacion({ urlAccion: null, urlSitioOficial: null }))
     );
@@ -311,7 +335,7 @@ describe("Recomendación al registrar o modificar la actividad", () => {
 
     await waitFor(() => expect(Alert.alert).toHaveBeenCalled());
     expect(dialogo().mensaje).toContain(AVISO_SIN_ENLACE);
-    expect(dialogo().textos).toEqual(["Entendido"]);
+    expect(dialogo().textos).toEqual(["Ahora no", "Recordármelo"]);
   });
 
   it("CP13: la recomendación no impide guardar (se envía una sola vez)", async () => {
@@ -367,7 +391,7 @@ describe("Recomendación al registrar o modificar la actividad", () => {
     await editar(onSubmit, { title: "Museo Reina Sofía" });
 
     await waitFor(() => expect(Alert.alert).toHaveBeenCalled());
-    expect(dialogo().opciones.confirmacion).toBe("Actividad editada correctamente.");
+    expect(dialogo().opciones.confirmacion).toBe("Actividad editada");
   });
 
   it("con advertencia de horario: al confirmar reenvía el lugar analizado y muestra la recomendación recibida", async () => {
@@ -390,7 +414,7 @@ describe("Recomendación al registrar o modificar la actividad", () => {
     // La recomendación no se mezcla con la advertencia: aparece recién al guardar.
     expect(window.confirm.mock.calls[0][0]).not.toContain("entradas antes");
     await waitFor(() => expect(Alert.alert).toHaveBeenCalled());
-    expect(dialogo().titulo).toBe("Comprá las entradas antes");
+    expect(dialogo().titulo).toBe("Comprá tus entradas antes");
   });
 
   it("si el usuario corrige el horario, no reenvía el lugar ni muestra la recomendación anterior", async () => {
@@ -422,6 +446,6 @@ describe("Recomendación al registrar o modificar la actividad", () => {
     await editar(onSubmit);
 
     await waitFor(() => expect(Alert.alert).toHaveBeenCalledTimes(1));
-    expect(dialogo().titulo).toBe("Comprá las entradas antes");
+    expect(dialogo().titulo).toBe("Comprá tus entradas antes");
   });
 });

@@ -110,17 +110,19 @@ describe("PlaceScheduleSheet - horarios y recomendación de entradas (igual que 
 
     await waitFor(() => expect(Alert.alert).toHaveBeenCalled());
     const [titulo, mensaje, botones, opciones] = Alert.alert.mock.calls[0];
-    expect(titulo).toBe("Comprá las entradas antes");
-    expect(opciones.confirmacion).toBe("Actividad agregada al itinerario.");
-    expect(mensaje).toContain("Museo de Bellas Artes");
-    expect(botones.map((b) => b.text)).toEqual(["Entendido", "Comprar entradas"]);
-    expect(onClose).not.toHaveBeenCalled();
+    expect(titulo).toBe("Comprá tus entradas antes");
+    expect(opciones.confirmacion).toBe("Agregada al itinerario");
+    expect(Alert.alert.mock.calls[0][3].etiqueta.texto).toBe("Museo de Bellas Artes");
+    expect(mensaje).toContain("Su sitio oficial recomienda sacarlas online");
+    // Sin el viaje no se puede crear la tarea: solo "Entendido" y la compra.
+    expect(botones.map((b) => b.text)).toEqual(["Comprar entradas", "Entendido"]);
+    // El formulario ya se cerró: la actividad está agregada.
+    expect(onClose).toHaveBeenCalled();
 
     await act(async () => {
-      await botones[1].onPress();
+      await botones[0].onPress();
     });
     expect(Linking.openURL).toHaveBeenCalledWith("https://www.bellasartes.gob.ar/entradas");
-    expect(onClose).toHaveBeenCalled();
   });
 
   it("sin recomendación se cierra sin diálogos", async () => {
@@ -159,7 +161,7 @@ describe("PlaceScheduleSheet - horarios y recomendación de entradas (igual que 
     expect(onSubmit.mock.calls[1][1]).toEqual(expect.objectContaining({ ignorarAdvertencia: true }));
     // La recomendación llegó con la advertencia: se muestra después de guardar.
     await waitFor(() => expect(Alert.alert).toHaveBeenCalledTimes(2));
-    expect(Alert.alert.mock.calls[1][0]).toBe("Comprá las entradas antes");
+    expect(Alert.alert.mock.calls[1][0]).toBe("Comprá tus entradas antes");
   });
 
   it("'Modificar horario' deja el formulario abierto sin reenviar", async () => {

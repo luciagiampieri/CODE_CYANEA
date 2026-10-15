@@ -206,6 +206,30 @@ const casosDeEndpoints = [
     needsAuth: true,
   },
   {
+    nombre: "deleteActivity confirmando que se eliminan las tareas de Recordármelo",
+    call: () => api.deleteActivity(1, 2, 3, { confirmarEliminarTareas: true }),
+    url: `${API_BASE_URL}/trips/1/days/2/activities/3?confirmar_eliminar_tareas=true`,
+    method: "DELETE",
+    needsAuth: true,
+  },
+  {
+    nombre: "crearTareaEntradas (Recordármelo)",
+    call: () =>
+      api.crearTareaEntradas(1, 3, {
+        tipo: "RESERVA",
+        enlace: "https://www.museoreinasofia.es/reservas",
+        nombreLugar: "Museo Reina Sofía",
+      }),
+    url: `${API_BASE_URL}/trips/1/activities/3/tarea-entradas`,
+    method: "POST",
+    body: {
+      tipo: "RESERVA",
+      enlace: "https://www.museoreinasofia.es/reservas",
+      nombreLugar: "Museo Reina Sofía",
+    },
+    needsAuth: true,
+  },
+  {
     nombre: "searchTripPlaces (encodea la query)",
     call: () => api.searchTripPlaces(1, "café & té"),
      url: `${API_BASE_URL}/trips/1/places/search?${new URLSearchParams({
@@ -321,6 +345,21 @@ describe("errores enriquecidos de la API", () => {
       json: async () => ({ detail }),
     });
   }
+
+  it("un detail con datos conserva el mensaje y deja los datos en `detalle`", async () => {
+    const detalle = {
+      codigo: "confirmar_tareas_entradas",
+      mensaje: "Al eliminar la actividad, se eliminará la tarea «Reservar – Don Julio» del checklist.",
+      tareas: [{ idChecklist: 4, nombre: "Reservar – Don Julio" }],
+    };
+    mockErrorOnce(409, detalle);
+
+    await expect(api.deleteActivity(1, 2, 3)).rejects.toMatchObject({
+      status: 409,
+      message: detalle.mensaje,
+      detalle,
+    });
+  });
 
   it("el error conserva el status HTTP", async () => {
     mockErrorOnce(401, "Credenciales inválidas");

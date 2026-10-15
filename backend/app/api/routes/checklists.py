@@ -5,14 +5,16 @@ from sqlalchemy.orm import Session
 
 from app.db.session import get_db
 from app.api.deps import get_current_user
-from app.models import Usuario, Checklist, ParticipanteViaje
+from app.models import ActividadItinerario, Checklist, DiaCronograma, ParticipanteViaje, Usuario
 from app.models.categorias_checklist import CategoriasChecklist
 from app.schemas.checklist import (
     ChecklistCreate,
     ChecklistUpdate,
     ChecklistRead,
     ResponsableRead,
+    TareaEntradasCreate,
 )
+from app.services import tareas_entradas
 from app.services.websocket_manager import manager
 from app.services.trip_access import (
     get_trip_with_relations,
@@ -52,6 +54,8 @@ def _serializar_checklist(checklist: Checklist, current_user_id: int) -> Checkli
             )
             for u in checklist.Responsables
         ],
+        Enlace=checklist.Enlace,
+        IdActividad=checklist.IdActividad,
     )
 
 
@@ -277,8 +281,10 @@ async def actualizar_checklist(
     if payload.Completada is not None:
         checklist.Completada = payload.Completada
 
+    responsables_antes = {u.IdUsuario for u in checklist.Responsables}
     if payload.IdsResponsables is not None:
         checklist.Responsables = _resolver_responsables(db, trip_id, payload.IdsResponsables)
+    responsables_nuevos = {u.IdUsuario for u in checklist.Responsables} - responsables_antes
 
     db.commit()
     db.refresh(checklist)
@@ -287,6 +293,13 @@ async def actualizar_checklist(
         trip_id,
         {"tipo": "checklist_actualizado"},
     )
+
+    # Tarea de "Recordármelo": se creó sin responsable y se avisó a todos; cuando
+    # alguien queda asignado se le avisa solo a esa persona.
+    if responsables_nuevos and tareas_entradas.es_tarea_de_recomendacion(checklist):
+        await tareas_entradas.notificar_responsables_asignados(
+            db, viaje, checklist, responsables_nuevos, current_user
+        )
 
     return {
         "message": "Tarea actualizada correctamente.",
@@ -330,3 +343,59 @@ async def eliminar_checklist(
     )
 
     return {"message": "Tarea eliminada correctamente."}
+
+@router.post("/{trip_id}/activities/{activity_id}/tarea-entradas")
+async def crear_tarea_entradas(
+    trip_id: int,
+    activity_id: int,
+    payload: TareaEntradasCreate,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+):
+    """"Recordármelo": crea en el checklist la tarea de reservar o comprar entradas
+    para la actividad, con el enlace oficial y sin responsable."""
+    viaje = require_trip_edit_access(
+        get_trip_with_relations(db, trip_id),
+        current_user,
+    )
+    require_trip_not_finished(viaje, "la checklist")
+
+    actividad = db.scalar(
+        select(ActividadItinerario)
+        .join(DiaCronograma, DiaCronograma.IdDiaCronograma == ActividadItinerario.IdDiaCronograma)
+        .where(
+            ActividadItinerario.IdActividad == activity_id,
+            DiaCronograma.IdViaje == trip_id,
+        )
+    )
+    if actividad is None:
+        raise HTTPException(status_code=404, detail="La actividad no existe en este viaje.")
+
+    existente = tareas_entradas.tarea_existente(db, actividad)
+    if existente is not None:
+        return {
+            "message": "Ya habías agregado esta tarea al checklist.",
+            "creada": False,
+            "item": _serializar_checklist(existente, current_user.IdUsuario),
+        }
+
+    try:
+        datos = tareas_entradas.resolver_datos_tarea(
+            actividad, payload.tipo, payload.enlace, payload.nombreLugar
+        )
+        tarea = tareas_entradas.crear_tarea(db, viaje, actividad, current_user, datos)
+    except tareas_entradas.ErrorTareaEntradas as error:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+    await manager.broadcast_to_trip(
+        trip_id,
+        {"tipo": "checklist_actualizado"},
+    )
+    await tareas_entradas.notificar_tarea_creada(db, viaje, tarea, current_user)
+
+    return {
+        "message": "Agregamos la tarea al checklist.",
+        "creada": True,
+        "item": _serializar_checklist(tarea, current_user.IdUsuario),
+    }

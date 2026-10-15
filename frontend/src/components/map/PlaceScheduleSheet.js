@@ -68,7 +68,7 @@ function toHHMM(value) {
   return `${match[1].padStart(2, "0")}:${match[2]}`;
 }
 
-export default function PlaceScheduleSheet({ days = [], onClose, onSubmit, place, visible }) {
+export default function PlaceScheduleSheet({ days = [], onClose, onSubmit, place, tripId, visible }) {
   const [dayId, setDayId] = useState(null);
   const [nombre, setNombre] = useState("");
   const [descripcion, setDescripcion] = useState("");
@@ -284,9 +284,12 @@ export default function PlaceScheduleSheet({ days = [], onClose, onSubmit, place
 
       const recomendacion = recomendacionDeRespuesta(resultado) || (ignorarAdvertencia ? recomendacionPrevia : null);
       if (recomendacion) {
+        // La actividad ya está agregada: se cierra el formulario y la recomendación
+        // aparece sobre el mapa. "Recordármelo" crea la tarea de esa actividad.
+        onClose?.();
         mostrarRecomendacionEntradas(recomendacion, {
-          mensajeExito: "Actividad agregada al itinerario.",
-          onCerrar: onClose,
+          mensajeExito: "Agregada al itinerario",
+          recordatorio: { tripId, activityId: resultado?.IdActividad ?? resultado?.idActividad },
         });
         return;
       }

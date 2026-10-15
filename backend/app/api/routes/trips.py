@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException, status, Query, File, Uplo
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
-from sqlalchemy.orm import Session, selectinload
+from sqlalchemy.orm import object_session, Session, selectinload
 
 from app.api.deps import get_current_user
 from app.services.websocket_manager import manager
@@ -36,7 +36,9 @@ from app.schemas.trip import (
     ActividadUbicacionCreate,
     ActividadUpdate,
     AdvertenciaHorario,
+    ConfirmacionTareasEntradas,
     RecomendacionEntradas,
+    TareaEntradasResumen,
     TripAdminRead,
     TripCreate,
     TripDetailRead,
@@ -90,6 +92,8 @@ from app.services.cover_ai import (
 )
 from app.services.activity_analysis_service import analizar_horario_actividad
 from app.services.entradas_ai import EvaluacionEntradas, evaluar_entradas, normalizar_place_id
+from app.services import tareas_entradas
+from app.models.checklist import Checklist
 
 ROUTE_GENERATION_AVAILABLE = True
 try:
@@ -284,7 +288,34 @@ def _cambia_lugar_actividad(actividad: ActividadItinerario, payload: ActividadUp
     return False
 
 
-def _build_actividad_read(actividad: ActividadItinerario) -> ActividadRead:
+def _tareas_entradas_pendientes_por_actividad(viaje: Viaje) -> dict[int, list[TareaEntradasResumen]]:
+    """Tareas pendientes de "Recordármelo" de cada actividad del viaje (una consulta)."""
+    db = object_session(viaje)
+    if db is None:
+        return {}
+    ids = [
+        actividad.IdActividad
+        for dia in (viaje.Cronograma or [])
+        for actividad in (dia.Actividades or [])
+    ]
+    if not ids:
+        return {}
+    por_actividad: dict[int, list[TareaEntradasResumen]] = {}
+    for tarea in db.scalars(
+        select(Checklist)
+        .where(Checklist.IdActividad.in_(ids), Checklist.Completada.is_(False))
+        .order_by(Checklist.IdChecklist)
+    ).all():
+        por_actividad.setdefault(tarea.IdActividad, []).append(
+            TareaEntradasResumen(idChecklist=tarea.IdChecklist, nombre=tarea.Nombre)
+        )
+    return por_actividad
+
+
+def _build_actividad_read(
+    actividad: ActividadItinerario,
+    tareas_pendientes: list[TareaEntradasResumen] | None = None,
+) -> ActividadRead:
     lugar = actividad.LugarInteres
 
     if lugar is None and actividad.LugarInteresViaje is not None:
@@ -301,6 +332,7 @@ def _build_actividad_read(actividad: ActividadItinerario) -> ActividadRead:
         Icono=actividad.Icono,
         TipoAdvertenciaHorario=actividad.TipoAdvertenciaHorario,
         AdvertenciaHorario=actividad.AdvertenciaHorario,
+        TareasEntradasPendientes=tareas_pendientes or [],
     )
 
 async def _notificar_viaje_actualizado(viaje: Viaje, message: str) -> None:
@@ -481,6 +513,7 @@ def _build_trip_detail(
     invitaciones_visibles.sort(key=lambda item: item.EmailInvitado.lower())
 
     admin_visible = datos_visibles(admin_a_mostrar, id_observador)
+    tareas_entradas_pendientes = _tareas_entradas_pendientes_por_actividad(viaje)
 
     default_cover_image = (
         build_destination_image_url(viaje.GooglePlaceIdPortada)
@@ -513,7 +546,10 @@ def _build_trip_detail(
                 Fecha=dia.Fecha,
                 IndiceDia=dia.IndiceDia,
                 Actividades=[
-                    _build_actividad_read(actividad)
+                    _build_actividad_read(
+                        actividad,
+                        tareas_entradas_pendientes.get(actividad.IdActividad),
+                    )
                     for actividad in (dia.Actividades or [])
                     if (
                         fecha_salida_usuario is None
@@ -1190,9 +1226,49 @@ async def create_activity(
 
     return resultado
 
+def _tareas_entradas_que_cambian(
+    db: Session,
+    actividad: ActividadItinerario,
+    payload: ActividadUpdate,
+    contexto_lugar: dict,
+    *,
+    cambia_lugar: bool,
+    ignorar_advertencia: bool,
+    analisis_corrio: bool,
+) -> list[Checklist] | ConfirmacionTareasEntradas:
+    """Tareas pendientes de "Recordármelo" que hay que eliminar con esta edición.
+
+    Si alguna se crearía para otro lugar y el usuario todavía no aceptó eliminarla
+    (`tareasEntradasAEliminar`), devuelve la confirmación a mostrar y no se guarda
+    nada. Las tareas ya hechas no se tocan."""
+    pendientes = tareas_entradas.tareas_pendientes(db, actividad.IdActividad)
+    if not pendientes:
+        return []
+    confirmadas = set(payload.tareasEntradasAEliminar or [])
+    cambian = [
+        tarea
+        for tarea in pendientes
+        if tarea.IdChecklist in confirmadas
+        or tareas_entradas.lugar_de_tarea_cambia(
+            tarea,
+            contexto_lugar,
+            cambia_lugar_aparente=cambia_lugar,
+            place_id_confirmado=payload.googlePlaceIdEntradas if ignorar_advertencia else None,
+            analisis_corrio=analisis_corrio,
+        )
+    ]
+    sin_confirmar = [tarea for tarea in cambian if tarea.IdChecklist not in confirmadas]
+    if sin_confirmar:
+        return ConfirmacionTareasEntradas(
+            mensaje=tareas_entradas.mensaje_confirmacion(cambian, "Al cambiar el lugar de la actividad"),
+            tareas=tareas_entradas.resumen_tareas_read(cambian),
+        )
+    return cambian
+
+
 @router.put(
     "/{trip_id}/days/{day_id}/activities/{activity_id}",
-    response_model=ActividadRead | AdvertenciaHorario,
+    response_model=ActividadRead | AdvertenciaHorario | ConfirmacionTareasEntradas,
 )
 async def update_activity(
     trip_id: int,
@@ -1202,7 +1278,7 @@ async def update_activity(
     ignorar_advertencia: bool = Query(False),
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
-) -> ActividadRead | AdvertenciaHorario:
+) -> ActividadRead | AdvertenciaHorario | ConfirmacionTareasEntradas:
     viaje = require_trip_edit_access(get_trip_with_relations(db, trip_id), current_user)
     require_trip_not_finished(viaje, "el itinerario")
 
@@ -1243,6 +1319,8 @@ async def update_activity(
     analisis: dict = {"advertencia": False}
     # Lo completa el análisis de horarios con el lugar identificado (si corre).
     contexto_lugar: dict = {}
+    analisis_corrio = False
+    respuesta_advertencia: dict | None = None
 
     if ignorar_advertencia:
         if payload.advertenciaHorario is not None:
@@ -1263,9 +1341,12 @@ async def update_activity(
             destinos=_destinos_contexto(viaje),
             contexto_lugar=contexto_lugar,
         )
+        analisis_corrio = True
         if analisis.get("advertencia"):
             if not advertencia_ya_aceptada:
-                return _respuesta_advertencia(
+                # Se devuelve después de revisar las tareas de "Recordármelo": si el
+                # lugar cambia, primero se confirma que se eliminan.
+                respuesta_advertencia = _respuesta_advertencia(
                     analisis,
                     await evaluar_entradas(actividad.GooglePlaceIdEntradas, contexto_lugar),
                 )
@@ -1277,6 +1358,22 @@ async def update_activity(
         elif cambia_lugar:
             # Lugar nuevo sin horarios verificables: la marca anterior ya no aplica.
             tipo_advertencia = texto_advertencia = None
+
+    # Tareas pendientes de "Recordármelo": si la edición cambia el lugar para el que
+    # se crearon, se eliminan, pero antes se le pide confirmación al usuario.
+    tareas_a_eliminar = _tareas_entradas_que_cambian(
+        db,
+        actividad,
+        payload,
+        contexto_lugar,
+        cambia_lugar=cambia_lugar,
+        ignorar_advertencia=ignorar_advertencia,
+        analisis_corrio=analisis_corrio,
+    )
+    if isinstance(tareas_a_eliminar, ConfirmacionTareasEntradas):
+        return tareas_a_eliminar
+    if respuesta_advertencia is not None:
+        return respuesta_advertencia
 
     lugar = None
 
@@ -1320,11 +1417,15 @@ async def update_activity(
     actividad.TipoAdvertenciaHorario = tipo_advertencia
     actividad.AdvertenciaHorario = texto_advertencia
     actividad.GooglePlaceIdEntradas = entradas.place_id_guardado
+    tareas_eliminadas = tareas_entradas.eliminar_tareas(db, tareas_a_eliminar)
 
     db.commit()
     db.refresh(actividad)
 
-    resultado = _build_actividad_read(actividad)
+    resultado = _build_actividad_read(
+        actividad,
+        tareas_entradas.resumen_tareas_read(tareas_entradas.tareas_pendientes(db, actividad.IdActividad)),
+    )
 
     await manager.broadcast(
         trip_id,
@@ -1336,6 +1437,12 @@ async def update_activity(
     )
     resultado.avisoHorario = analisis.get("aviso")
     resultado.recomendacionEntradas = _recomendacion_read(entradas)
+
+    if tareas_eliminadas:
+        await manager.broadcast_to_trip(trip_id, {"tipo": "checklist_actualizado"})
+        await tareas_entradas.notificar_tareas_eliminadas(
+            db, viaje, tareas_eliminadas, current_user, "cambió el lugar de la actividad"
+        )
 
     await _sincronizar_y_notificar_ruta(db, dia, trip_id)
     await dispatch_trip_notification(
@@ -1366,6 +1473,7 @@ async def delete_activity(
     trip_id: int,
     day_id: int,
     activity_id: int,
+    confirmar_eliminar_tareas: bool = Query(False),
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
 ) -> TripMutationResponse:
@@ -1390,9 +1498,30 @@ async def delete_activity(
     if actividad is None:
         raise HTTPException(status_code=404, detail="La actividad no existe en este día del itinerario.")
 
+    # Tareas pendientes de "Recordármelo": se eliminan con la actividad, pero la app
+    # tiene que haber avisado (`confirmar_eliminar_tareas`). Las hechas se conservan.
+    pendientes = tareas_entradas.tareas_pendientes(db, actividad.IdActividad)
+    if pendientes and not confirmar_eliminar_tareas:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "codigo": "confirmar_tareas_entradas",
+                "mensaje": tareas_entradas.mensaje_confirmacion(pendientes, "Al eliminar la actividad"),
+                "tareas": tareas_entradas.resumen_tareas(pendientes),
+            },
+        )
+    tareas_eliminadas = tareas_entradas.eliminar_tareas(db, pendientes)
+    tareas_entradas.desvincular_tareas_hechas(db, actividad.IdActividad)
+
     nombre_actividad = actividad.Nombre
     db.delete(actividad)
     db.commit()
+
+    if tareas_eliminadas:
+        await manager.broadcast_to_trip(trip_id, {"tipo": "checklist_actualizado"})
+        await tareas_entradas.notificar_tareas_eliminadas(
+            db, viaje, tareas_eliminadas, current_user, "eliminó la actividad"
+        )
 
     # Avisamos a todos los conectados al itinerario de este viaje (menos a
     # quien la acaba de eliminar, que ya lo ve por la respuesta REST normal).

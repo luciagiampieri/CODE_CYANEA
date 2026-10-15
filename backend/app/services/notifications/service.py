@@ -26,6 +26,8 @@ class NotificationType(StrEnum):
     LIQUIDACION_ACTUALIZADA = "liquidacion_actualizada"
     TRANSFERENCIA_INFORMADA = "transferencia_informada"
     TRANSFERENCIA_RECHAZADA = "transferencia_rechazada"
+    # Tareas del checklist creadas con "Recordármelo" (comprar entradas o reservar).
+    TAREA_RESERVA_ENTRADAS = "tarea_reserva_entradas"
 
 
 @dataclass(slots=True)
@@ -62,6 +64,8 @@ class NotificationService:
         NotificationType.TRANSFERENCIA_RECHAZADA: "RecibeEmailsRecordatoriosDeuda",
         NotificationType.RECORDATORIO_ACTIVIDAD: "RecibeEmailsRecordatoriosActividad",
         NotificationType.RECORDATORIO_RESERVA: "RecibeEmailsRecordatoriosReserva",
+        # Misma preferencia que los recordatorios de reservas.
+        NotificationType.TAREA_RESERVA_ENTRADAS: "RecibeEmailsRecordatoriosReserva",
         NotificationType.PARTICIPANTE_EXPULSADO: "RecibeEmailsCambiosViaje",
         NotificationType.INVITACION_CANCELADA: "RecibeEmailsCambiosViaje",
     }
@@ -77,6 +81,7 @@ class NotificationService:
         NotificationType.TRANSFERENCIA_RECHAZADA: "RecibePushRecordatoriosDeuda",
         NotificationType.RECORDATORIO_ACTIVIDAD: "RecibePushRecordatoriosActividad",
         NotificationType.RECORDATORIO_RESERVA: "RecibePushRecordatoriosReserva",
+        NotificationType.TAREA_RESERVA_ENTRADAS: "RecibePushRecordatoriosReserva",
         NotificationType.PARTICIPANTE_EXPULSADO: "RecibePushCambiosViaje",
         NotificationType.INVITACION_CANCELADA: "RecibePushCambiosViaje",
     }
