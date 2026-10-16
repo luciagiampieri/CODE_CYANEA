@@ -17,6 +17,7 @@ from app.services.entradas_ai.tipos import (
     LUGAR_INEXISTENTE,
     LUGAR_NO_DETERMINADO,
 )
+from app.services.registro_ia import SERVICIO_ANALISIS_HORARIOS, registrar_solicitud_ia
 
 logger = logging.getLogger(__name__)
 
@@ -27,13 +28,10 @@ MENSAJE_NO_VERIFICADO = (
 
 _MINUTOS_DIA = 1440
 _MINUTOS_SEMANA = 7 * _MINUTOS_DIA
-# Google Places (New) cubre los próximos 7 días (hoy incluido) en currentOpeningHours.
 _DIAS_VENTANA_HORARIO_ACTUAL = 7
 
 _DIAS_SEMANA_ES = ("lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo")
 
-# Tipos de advertencia de horario. Se devuelven al frontend y se persisten en
-# `ActividadesItinerario.TipoAdvertenciaHorario` cuando el usuario la confirma.
 TIPO_FUERA_DE_HORARIO = "fuera_de_horario"
 TIPO_CERRADO_DIA = "cerrado_dia"
 TIPO_CERRADO_TEMPORALMENTE = "cerrado_temporalmente"
@@ -45,7 +43,6 @@ TIPOS_ADVERTENCIA = (
     TIPO_CERRADO_PERMANENTEMENTE,
 )
 
-# `businessStatus` de Google Places (New).
 _ESTADOS_CERRADO = {
     "CLOSED_TEMPORARILY": TIPO_CERRADO_TEMPORALMENTE,
     "CLOSED_PERMANENTLY": TIPO_CERRADO_PERMANENTEMENTE,
@@ -59,8 +56,6 @@ class GeminiNoDisponible(Exception):
     para que el análisis pueda buscar el lugar por otra vía."""
 
 
-# Palabras genéricas de actividades que no sirven para confirmar que el lugar
-# encontrado en Google Places corresponde a la actividad.
 _PALABRAS_GENERICAS = {
     "visita", "visitar", "ir", "al", "a", "la", "el", "los", "las", "de", "del", "en", "con", "y",
     "cena", "cenar", "almuerzo", "almorzar", "desayuno", "desayunar", "merienda", "comida", "comer",
@@ -136,14 +131,13 @@ async def extraer_nombre_lugar_con_gemini(
     """
 
     generation_config: dict = {"responseMimeType": "application/json", "temperature": 0}
-    # Sin razonamiento la respuesta tarda mucho menos (antes se agotaba el timeout y fallaba en silencio).
     try:
         from app.services.receipt_ai.gemini import _config_razonamiento
 
         razonamiento = _config_razonamiento(model)
         if razonamiento:
             generation_config["thinkingConfig"] = razonamiento
-    except Exception:  # pragma: no cover - el módulo de recibos no debe ser requisito
+    except Exception: 
         pass
 
     payload = {
@@ -151,11 +145,11 @@ async def extraer_nombre_lugar_con_gemini(
         "generationConfig": generation_config,
     }
 
+    exitosa = False
     try:
         async with httpx.AsyncClient(timeout=30.0, verify=False) as client:
             response = await client.post(url, headers={"x-goog-api-key": api_key}, json=payload)
         if response.status_code != 200:
-            # 503 = modelo saturado, 429 = cuota; ambos son temporales del lado de Google.
             logger.warning("Gemini respondió %s al extraer el lugar de la actividad.", response.status_code)
             return _fallo(f"HTTP {response.status_code}")
         data = response.json()
@@ -166,9 +160,12 @@ async def extraer_nombre_lugar_con_gemini(
         texto = "".join(p.get("text", "") for p in partes if not p.get("thought")).strip()
 
         resultado = json.loads(texto)
+        exitosa = True
     except Exception as error:
         logger.warning("No se pudo extraer el lugar de la actividad con Gemini: %s", error)
         return _fallo(str(error))
+    finally:
+        registrar_solicitud_ia(SERVICIO_ANALISIS_HORARIOS, model, exitosa)
 
     if isinstance(resultado, dict) and resultado.get("es_lugar_concreto"):
         nombre = resultado.get("nombre_lugar")
@@ -176,9 +173,6 @@ async def extraer_nombre_lugar_con_gemini(
     return None
 
 
-# ---------------------------------------------------------------------------
-# Horarios de apertura
-# ---------------------------------------------------------------------------
 
 def _hora_minuto(punto: dict) -> Optional[tuple[int, int]]:
     """Lee la hora de un `open`/`close`. Soporta Places API (New): {hour, minute}
@@ -217,7 +211,6 @@ def _intervalos_en_eje(
             return None
 
         if not cierra:
-            # Google representa "abierto 24 horas" con un único período sin `close`.
             return [(-_MINUTOS_SEMANA, 2 * _MINUTOS_SEMANA)]
 
         hm_cierra = _hora_minuto(cierra)
@@ -226,7 +219,6 @@ def _intervalos_en_eje(
 
         f_abre, f_cierra = _fecha_de(abre), _fecha_de(cierra)
         if f_abre is not None and fecha is not None:
-            # Horario "actual": el período trae su fecha exacta (incluye feriados/horarios especiales).
             d_abre = (f_abre - fecha).days
             d_cierra = (f_cierra - fecha).days if f_cierra else d_abre
             o = d_abre * _MINUTOS_DIA + hm_abre[0] * 60 + hm_abre[1]
@@ -236,7 +228,6 @@ def _intervalos_en_eje(
             intervalos.append((o, c))
             continue
 
-        # Horario regular semanal. Google: 0 = domingo; Python: 0 = lunes.
         py_abre = (int(g_dia) - 1) % 7
         py_cierra = (int(cierra.get("day", g_dia)) - 1) % 7
         for semanas in (-1, 0, 1):
@@ -246,7 +237,6 @@ def _intervalos_en_eje(
                 c += _MINUTOS_SEMANA
             intervalos.append((o, c))
 
-    # Unimos períodos contiguos o solapados (p. ej. 18:00-24:00 + 00:00-02:00).
     intervalos.sort()
     fusionados: list[tuple[int, int]] = []
     for o, c in intervalos:
@@ -340,8 +330,6 @@ def validar_intervalo_horario(
 
     periods = opening_hours_data["periods"]
 
-    # `currentOpeningHours` trae fechas concretas para los próximos 7 días.
-    # Si la actividad cae fuera de esa ventana, ese dato no aplica.
     fecha_efectiva = fecha
 
     if fecha is not None and any(
@@ -366,20 +354,6 @@ def validar_intervalo_horario(
     inicio = hora_inicio_act.hour * 60 + hora_inicio_act.minute
     fin = hora_fin_act.hour * 60 + hora_fin_act.minute
 
-    # La actividad debe quedar COMPLETAMENTE dentro de un mismo
-    # intervalo de apertura.
-    #
-    # Ejemplo:
-    # Apertura: 09:00 - 18:00
-    #
-    # 17:00 - 18:00 -> compatible
-    # 17:00 - 18:30 -> incompatible
-    # 18:00 - 19:00 -> incompatible
-    # 08:00 - 10:00 -> incompatible
-    #
-    # No alcanza con que la hora de inicio esté dentro del horario:
-    # también se debe verificar que la hora de finalización
-    # no supere la hora de cierre.
     compatible = any(
         apertura <= inicio and fin <= cierre
         for apertura, cierre in intervalos
@@ -392,12 +366,10 @@ def validar_intervalo_horario(
             "mensaje": "Horario compatible.",
         }
 
-    # Tramos que se solapan con el día de la actividad,
-    # para poder mostrarlos al usuario.
+
     del_dia = _tramos_del_dia(intervalos)
 
     if not del_dia:
-        # El lugar no abre ese día: se informa cuándo vuelve a abrir.
         return {
             "verificado": True,
             "incompatible": True,
@@ -479,7 +451,6 @@ def construir_advertencia(
         advertencia["resumen"] = resumen
         return advertencia
 
-    # Fuera de horario: se conserva el mensaje del validador (incluye horarios).
     advertencia["mensaje"] = resultado.get("mensaje") or ""
     horarios = advertencia["horarios_apertura"]
     advertencia["resumen"] = (
@@ -512,20 +483,6 @@ async def analizar_horario_actividad(
     destinos: Optional[list[dict]] = None,
     contexto_lugar: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
-    """Analiza si el horario de la actividad es compatible con el del lugar.
-
-    Devuelve siempre un dict. `advertencia=True` solo ante una incompatibilidad
-    comprobada; cualquier error o falta de datos permite registrar normalmente.
-    `aviso` (opcional) informa que no se pudo verificar la disponibilidad horaria.
-
-    Si se pasa `contexto_lugar` (un dict), se completa con el establecimiento
-    identificado para que otros análisis lo reutilicen sin repetir las llamadas
-    a Gemini y Google Places (recomendación de entradas y reservas):
-    - `estado`: `identificado`, `sin_lugar` (Gemini indicó que la actividad no es
-      un lugar concreto) o `no_determinado` (error, sin resultados o sin análisis).
-    - `place_id` y `detalles` (lo que devolvió `obtener_detalles_lugar`) cuando
-      el lugar quedó identificado.
-    """
     if contexto_lugar is not None:
         contexto_lugar["estado"] = LUGAR_NO_DETERMINADO
 
@@ -542,14 +499,10 @@ async def analizar_horario_actividad(
 
     place_id = None
     nombre_busqueda = None
-    # True cuando Gemini no respondió y se buscó el lugar directamente con el nombre
-    # de la actividad. En ese caso, si no se consiguen los horarios, se registra
-    # normalmente informando que no se pudieron verificar.
     busqueda_directa = False
     no_verificado = {"advertencia": False, "aviso": MENSAJE_NO_VERIFICADO}
 
     try:
-        # (2) La ubicación asociada manualmente es la referencia principal.
         if id_lugar_interes is not None:
             lugar = db.scalar(select(LugarInteres).where(LugarInteres.IdLugarInteres == id_lugar_interes))
             if lugar is not None:
@@ -558,7 +511,6 @@ async def analizar_horario_actividad(
                 else:
                     nombre_busqueda = lugar.Nombre
 
-        # (3) Sin ubicación utilizable: se infiere el lugar desde el nombre de la actividad.
         if not place_id:
             if not nombre_busqueda:
                 try:
@@ -566,11 +518,8 @@ async def analizar_horario_actividad(
                         nombre_actividad, _contexto_destino_texto(destinos), lanzar_si_falla=True
                     )
                     if not nombre_busqueda and contexto_lugar is not None and id_lugar_interes is None:
-                        # Respuesta válida de Gemini: la actividad no es un lugar concreto.
                         contexto_lugar["estado"] = LUGAR_INEXISTENTE
                 except Exception as error:
-                    # Gemini no disponible (p. ej. 503): se busca en Google Places con
-                    # el nombre de la actividad tal cual.
                     logger.warning(
                         "Gemini no disponible (%s); se busca el lugar en Google Places con el nombre de la actividad.",
                         error,
@@ -587,21 +536,17 @@ async def analizar_horario_actividad(
         return no_verificado if busqueda_directa else {"advertencia": False}  # Criterio 12
 
     if not place_id:
-        # Criterio 10: lugar no identificado.
         return no_verificado if busqueda_directa else {"advertencia": False}
 
     try:
         details = await obtener_detalles_lugar(place_id)
         if not details:
-            # Criterio 12 (error/sin respuesta de Google)
             return no_verificado if busqueda_directa else {"advertencia": False}
 
         dia_sem = fecha_obj.weekday()
         nombre_lugar = details.get("name")
 
         if busqueda_directa and not _nombre_coincide_con_actividad(nombre_lugar, nombre_actividad):
-            # Sin Gemini no hay certeza de que el resultado sea el lugar de la actividad:
-            # mejor no advertir sobre un lugar equivocado.
             logger.info(
                 "Búsqueda directa descartada: '%s' no coincide con la actividad '%s'.",
                 nombre_lugar,
@@ -612,14 +557,12 @@ async def analizar_horario_actividad(
         if contexto_lugar is not None:
             contexto_lugar.update(estado=LUGAR_IDENTIFICADO, place_id=place_id, detalles=details)
 
-        # (4) Lugar cerrado temporal (reformas, mantenimiento, etc.) o definitivamente:
-        # se avisa antes de mirar horarios, que Google suele seguir publicando.
+
         tipo_cierre = _ESTADOS_CERRADO.get(details.get("business_status") or "")
         if tipo_cierre:
             return construir_advertencia({"tipo": tipo_cierre}, nombre_lugar, fecha_obj)
 
-        # (5) Primero los horarios actuales (con fechas especiales); si no cubren
-        # la fecha o no existen, los regulares.
+
         resultado = None
         for clave in ("current_opening_hours", "opening_hours"):
             horarios = details.get(clave)
@@ -631,25 +574,21 @@ async def analizar_horario_actividad(
                 break
 
         if resultado is None:
-            # (11) Sin información confiable: se informa, sin asumir que está cerrado.
             return {"advertencia": False, "aviso": MENSAJE_NO_VERIFICADO}
 
         if resultado.get("incompatible"):
             if resultado.get("tipo") == TIPO_CERRADO_DIA and not resultado.get("proxima_apertura"):
-                # Los horarios actuales solo cubren 7 días: si no alcanzan para saber
-                # cuándo reabre, se busca en los horarios regulares.
                 regulares = details.get("opening_hours") or {}
                 if regulares.get("periods"):
                     try:
                         resultado["proxima_apertura"] = _proxima_apertura(
                             regulares["periods"], dia_sem, fecha_obj, False
                         )
-                    except Exception:  # pragma: no cover - dato opcional
+                    except Exception: 
                         pass
             return construir_advertencia(resultado, nombre_lugar, fecha_obj)
     except Exception as error:
         logger.warning("Error consultando los horarios del lugar: %s", error)
         return no_verificado if busqueda_directa else {"advertencia": False}  # Criterio 12
 
-    # Horario verificado y compatible: permite limpiar una advertencia previa.
     return {"advertencia": False, "compatible": True}

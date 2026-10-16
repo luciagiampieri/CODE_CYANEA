@@ -21,9 +21,11 @@ export default function BackofficeLayout({ admin, onLogout, onIrInicio, claveVis
   const compacto = width < 720;
   const [saliendo, setSaliendo] = useState(false);
 
-  async function salir() {
+  function salir() {
     setSaliendo(true);
-    await onLogout();
+    Promise.resolve(onLogout()).catch(() => {
+      setSaliendo(false);
+    });
   }
 
   return (
@@ -69,7 +71,7 @@ export default function BackofficeLayout({ admin, onLogout, onIrInicio, claveVis
         contentContainerStyle={styles.scroll}
         keyboardShouldPersistTaps="handled"
       >
-        <View style={styles.contenido}>{children}</View>
+        <View style={[styles.contenido, compacto && styles.contenidoCompacto]}>{children}</View>
       </ScrollView>
     </View>
   );
@@ -167,11 +169,13 @@ const styles = StyleSheet.create({
   },
   contenido: {
     width: '100%',
-    maxWidth: 1080,
-    alignSelf: 'center',
     paddingHorizontal: spacing.xl,
-    paddingTop: spacing.xxxl,
+    paddingTop: spacing.xl,
     paddingBottom: spacing.xxxl,
+  },
+  contenidoCompacto: {
+    paddingHorizontal: spacing.md,
+    paddingTop: spacing.lg,
   },
   presionado: {
     transform: [{ scale: 0.985 }],

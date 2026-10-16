@@ -101,3 +101,11 @@ export function listarUsuarios({ q, estado, plan, metodoRegistro, pagina = 1 } =
 export function obtenerUsuario(idUsuario) {
   return solicitar(`/usuarios/${idUsuario}`);
 }
+
+export function obtenerMetricas({ desde, hasta } = {}) {
+  const params = new URLSearchParams();
+  if (desde) params.set('desde', desde);
+  if (hasta) params.set('hasta', hasta);
+  const consulta = params.toString();
+  return solicitar(`/metricas${consulta ? `?${consulta}` : ''}`);
+}

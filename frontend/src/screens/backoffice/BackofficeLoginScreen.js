@@ -29,7 +29,7 @@ export default function BackofficeLoginScreen({ onLogin, aviso }) {
   const [error, setError] = useState('');
   const [enviando, setEnviando] = useState(false);
 
-  async function enviar() {
+  function enviar() {
     if (enviando) return;
     if (!email.trim() || !password) {
       setError('Completá el correo electrónico y la contraseña.');
@@ -37,13 +37,11 @@ export default function BackofficeLoginScreen({ onLogin, aviso }) {
     }
     setError('');
     setEnviando(true);
-    try {
-      await onLogin(email.trim().toLowerCase(), password);
-    } catch (err) {
+    Promise.resolve(onLogin(email.trim().toLowerCase(), password)).catch((err) => {
       setError(err?.message || 'No se pudo iniciar sesión.');
       setPassword('');
       setEnviando(false);
-    }
+    });
   }
 
   return (

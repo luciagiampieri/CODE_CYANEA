@@ -11,8 +11,13 @@ export const backofficeColors = {
   textoTenue: '#6f6d75',
   acento: colors.accent,
   acentoSuave: 'rgba(255, 236, 128, 0.08)',
+  acentoMedio: 'rgba(255, 236, 128, 0.16)',
   acentoBorde: 'rgba(255, 236, 128, 0.28)',
   sobreAcento: '#0a0a0b',
   peligro: '#ff8a80',
   peligroSuave: 'rgba(255, 138, 128, 0.10)',
+  manteca: '#ffec80',
+  salvia: '#9fdcb8',
+  cielo: '#8ec9ff',
+  lavanda: '#c4b5fd',
 };

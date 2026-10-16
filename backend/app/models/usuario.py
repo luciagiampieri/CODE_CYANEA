@@ -28,6 +28,9 @@ class Usuario(Base):
         nullable=False,
     )
     FechaBaja: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    UltimoAcceso: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True, index=True
+    )
     Activo: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=True, server_default="true"
     )
@@ -43,16 +46,12 @@ class Usuario(Base):
     ConsienteNotificacionesPush: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default="false"
     )
-    # Fecha en que se otorgó el consentimiento explícito de cada canal
-    # (US 60, RNF-13). Se limpia cuando el usuario lo revoca.
     FechaConsentimientoNotificacionesEmail: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
     FechaConsentimientoNotificacionesPush: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
-    # Consentimiento para procesar imágenes con un servicio externo de IA
-    # (US 93, RNF-13 y RNF-33). Se pide la primera vez que se usa el escaneo.
     ConsienteProcesamientoIA: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default="false"
     )
@@ -145,8 +144,6 @@ class Usuario(Base):
     VersionTerminosAceptada: Mapped[str | None] = mapped_column(
         String(30), nullable=True
     )
-    # Privacidad del perfil (US 61). Cada campo es "participantes" (visible
-    # para los demás integrantes de los viajes compartidos) o "privado".
     VisibilidadNombre: Mapped[str] = mapped_column(
         String(20), nullable=False, default="participantes", server_default="participantes"
     )
@@ -156,8 +153,6 @@ class Usuario(Base):
     VisibilidadFotoPerfil: Mapped[str] = mapped_column(
         String(20), nullable=False, default="participantes", server_default="participantes"
     )
-    # Si otros viajeros pueden encontrar la cuenta buscando por nombre de
-    # usuario para invitarla a un viaje.
     PermiteBusquedaPorUsuario: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=True, server_default="true"
     )

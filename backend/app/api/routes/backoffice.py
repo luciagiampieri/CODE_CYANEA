@@ -1,4 +1,5 @@
 import math
+from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel
@@ -8,6 +9,7 @@ from app.api.deps_backoffice import require_admin_sistema
 from app.db.session import get_db
 from app.models.usuario import Usuario
 from app.schemas.auth import LoginRequest, TokenResponse
+from app.schemas.backoffice_metricas import MetricasDashboard
 from app.schemas.backoffice_usuario import (
     EstadoCuenta,
     PlanUsuario,
@@ -15,6 +17,7 @@ from app.schemas.backoffice_usuario import (
     UsuarioBackofficePagina,
 )
 from app.services.backoffice import auth_service as bo
+from app.services.backoffice import metricas_service
 from app.services.backoffice import usuarios_service
 
 router_publico = APIRouter()
@@ -99,3 +102,19 @@ def detalle_usuario_backoffice(
             detail="Usuario no encontrado.",
         )
     return detalle
+
+
+@router.get("/metricas", response_model=MetricasDashboard)
+def metricas_backoffice(
+    desde: date | None = None,
+    hasta: date | None = None,
+    db: Session = Depends(get_db),
+) -> MetricasDashboard:
+    try:
+        desde, hasta = metricas_service.resolver_rango(desde, hasta)
+    except metricas_service.RangoInvalido as error:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(error),
+        )
+    return metricas_service.obtener_metricas(db, desde, hasta)
