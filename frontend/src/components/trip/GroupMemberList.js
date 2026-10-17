@@ -10,7 +10,7 @@ import { colors, radii, spacing, textStyles } from "../../theme/tokens";
  * Las acciones sobre cada integrante se abren desde el botón de tres puntos,
  * para no cargar cada fila con botones que casi nunca se usan.
  */
-export default function GroupMemberList({ members = [], canManage = false, onRemove }) {
+export default function GroupMemberList({ members = [], canManage = false, onRemove, onTransferAdministration }) {
   const [openMenuKey, setOpenMenuKey] = useState(null);
 
   if (members.length === 0) {
@@ -26,7 +26,10 @@ export default function GroupMemberList({ members = [], canManage = false, onRem
       {members.map((member, index) => {
         const isOrganizer = member.role === "administrador";
         const isPending = member.status === "invitado";
-        const hasActions = canManage && !isOrganizer && typeof onRemove === "function";
+        const canRemove = canManage && !isOrganizer && typeof onRemove === "function";
+        const canTransfer = canManage && !isOrganizer && member.status === "aceptado" &&
+          member.kind !== "external" && Boolean(member.id) && typeof onTransferAdministration === "function";
+        const hasActions = canRemove || canTransfer;
         const menuOpen = openMenuKey === member.key;
         const isLast = index === members.length - 1;
 
@@ -73,6 +76,21 @@ export default function GroupMemberList({ members = [], canManage = false, onRem
 
             {hasActions && menuOpen ? (
               <View style={styles.actions}>
+                {canTransfer ? (
+                  <Pressable
+                    accessibilityRole="button"
+                    onPress={() => {
+                      setOpenMenuKey(null);
+                      onTransferAdministration(member);
+                    }}
+                    style={[styles.actionButton, styles.transferButton]}
+                    testID={`group-member-transfer-${member.key}`}
+                  >
+                    <FontAwesome6 color={colors.primary} name="crown" size={12} />
+                    <Text style={styles.actionTransfer}>Transferir administración</Text>
+                  </Pressable>
+                ) : null}
+                {canRemove ? (
                 <Pressable
                   onPress={() => {
                     setOpenMenuKey(null);
@@ -84,6 +102,7 @@ export default function GroupMemberList({ members = [], canManage = false, onRem
                   <FontAwesome6 color={colors.danger} name="user-minus" size={12} />
                   <Text style={styles.actionDanger}>Expulsar del viaje</Text>
                 </Pressable>
+                ) : null}
               </View>
             ) : null}
           </View>
@@ -159,6 +178,8 @@ const styles = StyleSheet.create({
   },
   actions: {
     flexDirection: "row",
+    flexWrap: "wrap",
+    gap: spacing.xs,
     justifyContent: "flex-end",
     paddingTop: spacing.xs,
   },
@@ -176,4 +197,6 @@ const styles = StyleSheet.create({
     color: colors.danger,
     fontWeight: "700",
   },
+  transferButton: { backgroundColor: colors.surfaceAlt },
+  actionTransfer: { ...textStyles.meta, color: colors.primary, fontWeight: "700" },
 });

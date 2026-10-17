@@ -3,6 +3,7 @@ import { Platform } from "react-native";
 import { getCurrentUser } from "../services/api";
 
 const AUTH_TOKEN_KEY = "auth_token";
+const PENDING_INVITATION_KEY = "cyanea_pending_invitation";
 
 // expo-secure-store no funciona en web; usamos localStorage como fallback
 const storage = {
@@ -37,10 +38,13 @@ export function AuthProvider({ children }) {
   const [token, setToken] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
   const [user, setUser] = useState(null);
+  const [pendingInvitation, setPendingInvitation] = useState(null);
 
   useEffect(() => {
     async function loadToken() {
       try {
+        const pending = await storage.getItem(PENDING_INVITATION_KEY).catch(() => null);
+        setPendingInvitation(pending);
         const stored = await storage.getItem(AUTH_TOKEN_KEY);
 
         if (!stored) {
@@ -83,8 +87,14 @@ export function AuthProvider({ children }) {
     setUser(null);
   }, []);
 
+  const rememberInvitation = useCallback(async (invitationToken) => {
+    setPendingInvitation(invitationToken || null);
+    if (invitationToken) await storage.setItem(PENDING_INVITATION_KEY, invitationToken);
+    else await storage.removeItem(PENDING_INVITATION_KEY);
+  }, []);
+
   return (
-    <AuthContext.Provider value={{ token, user, isLoading, login, logout }}>
+    <AuthContext.Provider value={{ token, user, isLoading, login, logout, pendingInvitation, rememberInvitation }}>
       {children}
     </AuthContext.Provider>
   );

@@ -123,4 +123,14 @@ describe("US - Iniciar sesión (LoginScreen)", () => {
 
     expect(mockNavigate).toHaveBeenCalledWith("Register");
   });
+
+  it("ofrece reenvio cuando el servidor exige confirmar el correo", async () => {
+    loginUser.mockRejectedValue(Object.assign(new Error("Confirmá tu correo"), { code: "EMAIL_CONFIRMATION_REQUIRED" }));
+    const utils = await render(<LoginScreen navigation={navigation} />);
+    await completarCredenciales(utils, "Persona@Mail.com", "secreta123");
+    await press(utils, "Entrar");
+    await press(utils, "Reenviar confirmación");
+    expect(mockNavigate).toHaveBeenCalledWith("ResendConfirmation", { email: "persona@mail.com" });
+    expect(mockLogin).not.toHaveBeenCalled();
+  });
 });

@@ -11,12 +11,15 @@ jest.mock("../services/api", () => ({
 const AUTH_TOKEN_KEY = "auth_token";
 
 function TestConsumer() {
-  const { token, isLoading, login, logout } = useAuth();
+  const { token, isLoading, login, logout, pendingInvitation, rememberInvitation } = useAuth();
 
   return (
     <>
       <Text>{isLoading ? "cargando" : "listo"}</Text>
       <Text>{token ?? "sin-token"}</Text>
+      <Text>{pendingInvitation ?? "sin-invitacion"}</Text>
+      <Pressable onPress={() => rememberInvitation("enlace-pendiente")}><Text>Recordar invitacion</Text></Pressable>
+      <Pressable onPress={() => rememberInvitation(null)}><Text>Descartar invitacion</Text></Pressable>
       <Pressable onPress={() => login("nuevo-token")}>
         <Text>Login</Text>
       </Pressable>
@@ -52,6 +55,26 @@ afterEach(() => {
 });
 
 describe("AuthContext", () => {
+  it("restaura la invitación pendiente al recargar aunque no haya sesión", async () => {
+    localStorageMock.getItem.mockImplementation((key) => key === "cyanea_pending_invitation" ? "enlace-pendiente" : null);
+    const utils = await render(<AuthProvider><TestConsumer /></AuthProvider>);
+    await waitFor(() => expect(utils.getByText("listo")).toBeTruthy());
+    expect(utils.getByText("enlace-pendiente")).toBeTruthy();
+    expect(utils.getByText("sin-token")).toBeTruthy();
+  });
+
+  it("conserva la invitación al iniciar sesión y la elimina solo al descartarla", async () => {
+    localStorageMock.getItem.mockReturnValue(null);
+    getCurrentUser.mockResolvedValue({ id: 1 });
+    const utils = await render(<AuthProvider><TestConsumer /></AuthProvider>);
+    await waitFor(() => expect(utils.getByText("listo")).toBeTruthy());
+    await act(async () => { await fireEvent.press(utils.getByText("Recordar invitacion")); });
+    expect(localStorageMock.setItem).toHaveBeenCalledWith("cyanea_pending_invitation", "enlace-pendiente");
+    await act(async () => { await fireEvent.press(utils.getByText("Login")); });
+    expect(utils.getByText("enlace-pendiente")).toBeTruthy();
+    await act(async () => { await fireEvent.press(utils.getByText("Descartar invitacion")); });
+    expect(localStorageMock.removeItem).toHaveBeenCalledWith("cyanea_pending_invitation");
+  });
   it("useAuth lanza un error si se usa fuera de AuthProvider", async () => {
     // Silenciamos el log de error de React para este test puntual: el throw
     // es esperado y no queremos ensuciar la salida de la suite.
@@ -80,7 +103,7 @@ describe("AuthContext", () => {
   });
 
   it("con token guardado y válido: autentica y expone el token", async () => {
-    localStorageMock.getItem.mockReturnValue("token-guardado");
+    localStorageMock.getItem.mockImplementation((key) => key === AUTH_TOKEN_KEY ? "token-guardado" : null);
     getCurrentUser.mockResolvedValue({ id: 1, nombreCompleto: "Ada Lovelace" });
 
     const utils = await render(
@@ -97,7 +120,7 @@ describe("AuthContext", () => {
   });
 
   it("con token guardado pero inválido (rechazado por el backend): lo descarta", async () => {
-    localStorageMock.getItem.mockReturnValue("token-vencido");
+    localStorageMock.getItem.mockImplementation((key) => key === AUTH_TOKEN_KEY ? "token-vencido" : null);
     getCurrentUser.mockRejectedValue(new Error("401"));
 
     const utils = await render(
@@ -149,7 +172,7 @@ describe("AuthContext", () => {
   });
 
   it("logout: elimina el token del storage y limpia el estado", async () => {
-    localStorageMock.getItem.mockReturnValue("token-guardado");
+    localStorageMock.getItem.mockImplementation((key) => key === AUTH_TOKEN_KEY ? "token-guardado" : null);
     getCurrentUser.mockResolvedValue({ id: 1 });
 
     const utils = await render(

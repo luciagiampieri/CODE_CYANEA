@@ -11,7 +11,6 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.core.security import (
     create_access_token,
-    create_email_confirmation_token,
     decode_email_confirmation_token,
     hash_password,
     verify_password,
@@ -26,9 +25,10 @@ from app.schemas.password_reset import (
     ResetTokenRequest,
     TokenValidationResponse,
 )
-from app.services.auth import password_reset_service
+from app.services.auth import password_reset_service, email_confirmation_service
 from app.services.invitaciones_externas import vincular_invitaciones_externas_seguro
 from app.schemas.usuario import UsuarioRegister, UsuarioRegisterResponse
+from app.schemas.email_confirmation import ResendConfirmationRequest
 from app.services.auth.google_auth_service import GoogleAuthService
 from app.services.auth.facebook_auth_service import FacebookAuthService
 from app.services.mail import get_mail_service
@@ -102,27 +102,26 @@ def register(
     # Si lo habían invitado por mail a algún viaje, la invitación pasa a su cuenta.
     vincular_invitaciones_externas_seguro(db, nuevo)
 
-    token = create_email_confirmation_token(nuevo.Email)
-    confirm_url = (
-        f"{settings.api_base_url.rstrip('/')}"
-        F"/auth/confirm-email?token={token}"
-    )
-
-    _send_template_no_bloqueante(
-        mail_service,
-        user_id=nuevo.IdUsuario,
-        to=[nuevo.Email],
-        subject="Confirmá tu cuenta en Cyanea",
-        template_name="confirm_email.html",
-        text_template_name="confirm_email.txt",
-        context={"nombre": nuevo.Nombre, "confirm_url": confirm_url},
-    )
+    email_confirmation_service.enviar_confirmacion(nuevo, mail_service)
 
     logger.info("Registro exitoso", extra={"user_id": nuevo.IdUsuario})
     return UsuarioRegisterResponse(
         message="Registro exitoso. Revisá tu correo para confirmar tu cuenta.",
         email=nuevo.Email,
     )
+
+
+@router.post("/resend-confirmation", response_model=MessageResponse)
+def resend_confirmation(
+    payload: ResendConfirmationRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+    mail_service: MailService = Depends(get_mail_service),
+) -> MessageResponse:
+    email_confirmation_service.solicitar_reenvio(
+        db, mail_service, payload.email, request.client.host if request.client else None,
+    )
+    return MessageResponse(message=email_confirmation_service.MENSAJE_GENERICO)
 
 
 @router.get("/confirm-email")
@@ -196,6 +195,7 @@ def login(payload: LoginRequest, db: Session = Depends(get_db)) -> TokenResponse
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Debés confirmar tu correo electrónico antes de iniciar sesión.",
+            headers={"X-Error-Code": "EMAIL_CONFIRMATION_REQUIRED"},
         )
 
     vincular_invitaciones_externas_seguro(db, usuario)

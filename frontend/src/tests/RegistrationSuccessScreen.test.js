@@ -18,29 +18,23 @@ describe("RegistrationSuccessScreen", () => {
     const { render: doRender } = renderScreen({ email: "ada@mail.com" });
     const { getByText } = await doRender();
 
-    expect(getByText("ada@mail.com")).toBeTruthy();
+    expect(getByText(/Revisá la bandeja de entrada de ada@mail.com/)).toBeTruthy();
   });
 
   it("muestra el título y el mensaje de instrucciones", async () => {
     const { render: doRender } = renderScreen();
     const { getByText } = await doRender();
 
-    expect(getByText("¡Revisa tu correo electrónico!")).toBeTruthy();
-    expect(
-      getByText("Te enviamos un enlace de confirmación a:")
-    ).toBeTruthy();
-    expect(
-      getByText(
-        "Hacé clic en el enlace del correo para activar tu cuenta.\nEl enlace expirará en 24 horas."
-      )
-    ).toBeTruthy();
+    expect(getByText("¡Revisá tu correo electrónico!")).toBeTruthy();
+    expect(getByText(/El enlace es válido por 24 horas/)).toBeTruthy();
+    expect(getByText("Reenviar correo de confirmación")).toBeTruthy();
   });
 
   it("al presionar el botón, navega a Login reemplazando la pantalla actual", async () => {
     const { navigation, render: doRender } = renderScreen();
     const { getByText } = await doRender();
 
-    fireEvent.press(getByText("Ir al Inicio de Sesión"));
+    await fireEvent.press(getByText("Ir al inicio de sesión"));
 
     expect(navigation.replace).toHaveBeenCalledWith("Login");
     expect(navigation.replace).toHaveBeenCalledTimes(1);
@@ -50,7 +44,7 @@ describe("RegistrationSuccessScreen", () => {
     const { render: doRender } = renderScreen({ email: "otra@mail.com" });
     const { getByText, queryByText } = await doRender();
 
-    expect(getByText("otra@mail.com")).toBeTruthy();
-    expect(queryByText("ada@mail.com")).toBeNull();
+    expect(getByText(/Revisá la bandeja de entrada de otra@mail.com/)).toBeTruthy();
+    expect(queryByText(/Revisá la bandeja de entrada de ada@mail.com/)).toBeNull();
   });
 });

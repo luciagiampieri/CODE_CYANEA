@@ -12,3 +12,5 @@
 \i 010_tokens_push_usuarios.sql
 \i 011_recordatorios_actividades_notificados.sql
 \i 012_backoffice.sql
+\i 013_enlaces_invitacion_viajes.sql
+\i 014_planes_y_cupos.sql

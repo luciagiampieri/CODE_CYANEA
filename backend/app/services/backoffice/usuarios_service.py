@@ -1,6 +1,7 @@
 import math
 
-from sqlalchemy import and_, false, func, or_, select
+from sqlalchemy import and_, func, or_, select
+from app.models.plan import Plan
 from sqlalchemy.orm import Session
 
 from app.models.estado_participacion import EstadoParticipacion
@@ -47,7 +48,7 @@ def estado_cuenta(usuario: Usuario) -> str:
 
 
 def plan_usuario(usuario: Usuario) -> str:
-    return PLAN_GRATUITO
+    return usuario.Plan.Nombre if usuario.Plan else PLAN_GRATUITO
 
 
 def _patron_busqueda(texto: str) -> str:
@@ -94,8 +95,8 @@ def buscar_usuarios(
     if estado:
         consulta = consulta.where(_CONDICIONES_ESTADO[estado])
 
-    if plan == PLAN_PRO:
-        consulta = consulta.where(false())
+    if plan:
+        consulta = consulta.join(Usuario.Plan).where(Plan.Nombre == plan)
 
     if metodo_registro:
         consulta = consulta.where(

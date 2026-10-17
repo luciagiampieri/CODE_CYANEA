@@ -104,7 +104,7 @@ export default function RegisterScreen({ navigation }) {
         return;
       }
       
-      navigation.replace("RegistrationSuccess", { email: form.email });
+      navigation.replace("RegistrationSuccess", { email: data.email || form.email.trim().toLowerCase() });
     } catch {
       setErrors({ general: "No se pudo conectar con el servidor." });
     } finally {

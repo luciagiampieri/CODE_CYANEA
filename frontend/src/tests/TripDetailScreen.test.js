@@ -1,9 +1,11 @@
 import { act, render, waitFor, fireEvent } from "@testing-library/react-native";
-import { Alert } from "react-native";
+import { Alert, Platform } from "react-native";
+import { DialogHost } from "../components/ui/AppDialog";
 import TripDetailScreen from "../screens/TripDetailScreen";
 import {
   getCurrentUser,
   leaveTrip,
+  transferTripAdministration,
   getTripDetail,
   getTripPlaces,
   getTripSettlement,
@@ -23,6 +25,7 @@ import {
   updateAssistantConsent,
   getExpenseDetail,
   getItinerarySocketUrl,
+  getActivitySuggestions,
 } from "../services/api";
 
 jest.mock("react-native-maps", () => {
@@ -71,6 +74,7 @@ jest.mock("../services/api", () => ({
   rejectSettlementTransfer: jest.fn(),
   getCurrentUser: jest.fn(),
   leaveTrip: jest.fn(),
+  transferTripAdministration: jest.fn(),
   getTripDetail: jest.fn(),
   getTripPlaces: jest.fn(),
   getVotaciones: jest.fn(),
@@ -88,6 +92,7 @@ jest.mock("../services/api", () => ({
   onTripFinishedError: jest.fn(),
   getExpenseDetail: jest.fn(),
   getItinerarySocketUrl: jest.fn(),
+  getActivitySuggestions: jest.fn(),
 }));
 
 jest.mock("../hooks/useItinerarioViewPreference", () => ({
@@ -128,6 +133,7 @@ function setupDefaultMocks() {
   getExpenseCategories.mockResolvedValue([]);
   getSentInvitations.mockResolvedValue([]);
   getTripExpenses.mockResolvedValue([]);
+  getActivitySuggestions.mockResolvedValue([]);
   sendTripAssistantMessage.mockResolvedValue({ message: "Listo" });
   updateAssistantConsent.mockResolvedValue({
     consienteAsistenteIA: true,
@@ -147,6 +153,147 @@ function makeNavigation() {
     addListener: jest.fn(() => jest.fn()),
   };
 }
+
+describe("Transferir administración sin abandonar", () => {
+  const WebSocketOriginal = global.WebSocket;
+  const trip = {
+    id: 1, title: "Viaje grupal", status: "activo", hasLeft: false, currency: "ARS",
+    startDate: "2099-12-01", endDate: "2099-12-10",
+    admin: { id: 1, nombreCompleto: "Juan Pérez" },
+    participants: [
+      { id: 1, nombreCompleto: "Juan Pérez", role: "administrador", status: "aceptado" },
+      { id: 2, nombreCompleto: "Carlos Gómez", role: "participante", status: "aceptado" },
+      { id: 3, nombreCompleto: "Invitado", role: "participante", status: "invitado" },
+    ], cronograma: [],
+  };
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    setupDefaultMocks();
+    getTripDetail.mockResolvedValue(trip);
+    transferTripAdministration.mockResolvedValue({ message: "Seguís en el grupo como participante." });
+    jest.spyOn(Alert, "alert").mockImplementation(() => {});
+  });
+  afterEach(() => {
+    jest.restoreAllMocks();
+    global.WebSocket = WebSocketOriginal;
+  });
+
+  async function abrirAccion() {
+    const utils = await render(<TripDetailScreen navigation={makeNavigation()} route={{ params: { trip } }} />);
+    await fireEvent.press(await utils.findByText("Grupo"));
+    await fireEvent.press(await utils.findByTestId("group-member-menu-user-2"));
+    await fireEvent.press(await utils.findByTestId("group-member-transfer-user-2"));
+    return utils;
+  }
+
+  function botonesConfirmacion() {
+    return Alert.alert.mock.calls.find(([titulo]) => titulo.includes("¿Transferir"))[2];
+  }
+
+  test.each(["cancelar", "exito", "error"])("web usa el diálogo de Cyanea para %s", async (caso) => {
+    const plataformaAnterior = Platform.OS;
+    const ventanaAnterior = global.window;
+    const ventana = { alert: jest.fn(), confirm: jest.fn() };
+    Platform.OS = "web";
+    global.window = ventana;
+    let utils;
+    try {
+      if (caso === "error") transferTripAdministration.mockRejectedValue(new Error("No se pudo transferir."));
+      utils = await render(
+        <>
+          <TripDetailScreen navigation={makeNavigation()} route={{ params: { trip } }} />
+          <DialogHost root />
+        </>
+      );
+      await fireEvent.press(await utils.findByText("Grupo"));
+      await fireEvent.press(await utils.findByTestId("group-member-menu-user-2"));
+      await fireEvent.press(await utils.findByTestId("group-member-transfer-user-2"));
+      expect(await utils.findByText("¿Transferir la administración a Carlos Gómez?")).toBeTruthy();
+      await fireEvent.press(utils.getByText(caso === "cancelar" ? "Cancelar" : "Transferir administración"));
+      if (caso === "cancelar") {
+        await waitFor(() => expect(utils.queryByText("¿Transferir la administración a Carlos Gómez?")).toBeNull());
+        expect(transferTripAdministration).not.toHaveBeenCalled();
+      } else {
+        expect(await utils.findByText(caso === "exito" ? "Administración transferida" : "No se pudo transferir la administración")).toBeTruthy();
+        expect(transferTripAdministration).toHaveBeenCalledWith(1, 2);
+      }
+      expect(ventana.alert).not.toHaveBeenCalled();
+      expect(ventana.confirm).not.toHaveBeenCalled();
+      expect(Alert.alert).not.toHaveBeenCalled();
+    } finally {
+      if (utils) await utils.unmount();
+      Platform.OS = plataformaAnterior;
+      global.window = ventanaAnterior;
+    }
+  });
+
+  test("cancelar conserva al administrador y no llama al backend", async () => {
+    await abrirAccion();
+    await act(async () => botonesConfirmacion().find((b) => b.style === "cancel").onPress());
+    expect(transferTripAdministration).not.toHaveBeenCalled();
+    expect(leaveTrip).not.toHaveBeenCalled();
+  });
+
+  test("confirmar transfiere y actualiza los permisos sin abandonar", async () => {
+    const utils = await abrirAccion();
+    const detalleNuevo = { ...trip, admin: { id: 2, nombreCompleto: "Carlos Gómez" },
+      participants: trip.participants.map((p) => ({ ...p, role: p.id === 2 ? "administrador" : "participante" })) };
+    getTripDetail.mockResolvedValue(detalleNuevo);
+    await act(async () => botonesConfirmacion().find((b) => b.text === "Transferir administración").onPress());
+    await waitFor(() => expect(transferTripAdministration).toHaveBeenCalledWith(1, 2));
+    await waitFor(() => expect(utils.queryByTestId("group-invite-toggle")).toBeNull());
+    expect(utils.queryByText("Ya no formás parte de este viaje")).toBeNull();
+    expect(leaveTrip).not.toHaveBeenCalled();
+    expect(Alert.alert).toHaveBeenCalledWith("Administración transferida", "Seguís en el grupo como participante.", undefined, { tipo: "success" });
+  });
+
+  test("si falla, muestra el error y recarga los permisos", async () => {
+    transferTripAdministration.mockRejectedValue(new Error("El participante abandonó el viaje."));
+    const utils = await abrirAccion();
+    const lecturas = getTripDetail.mock.calls.length;
+    await act(async () => botonesConfirmacion().find((b) => b.text === "Transferir administración").onPress());
+    await waitFor(() => expect(Alert.alert).toHaveBeenCalledWith("No se pudo transferir la administración", "El participante abandonó el viaje.", undefined, { tipo: "error" }));
+    expect(getTripDetail.mock.calls.length).toBeGreaterThan(lecturas);
+    expect(await utils.findByTestId("group-invite-toggle")).toBeTruthy();
+    expect(leaveTrip).not.toHaveBeenCalled();
+  });
+
+  test("abandonar solo ofrece participantes aceptados", async () => {
+    const utils = await render(<TripDetailScreen navigation={makeNavigation()} route={{ params: { trip } }} />);
+    await fireEvent.press(await utils.findByText("Grupo"));
+    await fireEvent.press(await utils.findByText("Abandonar viaje"));
+    expect(await utils.findByTestId("admin-candidate-2")).toBeTruthy();
+    expect(utils.queryByTestId("admin-candidate-3")).toBeNull();
+  });
+
+  test("muestra progreso y bloquea otras acciones mientras transfiere", async () => {
+    let completar;
+    transferTripAdministration.mockImplementation(() => new Promise((resolve) => { completar = resolve; }));
+    const utils = await abrirAccion();
+    await act(async () => botonesConfirmacion().find((b) => b.text === "Transferir administración").onPress());
+    expect(await utils.findByText("Transfiriendo administración…")).toBeTruthy();
+    expect(utils.queryByTestId("group-member-menu-user-2")).toBeNull();
+    expect(utils.queryByTestId("group-invite-toggle")).toBeNull();
+    await act(async () => completar({ message: "Transferida" }));
+    await waitFor(() => expect(utils.queryByText("Transfiriendo administración…")).toBeNull());
+    expect(transferTripAdministration).toHaveBeenCalledTimes(1);
+  });
+
+  test("un evento de otra sesión recarga el nuevo administrador", async () => {
+    const socket = { close: jest.fn() };
+    global.WebSocket = jest.fn(() => socket);
+    getItinerarySocketUrl.mockResolvedValue("ws://test/itinerary");
+    const utils = await render(<TripDetailScreen navigation={makeNavigation()} route={{ params: { trip } }} />);
+    await fireEvent.press(await utils.findByText("Grupo"));
+    expect(await utils.findByTestId("group-invite-toggle")).toBeTruthy();
+    await waitFor(() => expect(socket.onmessage).toBeDefined());
+    getTripDetail.mockResolvedValue({ ...trip, admin: { id: 2, nombreCompleto: "Carlos Gómez" } });
+    await act(async () => socket.onmessage({ data: JSON.stringify({ tipo: "administracion_transferida" }) }));
+    await waitFor(() => expect(utils.queryByTestId("group-invite-toggle")).toBeNull());
+    expect(transferTripAdministration).not.toHaveBeenCalled();
+  });
+});
 
 describe("US 68 - Abandonar un viaje (Suite completa de tests frontend)", () => {
   const mockTripActive = {

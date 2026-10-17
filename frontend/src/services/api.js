@@ -105,6 +105,8 @@ function readHeader(headers, name) {
 function buildApiError(message, status, headers) {
   const error = new Error(message);
   error.status = status;
+  const retryAfter = Number(readHeader(headers, "Retry-After"));
+  error.retryAfter = Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter : null;
   error.code = readHeader(headers, "X-Error-Code");
   const isTripFinished =
     error.code === "TRIP_FINISHED" || (status === 409 && /viaje ya finaliz/i.test(message));
@@ -159,6 +161,15 @@ async function parseResponse(response, fallbackMessage) {
   const error = buildApiError(message, response.status, response.headers);
   if (detalle) error.detalle = detalle;
   throw error;
+}
+
+export async function resendConfirmation(email) {
+  const response = await fetch(`${API_BASE_URL}/auth/resend-confirmation`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email: email.trim().toLowerCase() }),
+  });
+  return parseResponse(response, "No se pudo solicitar el enlace. Intentá nuevamente.");
 }
 
 export async function loginUser(email, password) {
@@ -1513,6 +1524,47 @@ export async function leaveTrip(tripId, payload) {
     response,
     "No se pudo abandonar el viaje"
   );
+}
+
+export async function transferTripAdministration(tripId, nuevoAdministradorId) {
+  const response = await fetch(`${API_BASE_URL}/trips/${tripId}/transferir-administracion`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...(await authHeaders()) },
+    body: JSON.stringify({ nuevoAdministradorId }),
+  });
+  return parseResponse(response, "No se pudo transferir la administración.");
+}
+
+export async function getTripInvitationLink(tripId) {
+  const response = await fetch(`${API_BASE_URL}/trips/${tripId}/enlace-invitacion`, { headers: await authHeaders() });
+  return parseResponse(response, "No se pudo consultar el enlace.");
+}
+
+export async function createTripInvitationLink(tripId, renovar = false) {
+  const response = await fetch(`${API_BASE_URL}/trips/${tripId}/enlace-invitacion`, {
+    method: "POST", headers: { "Content-Type": "application/json", ...(await authHeaders()) },
+    body: JSON.stringify({ renovar }),
+  });
+  return parseResponse(response, "No se pudo generar el enlace.");
+}
+
+export async function revokeTripInvitationLink(tripId) {
+  const response = await fetch(`${API_BASE_URL}/trips/${tripId}/enlace-invitacion`, {
+    method: "DELETE", headers: await authHeaders(),
+  });
+  return parseResponse(response, "No se pudo revocar el enlace.");
+}
+
+export async function previewSharedInvitation(invitationToken) {
+  const response = await fetch(`${API_BASE_URL}/invitaciones/enlaces/${encodeURIComponent(invitationToken)}`);
+  return parseResponse(response, "No se pudo consultar la invitación.");
+}
+
+export async function joinTripByLink(invitationToken) {
+  const response = await fetch(`${API_BASE_URL}/invitaciones/enlaces/${encodeURIComponent(invitationToken)}/unirse`, {
+    method: "POST", headers: await authHeaders(),
+  });
+  return parseResponse(response, "No se pudo completar la incorporación al viaje.");
 }
 
 export async function getNotifications() {

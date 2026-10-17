@@ -60,6 +60,7 @@ from app.schemas.trip import (
     DestinationRead,
     DiaCronogramaRead,
     LeaveTripRequest,
+    TransferirAdministracionRequest,
 )
 from app.schemas.place import TripPlaceRead
 
@@ -93,6 +94,8 @@ from app.services.cover_ai import (
 from app.services.activity_analysis_service import analizar_horario_actividad
 from app.services.entradas_ai import EvaluacionEntradas, evaluar_entradas, normalizar_place_id
 from app.services import tareas_entradas
+from app.services.cupos_viajes import require_trip_capacity
+from app.services.administracion_viajes import bloquear_viaje, cambiar_administrador, transferir_administracion
 from app.models.checklist import Checklist
 
 ROUTE_GENERATION_AVAILABLE = True
@@ -701,12 +704,16 @@ async def respond_to_invitation(
 ):
     decision = payload.decision
 
+    if decision == "aceptar":
+        bloquear_viaje(db, trip_id)
+
     participacion = db.scalar(
         select(ParticipanteViaje)
         .where(
             ParticipanteViaje.IdViaje == trip_id,
             ParticipanteViaje.IdUsuario == current_user.IdUsuario
         )
+        .execution_options(populate_existing=True)
     )
 
     if not participacion:
@@ -729,6 +736,7 @@ async def respond_to_invitation(
 
     if decision == "aceptar":
         require_trip_not_finished(participacion.Viaje, "la lista de participantes")
+        require_trip_capacity(db, participacion.Viaje)
 
     nuevo_estado_nombre = "aceptado" if decision == "aceptar" else "rechazado"
     estado_maestro = db.scalar(
@@ -1782,6 +1790,7 @@ def remove_trip_participant(
     `require_trip_access`, que ya no considera participaciones en estado
     'expulsado' como acceso válido.
     """
+    bloquear_viaje(db, trip_id)
     viaje = require_trip_access(get_trip_with_relations(db, trip_id), current_user)
     _require_trip_admin(viaje, current_user)
     require_trip_not_finished(viaje, "la lista de participantes")
@@ -2512,6 +2521,42 @@ async def create_trip(
     )
 
 
+@router.post("/{trip_id}/transferir-administracion", response_model=TripMutationResponse)
+async def transfer_trip_administration(
+    trip_id: int,
+    data: TransferirAdministracionRequest,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> TripMutationResponse:
+    viaje, destinatario = transferir_administracion(
+        db, trip_id, current_user, data.nuevoAdministradorId,
+    )
+    try:
+        await manager.broadcast_to_trip(viaje.IdViaje, {
+            "tipo": "administracion_transferida", "trip_id": viaje.IdViaje,
+        })
+    except Exception:
+        logger.warning("No se pudo difundir el cambio de administración", exc_info=True)
+    try:
+        await dispatch_user_notification(
+            db,
+            TripNotificationEvent(
+                notification_type=NotificationType.CAMBIO_VIAJE,
+                tipo="nuevo_administrador",
+                titulo="Ahora sos el administrador del viaje",
+                mensaje=f"{_actor_display_name(current_user)} te transfirió la administración de '{viaje.Titulo}'.",
+                id_viaje=viaje.IdViaje,
+                id_usuario_actor=current_user.IdUsuario,
+                data={"eventType": "administration_transferred"},
+            ),
+            [destinatario],
+        )
+    except Exception:
+        db.rollback()
+        logger.warning("No se pudo notificar la transferencia de administración", exc_info=True)
+    return TripMutationResponse(message="Administración transferida. Seguís en el grupo como participante.")
+
+
 @router.post("/{trip_id}/leave", response_model=TripMutationResponse)
 async def leave_trip(
     trip_id: int,
@@ -2526,9 +2571,7 @@ async def leave_trip(
             detail="Debes confirmar que deseas abandonar el viaje",
         )
 
-    viaje = db.scalar(
-        select(Viaje).where(Viaje.IdViaje == trip_id)
-    )
+    viaje = bloquear_viaje(db, trip_id)
 
     if viaje is None:
         raise HTTPException(
@@ -2692,38 +2735,7 @@ async def leave_trip(
 
     if es_administrador:
 
-        rol_admin = db.scalar(
-            select(RolParticipante)
-            .where(
-                RolParticipante.Nombre == "administrador",
-                RolParticipante.Activo.is_(True)
-            )
-        )
-
-        if rol_admin is None:
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Falta el rol maestro 'administrador' en la base de datos."
-            )
-
-        rol_participante = db.scalar(
-            select(RolParticipante)
-            .where(
-                RolParticipante.Nombre == "participante",
-                RolParticipante.Activo.is_(True)
-            )
-        )
-
-        if rol_participante is None:
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Falta el rol maestro 'participante' en la base de datos."
-            )
-
-        viaje.IdAdministrador = nuevo_administrador_usuario.IdUsuario
-        nuevo_administrador.IdRolParticipante = rol_admin.IdRolParticipante
-
-        participacion.IdRolParticipante = rol_participante.IdRolParticipante
+        cambiar_administrador(db, viaje, participacion, nuevo_administrador)
         participacion.IdEstadoParticipacion = estado_salio.IdEstadoParticipacion
         participacion.FechaSalida = datetime.now()
         participacion.IdAdministradorAlMomentoDeSalida = nuevo_administrador_usuario.IdUsuario

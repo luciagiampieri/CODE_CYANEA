@@ -15,6 +15,26 @@ function integrante(overrides = {}) {
 }
 
 describe("GroupMemberList", () => {
+  it("permite transferir la administración a un participante aceptado", async () => {
+    const onTransferAdministration = jest.fn();
+    const member = integrante();
+    const utils = await render(<GroupMemberList canManage members={[member]} onTransferAdministration={onTransferAdministration} />);
+    await fireEvent.press(utils.getByTestId("group-member-menu-1"));
+    await fireEvent.press(utils.getByTestId("group-member-transfer-1"));
+    expect(onTransferAdministration).toHaveBeenCalledWith(member);
+    expect(utils.queryByTestId("group-member-transfer-1")).toBeNull();
+  });
+
+  it.each([
+    { status: "invitado" }, { status: "salio" }, { kind: "external" },
+    { role: "administrador" },
+  ])("no ofrece transferir a candidatos no elegibles: %j", async (overrides) => {
+    const utils = await render(<GroupMemberList canManage members={[integrante(overrides)]} onRemove={jest.fn()} onTransferAdministration={jest.fn()} />);
+    const menu = utils.queryByTestId("group-member-menu-1");
+    if (menu) await fireEvent.press(menu);
+    expect(utils.queryByTestId("group-member-transfer-1")).toBeNull();
+  });
+
   it("muestra el estado vacío cuando no hay integrantes", async () => {
     const { getByText } = await render(<GroupMemberList members={[]} />);
 

@@ -11,6 +11,7 @@ from app.db.session import Base, get_db
 from app.core.security import hash_password, create_access_token
 from app.services.mail import get_mail_service
 from app.models.usuario import Usuario
+from app.models.plan import Plan
 from app.models.estado_viaje import EstadoViaje
 from app.models.estado_participacion import EstadoParticipacion
 from app.models.estado_invitacion import EstadoInvitacion
@@ -39,6 +40,11 @@ TestingSessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=Fals
 def db_session():
     Base.metadata.create_all(bind=engine)
     session = TestingSessionLocal()
+    session.add_all([
+        Plan(IdPlan=1, Nombre="gratuito", MaxParticipantesViaje=3, Activo=True),
+        Plan(IdPlan=2, Nombre="pro", MaxParticipantesViaje=3, Activo=True),
+    ])
+    session.commit()
     try:
         yield session
     finally:

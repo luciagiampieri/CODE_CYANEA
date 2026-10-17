@@ -37,12 +37,12 @@ describe("EmailConfirmadoScreen", () => {
     ).toBeTruthy();
   });
 
-  it("con status 'error', muestra el enlace inválido y el botón para volver a registrarse", async () => {
+  it("con status 'error', muestra el enlace inválido y permite pedir otro", async () => {
     const { renderPromise } = renderScreen("error");
     const { getByText } = await renderPromise;
 
     expect(getByText("Enlace inválido")).toBeTruthy();
-    expect(getByText("Volver al registro")).toBeTruthy();
+    expect(getByText("Solicitar un nuevo enlace")).toBeTruthy();
   });
 
   it("con un status desconocido o ausente, cae al estado de error por defecto", async () => {
@@ -65,13 +65,13 @@ describe("EmailConfirmadoScreen", () => {
     expect(navigation.replace).toHaveBeenCalledWith("Login");
   });
 
-  it("con status 'error', al presionar el botón navega a Register", async () => {
+  it("con status 'error', al presionar el botón navega al reenvio", async () => {
     const { navigation, renderPromise } = renderScreen("error");
     const { getByText } = await renderPromise;
 
-    fireEvent.press(getByText("Volver al registro"));
+    await fireEvent.press(getByText("Solicitar un nuevo enlace"));
 
-    expect(navigation.replace).toHaveBeenCalledWith("Register");
+    expect(navigation.replace).toHaveBeenCalledWith("ResendConfirmation");
   });
 
   it("siempre muestra el logo y el tagline de Cyanea", async () => {

@@ -21,7 +21,7 @@ const MENSAJES = {
     error: {
         emoji: "❌",
         titulo: "Enlace inválido",
-        texto: "El enlace de confirmación es inválido o ya expiró. Volvé a registrarte.",
+        texto: "El enlace de confirmación es inválido o ya expiró. Solicitá un nuevo enlace para confirmar tu cuenta.",
     },
 };
 
@@ -63,10 +63,10 @@ export default function EmailConfirmadoScreen({ navigation, route }) {
                 {isError ? (
                     <TouchableOpacity
                         style={[styles.btn, styles.btnError]}
-                        onPress={() => navigation.replace("Register")}
+                        onPress={() => navigation.replace("ResendConfirmation")}
                         activeOpacity={0.8}
                     >
-                        <Text style={styles.btnText}>Volver al registro</Text>
+                        <Text style={styles.btnText}>Solicitar un nuevo enlace</Text>
                     </TouchableOpacity>
                 ) : (
                     <TouchableOpacity

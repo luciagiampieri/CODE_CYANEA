@@ -41,6 +41,8 @@ const linkingConfig = {
   config: {
     screens: {
       EmailConfirmado: "email-confirmado",
+      ResendConfirmation: "reenviar-confirmacion",
+      UnirseViaje: "unirse/:invitationToken",
       Invitaciones: "invitaciones/:token",
       ForgotPassword: "olvide-contrasena",
       ResetPassword: "restablecer-contrasena",

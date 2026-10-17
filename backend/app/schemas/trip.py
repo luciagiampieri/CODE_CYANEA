@@ -470,3 +470,7 @@ class TripSentInvitationRead(BaseModel):
 class LeaveTripRequest(BaseModel):
     confirmar: bool 
     nuevoAdministradorId: Optional[int] = None
+
+
+class TransferirAdministracionRequest(BaseModel):
+    nuevoAdministradorId: int = Field(gt=0, strict=True)

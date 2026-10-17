@@ -1,6 +1,7 @@
 """SQLAlchemy models."""
 
 from app.models.estado_invitacion import EstadoInvitacion
+from app.models.plan import Plan
 from app.models.estado_participacion import EstadoParticipacion
 from app.models.estado_viaje import EstadoViaje
 from app.models.invitacion_viaje import InvitacionViaje

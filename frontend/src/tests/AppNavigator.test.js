@@ -1,5 +1,6 @@
-import { render } from "@testing-library/react-native";
+import { render, waitFor } from "@testing-library/react-native";
 import { NavigationContainer } from "@react-navigation/native";
+import { navigationRef } from "../services/notificationNavigation";
 
 import AppNavigator from "../navigation/AppNavigator";
 
@@ -46,6 +47,10 @@ jest.mock("../screens/FacebookRegisterScreen", () => () => null);
 jest.mock("../screens/GoogleRegisterScreen", () => () => null);
 jest.mock("../screens/RegistrationSuccessScreen", () => () => null);
 jest.mock("../screens/EmailConfirmadoScreen", () => () => null);
+jest.mock("../screens/JoinTripScreen", () => ({ route }) => {
+  const { Text } = require("react-native");
+  return <Text>Invitación compartida: {route?.params?.invitationToken}</Text>;
+});
 
 describe("US 07 - Cerrar sesión - AppNavigator", () => {
   beforeEach(() => {
@@ -67,5 +72,25 @@ describe("US 07 - Cerrar sesión - AppNavigator", () => {
 
     expect(getByText("Inicio de sesión")).toBeTruthy();
     expect(queryByText("Gestión de viajes")).toBeNull();
+  });
+
+  it("el enlace puede abrirse sin sesión", async () => {
+    useAuth.mockReturnValue({ token: null, isLoading: false });
+    const utils = await render(
+      <NavigationContainer initialState={{ routes: [{ name: "UnirseViaje", params: { invitationToken: "shared-token" } }] }}>
+        <AppNavigator />
+      </NavigationContainer>
+    );
+    expect(await utils.findByText("Invitación compartida: shared-token")).toBeTruthy();
+  });
+
+  it("al iniciar sesión retoma la invitación pendiente en vez de perderla", async () => {
+    useAuth.mockReturnValue({ token: null, isLoading: false, pendingInvitation: "shared-token" });
+    const tree = <NavigationContainer ref={navigationRef}><AppNavigator /></NavigationContainer>;
+    const utils = await render(tree);
+    expect(utils.getByText("Inicio de sesión")).toBeTruthy();
+    useAuth.mockReturnValue({ token: "auth", isLoading: false, pendingInvitation: "shared-token" });
+    await utils.rerender(<NavigationContainer ref={navigationRef}><AppNavigator /></NavigationContainer>);
+    await waitFor(() => expect(utils.getByText("Invitación compartida: shared-token")).toBeTruthy());
   });
 });

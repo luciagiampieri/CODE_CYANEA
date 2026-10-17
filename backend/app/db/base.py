@@ -1,4 +1,6 @@
 from app.db.session import Base
+from app.models.plan import Plan
+from app.models.enlace_invitacion_viaje import EnlaceInvitacionViaje
 from app.models.estado_invitacion import EstadoInvitacion
 from app.models.estado_participacion import EstadoParticipacion
 from app.models.estado_viaje import EstadoViaje
@@ -26,9 +28,12 @@ from app.models.transferencia_liquidacion import TransferenciaLiquidacion
 from app.models.ruta_diaria import RutaDiaria
 from app.models.token_push_usuario import TokenPushUsuario
 from app.models.recordatorio_actividad_notificado import RecordatorioActividadNotificado
+from app.models.solicitud_confirmacion_email import SolicitudConfirmacionEmail
 
 __all__ = [
     "Base",
+    "Plan",
+    "EnlaceInvitacionViaje",
     "EstadoInvitacion",
     "EstadoParticipacion",
     "EstadoViaje",
@@ -56,4 +61,5 @@ __all__ = [
     "RutaDiaria",
     "TokenPushUsuario",
     "RecordatorioActividadNotificado",
+    "SolicitudConfirmacionEmail",
 ]

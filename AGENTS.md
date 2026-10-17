@@ -252,6 +252,7 @@ Respetar el modelo de dominio en espanol. No introducir nombres tipo `trip_id`, 
 - `EstadosParticipaciones`
 - `EstadosInvitaciones`
 - `EstadosTransferenciasLiquidaciones`
+- `Planes`
 
 Datos maestros y seed:
 
@@ -356,6 +357,7 @@ Reglas vigentes para la HU de balance y liquidacion:
 - Prefijo numerico para ordenar ejecucion
 - Incluir script agregador `run_all.sql`
 - Los scripts deben ser idempotentes cuando sea razonable
+- Las migraciones Alembic que eliminen indices, constraints u objetos heredados opcionales deben tolerar bases locales con historia parcial usando `IF EXISTS` o chequeos equivalentes.
 
 Orden actual:
 
@@ -372,6 +374,9 @@ Orden actual:
 - `009_actividades_itinerario.sql`
 - `010_tokens_push_usuarios.sql`
 - `011_recordatorios_actividades_notificados.sql`
+- `012_backoffice.sql`
+- `013_enlaces_invitacion_viajes.sql`
+- `014_planes_y_cupos.sql`
 
 ## Convenciones de backend
 
@@ -513,7 +518,42 @@ Para retomar o replicar la configuracion de push Android:
 - Botones: el de `style: "cancel"` queda como secundario a la izquierda; el ultimo boton no-cancelar es el principal; `style: "destructive"` lo pinta de rojo
 - Para avisos simples o confirmaciones con promesa, preferir `avisar` y `confirmar` de `frontend/src/utils/dialogs.js`
 
+### Expulsion de participantes
+
+- La expulsion desde Grupo usa `appAlert` de `AppDialog.js` para la confirmacion previa (advertencia con "Cancelar" y "Expulsar del viaje", destructivo) y el resultado exitoso; tambien al quitar una invitacion externa. En web y mobile se muestra el dialogo del producto. Cancelar o cerrar no ejecuta la expulsion; se conserva el aviso de saldo pendiente y el historial de gastos.
+
+### Transferencia de administracion del viaje
+
+- `POST /trips/{trip_id}/transferir-administracion` recibe `nuevoAdministradorId` (id de usuario entero positivo). Solo el administrador actual con participacion aceptada puede transferir a otro participante aceptado del mismo viaje y con cuenta activa sin baja. Solo aplica a viajes activos no finalizados; se conserva `TRIP_FINISHED` (409) si ya paso la fecha de fin.
+- La transferencia es inmediata tras confirmacion explicita; no requiere aceptacion del destinatario. El administrador anterior sigue como participante aceptado. No cambia fechas de incorporacion, estados de participacion, gastos, asignaciones, actividades ni invitaciones.
+- `backend/app/services/administracion_viajes.py` mantiene en la misma transaccion `Viajes.IdAdministrador`, ambos `IdRolParticipante` y `FechaActualizacion`; `cambiar_administrador` tambien se reutiliza al abandonar. Transferencia, abandono y expulsion bloquean primero la fila del viaje con `SELECT FOR UPDATE` y recargan su estado para serializar operaciones concurrentes.
+- La UI ofrece "Transferir administracion" en el menu del integrante aceptado en Grupo > Participantes. `GroupMemberList` recibe `onTransferAdministration`; confirmacion, exito y error usan `appAlert` de `AppDialog.js` tambien en web, sin `window.confirm` ni `window.alert`. La confirmacion resuelve una promesa y cancelar/cerrar no ejecuta la transferencia. Se muestra progreso y se actualizan los permisos locales y el detalle despues de confirmar. Los candidatos a administrador al abandonar tambien se filtran por estado `aceptado`.
+- Tras persistir, el evento WebSocket `administracion_transferida` recarga el detalle y cierra la gestion de invitaciones. Se notifica al nuevo administrador mediante `dispatch_user_notification`, tipo interno `nuevo_administrador` y preferencia `CAMBIO_VIAJE` para correo/push; el evento push `administration_transferred` abre Grupo. Fallos externos no revierten la transferencia. No requiere nuevas tablas ni migraciones.
+- Pruebas de negocio en `backend/tests/test_transferir_administracion.py`; regresion de abandono y expulsion en `test_trips.py`. Frontend: `GroupMemberList.test.js`, `TripDetailScreen.test.js`, `api.test.js` y `notificationTarget.test.js`.
+
 ### Invitaciones a viajes
+
+#### Enlace compartible para unirse
+
+- Los enlaces compartibles son independientes de las invitaciones personales por correo: no modifican `InvitacionesViajes` ni su vinculacion automatica en registro/login. La URL es `{MAIL_FRONTEND_BASE_URL}/unirse/{token}` y la ruta compartida `UnirseViaje` existe con y sin sesion.
+- Se persiste un enlace por viaje en `EnlacesInvitacionViajes` (migracion `e1710c0f1a02`, script manual `013_enlaces_invitacion_viajes.sql`). El token aleatorio `token_urlsafe(32)` es unico, se guarda igual que los tokens de invitacion personales y solo se devuelve al administrador autenticado. Su vigencia es 7 dias; el estado se deriva de `FechaRevocacion` y `FechaVencimiento`.
+- Gestion: `GET/POST/DELETE /trips/{trip_id}/enlace-invitacion`. Solo el administrador de un viaje activo no finalizado puede consultar, generar, renovar o revocar. `POST {renovar:false}` reutiliza el enlace vigente; `renovar:true` cambia el token y reinicia los 7 dias. Revocar o renovar no quita integrantes ya aceptados.
+- Consulta publica: `GET /invitaciones/enlaces/{token}` expone unicamente titulo, nombres de destinos, fechas y `administrador` como nombre de usuario publico (sin nombre real, foto ni email antes de pertenecer al grupo), con `Cache-Control: no-store`. Nunca incorpora al usuario ni expone integrantes, gastos o documentos. La vista previa de la US 104 muestra los cuatro datos antes de confirmar.
+- Incorporacion: `POST /invitaciones/enlaces/{token}/unirse`, con sesion, cuenta activa sin baja y correo confirmado. Solo se ejecuta tras confirmar en `AppDialog`. Crea o reactiva una participacion `aceptado` con rol `participante`; actualiza fechas de respuesta/incorporacion y limpia salida/snapshot. Si ya esta aceptado, rechaza con 409 `ALREADY_TRIP_PARTICIPANT`, sin cambiar fechas ni emitir avisos (CA5). Las invitaciones personales `pendiente` de ese viaje para el email verificado del usuario pasan a `aceptada` con `IdUsuarioRegistrado` y `FechaAceptacion` en la misma transaccion (CA4).
+- Participaciones `expulsado` y `cancelada` no pueden reactivarse con el enlace: requieren una nueva invitacion personal del administrador. `invitado`, `rechazado` y `salio` pueden incorporarse al confirmar. No se permite entrar a viajes finalizados (409 `TRIP_FINISHED`), cancelados ni eliminados. Enlaces inexistentes/renovados responden 404 `INVITATION_INVALID`; vencidos/revocados 410 `INVITATION_EXPIRED`; participacion bloqueada 403 `INVITATION_MEMBERSHIP_BLOCKED`.
+- Generacion, revocacion e incorporacion bloquean la fila de `Viajes` mediante `bloquear_viaje`, igual que transferencia/expulsion/abandono. Al incorporarse se revalida el enlace bajo el bloqueo y la unicidad de participacion evita duplicados. Fallos de correo/push/WebSocket no revierten la incorporacion ya persistida.
+- `TripInvitationLink` ofrece generar, copiar, renovar y revocar en Grupo; usa `expo-clipboard` y `appAlert`. Sin sesion, `JoinTripScreen` conserva el token y redirige automaticamente a Login, desde donde se puede ir a registro. El token se conserva en `AuthContext.pendingInvitation` mediante `rememberInvitation`: `localStorage` en web y `expo-secure-store` en nativo, clave `cyanea_pending_invitation`. Se mantiene durante login, registro y confirmacion de cuenta y se limpia al incorporarse o elegir "Ahora no". `AppNavigator` retoma la invitacion al autenticarse, sin aceptar automaticamente. Al incorporarse se muestra el mensaje de exito con `appAlert` y un texto accesible antes de abrir el detalle (CA12).
+- El ingreso emite `participante_acepto` para refrescar el grupo y registra un aviso al administrador mediante `dispatch_user_notification`, tipo `participante_incorporado`, categoria `CAMBIO_VIAJE` y evento `member_joined` que abre Grupo. No requiere aprobacion posterior del administrador ni depende de SMTP.
+- Tests: `backend/tests/test_enlaces_invitacion.py` y regresion `test_invitaciones_externas.py`; frontend `SharedInvitation.test.js`, `AuthContext.test.js`, `AppNavigator.test.js`, `api.test.js` y `notificationTarget.test.js`. Los enlaces web usan el hosting configurado; la apertura automatica de URLs HTTPS en una app instalada requiere configurar Universal/App Links en el dominio y queda fuera de este flujo.
+
+#### Cupos de participantes por plan (US 104, CA8)
+
+- `Planes` es una tabla maestra con `IdPlan`, `Nombre`, `MaxParticipantesViaje` (> 0) y `Activo`; `Usuarios.IdPlan` referencia el plan vigente. Migracion `e1710c0f1a03` y script `014_planes_y_cupos.sql`. Se inicializan `gratuito` (1) y `pro` (2), ambos con cupo 3; las cuentas existentes y nuevas quedan en gratuito por defecto. Esta estructura no implementa cobros, suscripciones ni activacion comercial de Pro.
+- El cupo se modifica directamente en base, por ejemplo `UPDATE "Planes" SET "MaxParticipantesViaje" = 5 WHERE "Nombre" = 'gratuito';`; no requiere reiniciar el backend. El plan de un administrador se asigna mediante `Usuarios.IdPlan`. El limite aplicado es siempre el del administrador actual del viaje, no el del solicitante.
+- Se cuentan todas las participaciones con estado `aceptado`, incluido el administrador. Las invitaciones pendientes no reservan lugar. Bajar un cupo o cambiar administrador no expulsa integrantes existentes; bloquea nuevas incorporaciones mientras el viaje este lleno.
+- `require_trip_capacity` de `backend/app/services/cupos_viajes.py` consulta el plan y cuenta aceptados manteniendo bloqueado el viaje hasta el commit; se usa en ingreso por enlace y en aceptacion de invitaciones personales. El plan se lee con bloqueo compartido para coordinar cambios de configuracion. Viaje lleno responde 409 `TRIP_PARTICIPANT_LIMIT_REACHED`; plan ausente/inactivo responde 503 `PLAN_UNAVAILABLE`.
+
+#### Invitaciones personales
 
 - Se puede volver a invitar a un usuario cuya participacion este en `cancelada`, `rechazado`, `expulsado` o `salio`: el backend la reactiva como `invitado` y limpia `FechaRespuesta` (`ESTADOS_REINVITABLES` y `_reinvitar_participante` en `backend/app/api/routes/trips.py`). La misma regla aplica al invitar por `userId` y por `email`
 - `invitado` o `aceptado` siguen respondiendo 409 ("El usuario ya está agregado al viaje")
@@ -549,6 +589,7 @@ El flujo minimo actual incluye:
 - tras 5 intentos fallidos consecutivos se bloquea el acceso por 15 minutos
 - la sesion se cierra por 30 minutos de inactividad; las sesiones se persisten en `SesionBackoffice` y cada intento de acceso se audita en `AuditoriaAccesoBackoffice`
 - la logica del backoffice vive en `backend/app/services/backoffice/`
+- el esquema de backoffice se versiona en Alembic (`9f4c2d1a0b3e_backoffice_schema.py`); `backend/scripts/sql/012_backoffice.sql` queda como referencia/idempotente para inicializaciones manuales.
 
 ### Gestion de usuarios (US 107)
 
@@ -562,7 +603,7 @@ El flujo minimo actual incluye:
   - `Activo = false` -> `suspendida`
   - resto -> `activa`
 - el metodo de registro es `Usuarios.ProveedorAutenticacion`
-- mientras no exista el modelo de planes, todos los usuarios se informan como plan `gratuito`, el filtro `pro` devuelve vacio y `estadoSuscripcion` es `null`; al implementar planes y suscripciones se actualizan `plan_usuario` y el filtro de plan en `usuarios_service.py`
+- el plan informado y los filtros `gratuito`/`pro` se resuelven desde `Usuarios.IdPlan` y la tabla `Planes`; `estadoSuscripcion` sigue en `null` porque no se implementaron suscripciones ni pagos
 - los usuarios dados de baja ya estan anonimizados en base (`_anonimizar_usuario`, RN-07); el backoffice no enmascara datos, solo informa `anonimizado` segun `FechaBaja`
 
 ### Frontend del backoffice
@@ -616,3 +657,13 @@ Frontend activo:
 - Antes de cambiar stack, estructura o criterio visual base, conversar el cambio
 - Si se toma una nueva convencion, actualizar este archivo en el mismo trabajo
 - No dejar decisiones arquitectonicas relevantes solo en chat o commits
+
+
+### Reenvio de confirmacion de cuenta
+
+- `POST /auth/resend-confirmation` es publico y recibe `email` normalizado; responde un mensaje generico para cuentas inexistentes, confirmadas, sociales o inactivas. Solo envia a cuentas locales activas, sin baja y con email pendiente.
+- Registro y reenvio comparten `backend/app/services/auth/email_confirmation_service.py` y las plantillas `confirm_email`; los fallos u omisiones del proveedor se registran sin revertir el alta ni revelar la existencia de la cuenta en el reenvio.
+- Cada enlace JWT tiene 24 horas de vigencia; reenviar no invalida enlaces anteriores. Confirmar nuevamente con un enlace valido es idempotente.
+- `SolicitudesConfirmacionEmail` (migracion `e1710c0f1a01`, sobre `a1060d4b5c7e`) registra hash de email, IP y fecha para todos los intentos admitidos: espera de 60 segundos por email y maximo 5 por hora por email o IP. PostgreSQL serializa la validacion y registro con advisory locks transaccionales para evitar saltarse limites con solicitudes concurrentes.
+- Los limites devuelven 429 y `Retry-After`; CORS expone ese header. El login devuelve `X-Error-Code: EMAIL_CONFIRMATION_REQUIRED` solo tras verificar la password de una cuenta activa pendiente.
+- El reenvio se ofrece tras el registro, desde el login bloqueado por confirmacion y desde un enlace invalido/vencido. `ResendConfirmationForm` comparte validacion, progreso, resultado y espera; `ResendConfirmationScreen` permite ingresar el email cuando se abre desde un enlace vencido. Nunca indicar volver a registrarse por un enlace vencido.

@@ -51,13 +51,14 @@ function googleAndroidRedirectUri(androidClientId) {
 }
 
 export default function LoginScreen({ navigation }) {
-  const { login } = useAuth();
+  const { login, pendingInvitation } = useAuth();
   const handledGoogleResponse = useRef(null);
   const handledFacebookResponse = useRef(null);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState(null);
+  const [confirmationEmail, setConfirmationEmail] = useState(null);
   const [loading, setLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
   const [facebookLoading, setFacebookLoading] = useState(false);
@@ -99,6 +100,7 @@ export default function LoginScreen({ navigation }) {
 
   async function handleLogin() {
     setError(null);
+    setConfirmationEmail(null);
     if (!email.trim() || !password) {
       setError("Completá el correo electrónico y la contraseña.");
       return;
@@ -109,6 +111,7 @@ export default function LoginScreen({ navigation }) {
       const { access_token } = await loginUser(email.trim().toLowerCase(), password);
       await login(access_token);
     } catch (err) {
+      if (err.code === "EMAIL_CONFIRMATION_REQUIRED") setConfirmationEmail(email.trim().toLowerCase());
       const message = err?.message || "";
       const isNetworkError =
         message.toLowerCase().includes("failed to fetch") ||
@@ -122,6 +125,7 @@ export default function LoginScreen({ navigation }) {
 
   async function handleGooglePress() {
     setError(null);
+    setConfirmationEmail(null);
     if (!googleAuthAvailable) {
       setError("Falta configurar el acceso con Google para este entorno.");
       return;
@@ -144,6 +148,7 @@ export default function LoginScreen({ navigation }) {
 
   async function handleFacebookPress() {
     setError(null);
+    setConfirmationEmail(null);
     if (!facebookAuthAvailable) {
       setError("Falta configurar el acceso con Facebook para este entorno.");
       return;
@@ -337,6 +342,16 @@ export default function LoginScreen({ navigation }) {
                 <Text style={styles.forgotText}>¿Olvidaste tu contraseña?</Text>
               </Pressable>
 
+              {pendingInvitation ? (
+                <Text style={{ ...textStyles.meta, color: colors.textSecondary, marginBottom: spacing.md }}>
+                  Iniciá sesión o creá una cuenta para continuar con la invitación al viaje.
+                </Text>
+              ) : null}
+              {confirmationEmail ? (
+                <Pressable testID="login-resend-confirmation" onPress={() => navigation.navigate("ResendConfirmation", { email: confirmationEmail })}>
+                  <Text style={{ color: colors.primary }}>Reenviar confirmación</Text>
+                </Pressable>
+              ) : null}
               {error ? (
                 <View style={styles.errorBox}>
                   <FontAwesome6 color={colors.danger} name="circle-exclamation" size={14} />

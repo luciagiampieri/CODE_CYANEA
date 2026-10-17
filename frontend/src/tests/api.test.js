@@ -40,6 +40,15 @@ function mockFetchOnce(status, body) {
 }
 
 describe("parseResponse (comportamiento compartido, probado vía loginUser)", () => {
+  it("conserva Retry-After para el reenvio limitado", async () => {
+    global.fetch.mockResolvedValueOnce({
+      ok: false, status: 429,
+      headers: { get: (name) => name.toLowerCase() === "retry-after" ? "120" : null },
+      json: async () => ({ detail: "Esperá" }),
+    });
+    await expect(api.resendConfirmation(" ANA@TEST.COM ")).rejects.toMatchObject({ status: 429, retryAfter: 120 });
+    expect(JSON.parse(global.fetch.mock.calls[0][1].body)).toEqual({ email: "ana@test.com" });
+  });
   it("con respuesta ok, devuelve el body ya parseado", async () => {
     mockFetchOnce(200, { token: "abc123" });
 
@@ -90,6 +99,39 @@ describe("parseResponse (comportamiento compartido, probado vía loginUser)", ()
 });
 
 describe("authHeaders / getStoredToken", () => {
+  it.each([
+    ["getTripInvitationLink", [12], "/trips/12/enlace-invitacion", undefined],
+    ["createTripInvitationLink", [12, true], "/trips/12/enlace-invitacion", "POST"],
+    ["revokeTripInvitationLink", [12], "/trips/12/enlace-invitacion", "DELETE"],
+    ["joinTripByLink", ["abc-token"], "/invitaciones/enlaces/abc-token/unirse", "POST"],
+  ])("%s usa la ruta y sesión correctas", async (fn, args, path, method) => {
+    localStorageMock.getItem.mockReturnValue("mi-token");
+    mockFetchOnce(200, {});
+    await api[fn](...args);
+    const [url, options] = global.fetch.mock.calls[0];
+    expect(url).toContain(path);
+    expect(options.method).toBe(method);
+    expect(options.headers.Authorization).toBe("Bearer mi-token");
+    if (fn === "createTripInvitationLink") expect(JSON.parse(options.body)).toEqual({ renovar: true });
+  });
+
+  it("la vista previa del enlace es pública", async () => {
+    mockFetchOnce(200, { titulo: "Viaje" });
+    await api.previewSharedInvitation("abc/token");
+    expect(global.fetch.mock.calls[0][0]).toContain("/invitaciones/enlaces/abc%2Ftoken");
+    expect(global.fetch.mock.calls[0][1]).toBeUndefined();
+  });
+  it("transfiere administración con el token y el nuevo administrador", async () => {
+    localStorageMock.getItem.mockReturnValue("mi-token");
+    mockFetchOnce(200, { message: "Transferida" });
+    await api.transferTripAdministration(12, 7);
+    const [url, options] = global.fetch.mock.calls[0];
+    expect(url).toContain("/trips/12/transferir-administracion");
+    expect(options.method).toBe("POST");
+    expect(options.headers.Authorization).toBe("Bearer mi-token");
+    expect(options.headers["Content-Type"]).toBe("application/json");
+    expect(JSON.parse(options.body)).toEqual({ nuevoAdministradorId: 7 });
+  });
   it("sin token guardado, pega sin header de Authorization", async () => {
     localStorageMock.getItem.mockReturnValue(null);
     mockFetchOnce(200, []);

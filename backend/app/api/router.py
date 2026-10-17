@@ -1,4 +1,5 @@
 from fastapi import APIRouter
+from app.api.routes import enlaces_invitacion
 from app.api.routes import (
     assistant,
     auth, 
@@ -21,6 +22,7 @@ from app.api.routes import (
 )
 
 api_router = APIRouter()
+api_router.include_router(enlaces_invitacion.router, tags=["invitaciones"])
 api_router.include_router(root.router, tags=["root"])
 api_router.include_router(auth.router, prefix="/auth", tags=["auth"])
 api_router.include_router(backoffice.router_publico, prefix="/backoffice", tags=["backoffice"])

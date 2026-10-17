@@ -1,4 +1,7 @@
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
+import { useEffect } from "react";
+import JoinTripScreen from "../screens/JoinTripScreen";
+import { navigationRef } from "../services/notificationNavigation";
 import { ActivityIndicator, View } from "react-native";
 
 import { useAuth } from "../context/AuthContext";
@@ -27,12 +30,25 @@ import NotificationPreferencesScreen from "../screens/NotificationPreferencesScr
 import PrivacyPreferencesScreen from "../screens/PrivacyPreferencesScreen";
 import PlanningPreferencesListScreen from "../screens/PlanningPreferencesListScreen";
 import ForgotPasswordScreen from "../screens/ForgotPasswordScreen";
+import ResendConfirmationScreen from "../screens/ResendConfirmationScreen";
 import ResetPasswordScreen from "../screens/ResetPasswordScreen";
 
 const Stack = createNativeStackNavigator();
 
 export default function AppNavigator() {
-  const { token, isLoading } = useAuth();
+  const { token, isLoading, pendingInvitation } = useAuth();
+  useEffect(() => {
+    if (!token || isLoading || !pendingInvitation) return undefined;
+    const resume = () => {
+      if (!navigationRef.isReady()) return false;
+      if (navigationRef.getCurrentRoute()?.name !== "UnirseViaje") {
+        navigationRef.navigate("UnirseViaje", { invitationToken: pendingInvitation });
+      }
+      return true;
+    };
+    const timer = setInterval(() => { if (resume()) clearInterval(timer); }, 100);
+    return () => clearInterval(timer);
+  }, [token, isLoading, pendingInvitation]);
 
   if (isLoading) {
     return (
@@ -251,6 +267,8 @@ export default function AppNavigator() {
         </>
       )}
 
+      <Stack.Screen name="UnirseViaje" component={JoinTripScreen} options={{ headerShown: false }} />
+      <Stack.Screen name="ResendConfirmation" component={ResendConfirmationScreen} options={{ headerShown: false }} />
     </Stack.Navigator>
   );
 }

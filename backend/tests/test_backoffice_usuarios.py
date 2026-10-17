@@ -82,6 +82,14 @@ def test_filtrar_por_plan(client, db_session, headers_admin):
     assert _emails(r_gratuito) == {"lucia@cyanea.test"}
 
 
+def test_plan_asignado_en_bd_se_refleja_en_listado_y_detalle(client, db_session, headers_admin):
+    usuario = _crear_usuario(db_session, "pro@cyanea.test", IdPlan=2)
+    listado = client.get(URL, params={"plan": "pro"}, headers=headers_admin)
+    assert _emails(listado) == {"pro@cyanea.test"}
+    assert listado.json()["items"][0]["plan"] == "pro"
+    assert client.get(f"{URL}/{usuario.IdUsuario}", headers=headers_admin).json()["plan"] == "pro"
+
+
 def test_combinar_estado_y_metodo_de_registro(client, db_session, headers_admin):
     _crear_usuario(
         db_session, "google_pend@cyanea.test",

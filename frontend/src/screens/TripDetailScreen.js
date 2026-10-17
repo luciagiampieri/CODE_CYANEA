@@ -24,6 +24,7 @@ import ScreenContainer from "../components/layout/ScreenContainer";
 import MapCanvas from "../components/map/MapCanvas";
 import ParticipantSearch from "../components/trip/ParticipantSearch";
 import GroupMemberList from "../components/trip/GroupMemberList";
+import TripInvitationLink from "../components/trip/TripInvitationLink";
 import ExpenseSummaryCard from "../components/trip/ExpenseSummaryCard";
 import ExpenseList from "../components/trip/ExpenseList";
 import ExpenseDetailModal from "../components/trip/ExpenseDetailModal";
@@ -78,6 +79,7 @@ import {
   deleteActivity,
   generateTripRoute,
   leaveTrip,
+  transferTripAdministration,
   getChecklists,
   deleteChecklist,
   toggleChecklistCompletada,
@@ -519,6 +521,8 @@ export default function TripDetailScreen({ navigation, route }) {
 
   const [showLeaveModal, setShowLeaveModal] = useState(false);
   const [nuevoAdminId, setNuevoAdminId] = useState(null);
+  const [transfiriendoAdministracion, setTransfiriendoAdministracion] = useState(false);
+  const transferenciaPendienteRef = useRef(false);
   const [leavingTrip, setLeavingTrip] = useState(false);
 
   const [checklists, setChecklists] = useState([]);
@@ -539,7 +543,8 @@ export default function TripDetailScreen({ navigation, route }) {
 
     return trip.participants.filter(
       (participant) =>
-        String(participant.id ?? participant.IdUsuario) !== String(currentUser.id)
+        String(participant.id ?? participant.IdUsuario) !== String(currentUser.id) &&
+        (participant.status ?? participant.Status) === "aceptado"
     );
   }, [trip?.participants, currentUser]);
 
@@ -1228,6 +1233,13 @@ export default function TripDetailScreen({ navigation, route }) {
               loadTripDetail();
               return;
             }
+            if (mensaje.tipo === "administracion_transferida") {
+              setGroupView("participantes");
+              setShowInvitePanel(false);
+              setSentInvitations([]);
+              loadTripDetail();
+              return;
+            }
             if (mensaje.tipo === "participante_acepto") {
               loadTripDetail();
               return;
@@ -1487,7 +1499,7 @@ export default function TripDetailScreen({ navigation, route }) {
 
   const [groupView, setGroupView] = useState("participantes");
   const [showInvitePanel, setShowInvitePanel] = useState(false);
-  const canInviteToGroup = isAdmin && lock.canEdit("participantes");
+  const canInviteToGroup = isAdmin && lock.canEdit("participantes") && !transfiriendoAdministracion;
 
   const groupMembersForViewer = useMemo(
     () => [...participantesActivos, ...invitadosPendientes],
@@ -1665,6 +1677,52 @@ export default function TripDetailScreen({ navigation, route }) {
     }
   }
 
+  async function handleTransferAdministration(participant) {
+    if (!isAdmin || !trip?.id || !lock.canEdit("participantes") ||
+        trip.status !== "activo" || mutatingParticipants || transferenciaPendienteRef.current ||
+        participant.status !== "aceptado" || participant.kind === "external" ||
+        String(participant.id) === String(currentUser?.id)) return;
+    transferenciaPendienteRef.current = true;
+    try {
+      const confirmado = await new Promise((resolve) => {
+        appAlert(
+          `¿Transferir la administración a ${participant.nombreCompleto}?`,
+          `${participant.nombreCompleto} podrá administrar el viaje. Vos seguirás en el grupo como participante y perderás los permisos de administrador.`,
+          [
+            { text: "Cancelar", style: "cancel", onPress: () => resolve(false) },
+            { text: "Transferir administración", onPress: () => resolve(true) },
+          ],
+          { tipo: "warning", cancelable: true, onDismiss: () => resolve(false) },
+        );
+      });
+      if (!confirmado) return;
+      setTransfiriendoAdministracion(true);
+      const resultado = await transferTripAdministration(trip.id, Number(participant.id));
+      // Actualiza los permisos locales incluso si la recarga posterior falla.
+      setTrip((prev) => ({
+        ...prev,
+        admin: { ...participant },
+        participants: prev.participants.map((p) => ({
+          ...p,
+          role: String(p.id ?? p.IdUsuario) === String(participant.id)
+            ? "administrador" : String(p.id ?? p.IdUsuario) === String(currentUser.id)
+              ? "participante" : p.role,
+        })),
+      }));
+      setGroupView("participantes");
+      setShowInvitePanel(false);
+      setSentInvitations([]);
+      await loadTripDetail();
+      appAlert("Administración transferida", resultado.message, undefined, { tipo: "success" });
+    } catch (error) {
+      appAlert("No se pudo transferir la administración", error.message, undefined, { tipo: "error" });
+      await loadTripDetail();
+    } finally {
+      transferenciaPendienteRef.current = false;
+      setTransfiriendoAdministracion(false);
+    }
+  }
+
   function handleRemoveParticipant(participant) {
     if (!lock.canEdit("participantes")) return;
 
@@ -1682,9 +1740,10 @@ export default function TripDetailScreen({ navigation, route }) {
         )}. Su historial de gastos se conservará igual.`;
       }
     }
-    confirmar("Expulsar participante", mensaje, () =>
-      persistRemoveParticipant(participant)
-    );
+    appAlert("Expulsar participante", mensaje, [
+      { text: "Cancelar", style: "cancel" },
+      { text: "Expulsar del viaje", style: "destructive", onPress: () => persistRemoveParticipant(participant) },
+    ], { tipo: "warning", cancelable: true });
   }
 
   async function persistRemoveParticipant(participant) {
@@ -1694,14 +1753,16 @@ export default function TripDetailScreen({ navigation, route }) {
       setParticipantMessage("");
       if (participant.kind === "external") {
         await removeTripExternalInvitation(trip.id, participant.email);
-        avisar("Listo", "Se quitó la invitación externa correctamente.");
+        appAlert("Listo", "Se quitó la invitación externa correctamente.", undefined, { tipo: "success" });
       } else {
         const resultado = await removeTripParticipant(trip.id, participant.id);
-        avisar(
+        appAlert(
           "Participante expulsado",
           resultado?.advertencia
             ? `${resultado.message}. ${resultado.advertencia}`
-            : resultado?.message || "El participante fue expulsado del viaje correctamente."
+            : resultado?.message || "El participante fue expulsado del viaje correctamente.",
+          undefined,
+          { tipo: "success" }
         );
       }
       await loadTripDetail();
@@ -3473,6 +3534,8 @@ export default function TripDetailScreen({ navigation, route }) {
                   />
                 ) : null}
 
+                {canInviteToGroup && trip.status === "activo" ? <TripInvitationLink tripId={trip.id} /> : null}
+
                 {isAdmin ? (
                   <SegmentedControl
                     onChange={setGroupView}
@@ -3507,16 +3570,24 @@ export default function TripDetailScreen({ navigation, route }) {
                   />
                 ) : (
                   <GroupMemberList
-                    canManage={isAdmin && lock.canEdit("participantes")}
+                    canManage={isAdmin && lock.canEdit("participantes") && !transfiriendoAdministracion && !mutatingParticipants}
                     members={isAdmin ? participantesActivos : groupMembersForViewer}
                     onRemove={handleRemoveParticipant}
+                    onTransferAdministration={trip.status === "activo" ? handleTransferAdministration : undefined}
                   />
                 )}
+                {transfiriendoAdministracion ? (
+                  <View accessibilityLiveRegion="polite">
+                    <ActivityIndicator color={colors.primary} />
+                    <Text style={styles.sectionCopy}>Transfiriendo administración…</Text>
+                  </View>
+                ) : null}
               </View>
 
               {lock.canEdit("participantes") ? (
                 <View style={[styles.sectionCard, { marginTop: spacing.md }]}>
                   <Pressable
+                    disabled={transfiriendoAdministracion}
                     onPress={() => {
                       if (isUserAdmin && eligibleNewAdmins.length > 0) {
                         setNuevoAdminId(null);

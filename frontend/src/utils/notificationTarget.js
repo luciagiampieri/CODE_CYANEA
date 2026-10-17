@@ -2,6 +2,8 @@
 // del push (eventType / notificationType) como el `tipo` que guarda la
 // notificación en la app (lista de la campanita).
 const TAB_POR_EVENTO = {
+  administration_transferred: "grupo",
+  member_joined: "grupo",
   activity_created: "itinerario",
   activity_updated: "itinerario",
   activity_deleted: "itinerario",
@@ -33,6 +35,7 @@ const TAB_POR_TIPO = {
   tarea_entradas_asignada: "checklist",
   tarea_entradas_eliminada: "checklist",
   nuevo_administrador: "grupo",
+  participante_incorporado: "grupo",
   participante_salio: "grupo",
   // notificationType del push
   nuevo_gasto: "gastos",

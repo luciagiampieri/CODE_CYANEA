@@ -11,6 +11,8 @@ class Usuario(Base):
     __tablename__ = "Usuarios"
 
     IdUsuario: Mapped[int] = mapped_column(primary_key=True)
+    IdPlan: Mapped[int] = mapped_column(ForeignKey("Planes.IdPlan"), default=1, server_default="1")
+    Plan = relationship("Plan", foreign_keys=[IdPlan])
     Email: Mapped[str] = mapped_column(String(255), nullable=False)
     Nombre: Mapped[str] = mapped_column(String(100), nullable=False)
     Apellido: Mapped[str] = mapped_column(String(100), nullable=False)
