@@ -88,10 +88,16 @@ export default function SuggestionCompactCard({
   modoSeleccion = false,
   seleccionada = false,
   bloqueada = false,
+  onDescartar,
+  descartando = false,
 }) {
   const foto = useFotoSugerencia(sugerencia);
   const sitioWeb = /^https?:\/\//i.test(sugerencia.SitioWebUrl || "") ? sugerencia.SitioWebUrl : null;
   const mostrarDetalle = expandida && !modoSeleccion;
+  const puedeDescartar =
+    mostrarDetalle &&
+    typeof onDescartar === "function" &&
+    String(sugerencia.Estado ?? "").toLowerCase() === "pendiente";
 
   return (
     <Pressable
@@ -189,6 +195,27 @@ export default function SuggestionCompactCard({
               </Pressable>
             ) : null}
           </View>
+
+          {puedeDescartar ? (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={`Descartar ${sugerencia.Nombre}`}
+              accessibilityState={{ disabled: descartando }}
+              disabled={descartando}
+              onPress={() => onDescartar(sugerencia)}
+              style={({ pressed }) => [
+                styles.botonDescartar,
+                descartando && styles.botonDescartarDeshabilitado,
+                pressed && styles.presionada,
+              ]}
+              testID={`descartar-sugerencia-${sugerencia.IdSugerenciaActividad}`}
+            >
+              <FontAwesome6 name="ban" size={12} color={colors.danger} />
+              <Text style={styles.botonDescartarTexto}>
+                {descartando ? "Descartando..." : "Descartar sugerencia"}
+              </Text>
+            </Pressable>
+          ) : null}
         </View>
       ) : null}
     </Pressable>
@@ -349,5 +376,26 @@ const styles = StyleSheet.create({
     ...textStyles.bodyStrong,
     fontSize: 13,
     color: colors.primary,
+  },
+  botonDescartar: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    marginTop: spacing.xs,
+    paddingVertical: spacing.xs,
+    borderRadius: radii.pill,
+    borderWidth: 1,
+    borderColor: colors.danger,
+    backgroundColor: colors.surface,
+  },
+  botonDescartarDeshabilitado: {
+    opacity: 0.5,
+  },
+  botonDescartarTexto: {
+    ...textStyles.meta,
+    fontSize: 13,
+    fontWeight: "700",
+    color: colors.danger,
   },
 });

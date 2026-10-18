@@ -87,9 +87,16 @@ MAX_DIRECCIONES_REFERENCIA = 5
 
 NO_LOCATION_REFERENCE = "NO_LOCATION_REFERENCE"
 
-# Estados de sugerencia que se muestran en el itinerario y que la IA no debe repetir.
-# "en_votacion" se agregó en la US 90 (proponer sugerencias al grupo mediante votación).
 ESTADOS_SUGERENCIA_VISIBLES = ("pendiente", "en_votacion")
+
+ESTADO_PENDIENTE = "pendiente"
+ESTADO_EN_VOTACION = "en_votacion"
+ESTADO_DESCARTADA = "descartada"
+
+SUGGESTION_NOT_FOUND = "SUGGESTION_NOT_FOUND"
+SUGGESTION_NOT_PENDING = "SUGGESTION_NOT_PENDING"
+SUGGESTION_IN_VOTING = "SUGGESTION_IN_VOTING"
+
 
 # Formato del nombre de foto que devuelve Google Places (New): places/<id>/photos/<ref>.
 PATRON_FOTO = re.compile(r"^places/[A-Za-z0-9_-]+/photos/[A-Za-z0-9_-]+$")
@@ -249,9 +256,37 @@ def _estado_pendiente(db: Session) -> EstadoSugerenciaActividad:
     return estado
 
 
+def _estado_por_nombre(db: Session, nombre: str) -> EstadoSugerenciaActividad:
+    estado = db.scalar(
+        select(EstadoSugerenciaActividad).where(
+            func.lower(EstadoSugerenciaActividad.Nombre) == nombre
+        )
+    )
+    if estado is None:
+        logger.error(
+            "Falta el estado '%s' en EstadosSugerenciasActividades (¿migración?)", nombre
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="El asistente no está configurado correctamente.",
+        )
+    return estado
+
+
 def _serializar(sugerencia: SugerenciaActividad, estado: str | None = None) -> SugerenciaActividadRead:
     if estado is None:
         estado = sugerencia.Estado.Nombre if sugerencia.Estado is not None else "pendiente"
+    solicitud = sugerencia.Solicitud
+    franja_inicio = (
+        solicitud.HoraInicio.strftime("%H:%M")
+        if solicitud is not None and solicitud.HoraInicio is not None
+        else None
+    )
+    franja_fin = (
+        solicitud.HoraFin.strftime("%H:%M")
+        if solicitud is not None and solicitud.HoraFin is not None
+        else None
+    )
     return SugerenciaActividadRead(
         IdSugerenciaActividad=sugerencia.IdSugerenciaActividad,
         IdSolicitud=sugerencia.IdSolicitudSugerenciaActividad,
@@ -272,6 +307,8 @@ def _serializar(sugerencia: SugerenciaActividad, estado: str | None = None) -> S
         CostoEstimadoARS=float(sugerencia.CostoEstimadoARS),
         Motivo=sugerencia.Motivo,
         FechaCreacion=sugerencia.FechaCreacion,
+        FranjaInicio=franja_inicio,
+        FranjaFin=franja_fin,
     )
 
 
@@ -322,12 +359,15 @@ def listar_sugerencias_pendientes(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
 ):
-    """Sugerencias visibles del viaje: pendientes y en votación (US 90)."""
+    """Sugerencias visibles del viaje: pendientes y en votación"""
     require_trip_access(get_trip_with_relations(db, trip_id), current_user)
     filas = db.scalars(
         select(SugerenciaActividad)
         .join(SugerenciaActividad.Estado)
-        .options(selectinload(SugerenciaActividad.Estado))
+        .options(
+            selectinload(SugerenciaActividad.Estado),
+            selectinload(SugerenciaActividad.Solicitud),
+        )
         .where(
             SugerenciaActividad.IdViaje == trip_id,
             EstadoSugerenciaActividad.Nombre.in_(ESTADOS_SUGERENCIA_VISIBLES),
@@ -402,6 +442,61 @@ async def obtener_foto_sugerencia(
         media_type=tipo,
         headers={"Cache-Control": "private, max-age=86400"},
     )
+
+
+@router.post(
+    "/{trip_id}/sugerencias-actividades/{sugerencia_id}/descartar",
+    response_model=SugerenciaActividadRead,
+)
+def descartar_sugerencia(
+    trip_id: int,
+    sugerencia_id: int,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+):
+    """Descarta una sugerencia pendiente. No consume el límite diario de solicitudes."""
+    viaje = require_trip_edit_access(get_trip_with_relations(db, trip_id), current_user)
+    require_trip_not_finished(viaje, "las sugerencias de actividades")
+
+    sugerencia = db.scalar(
+        select(SugerenciaActividad)
+        .options(
+            selectinload(SugerenciaActividad.Estado),
+            selectinload(SugerenciaActividad.Solicitud),
+        )
+        .where(
+            SugerenciaActividad.IdSugerenciaActividad == sugerencia_id,
+            SugerenciaActividad.IdViaje == trip_id,
+        )
+        .with_for_update()
+    )
+    if sugerencia is None:
+        raise _error(
+            status.HTTP_404_NOT_FOUND,
+            "La sugerencia no existe o no pertenece a este viaje.",
+            SUGGESTION_NOT_FOUND,
+        )
+
+    estado_actual = (sugerencia.Estado.Nombre if sugerencia.Estado else "").strip().lower()
+    if estado_actual == ESTADO_EN_VOTACION:
+        raise _error(
+            status.HTTP_409_CONFLICT,
+            "Esta sugerencia está en votación: no se puede descartar hasta que la votación "
+            "termine o se cancele.",
+            SUGGESTION_IN_VOTING,
+        )
+    if estado_actual != ESTADO_PENDIENTE:
+        raise _error(
+            status.HTTP_409_CONFLICT,
+            "Solo se pueden descartar sugerencias en estado \"Pendiente\".",
+            SUGGESTION_NOT_PENDING,
+        )
+
+    descartada = _estado_por_nombre(db, ESTADO_DESCARTADA)
+    sugerencia.IdEstadoSugerenciaActividad = descartada.IdEstadoSugerenciaActividad
+    db.commit()
+    db.refresh(sugerencia)
+    return _serializar(sugerencia, ESTADO_DESCARTADA)
 
 
 @router.post(
@@ -539,6 +634,23 @@ async def solicitar_sugerencias(
     ).all()
     excluidos |= {normalizar_id(pid) for pid in previas_visibles}
 
+    # No repetir lugares de sugerencias descartadas para esta franja: mismo día y horario
+    descartadas_franja = db.execute(
+        select(SugerenciaActividad.GooglePlaceId, SugerenciaActividad.LugarNombre)
+        .join(SugerenciaActividad.Estado)
+        .where(
+            SugerenciaActividad.IdViaje == trip_id,
+            SugerenciaActividad.IdDiaCronograma == dia.IdDiaCronograma,
+            EstadoSugerenciaActividad.Nombre == ESTADO_DESCARTADA,
+            SugerenciaActividad.HoraInicio < hora_fin,
+            SugerenciaActividad.HoraFin > hora_inicio,
+        )
+    ).all()
+    excluidos |= {normalizar_id(fila.GooglePlaceId) for fila in descartadas_franja}
+    lugares_descartados = list(
+        dict.fromkeys(fila.LugarNombre for fila in descartadas_franja if fila.LugarNombre)
+    )
+
     max_resultados = max(1, min(settings.ai_suggestions_max_results, 5))
     contexto_ia = {
         "destino": destino_nombre,
@@ -565,7 +677,7 @@ async def solicitar_sugerencias(
         "cantidad_maxima": max_resultados,
         # Se piden el doble de candidatas porque varias se descartan en las validaciones.
         "cantidad_candidatas": max_resultados * 2,
-        "lugares_a_evitar": [],
+        "lugares_a_evitar": lugares_descartados,
         "indicacion_para_esta_busqueda": indicacion or None,
         "distancia_maxima_km": max_km,
         "moneda": "ARS",
@@ -646,7 +758,8 @@ async def solicitar_sugerencias(
             )
             contexto_retry = {
                 **contexto_ia,
-                "lugares_a_evitar": [s.lugar_nombre for s in respuesta.sugerencias],
+                "lugares_a_evitar": lugares_descartados
+                + [s.lugar_nombre for s in respuesta.sugerencias],
             }
             reglas_retry = replace(
                 reglas,

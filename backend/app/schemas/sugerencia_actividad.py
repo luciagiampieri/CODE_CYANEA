@@ -31,6 +31,8 @@ class SugerenciaActividadRead(BaseModel):
     CostoEstimadoARS: float
     Motivo: str
     FechaCreacion: datetime
+    FranjaInicio: str | None = None
+    FranjaFin: str | None = None
 
 
 class ResultadoSugerenciasRead(BaseModel):

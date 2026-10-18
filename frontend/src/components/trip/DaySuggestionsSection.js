@@ -46,6 +46,7 @@ export default function DaySuggestionsSection({ tripId, dia, sugerencias = [], c
         dayIndex: dia.dayIndex,
         fechaRaw: dia.fechaRaw,
         dayDateText: dia.dayDateText,
+        actividades: dia.actividades ?? [],
       },
     });
   }

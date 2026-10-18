@@ -1774,6 +1774,17 @@ export async function requestActivitySuggestions(tripId, payload) {
   }
 }
 
+export async function discardActivitySuggestion(tripId, sugerenciaId) {
+  const response = await fetch(
+    `${API_BASE_URL}/trips/${tripId}/sugerencias-actividades/${sugerenciaId}/descartar`,
+    {
+      method: "POST",
+      headers: await authHeaders(),
+    }
+  );
+  return parseResponse(response, "No se pudo descartar la sugerencia");
+}
+
 export async function getActivitySuggestionPhotoSource(tripId, sugerenciaId) {
   const url = `${API_BASE_URL}/trips/${tripId}/sugerencias-actividades/${sugerenciaId}/foto`;
   const headers = await authHeaders();
@@ -1782,7 +1793,7 @@ export async function getActivitySuggestionPhotoSource(tripId, sugerenciaId) {
     if (!response.ok) throw new Error("No se pudo cargar la foto");
     return { uri: URL.createObjectURL(await response.blob()) };
   }
-  return { uri: url, headers };
+  return { uri, headers };
 }
 
 export async function createVotacionDesdeSugerencias(payload) {

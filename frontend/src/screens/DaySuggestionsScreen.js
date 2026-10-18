@@ -15,8 +15,9 @@ import {
 import ScreenContainer from "../components/layout/ScreenContainer";
 import SuggestionCompactCard from "../components/trip/SuggestionCompactCard";
 import { appAlert } from "../components/ui/AppDialog";
-import { getActivitySuggestions } from "../services/api";
+import { discardActivitySuggestion, getActivitySuggestions } from "../services/api";
 import { colors, radii, spacing, textStyles } from "../theme/tokens";
+import ActivitySuggestionsScreen from "./ActivitySuggestionsScreen";
 import ProposeSuggestionsVoteScreen from "./ProposeSuggestionsVoteScreen";
 
 const MINIMO_VOTACION = 2;
@@ -55,6 +56,13 @@ function franjaDe(sugerencias) {
   return { inicio: inicios[0], fin: fines[fines.length - 1] };
 }
 
+function franjaSolicitada(sugerencia) {
+  return {
+    inicio: hhmm(sugerencia.FranjaInicio || sugerencia.HoraInicio),
+    fin: hhmm(sugerencia.FranjaFin || sugerencia.HoraFin),
+  };
+}
+
 export default function DaySuggestionsScreen({ navigation, route }) {
   const { tripId, trip, tripTitle, dia, canPropose = false } = route.params ?? {};
 
@@ -67,6 +75,12 @@ export default function DaySuggestionsScreen({ navigation, route }) {
   const [seleccionadas, setSeleccionadas] = useState([]);
   const [avisoLimite, setAvisoLimite] = useState(false);
   const [mostrarSheet, setMostrarSheet] = useState(false);
+
+  const [descartandoId, setDescartandoId] = useState(null);
+  const [franjaDescartada, setFranjaDescartada] = useState(null);
+  const [mostrarRegenerar, setMostrarRegenerar] = useState(false);
+  const [franjaRegenerar, setFranjaRegenerar] = useState(null);
+
   const yaCargoRef = useRef(false);
 
   const cargar = useCallback(
@@ -118,8 +132,85 @@ export default function DaySuggestionsScreen({ navigation, route }) {
   const elegidas = ordenadas.filter((s) => seleccionadas.includes(s.IdSugerenciaActividad));
   const rangoComun = interseccion(elegidas);
   const franjaVotacion = franjaDe(elegidas);
-  const puedeContinuar =
-    seleccionadas.length >= MINIMO_VOTACION && seleccionadas.length <= MAXIMO_VOTACION;
+  const puedeContinuar = seleccionadas.length >= MINIMO_VOTACION && seleccionadas.length <= MAXIMO_VOTACION;
+
+  const puedeGestionar = canPropose;
+  const franjaParaRegenerar = franjaDescartada ?? (ordenadas.length > 0 ? franjaSolicitada(ordenadas[0]) : null);
+
+  const diasParaSheet = useMemo(
+    () =>
+      dia
+        ? [
+            {
+              dayId: dia.dayId,
+              dayIndex: dia.dayIndex,
+              fechaRaw: dia.fechaRaw,
+              dayDateText: dia.dayDateText,
+              actividades: dia.actividades ?? [],
+            },
+          ]
+        : [],
+    [dia]
+  );
+
+  function abrirRegenerar(franja) {
+    setFranjaRegenerar(franja ?? franjaParaRegenerar);
+    setMostrarRegenerar(true);
+  }
+
+  function mostrarMensaje(titulo, mensaje) {
+    if (Platform.OS === "web") {
+      window.alert(`${titulo}\n\n${mensaje}`);
+    } else {
+      appAlert(titulo, mensaje);
+    }
+  }
+
+  // Mensaje de confirmación posterior al descarte, con acceso directo a regenerar.
+  function avisarDescarte(franja) {
+    const mensaje = "La sugerencia se descartó y dejó de mostrarse.";
+    if (Platform.OS === "web") {
+      if (window.confirm(`Sugerencia descartada\n\n${mensaje}\n\n¿Querés buscar otras opciones para la misma franja?`)) {
+        abrirRegenerar(franja);
+      }
+      return;
+    }
+    appAlert("Sugerencia descartada", `${mensaje} ¿Querés buscar otras opciones para la misma franja?`, [
+      { text: "Listo", style: "cancel" },
+      { text: "Buscar otras opciones", onPress: () => abrirRegenerar(franja) },
+    ]);
+  }
+
+  async function ejecutarDescarte(sugerencia) {
+    const id = sugerencia.IdSugerenciaActividad;
+    if (descartandoId != null) return;
+    setDescartandoId(id);
+    try {
+      await discardActivitySuggestion(tripId, id);
+      const franja = franjaSolicitada(sugerencia);
+      setSugerencias((actuales) => actuales.filter((s) => s.IdSugerenciaActividad !== id));
+      setExpandidaId(null);
+      setFranjaDescartada(franja);
+      avisarDescarte(franja);
+    } catch (err) {
+      mostrarMensaje("No se pudo descartar", err?.message || "No se pudo descartar la sugerencia.");
+      cargar({ silencioso: true });
+    } finally {
+      setDescartandoId(null);
+    }
+  }
+
+  function pedirConfirmacionDescarte(sugerencia) {
+    const mensaje = `Se va a descartar "${sugerencia.Nombre}". Dejará de mostrarse y no se volverá a sugerir ese lugar para esta franja.`;
+    if (Platform.OS === "web") {
+      if (window.confirm(`¿Descartar sugerencia?\n\n${mensaje}`)) ejecutarDescarte(sugerencia);
+      return;
+    }
+    appAlert("¿Descartar sugerencia?", mensaje, [
+      { text: "Cancelar", style: "cancel" },
+      { text: "Descartar", style: "destructive", onPress: () => ejecutarDescarte(sugerencia) },
+    ]);
+  }
 
   function empezarSeleccion() {
     setModoSeleccion(true);
@@ -199,6 +290,8 @@ export default function DaySuggestionsScreen({ navigation, route }) {
         sugerencia={sugerencia}
         expandida={expandidaId === id}
         onPress={() => setExpandidaId((actual) => (actual === id ? null : id))}
+        onDescartar={puedeGestionar ? pedirConfirmacionDescarte : undefined}
+        descartando={descartandoId === id}
       />
     );
   }
@@ -227,6 +320,19 @@ export default function DaySuggestionsScreen({ navigation, route }) {
           <Text style={styles.estadoVacioTexto}>
             Pedile al asistente ideas para un hueco libre desde el itinerario.
           </Text>
+          {puedeGestionar && franjaParaRegenerar ? (
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => abrirRegenerar(franjaParaRegenerar)}
+              style={({ pressed }) => [styles.botonProponer, pressed && styles.presionado]}
+              testID="regenerar-sugerencias-vacio"
+            >
+              <FontAwesome6 name="rotate" size={12} color={colors.primary} />
+              <Text style={styles.botonProponerTexto}>
+                Buscar nuevas opciones ({franjaParaRegenerar.inicio} – {franjaParaRegenerar.fin})
+              </Text>
+            </Pressable>
+          ) : null}
           <Pressable onPress={() => navigation.goBack()} style={styles.botonSecundario}>
             <Text style={styles.botonSecundarioTexto}>Volver al itinerario</Text>
           </Pressable>
@@ -244,17 +350,30 @@ export default function DaySuggestionsScreen({ navigation, route }) {
               {pendientes} {pendientes === 1 ? "pendiente" : "pendientes"}
             </Text>
           </View>
-          {canPropose && pendientes >= MINIMO_VOTACION && !modoSeleccion ? (
-            <Pressable
-              accessibilityRole="button"
-              onPress={empezarSeleccion}
-              style={({ pressed }) => [styles.botonProponer, pressed && styles.presionado]}
-              testID="proponer-votacion"
-            >
-              <FontAwesome6 name="check-to-slot" size={12} color={colors.primary} />
-              <Text style={styles.botonProponerTexto}>Proponer a votación</Text>
-            </Pressable>
-          ) : null}
+          <View style={styles.encabezadoAcciones}>
+            {puedeGestionar && franjaParaRegenerar && !modoSeleccion ? (
+              <Pressable
+                accessibilityRole="button"
+                onPress={() => abrirRegenerar(franjaParaRegenerar)}
+                style={({ pressed }) => [styles.botonProponer, pressed && styles.presionado]}
+                testID="regenerar-sugerencias"
+              >
+                <FontAwesome6 name="rotate" size={12} color={colors.primary} />
+                <Text style={styles.botonProponerTexto}>Regenerar</Text>
+              </Pressable>
+            ) : null}
+            {canPropose && pendientes >= MINIMO_VOTACION && !modoSeleccion ? (
+              <Pressable
+                accessibilityRole="button"
+                onPress={empezarSeleccion}
+                style={({ pressed }) => [styles.botonProponer, pressed && styles.presionado]}
+                testID="proponer-votacion"
+              >
+                <FontAwesome6 name="check-to-slot" size={12} color={colors.primary} />
+                <Text style={styles.botonProponerTexto}>Proponer a votación</Text>
+              </Pressable>
+            ) : null}
+          </View>
         </View>
 
         <Text style={styles.intro}>
@@ -357,6 +476,21 @@ export default function DaySuggestionsScreen({ navigation, route }) {
         sugerencias={elegidas}
         onCreada={handleCreada}
       />
+
+      <ActivitySuggestionsScreen
+        visible={mostrarRegenerar}
+        tripId={tripId}
+        tripTitle={tripTitle}
+        dias={diasParaSheet}
+        initialDayId={dia?.dayId}
+        initialFranja={franjaRegenerar}
+        onClose={() => setMostrarRegenerar(false)}
+        onGenerado={() => cargar({ silencioso: true })}
+        onCrearManual={() => {
+          setMostrarRegenerar(false);
+          navigation.goBack();
+        }}
+      />
     </ScreenContainer>
   );
 }
@@ -423,6 +557,12 @@ const styles = StyleSheet.create({
   },
   encabezadoTextos: {
     flexShrink: 1,
+  },
+  encabezadoAcciones: {
+    flexDirection: "row",
+    alignItems: "center",
+    flexWrap: "wrap",
+    gap: spacing.xs,
   },
   encabezadoTitulo: {
     ...textStyles.bodyStrong,
