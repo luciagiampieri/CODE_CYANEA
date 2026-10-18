@@ -95,6 +95,16 @@ export function onTripFinishedError(listener) {
   return () => tripFinishedListeners.delete(listener);
 }
 
+// US 101: si la sesión se cerró desde otro dispositivo (por ejemplo, al cambiar la
+// contraseña), el backend responde 401 "No autenticado" y la app vuelve al login.
+// Otros 401 (contraseña incorrecta al eliminar la cuenta) no cierran la sesión.
+const sessionExpiredListeners = new Set();
+
+export function onSessionExpired(listener) {
+  sessionExpiredListeners.add(listener);
+  return () => sessionExpiredListeners.delete(listener);
+}
+
 function readHeader(headers, name) {
   if (!headers) return null;
   if (typeof headers.get === "function") return headers.get(name);
@@ -110,6 +120,14 @@ function buildApiError(message, status, headers) {
   error.code = readHeader(headers, "X-Error-Code");
   const isTripFinished =
     error.code === "TRIP_FINISHED" || (status === 409 && /viaje ya finaliz/i.test(message));
+  if (status === 401 && message === "No autenticado") {
+    error.code = "SESSION_EXPIRED";
+    sessionExpiredListeners.forEach((listener) => {
+      try {
+        listener(error);
+      } catch {}
+    });
+  }
   if (isTripFinished) {
     error.code = "TRIP_FINISHED";
     tripFinishedListeners.forEach((listener) => {
@@ -480,6 +498,20 @@ export async function getCurrentUser() {
     headers: await authHeaders(),
   });
   return parseResponse(response, "No se pudo obtener el usuario actual");
+}
+
+// US 101: cambio de contraseña desde "Mi cuenta". Devuelve un token nuevo: el
+// anterior (y los de otros dispositivos) dejan de valer.
+export async function changePassword({ passwordActual, passwordNueva, confirmacion }) {
+  const response = await fetch(`${API_BASE_URL}/users/me/password`, {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+      ...(await authHeaders()),
+    },
+    body: JSON.stringify({ passwordActual, passwordNueva, confirmacion }),
+  });
+  return parseResponse(response, "No se pudo cambiar la contraseña");
 }
 
 // US 61: preferencias de privacidad del perfil.
@@ -1783,6 +1815,69 @@ export async function discardActivitySuggestion(tripId, sugerenciaId) {
     }
   );
   return parseResponse(response, "No se pudo descartar la sugerencia");
+}
+
+// US 88: acepta una sugerencia pendiente y crea la actividad. Si el horario se
+// superpone, responde RequiereConfirmacion y hay que reenviar con
+// ConfirmarSuperposicion: true.
+export async function acceptActivitySuggestion(tripId, sugerenciaId, payload = {}) {
+  const response = await fetch(
+    `${API_BASE_URL}/trips/${tripId}/sugerencias-actividades/${sugerenciaId}/aceptar`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(await authHeaders()),
+      },
+      body: JSON.stringify(payload),
+    }
+  );
+  return parseResponse(response, "No se pudo aceptar la sugerencia");
+}
+
+// US 92: días y franjas libres del itinerario.
+export async function getFreeItinerarySlots(tripId) {
+  const response = await fetch(
+    `${API_BASE_URL}/trips/${tripId}/sugerencias-actividades/franjas-libres`,
+    {
+      headers: await authHeaders(),
+      cache: "no-store",
+    }
+  );
+  return parseResponse(response, "No se pudieron detectar los días libres del itinerario");
+}
+
+// US 92: cada franja es una solicitud a la IA con su propio tiempo máximo.
+export async function completeFreeItinerarySlots(tripId, payload) {
+  const franjas = Math.max(1, payload?.Franjas?.length ?? 1);
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 35000 * franjas);
+  try {
+    const response = await fetch(
+      `${API_BASE_URL}/trips/${tripId}/sugerencias-actividades/completar-dias-libres`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(await authHeaders()),
+        },
+        body: JSON.stringify(payload),
+        signal: controller.signal,
+      }
+    );
+    return await parseResponse(response, "No se pudieron generar las sugerencias");
+  } catch (error) {
+    if (error?.name === "AbortError") {
+      const timeoutError = new Error(
+        "El asistente tardó demasiado en responder. Podés intentar nuevamente o crear las actividades manualmente."
+      );
+      timeoutError.code = "AI_TIMEOUT";
+      throw timeoutError;
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeoutId);
+  }
 }
 
 export async function getActivitySuggestionPhotoSource(tripId, sugerenciaId) {

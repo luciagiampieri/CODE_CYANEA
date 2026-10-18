@@ -18,9 +18,10 @@ import useResponsive from "../hooks/useResponsive";
 import { colors, radii, spacing, surfaces, textStyles } from "../theme/tokens";
 
 import { appAlert } from "../components/ui/AppDialog";
+import { puedeCambiarPassword } from "../utils/passwordRules";
 
 export default function SettingsScreen({ navigation }) {
-  const { logout } = useAuth();
+  const { logout, user } = useAuth();
   const { isDesktop } = useResponsive();
   const [showLogoutModal, setShowLogoutModal] = useState(false);
 
@@ -62,13 +63,14 @@ export default function SettingsScreen({ navigation }) {
         <View style={cardStyle}>
           {/* SECCIÓN 1: CUENTA Y PERFIL */}
           <View style={styles.section}>
-            <Text style={styles.sectionLabel}>Cuenta</Text>
+            <Text style={styles.sectionLabel}>Mi cuenta</Text>
             <View style={styles.groupContainer}>
               <Pressable
                 onPress={() => navigation.navigate("EditarPerfil")}
                 testID="settings-cuenta-row"
                 style={({ pressed }) => [
                   styles.itemRow,
+                  puedeCambiarPassword(user) && styles.itemRowDivider,
                   pressed && styles.itemRowPressed,
                 ]}
               >
@@ -82,6 +84,27 @@ export default function SettingsScreen({ navigation }) {
                 </View>
                 <FontAwesome6 name="chevron-right" size={14} color={colors.textMuted} />
               </Pressable>
+              {/* US 101: solo cuentas registradas con correo tienen contraseña propia */}
+              {puedeCambiarPassword(user) ? (
+                <Pressable
+                  onPress={() => navigation.navigate("CambiarPassword")}
+                  testID="settings-cambiar-password-row"
+                  style={({ pressed }) => [
+                    styles.itemRow,
+                    pressed && styles.itemRowPressed,
+                  ]}
+                >
+                  <View style={styles.itemLeft}>
+                    <View style={[styles.iconCircle, { backgroundColor: colors.surfaceAlt }]}>
+                      <FontAwesome6 name="key" size={16} color={colors.primary} />
+                    </View>
+                    <View>
+                      <Text style={styles.itemTitle}>Cambiar contraseña</Text>
+                    </View>
+                  </View>
+                  <FontAwesome6 name="chevron-right" size={14} color={colors.textMuted} />
+                </Pressable>
+              ) : null}
             </View>
           </View>
 

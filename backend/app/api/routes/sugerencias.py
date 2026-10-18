@@ -2,7 +2,7 @@ import logging
 import re
 import time as reloj
 from dataclasses import replace
-from datetime import datetime, time, timedelta, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import httpx
@@ -25,7 +25,15 @@ from app.models.sugerencia_actividad import (
 )
 from app.models.usuario import Usuario
 from app.schemas.sugerencia_actividad import (
+    AceptacionSugerenciaRead,
+    AceptarSugerenciaRequest,
+    ActividadSuperpuestaRead,
+    CompletarDiasLibresRequest,
     ContextoSugerenciasRead,
+    FranjaLibreRead,
+    FranjasLibresRead,
+    ResultadoCompletarDiasLibresRead,
+    ResultadoFranjaRead,
     ResultadoSugerenciasRead,
     SolicitudSugerenciasCreate,
     SugerenciaActividadRead,
@@ -52,6 +60,12 @@ from app.services.activity_ai.context import (
     nombres_a_ocultar,
     sanitizar_texto,
 )
+from app.services.activity_ai.franjas_libres import (
+    DURACION_MINIMA_FRANJA_LIBRE_MINUTOS,
+    FIN_VENTANA_MINUTOS,
+    INICIO_VENTANA_MINUTOS,
+    detectar_franjas_libres,
+)
 from app.services.activity_ai.processing import (
     ActividadDia,
     ReglasValidacion,
@@ -61,6 +75,13 @@ from app.services.activity_ai.processing import (
     normalizar_id,
     validar_esquema,
 )
+from app.services.notifications import (
+    NotificationType,
+    TripNotificationEvent,
+    dispatch_trip_notification,
+)
+from app.services.resolucion_votaciones import obtener_o_crear_lugar
+from app.services.websocket_manager import manager
 from app.services.trip_access import (
     get_trip_with_relations,
     is_trip_finished,
@@ -92,10 +113,19 @@ ESTADOS_SUGERENCIA_VISIBLES = ("pendiente", "en_votacion")
 ESTADO_PENDIENTE = "pendiente"
 ESTADO_EN_VOTACION = "en_votacion"
 ESTADO_DESCARTADA = "descartada"
+ESTADO_ACEPTADA = "aceptada"
+
+# US 92: cada franja libre recibe hasta tres sugerencias.
+MAX_SUGERENCIAS_POR_FRANJA = 3
+MENSAJE_ITINERARIO_COMPLETO = (
+    "Tu itinerario se encuentra completo: no hay días ni franjas libres de al menos tres "
+    "horas entre las 09:00 y las 22:00 en los próximos días del viaje."
+)
 
 SUGGESTION_NOT_FOUND = "SUGGESTION_NOT_FOUND"
 SUGGESTION_NOT_PENDING = "SUGGESTION_NOT_PENDING"
 SUGGESTION_IN_VOTING = "SUGGESTION_IN_VOTING"
+SUGGESTION_ALREADY_ACCEPTED = "SUGGESTION_ALREADY_ACCEPTED"
 
 
 # Formato del nombre de foto que devuelve Google Places (New): places/<id>/photos/<ref>.
@@ -542,6 +572,54 @@ async def solicitar_sugerencias(
     if not preferencias and not payload.ContinuarSinPreferencias:
         raise _error(409, MENSAJE_SIN_PREFERENCIAS, NO_PREFERENCES)
 
+    max_resultados = max(1, min(settings.ai_suggestions_max_results, 5))
+    id_solicitud, filas = await _generar_sugerencias_franja(
+        db,
+        viaje,
+        current_user,
+        suggester,
+        dia,
+        hora_inicio,
+        hora_fin,
+        preferencias,
+        indicacion=payload.Indicacion,
+        max_km=max_km,
+        max_resultados=max_resultados,
+        inicio_total=inicio_total,
+    )
+    return ResultadoSugerenciasRead(
+        IdSolicitud=id_solicitud,
+        Sugerencias=[_serializar(fila, ESTADO_PENDIENTE) for fila in filas],
+        Mensaje=None if filas else MENSAJE_SIN_OPCIONES,
+        SolicitudesRestantes=_restantes(db, trip_id),
+        LimiteDiario=settings.ai_suggestions_daily_limit,
+    )
+
+
+async def _generar_sugerencias_franja(
+    db: Session,
+    viaje,
+    current_user: Usuario,
+    suggester: ActivitySuggester,
+    dia: DiaCronograma,
+    hora_inicio: time,
+    hora_fin: time,
+    preferencias: list[PreferenciaPlanificacion],
+    *,
+    indicacion: str | None,
+    max_km: float,
+    max_resultados: int,
+    inicio_total: float,
+) -> tuple[int, list[SugerenciaActividad]]:
+    """Genera y guarda las sugerencias de una franja: crea la solicitud (cuenta para el
+    límite diario), llama a la IA y valida los lugares. Lo usan la solicitud puntual
+    (US 87) y completar días libres (US 92), así ambas aplican las mismas reglas.
+
+    Devuelve el id de la solicitud y las sugerencias guardadas (vacío si no quedó
+    ninguna válida). Los errores se informan con HTTPException."""
+    trip_id = viaje.IdViaje
+    franja_inicio, franja_fin = minutos_de(hora_inicio), minutos_de(hora_fin)
+
     actividades_viaje = _actividades_con_lugar(db, [d.IdDiaCronograma for d in viaje.Cronograma])
     actividades_dia = [a for a in actividades_viaje if a.IdDiaCronograma == dia.IdDiaCronograma]
     ocupados = [(minutos_de(a.HoraInicio), minutos_de(a.HoraFin)) for a in actividades_dia]
@@ -585,7 +663,7 @@ async def solicitar_sugerencias(
 
     nombres_prohibidos = nombres_a_ocultar(p.Usuario for p in viaje.Participantes)
     grupo = combinar_preferencias(preferencias, nombres_prohibidos)
-    indicacion = sanitizar_texto((payload.Indicacion or "")[:300], nombres_prohibidos)[:300]
+    indicacion = sanitizar_texto((indicacion or "")[:300], nombres_prohibidos)[:300]
 
     existentes_ia = []
     existentes_reglas: list[ActividadDia] = []
@@ -651,7 +729,6 @@ async def solicitar_sugerencias(
         dict.fromkeys(fila.LugarNombre for fila in descartadas_franja if fila.LugarNombre)
     )
 
-    max_resultados = max(1, min(settings.ai_suggestions_max_results, 5))
     contexto_ia = {
         "destino": destino_nombre,
         "zona_de_referencia": {
@@ -789,13 +866,7 @@ async def solicitar_sugerencias(
 
     if not validas:
         _cerrar_solicitud(db, id_solicitud, "sin_resultados")
-        return ResultadoSugerenciasRead(
-            IdSolicitud=id_solicitud,
-            Sugerencias=[],
-            Mensaje=MENSAJE_SIN_OPCIONES,
-            SolicitudesRestantes=_restantes(db, trip_id),
-            LimiteDiario=limite,
-        )
+        return id_solicitud, []
 
     filas = [
         SugerenciaActividad(
@@ -829,15 +900,390 @@ async def solicitar_sugerencias(
     db.commit()
     for fila in filas:
         db.refresh(fila)
-
-    return ResultadoSugerenciasRead(
-        IdSolicitud=id_solicitud,
-        Sugerencias=[_serializar(fila, "pendiente") for fila in filas],
-        Mensaje=None,
-        SolicitudesRestantes=_restantes(db, trip_id),
-        LimiteDiario=limite,
-    )
+    return id_solicitud, filas
 
 
 def _a_hora(minutos: int) -> time:
     return time(minutos // 60, minutos % 60)
+
+# --- US 88: aceptar una sugerencia ----------------------------------------------
+
+
+def _sugerencia_del_viaje(db: Session, trip_id: int, sugerencia_id: int) -> SugerenciaActividad:
+    sugerencia = db.scalar(
+        select(SugerenciaActividad)
+        .options(
+            selectinload(SugerenciaActividad.Estado),
+            selectinload(SugerenciaActividad.Solicitud),
+        )
+        .where(
+            SugerenciaActividad.IdSugerenciaActividad == sugerencia_id,
+            SugerenciaActividad.IdViaje == trip_id,
+        )
+        .with_for_update()
+    )
+    if sugerencia is None:
+        raise _error(
+            status.HTTP_404_NOT_FOUND,
+            "La sugerencia no existe o no pertenece a este viaje.",
+            SUGGESTION_NOT_FOUND,
+        )
+    return sugerencia
+
+
+def _validar_aceptable(sugerencia: SugerenciaActividad) -> None:
+    estado_actual = (sugerencia.Estado.Nombre if sugerencia.Estado else "").strip().lower()
+    if estado_actual == ESTADO_PENDIENTE:
+        return
+    if estado_actual == ESTADO_ACEPTADA:
+        raise _error(
+            status.HTTP_409_CONFLICT,
+            "Esta sugerencia ya fue aceptada y no puede volver a aceptarse.",
+            SUGGESTION_ALREADY_ACCEPTED,
+        )
+    if estado_actual == ESTADO_EN_VOTACION:
+        raise _error(
+            status.HTTP_409_CONFLICT,
+            "Esta sugerencia está en votación: el grupo decide si se incorpora al itinerario.",
+            SUGGESTION_IN_VOTING,
+        )
+    raise _error(
+        status.HTTP_409_CONFLICT,
+        "Solo se pueden aceptar sugerencias en estado \"Pendiente\".",
+        SUGGESTION_NOT_PENDING,
+    )
+
+
+@router.post(
+    "/{trip_id}/sugerencias-actividades/{sugerencia_id}/aceptar",
+    response_model=AceptacionSugerenciaRead,
+)
+async def aceptar_sugerencia(
+    trip_id: int,
+    sugerencia_id: int,
+    payload: AceptarSugerenciaRequest | None = None,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+):
+    """Incorpora una sugerencia pendiente al itinerario (US 88).
+
+    La actividad se crea solo con la confirmación explícita del usuario (RNF-31): esta
+    llamada es esa confirmación. Si el horario se superpone con otras actividades y el
+    usuario todavía no lo confirmó, no se crea nada y se devuelven las superpuestas."""
+    payload = payload or AceptarSugerenciaRequest()
+    viaje = require_trip_edit_access(get_trip_with_relations(db, trip_id), current_user)
+    require_trip_not_finished(viaje, "el itinerario")
+
+    sugerencia = _sugerencia_del_viaje(db, trip_id, sugerencia_id)
+    _validar_aceptable(sugerencia)
+
+    hora_inicio = (payload.HoraInicio or sugerencia.HoraInicio).replace(
+        second=0, microsecond=0, tzinfo=None
+    )
+    hora_fin = (payload.HoraFin or sugerencia.HoraFin).replace(second=0, microsecond=0, tzinfo=None)
+    if hora_fin <= hora_inicio:
+        raise _error(400, "La hora de fin debe ser posterior a la hora de inicio.", SLOT_INVALID)
+
+    dia = db.get(DiaCronograma, sugerencia.IdDiaCronograma)
+    if dia is None or dia.IdViaje != trip_id:
+        raise _error(404, "El día de la sugerencia ya no forma parte del viaje.", DAY_NOT_FOUND)
+
+    superpuestas = [
+        actividad
+        for actividad in db.scalars(
+            select(ActividadItinerario)
+            .where(ActividadItinerario.IdDiaCronograma == dia.IdDiaCronograma)
+            .order_by(ActividadItinerario.HoraInicio)
+        ).all()
+        if actividad.HoraInicio < hora_fin and hora_inicio < actividad.HoraFin
+    ]
+    if superpuestas and not payload.ConfirmarSuperposicion:
+        db.rollback()  # libera el bloqueo de la sugerencia: no se modificó nada
+        nombres = ", ".join(f"«{a.Nombre}»" for a in superpuestas)
+        return AceptacionSugerenciaRead(
+            Aceptada=False,
+            RequiereConfirmacion=True,
+            Superpuestas=[
+                ActividadSuperpuestaRead(
+                    IdActividad=a.IdActividad,
+                    Nombre=a.Nombre,
+                    HoraInicio=a.HoraInicio.strftime("%H:%M"),
+                    HoraFin=a.HoraFin.strftime("%H:%M"),
+                )
+                for a in superpuestas
+            ],
+            Mensaje=(
+                f"El horario {hora_inicio:%H:%M}–{hora_fin:%H:%M} se superpone con "
+                f"{nombres}. ¿Querés agregar la actividad igual?"
+            ),
+        )
+
+    lugar = obtener_o_crear_lugar(db, sugerencia)
+    actividad = ActividadItinerario(
+        IdDiaCronograma=dia.IdDiaCronograma,
+        IdLugarInteres=lugar.IdLugarInteres if lugar is not None else None,
+        Nombre=sugerencia.Nombre[:150],
+        Descripcion=sugerencia.Descripcion or None,
+        HoraInicio=hora_inicio,
+        HoraFin=hora_fin,
+        Icono="location-dot",
+    )
+    db.add(actividad)
+    aceptada = _estado_por_nombre(db, ESTADO_ACEPTADA)
+    sugerencia.IdEstadoSugerenciaActividad = aceptada.IdEstadoSugerenciaActividad
+    db.commit()
+    db.refresh(actividad)
+    db.refresh(sugerencia)
+
+    respuesta = AceptacionSugerenciaRead(
+        Aceptada=True,
+        Mensaje=(
+            f"Se agregó «{actividad.Nombre}» al itinerario de "
+            f"{hora_inicio:%H:%M} a {hora_fin:%H:%M}."
+        ),
+        IdActividad=actividad.IdActividad,
+        Sugerencia=_serializar(sugerencia, ESTADO_ACEPTADA),
+    )
+    await _avisar_actividad_aceptada(db, viaje, dia, actividad, current_user)
+    return respuesta
+
+
+async def _avisar_actividad_aceptada(
+    db: Session, viaje, dia: DiaCronograma, actividad: ActividadItinerario, usuario: Usuario
+) -> None:
+    """Tiempo real, ruta del día y notificación al grupo. Ninguno bloquea la aceptación."""
+    from app.api.routes.trips import (
+        _actor_display_name,
+        _build_actividad_read,
+        _sincronizar_y_notificar_ruta,
+    )
+
+    trip_id = viaje.IdViaje
+    titulo_viaje = viaje.Titulo
+    try:
+        await manager.broadcast(
+            trip_id,
+            {
+                "tipo": "actividad_creada",
+                "idDiaCronograma": dia.IdDiaCronograma,
+                "actividad": _build_actividad_read(actividad).model_dump(by_alias=True),
+            },
+        )
+        await manager.broadcast(trip_id, {"tipo": "sugerencias_actualizadas"})
+        await _sincronizar_y_notificar_ruta(db, dia, trip_id)
+    except Exception:
+        logger.exception("No se pudo avisar en tiempo real la sugerencia aceptada")
+
+    try:
+        # El dispatcher central respeta consentimiento y preferencias de cada participante.
+        await dispatch_trip_notification(
+            db,
+            TripNotificationEvent(
+                notification_type=NotificationType.NUEVA_ACTIVIDAD,
+                tipo="sugerencia_aceptada",
+                titulo=f"Nueva actividad en {titulo_viaje}"[:150],
+                mensaje=(
+                    f"{_actor_display_name(usuario)} agregó {actividad.Nombre} al itinerario "
+                    "desde las sugerencias del asistente."
+                ),
+                id_viaje=trip_id,
+                id_usuario_actor=usuario.IdUsuario,
+                data={
+                    "eventType": "activity_created",
+                    "dayId": dia.IdDiaCronograma,
+                    "activityId": actividad.IdActividad,
+                },
+            ),
+        )
+    except Exception:
+        logger.exception("No se pudo notificar la sugerencia aceptada")
+
+
+# --- US 92: completar días libres -----------------------------------------------
+
+
+def _franjas_libres(db: Session, viaje) -> list:
+    ids_dias = [d.IdDiaCronograma for d in viaje.Cronograma]
+    actividades_por_dia: dict[int, list[ActividadItinerario]] = {}
+    if ids_dias:
+        for actividad in db.scalars(
+            select(ActividadItinerario).where(ActividadItinerario.IdDiaCronograma.in_(ids_dias))
+        ).all():
+            actividades_por_dia.setdefault(actividad.IdDiaCronograma, []).append(actividad)
+    hoy = datetime.now(_zona_horaria()).date()
+    return detectar_franjas_libres(viaje.Cronograma, actividades_por_dia, hoy)
+
+
+def _max_sugerencias_por_franja() -> int:
+    return max(1, min(settings.ai_suggestions_max_results, MAX_SUGERENCIAS_POR_FRANJA))
+
+
+@router.get(
+    "/{trip_id}/sugerencias-actividades/franjas-libres",
+    response_model=FranjasLibresRead,
+)
+def obtener_franjas_libres(
+    trip_id: int,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+):
+    """Días sin actividades y franjas libres de al menos tres horas (09:00 a 22:00) de
+    los días posteriores a hoy. Solo para participantes actuales de viajes en curso."""
+    viaje = require_trip_edit_access(get_trip_with_relations(db, trip_id), current_user)
+    require_trip_not_finished(viaje, "las sugerencias de actividades")
+
+    franjas = _franjas_libres(db, viaje)
+    return FranjasLibresRead(
+        Franjas=[
+            FranjaLibreRead(
+                IdDiaCronograma=f.id_dia,
+                Fecha=f.fecha,
+                IndiceDia=f.indice_dia,
+                HoraInicio=hhmm(f.inicio),
+                HoraFin=hhmm(f.fin),
+                DiaCompleto=f.dia_completo,
+            )
+            for f in franjas
+        ],
+        ItinerarioCompleto=not franjas,
+        Mensaje=None if franjas else MENSAJE_ITINERARIO_COMPLETO,
+        SolicitudesRestantes=_restantes(db, trip_id),
+        LimiteDiario=settings.ai_suggestions_daily_limit,
+        MaxSugerenciasPorFranja=_max_sugerencias_por_franja(),
+    )
+
+
+@router.post(
+    "/{trip_id}/sugerencias-actividades/completar-dias-libres",
+    response_model=ResultadoCompletarDiasLibresRead,
+)
+async def completar_dias_libres(
+    trip_id: int,
+    payload: CompletarDiasLibresRequest,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+    suggester: ActivitySuggester = Depends(get_activity_suggester),
+):
+    """Genera hasta tres sugerencias por cada franja libre seleccionada (US 92).
+
+    Cada franja es una solicitud dentro del límite diario del viaje (RNF-36): si se
+    eligen más franjas que solicitudes disponibles no se genera ninguna. Un error en
+    una franja (por ejemplo, la ocuparon mientras tanto) no cancela las demás."""
+    viaje = require_trip_edit_access(get_trip_with_relations(db, trip_id), current_user)
+    require_trip_not_finished(viaje, "las sugerencias de actividades")
+
+    if not payload.Franjas:
+        raise _error(400, "Seleccioná al menos una franja libre para completar.", SLOT_INVALID)
+    if payload.DistanciaMaximaKm is not None and payload.DistanciaMaximaKm not in DISTANCIAS_PERMITIDAS_KM:
+        raise _error(400, "La distancia de búsqueda seleccionada no es válida.", SLOT_INVALID)
+    max_km = float(payload.DistanciaMaximaKm or settings.ai_suggestions_max_distance_km)
+
+    hoy = datetime.now(_zona_horaria()).date()
+    dias = {d.IdDiaCronograma: d for d in viaje.Cronograma}
+    # (IdDiaCronograma, Fecha, inicio, fin): se guardan los valores y no los objetos,
+    # porque cada franja hace commit y expira los objetos de la sesión.
+    franjas: list[tuple[int, date, time, time]] = []
+    for franja in payload.Franjas:
+        dia = dias.get(franja.IdDiaCronograma)
+        if dia is None:
+            raise _error(404, "Uno de los días seleccionados no pertenece a este viaje.", DAY_NOT_FOUND)
+        if dia.Fecha <= hoy:
+            raise _error(
+                400,
+                "Solo se pueden completar días posteriores a la fecha actual.",
+                DAY_IN_PAST,
+            )
+        inicio = franja.HoraInicio.replace(second=0, microsecond=0, tzinfo=None)
+        fin = franja.HoraFin.replace(second=0, microsecond=0, tzinfo=None)
+        inicio_min, fin_min = minutos_de(inicio), minutos_de(fin)
+        if (
+            fin_min - inicio_min < DURACION_MINIMA_FRANJA_LIBRE_MINUTOS
+            or inicio_min < INICIO_VENTANA_MINUTOS
+            or fin_min > FIN_VENTANA_MINUTOS
+        ):
+            raise _error(
+                400,
+                "Cada franja debe durar al menos tres horas entre las 09:00 y las 22:00.",
+                SLOT_INVALID,
+            )
+        clave = (dia.IdDiaCronograma, dia.Fecha, inicio, fin)
+        if clave in franjas:
+            raise _error(400, "Seleccionaste la misma franja más de una vez.", SLOT_INVALID)
+        franjas.append(clave)
+
+    limite = settings.ai_suggestions_daily_limit
+    restantes = _restantes(db, trip_id)
+    if len(franjas) > restantes:
+        disponibles = (
+            f"solo queda {restantes} solicitud disponible"
+            if restantes == 1
+            else f"solo quedan {restantes} solicitudes disponibles"
+        )
+        raise _error(
+            429,
+            f"Seleccionaste {len(franjas)} franjas, pero hoy {disponibles} de las {limite} "
+            "diarias del viaje. Cada franja cuenta como una solicitud: elegí menos franjas o "
+            "intentá mañana.",
+            SUGGESTION_LIMIT_REACHED,
+        )
+
+    aceptadas = _participaciones_aceptadas(viaje)
+    preferencias = _preferencias_del_grupo(db, aceptadas)
+    if not preferencias and not payload.ContinuarSinPreferencias:
+        raise _error(409, MENSAJE_SIN_PREFERENCIAS, NO_PREFERENCES)
+
+    max_resultados = _max_sugerencias_por_franja()
+    resultados: list[ResultadoFranjaRead] = []
+    hubo_sugerencias = False
+    for id_dia, fecha, inicio, fin in franjas:
+        base = {
+            "IdDiaCronograma": id_dia,
+            "Fecha": fecha,
+            "HoraInicio": inicio.strftime("%H:%M"),
+            "HoraFin": fin.strftime("%H:%M"),
+        }
+        try:
+            # Cada franja es una solicitud propia, con su propio tiempo máximo (RNF-34).
+            _, filas = await _generar_sugerencias_franja(
+                db,
+                viaje,
+                current_user,
+                suggester,
+                db.get(DiaCronograma, id_dia),
+                inicio,
+                fin,
+                preferencias,
+                indicacion=None,
+                max_km=max_km,
+                max_resultados=max_resultados,
+                inicio_total=reloj.monotonic(),
+            )
+        except HTTPException as error:
+            resultados.append(
+                ResultadoFranjaRead(
+                    **base,
+                    Mensaje=str(error.detail),
+                    CodigoError=(error.headers or {}).get("X-Error-Code"),
+                )
+            )
+            continue
+        hubo_sugerencias = hubo_sugerencias or bool(filas)
+        resultados.append(
+            ResultadoFranjaRead(
+                **base,
+                Sugerencias=[_serializar(fila, ESTADO_PENDIENTE) for fila in filas],
+                Mensaje=None if filas else MENSAJE_SIN_OPCIONES,
+            )
+        )
+
+    if hubo_sugerencias:
+        try:
+            await manager.broadcast(trip_id, {"tipo": "sugerencias_actualizadas"})
+        except Exception:
+            logger.exception("No se pudo avisar en tiempo real las sugerencias generadas")
+
+    return ResultadoCompletarDiasLibresRead(
+        Resultados=resultados,
+        SolicitudesRestantes=_restantes(db, trip_id),
+        LimiteDiario=limite,
+    )

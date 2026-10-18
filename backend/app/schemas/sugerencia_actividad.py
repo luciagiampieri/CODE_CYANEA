@@ -1,4 +1,4 @@
-from datetime import datetime, time
+from datetime import date, datetime, time
 from pydantic import BaseModel
 
 
@@ -50,3 +50,84 @@ class ContextoSugerenciasRead(BaseModel):
     ParticipantesTotal: int
     ParticipantesConPreferencias: int
     MisPreferenciasConfiguradas: bool
+
+# --- US 88: aceptar una sugerencia ---------------------------------------------
+
+
+class AceptarSugerenciaRequest(BaseModel):
+    """Horario con el que se crea la actividad. Si no llega, se usa el de la sugerencia."""
+
+    HoraInicio: time | None = None
+    HoraFin: time | None = None
+    # El usuario ya vio la advertencia de superposición y confirma igual.
+    ConfirmarSuperposicion: bool = False
+
+
+class ActividadSuperpuestaRead(BaseModel):
+    IdActividad: int
+    Nombre: str
+    HoraInicio: str
+    HoraFin: str
+
+
+class AceptacionSugerenciaRead(BaseModel):
+    """Resultado de aceptar una sugerencia.
+
+    Con `RequiereConfirmacion` no se creó nada: hay actividades superpuestas y la app
+    debe pedir confirmación y reenviar con `ConfirmarSuperposicion`."""
+
+    Aceptada: bool
+    RequiereConfirmacion: bool = False
+    Superpuestas: list[ActividadSuperpuestaRead] = []
+    Mensaje: str
+    IdActividad: int | None = None
+    Sugerencia: SugerenciaActividadRead | None = None
+
+
+# --- US 92: completar días libres ------------------------------------------------
+
+
+class FranjaLibreRead(BaseModel):
+    IdDiaCronograma: int
+    Fecha: date
+    IndiceDia: int | None = None
+    HoraInicio: str
+    HoraFin: str
+    DiaCompleto: bool
+
+
+class FranjasLibresRead(BaseModel):
+    Franjas: list[FranjaLibreRead]
+    ItinerarioCompleto: bool
+    Mensaje: str | None = None
+    SolicitudesRestantes: int
+    LimiteDiario: int
+    MaxSugerenciasPorFranja: int
+
+
+class FranjaSeleccionada(BaseModel):
+    IdDiaCronograma: int
+    HoraInicio: time
+    HoraFin: time
+
+
+class CompletarDiasLibresRequest(BaseModel):
+    Franjas: list[FranjaSeleccionada]
+    ContinuarSinPreferencias: bool = False
+    DistanciaMaximaKm: int | None = None
+
+
+class ResultadoFranjaRead(BaseModel):
+    IdDiaCronograma: int
+    Fecha: date
+    HoraInicio: str
+    HoraFin: str
+    Sugerencias: list[SugerenciaActividadRead] = []
+    Mensaje: str | None = None
+    CodigoError: str | None = None
+
+
+class ResultadoCompletarDiasLibresRead(BaseModel):
+    Resultados: list[ResultadoFranjaRead]
+    SolicitudesRestantes: int
+    LimiteDiario: int

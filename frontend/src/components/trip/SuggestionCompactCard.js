@@ -90,14 +90,15 @@ export default function SuggestionCompactCard({
   bloqueada = false,
   onDescartar,
   descartando = false,
+  onAceptar,
 }) {
   const foto = useFotoSugerencia(sugerencia);
   const sitioWeb = /^https?:\/\//i.test(sugerencia.SitioWebUrl || "") ? sugerencia.SitioWebUrl : null;
   const mostrarDetalle = expandida && !modoSeleccion;
-  const puedeDescartar =
-    mostrarDetalle &&
-    typeof onDescartar === "function" &&
-    String(sugerencia.Estado ?? "").toLowerCase() === "pendiente";
+  const esPendiente = String(sugerencia.Estado ?? "").toLowerCase() === "pendiente";
+  const puedeDescartar = mostrarDetalle && typeof onDescartar === "function" && esPendiente;
+  // US 88: solo las sugerencias pendientes se pueden incorporar al itinerario.
+  const puedeAceptar = mostrarDetalle && typeof onAceptar === "function" && esPendiente;
 
   return (
     <Pressable
@@ -195,6 +196,20 @@ export default function SuggestionCompactCard({
               </Pressable>
             ) : null}
           </View>
+
+          {puedeAceptar ? (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={`Aceptar ${sugerencia.Nombre}`}
+              disabled={descartando}
+              onPress={() => onAceptar(sugerencia)}
+              style={({ pressed }) => [styles.botonAceptar, pressed && styles.presionada]}
+              testID={`aceptar-sugerencia-${sugerencia.IdSugerenciaActividad}`}
+            >
+              <FontAwesome6 name="calendar-plus" size={12} color={colors.textInverse} />
+              <Text style={styles.botonAceptarTexto}>Agregar al itinerario</Text>
+            </Pressable>
+          ) : null}
 
           {puedeDescartar ? (
             <Pressable
@@ -376,6 +391,22 @@ const styles = StyleSheet.create({
     ...textStyles.bodyStrong,
     fontSize: 13,
     color: colors.primary,
+  },
+  botonAceptar: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    marginTop: spacing.xs,
+    paddingVertical: spacing.xs,
+    borderRadius: radii.pill,
+    backgroundColor: colors.primary,
+  },
+  botonAceptarTexto: {
+    ...textStyles.meta,
+    fontSize: 13,
+    fontWeight: "700",
+    color: colors.textInverse,
   },
   botonDescartar: {
     flexDirection: "row",

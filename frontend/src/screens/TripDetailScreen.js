@@ -112,6 +112,7 @@ import { getRouteHint } from "../utils/routeMessages";
 import { formatMoney } from "../utils/money";
 import { centerInScroll } from "../utils/scrollHelpers";
 import ActivitySuggestionsScreen from "./ActivitySuggestionsScreen"; // SUGERENCIAS
+import CompleteFreeDaysScreen from "./CompleteFreeDaysScreen"; // US 92
 import DaySuggestionsSection from "../components/trip/DaySuggestionsSection"; // SUGERENCIAS (US 90)
 import TripAssistantButton from "../components/assistant/TripAssistantButton"; // SUGERENCIAS
 
@@ -394,6 +395,7 @@ export default function TripDetailScreen({ navigation, route }) {
   const [sugerenciasDayId, setSugerenciasDayId] = useState(null);
   const [sugerenciasFranja, setSugerenciasFranja] = useState(null);
   const [showSugerenciasModal, setShowSugerenciasModal] = useState(false);
+  const [showDiasLibresModal, setShowDiasLibresModal] = useState(false);
 
   // Sugerencias del viaje, agrupadas por día (las ven todos los participantes).
   const cargarSugerencias = useCallback(async () => {
@@ -2501,6 +2503,29 @@ export default function TripDetailScreen({ navigation, route }) {
                 </View>
                 <FontAwesome6 name="chevron-right" size={13} color={colors.primary} />
               </Pressable>
+              {/* US 92: completar días y franjas libres con el asistente */}
+              {lock.canEdit("itinerario") ? (
+                <Pressable
+                  accessibilityRole="button"
+                  onPress={() => setShowDiasLibresModal(true)}
+                  style={({ pressed }) => [
+                    styles.itineraryExploreRow,
+                    pressed && styles.itineraryExploreRowPressed,
+                  ]}
+                  testID="completar-dias-libres"
+                >
+                  <View style={styles.itineraryExploreIcon}>
+                    <FontAwesome6 name="wand-magic-sparkles" size={16} color={colors.primary} />
+                  </View>
+                  <View style={styles.itineraryExploreContent}>
+                    <Text style={styles.itineraryExploreTitle}>Completar días libres con IA</Text>
+                    <Text style={styles.itineraryExploreSubtitle}>
+                      Detectá huecos del itinerario y recibí sugerencias
+                    </Text>
+                  </View>
+                  <FontAwesome6 name="chevron-right" size={13} color={colors.primary} />
+                </Pressable>
+              ) : null}
               <View style={styles.itinerarioHeader}>
                 <ItinerarioViewToggle
                   onChange={setItinerarioView}
@@ -3640,6 +3665,13 @@ export default function TripDetailScreen({ navigation, route }) {
         onCancelEdit={(activityId) => {
           finalizarEdicionActividad(activityId);
         }}
+      />
+      <CompleteFreeDaysScreen
+        visible={showDiasLibresModal}
+        tripId={trip?.id}
+        tripTitle={trip?.title}
+        onClose={() => setShowDiasLibresModal(false)}
+        onGenerado={cargarSugerencias}
       />
       <ActivitySuggestionsScreen
         visible={showSugerenciasModal}

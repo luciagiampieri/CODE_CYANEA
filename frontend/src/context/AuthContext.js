@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useState } from "react";
 import { Platform } from "react-native";
-import { getCurrentUser } from "../services/api";
+import { getCurrentUser, onSessionExpired } from "../services/api";
 
 const AUTH_TOKEN_KEY = "auth_token";
 const PENDING_INVITATION_KEY = "cyanea_pending_invitation";
@@ -86,6 +86,15 @@ export function AuthProvider({ children }) {
     setToken(null);
     setUser(null);
   }, []);
+
+  // US 101: el token dejó de valer (p. ej. se cambió la contraseña en otro
+  // dispositivo): se cierra la sesión y la app vuelve al login.
+  useEffect(() => {
+    if (!token || typeof onSessionExpired !== "function") return undefined;
+    return onSessionExpired(() => {
+      logout();
+    });
+  }, [token, logout]);
 
   const rememberInvitation = useCallback(async (invitationToken) => {
     setPendingInvitation(invitationToken || null);

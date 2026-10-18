@@ -41,24 +41,34 @@ def _verificar_sesion_vigente(payload: dict) -> None:
 
     from app.db.session import SessionLocal
     from app.models.recuperacion_password import TokenRecuperacionPassword
+    from app.models.usuario import Usuario
 
     try:
         with SessionLocal() as db:
-            ultimo_cambio = db.scalar(
+            ultimo_restablecimiento = db.scalar(
                 select(func.max(TokenRecuperacionPassword.FechaUso)).where(
                     TokenRecuperacionPassword.IdUsuario == user_id
                 )
+            )
+            # US 101: cambio de contraseña desde "Mi cuenta".
+            ultimo_cambio_cuenta = db.scalar(
+                select(Usuario.FechaCambioPassword).where(Usuario.IdUsuario == user_id)
             )
     except SQLAlchemyError:
         logger.warning("No se pudo verificar el cierre de sesión por cambio de contraseña")
         return
 
-    if ultimo_cambio is None:
+    cambios = [
+        fecha if fecha.tzinfo is not None else fecha.replace(tzinfo=timezone.utc)
+        for fecha in (ultimo_restablecimiento, ultimo_cambio_cuenta)
+        if fecha is not None
+    ]
+    if not cambios:
         return
 
     iat = payload.get("iat")
-    if iat is None or iat < ultimo_cambio.timestamp():
-        raise JWTError("Sesión cerrada por restablecimiento de contraseña.")
+    if iat is None or iat < max(cambios).timestamp():
+        raise JWTError("Sesión cerrada por cambio de contraseña.")
 
 
 def decode_access_token(token: str) -> dict:

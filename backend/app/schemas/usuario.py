@@ -125,6 +125,21 @@ class UsuarioDeleteRequest(BaseModel):
     password: str | None = None
 
 
+class CambioPasswordRequest(BaseModel):
+    """US 101: cambio de contraseña desde "Mi cuenta"."""
+
+    passwordActual: str = ""
+    passwordNueva: str = ""
+    confirmacion: str = ""
+
+
+class CambioPasswordResponse(BaseModel):
+    message: str
+    # Token nuevo del dispositivo actual: los anteriores quedan inválidos.
+    access_token: str
+    token_type: str = "bearer"
+
+
 class UsuarioPushTokenUpsert(BaseModel):
     token: str
     plataforma: str

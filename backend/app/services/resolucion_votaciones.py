@@ -169,7 +169,7 @@ def _nombre_propuesta(db: Session, propuesta: Propuesta) -> str:
     return propuesta.Texto
 
 
-def _obtener_o_crear_lugar(db: Session, sugerencia: SugerenciaActividad) -> LugarInteres | None:
+def obtener_o_crear_lugar(db: Session, sugerencia: SugerenciaActividad) -> LugarInteres | None:
     """Reutiliza el LugarInteres de Google si ya existe; si no, lo crea con los datos
     validados que guardó la sugerencia (US 87)."""
     crudo = (sugerencia.GooglePlaceId or "").strip()
@@ -228,7 +228,7 @@ def _incorporar(
     if not _reclamar(db, votacion.IdVotacion, estado_previo, RESOLUCION_INCORPORADA):
         return None
 
-    lugar = _obtener_o_crear_lugar(db, sugerencia)
+    lugar = obtener_o_crear_lugar(db, sugerencia)
 
     superpuestas = [
         actividad.Nombre

@@ -13,6 +13,7 @@ import {
 } from "react-native";
 
 import ScreenContainer from "../components/layout/ScreenContainer";
+import AcceptSuggestionModal from "../components/trip/AcceptSuggestionModal";
 import SuggestionCompactCard from "../components/trip/SuggestionCompactCard";
 import { appAlert } from "../components/ui/AppDialog";
 import { discardActivitySuggestion, getActivitySuggestions } from "../services/api";
@@ -80,6 +81,7 @@ export default function DaySuggestionsScreen({ navigation, route }) {
   const [franjaDescartada, setFranjaDescartada] = useState(null);
   const [mostrarRegenerar, setMostrarRegenerar] = useState(false);
   const [franjaRegenerar, setFranjaRegenerar] = useState(null);
+  const [sugerenciaAceptando, setSugerenciaAceptando] = useState(null);
 
   const yaCargoRef = useRef(false);
 
@@ -200,6 +202,18 @@ export default function DaySuggestionsScreen({ navigation, route }) {
     }
   }
 
+  // US 88: la actividad ya se creó; la sugerencia pasa a "Aceptada" y deja de listarse.
+  function handleAceptada(resultado) {
+    const id = sugerenciaAceptando?.IdSugerenciaActividad;
+    setSugerenciaAceptando(null);
+    setExpandidaId(null);
+    setSugerencias((actuales) => actuales.filter((s) => s.IdSugerenciaActividad !== id));
+    mostrarMensaje(
+      "Actividad agregada",
+      resultado?.Mensaje || "La sugerencia se agregó al itinerario."
+    );
+  }
+
   function pedirConfirmacionDescarte(sugerencia) {
     const mensaje = `Se va a descartar "${sugerencia.Nombre}". Dejará de mostrarse y no se volverá a sugerir ese lugar para esta franja.`;
     if (Platform.OS === "web") {
@@ -292,6 +306,7 @@ export default function DaySuggestionsScreen({ navigation, route }) {
         onPress={() => setExpandidaId((actual) => (actual === id ? null : id))}
         onDescartar={puedeGestionar ? pedirConfirmacionDescarte : undefined}
         descartando={descartandoId === id}
+        onAceptar={puedeGestionar ? setSugerenciaAceptando : undefined}
       />
     );
   }
@@ -379,7 +394,7 @@ export default function DaySuggestionsScreen({ navigation, route }) {
         <Text style={styles.intro}>
           {modoSeleccion
             ? `Elegí entre ${MINIMO_VOTACION} y ${MAXIMO_VOTACION} sugerencias pendientes que se superpongan en horario: el grupo va a votar cuál hacer.`
-            : "Las sugerencias quedan pendientes y las ve todo el grupo. Tocá una para ver el detalle."}
+            : "Las sugerencias quedan pendientes y las ve todo el grupo. Tocá una para ver el detalle y agregarla al itinerario."}
         </Text>
 
         <View style={styles.lista}>{ordenadas.map(renderSugerencia)}</View>
@@ -475,6 +490,14 @@ export default function DaySuggestionsScreen({ navigation, route }) {
         franja={franjaVotacion}
         sugerencias={elegidas}
         onCreada={handleCreada}
+      />
+
+      <AcceptSuggestionModal
+        visible={Boolean(sugerenciaAceptando)}
+        tripId={tripId}
+        sugerencia={sugerenciaAceptando}
+        onClose={() => setSugerenciaAceptando(null)}
+        onAceptada={handleAceptada}
       />
 
       <ActivitySuggestionsScreen

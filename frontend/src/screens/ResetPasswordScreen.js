@@ -8,16 +8,11 @@ import RecoveryLayout, {
 } from "../components/ui/RecoveryLayout";
 import { resetPassword, validateResetToken } from "../services/PasswordRecovery";
 import { colors } from "../theme/tokens";
+import { REGLAS_PASSWORD } from "../utils/passwordRules";
 
 const LINK_ERROR = "El enlace de recuperación es inválido, venció o ya fue utilizado.";
 
-const RULES = [
-  { key: "len", label: "Al menos 8 caracteres", test: (p) => p.length >= 8 },
-  { key: "upper", label: "Una letra mayúscula", test: (p) => /[A-Z]/.test(p) },
-  { key: "lower", label: "Una letra minúscula", test: (p) => /[a-z]/.test(p) },
-  { key: "number", label: "Un número", test: (p) => /\d/.test(p) },
-  { key: "special", label: "Un carácter especial", test: (p) => /[^A-Za-z0-9]/.test(p) },
-];
+const RULES = REGLAS_PASSWORD;
 
 function isNetworkMessage(message = "") {
   const lower = message.toLowerCase();

@@ -28,6 +28,7 @@ import SettingsScreen from "../screens/SettingScreen";
 import EditDocumentScreen from "../screens/EditDocumentScreen";
 import NotificationPreferencesScreen from "../screens/NotificationPreferencesScreen";
 import PrivacyPreferencesScreen from "../screens/PrivacyPreferencesScreen";
+import ChangePasswordScreen from "../screens/ChangePasswordScreen";
 import PlanningPreferencesListScreen from "../screens/PlanningPreferencesListScreen";
 import ForgotPasswordScreen from "../screens/ForgotPasswordScreen";
 import ResendConfirmationScreen from "../screens/ResendConfirmationScreen";
@@ -150,6 +151,15 @@ export default function AppNavigator() {
           <Stack.Screen
             name="Configuracion"
             component={SettingsScreen}
+            options={{
+              headerShown: false,
+              gestureEnabled: true,
+              animation: "slide_from_right",
+            }}
+          />
+          <Stack.Screen
+            name="CambiarPassword"
+            component={ChangePasswordScreen}
             options={{
               headerShown: false,
               gestureEnabled: true,

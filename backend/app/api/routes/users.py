@@ -31,8 +31,13 @@ from app.schemas.usuario import (
     UsuarioPushTokenResponse,
     UsuarioPushTokenUpsert,
     UsuarioRead,
-    UsuarioDeleteRequest
+    UsuarioDeleteRequest,
+    CambioPasswordRequest,
+    CambioPasswordResponse,
 )
+from app.services.auth import password_change_service
+from app.services.mail import get_mail_service
+from app.services.mail.service import MailService
 from app.services.privacidad import VISIBILIDAD_PRIVADO, datos_visibles
 from app.services.supabase.storage import obtener_url_publica, subir_foto_perfil
 from app.services.websocket_manager import manager
@@ -515,6 +520,31 @@ def list_users(
             )
         )
     return resultado
+
+
+@router.put("/me/password", response_model=CambioPasswordResponse)
+def change_password(
+    payload: CambioPasswordRequest,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+    mail_service: MailService = Depends(get_mail_service),
+) -> CambioPasswordResponse:
+    """Cambia la contraseña de una cuenta registrada con correo (US 101).
+
+    Cierra las sesiones de los demás dispositivos y devuelve un token nuevo para
+    que el dispositivo actual siga conectado."""
+    token = password_change_service.cambiar_password(
+        db,
+        mail_service,
+        current_user,
+        payload.passwordActual,
+        payload.passwordNueva,
+        payload.confirmacion,
+    )
+    return CambioPasswordResponse(
+        message=password_change_service.MENSAJE_EXITO,
+        access_token=token,
+    )
 
 
 @router.post("/me/verify-password")

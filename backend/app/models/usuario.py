@@ -33,6 +33,10 @@ class Usuario(Base):
     UltimoAcceso: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True, index=True
     )
+    # US 101: los tokens emitidos antes de esta fecha quedan inválidos.
+    FechaCambioPassword: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     Activo: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=True, server_default="true"
     )
