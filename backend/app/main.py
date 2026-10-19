@@ -18,6 +18,10 @@ from app.services.notifications.activity_reminders import (
     start_activity_reminders_scheduler,
     stop_activity_reminders_scheduler,
 )
+from app.services.estado_viajes import (
+    start_estado_viajes_scheduler,
+    stop_estado_viajes_scheduler,
+)
 from app.services.resolucion_votaciones import (
     start_resolucion_votaciones_scheduler,
     stop_resolucion_votaciones_scheduler,
@@ -28,9 +32,11 @@ from app.services.resolucion_votaciones import (
 async def lifespan(app: FastAPI):
     activity_reminders_task = start_activity_reminders_scheduler()
     resolucion_votaciones_task = start_resolucion_votaciones_scheduler()
+    estado_viajes_task = start_estado_viajes_scheduler()
     try:
         yield
     finally:
+        await stop_estado_viajes_scheduler(estado_viajes_task)
         await stop_resolucion_votaciones_scheduler(resolucion_votaciones_task)
         await stop_activity_reminders_scheduler(activity_reminders_task)
 

@@ -13,3 +13,13 @@ it("abre Grupo desde la notificación interna del nuevo administrador", () => {
   expect(resolveNotificationTarget({ viajeId: 12, tipo: "nuevo_administrador" }))
     .toMatchObject({ tripId: 12, initialTab: "grupo" });
 });
+
+it("abre las transferencias de Gastos desde el push de fin de viaje (US 103)", () => {
+  expect(resolveNotificationTarget({ tripId: 12, eventType: "trip_finished", notificationType: "viaje_finalizado" }))
+    .toMatchObject({ tripId: 12, initialTab: "gastos", gastosView: "transferencias" });
+});
+
+it("abre las transferencias de Gastos desde la notificación interna de fin de viaje (US 103)", () => {
+  expect(resolveNotificationTarget({ viajeId: 12, tipo: "viaje_finalizado" }))
+    .toMatchObject({ tripId: 12, initialTab: "gastos", gastosView: "transferencias" });
+});

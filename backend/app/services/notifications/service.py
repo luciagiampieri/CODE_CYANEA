@@ -28,6 +28,8 @@ class NotificationType(StrEnum):
     TRANSFERENCIA_RECHAZADA = "transferencia_rechazada"
     # Tareas del checklist creadas con "Recordármelo" (comprar entradas o reservar).
     TAREA_RESERVA_ENTRADAS = "tarea_reserva_entradas"
+    # US 103: el viaje finalizó; invita a revisar la liquidación.
+    VIAJE_FINALIZADO = "viaje_finalizado"
 
 
 @dataclass(slots=True)
@@ -68,6 +70,8 @@ class NotificationService:
         NotificationType.TAREA_RESERVA_ENTRADAS: "RecibeEmailsRecordatoriosReserva",
         NotificationType.PARTICIPANTE_EXPULSADO: "RecibeEmailsCambiosViaje",
         NotificationType.INVITACION_CANCELADA: "RecibeEmailsCambiosViaje",
+        # Invita a saldar deudas: misma preferencia que los recordatorios de deuda.
+        NotificationType.VIAJE_FINALIZADO: "RecibeEmailsRecordatoriosDeuda",
     }
     _push_preferences = {
         NotificationType.NUEVA_ACTIVIDAD: "RecibePushNuevasActividades",
@@ -84,6 +88,7 @@ class NotificationService:
         NotificationType.TAREA_RESERVA_ENTRADAS: "RecibePushRecordatoriosReserva",
         NotificationType.PARTICIPANTE_EXPULSADO: "RecibePushCambiosViaje",
         NotificationType.INVITACION_CANCELADA: "RecibePushCambiosViaje",
+        NotificationType.VIAJE_FINALIZADO: "RecibePushRecordatoriosDeuda",
     }
 
     def __init__(self, mail_service: MailService) -> None:

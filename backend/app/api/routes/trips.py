@@ -77,6 +77,11 @@ from app.services.notifications import (
     dispatch_user_notification,
     get_notification_service,
 )
+from app.services.estado_viajes import (
+    CAMBIO_FINALIZADO,
+    notificar_viaje_finalizado,
+    recalcular_estado_viaje,
+)
 from app.services.destination_search import build_destination_image_url, search_destinations, autocomplete_destinations, resolve_destination
 from app.services.place_search import get_place_photo_uri
 from app.services.privacidad import datos_visibles, nombre_para_otros
@@ -607,6 +612,9 @@ ESTADOS_REINVITABLES = {
     "rechazado": "Invitación reenviada correctamente",
     "expulsado": "Participante vuelto a invitar correctamente",
     "salio": "Participante vuelto a invitar correctamente",
+    # US 103: venció al finalizar el viaje (solo se puede reinvitar si el viaje
+    # volvió a estar activo; con el viaje finalizado la invitación se rechaza antes).
+    "vencida": "Invitación reenviada correctamente",
 }
 
 
@@ -623,6 +631,7 @@ def _reinvitar_participante(db, existente, estado_invitado, rol_participante, cu
     existente.InvitadoPor = current_user.IdUsuario
     existente.FechaInvitacion = datetime.now()
     existente.FechaRespuesta = None  # la respuesta anterior (rechazo) ya no aplica
+    existente.VencidaPorFinViaje = False
     db.commit()
     return mensaje
 
@@ -726,6 +735,14 @@ async def respond_to_invitation(
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Esta invitación fue cancelada por el administrador del viaje."
+        )
+
+    # US 103: al finalizar el viaje las invitaciones pendientes vencen.
+    if participacion.EstadoParticipacion.Nombre == "vencida":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Esta invitación venció porque el viaje ya finalizó.",
+            headers={"X-Error-Code": "INVITATION_EXPIRED"},
         )
 
     if participacion.EstadoParticipacion.Nombre != "invitado":
@@ -1062,6 +1079,9 @@ async def update_trip(
     for indice, dia in enumerate(dias_ordenados, start=1):
         dia.IndiceDia = indice
 
+    # US 103: con las fechas nuevas el viaje puede finalizar o volver a estar activo.
+    cambio_estado = recalcular_estado_viaje(db, viaje.IdViaje)
+
     db.commit()
 
     viaje_actualizado = get_trip_with_relations(db, trip_id)
@@ -1082,6 +1102,9 @@ async def update_trip(
             data={"eventType": "trip_updated"},
         ),
     )
+
+    if cambio_estado == CAMBIO_FINALIZADO:
+        await notificar_viaje_finalizado(db, viaje_actualizado.IdViaje)
 
     return TripUpdateResponse(
         message="Los cambios se guardaron correctamente.",
@@ -1909,6 +1932,7 @@ ESTADO_PARTICIPACION_A_ESTADO_INVITACION = {
     "invitado": "pendiente",
     "aceptado": "aceptada",
     "rechazado": "rechazada",
+    "vencida": "vencida",
 }
 ESTADO_INVITACION_A_ESTADO_PARTICIPACION = {
     valor: clave for clave, valor in ESTADO_PARTICIPACION_A_ESTADO_INVITACION.items()
@@ -1920,7 +1944,7 @@ def list_sent_invitations(
     trip_id: int,
     estado: str | None = Query(
         default=None,
-        description="Filtra por estado de la invitacion: pendiente, aceptada o rechazada",
+        description="Filtra por estado de la invitacion: pendiente, aceptada, rechazada o vencida",
     ),
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
@@ -1937,7 +1961,7 @@ def list_sent_invitations(
         if estado not in ESTADO_INVITACION_A_ESTADO_PARTICIPACION:
             raise HTTPException(
                 status_code=422,
-                detail="Estado inválido. Valores posibles: pendiente, aceptada, rechazada",
+                detail="Estado inválido. Valores posibles: pendiente, aceptada, rechazada, vencida",
             )
 
     invitaciones = [

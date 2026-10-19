@@ -2,6 +2,7 @@ from datetime import datetime, time
 from decimal import Decimal
 
 from sqlalchemy import (
+    Boolean,
     CheckConstraint,
     DateTime,
     ForeignKey,
@@ -124,6 +125,11 @@ class SugerenciaActividad(Base):
     FotoReferencia: Mapped[str | None] = mapped_column(String(500), nullable=True)
     CostoEstimadoARS: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
     Motivo: Mapped[str] = mapped_column(Text(), nullable=False)
+    # US 103: se descartó porque el viaje finalizó; vuelve a 'pendiente' si el
+    # viaje se reactiva.
+    DescartadaPorFinViaje: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
     FechaCreacion: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

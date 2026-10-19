@@ -90,6 +90,7 @@ def master_data(db_session):
         EstadoParticipacion(Nombre="expulsado", Descripcion="Participante removido del viaje.", Activo=True),
         EstadoParticipacion(Nombre="salio", Descripcion="Participante abandono voluntariamente el viaje.", Activo=True),
         EstadoParticipacion(Nombre="cancelada", Descripcion="Invitacion cancelada por el administrador.", Activo=True),
+        EstadoParticipacion(Nombre="vencida", Descripcion="Invitacion vencida porque el viaje finalizo.", Activo=True),
     ]
 
     estados_invitacion = [

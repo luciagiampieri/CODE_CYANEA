@@ -143,7 +143,8 @@ def test_filtrar_por_estado_sin_resultados_devuelve_lista_vacia(client, db_sessi
 def test_filtrar_por_estado_invalido(client, auth_headers, viaje_con_admin):
     viaje, _ = viaje_con_admin
 
-    response = client.get(_url(viaje), params={"estado": "vencida"}, headers=auth_headers)
+    # "vencida" pasó a ser válido con la US 103; "expirada" no existe.
+    response = client.get(_url(viaje), params={"estado": "expirada"}, headers=auth_headers)
 
     assert response.status_code == 422
 

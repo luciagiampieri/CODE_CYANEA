@@ -57,6 +57,10 @@ class Settings(BaseSettings):
     activity_reminder_minutes_before: int = 60
     activity_reminder_scan_interval_seconds: int = 60
 
+    # Actualización automática del estado de los viajes (US 103): todos los días a las 00:00.
+    trip_status_update_enabled: bool = True
+    trip_status_timezone: str = "America/Argentina/Buenos_Aires"
+
     # Supabase
     supabase_url: str = ""
     supabase_service_key: str = ""

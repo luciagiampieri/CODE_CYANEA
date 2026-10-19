@@ -1734,3 +1734,61 @@ describe("Pestaña inicial (notificaciones y accesos rápidos)", () => {
     expect(pestaniaSeleccionada(utils, "Gastos")).toBe(true);
   });
 });
+
+describe("US 103 - Las votaciones siguen el estado del viaje", () => {
+  const WebSocketOriginal = global.WebSocket;
+  const trip = {
+    id: 1, title: "Viaje grupal", status: "activo", hasLeft: false, currency: "ARS",
+    startDate: "2099-12-01", endDate: "2099-12-10",
+    admin: { id: 1, nombreCompleto: "Juan Pérez" },
+    participants: [{ id: 1, nombreCompleto: "Juan Pérez", role: "administrador", status: "aceptado" }],
+    cronograma: [],
+  };
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    setupDefaultMocks();
+    getTripDetail.mockResolvedValue(trip);
+  });
+  afterEach(() => {
+    jest.restoreAllMocks();
+    global.WebSocket = WebSocketOriginal;
+  });
+
+  test("recarga las votaciones cuando el viaje finaliza y cuando vuelve a estar activo", async () => {
+    const socket = { close: jest.fn() };
+    global.WebSocket = jest.fn(() => socket);
+    getItinerarySocketUrl.mockResolvedValue("ws://test/itinerary");
+    await render(<TripDetailScreen navigation={makeNavigation()} route={{ params: { trip } }} />);
+    await waitFor(() => expect(socket.onmessage).toBeDefined());
+    await waitFor(() => expect(getVotaciones).toHaveBeenCalled());
+    const antes = getVotaciones.mock.calls.length;
+
+    // El admin acorta las fechas: el viaje pasa a finalizado.
+    getTripDetail.mockResolvedValue({ ...trip, status: "finalizado" });
+    await act(async () => socket.onmessage({ data: JSON.stringify({ tipo: "viaje_actualizado" }) }));
+    await waitFor(() => expect(getVotaciones.mock.calls.length).toBeGreaterThan(antes));
+    const trasFinalizar = getVotaciones.mock.calls.length;
+
+    // Extiende las fechas: vuelve a activo y las votaciones se reabren.
+    getTripDetail.mockResolvedValue({ ...trip, status: "activo" });
+    await act(async () => socket.onmessage({ data: JSON.stringify({ tipo: "viaje_actualizado" }) }));
+    await waitFor(() => expect(getVotaciones.mock.calls.length).toBeGreaterThan(trasFinalizar));
+  });
+
+  test("no recarga las votaciones si el estado del viaje no cambia", async () => {
+    const socket = { close: jest.fn() };
+    global.WebSocket = jest.fn(() => socket);
+    getItinerarySocketUrl.mockResolvedValue("ws://test/itinerary");
+    await render(<TripDetailScreen navigation={makeNavigation()} route={{ params: { trip } }} />);
+    await waitFor(() => expect(socket.onmessage).toBeDefined());
+    await waitFor(() => expect(getVotaciones).toHaveBeenCalled());
+    const antes = getVotaciones.mock.calls.length;
+    const lecturas = getTripDetail.mock.calls.length;
+
+    getTripDetail.mockResolvedValue({ ...trip, title: "Otro título" });
+    await act(async () => socket.onmessage({ data: JSON.stringify({ tipo: "viaje_actualizado" }) }));
+    await waitFor(() => expect(getTripDetail.mock.calls.length).toBeGreaterThan(lecturas));
+    expect(getVotaciones.mock.calls.length).toBe(antes);
+  });
+});

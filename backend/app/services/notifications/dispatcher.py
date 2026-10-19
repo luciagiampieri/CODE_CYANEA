@@ -43,6 +43,7 @@ _EMAIL_EVENT_LABELS = {
     NotificationType.TAREA_RESERVA_ENTRADAS: "Reservas y entradas",
     NotificationType.PARTICIPANTE_EXPULSADO: "Cambio en el viaje",
     NotificationType.INVITACION_CANCELADA: "Invitación cancelada",
+    NotificationType.VIAJE_FINALIZADO: "Viaje finalizado",
 }
 
 

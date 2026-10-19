@@ -56,6 +56,24 @@ describe("SentInvitationsList", () => {
     expect(getByText("Pendientes")).toBeTruthy();
   });
 
+  it("muestra y filtra las invitaciones vencidas al finalizar el viaje (US 103)", async () => {
+    const lista = [...invitaciones, invitacion({ userId: 4, nombreUsuario: "flor", status: "vencida" })];
+    const { getByTestId, getByText, queryByText, queryByTestId } = await render(
+      <SentInvitationsList invitations={lista} onCancel={jest.fn()} onResend={jest.fn()} />
+    );
+
+    expect(getByText("Vencida")).toBeTruthy();
+    expect(getByText("Vencidas")).toBeTruthy();
+
+    await fireEvent.press(getByTestId("invitation-filter-vencida"));
+
+    expect(queryByText("@flor")).toBeTruthy();
+    expect(queryByText("@pepe")).toBeNull();
+    // Una invitación vencida no se puede cancelar.
+    expect(queryByTestId("sent-invitation-cancel-4")).toBeNull();
+    expect(queryByTestId("sent-invitation-resend-4")).toBeNull();
+  });
+
   it("muestra mensaje cuando no hay invitaciones enviadas", async () => {
     const { getByText } = await render(<SentInvitationsList invitations={[]} />);
 

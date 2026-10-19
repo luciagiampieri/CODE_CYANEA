@@ -1385,9 +1385,12 @@ export default function TripDetailScreen({ navigation, route }) {
     }
   }
 
+  // También al cambiar el estado del viaje (US 103): si finaliza, las votaciones
+  // abiertas pasan a cerradas, y si vuelve a estar activo se reabren. Sin esto
+  // seguían mostrándose como estaban hasta salir y volver a entrar.
   useEffect(() => {
     loadVotaciones();
-  }, [trip?.id]);
+  }, [trip?.id, trip?.status]);
 
   useEffect(() => {
     if (!trip || trip?.hasLeft) return;

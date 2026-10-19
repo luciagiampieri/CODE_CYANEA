@@ -18,12 +18,14 @@ export const INVITATION_FILTERS = [
   { id: "pendiente", label: "Pendientes" },
   { id: "aceptada", label: "Aceptadas" },
   { id: "rechazada", label: "Rechazadas" },
+  { id: "vencida", label: "Vencidas" },
 ];
 
 const STATUS_META = {
   pendiente: { label: "Pendiente", color: colors.warning },
   aceptada: { label: "Aceptada", color: colors.success },
   rechazada: { label: "Rechazada", color: colors.danger },
+  vencida: { label: "Vencida", color: colors.textSecondary },
 };
 
 const MONTHS = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"];
@@ -48,7 +50,7 @@ export default function SentInvitationsList({
   const [filter, setFilter] = useState("todas");
 
   const counts = useMemo(() => {
-    const result = { todas: invitations.length, pendiente: 0, aceptada: 0, rechazada: 0 };
+    const result = { todas: invitations.length, pendiente: 0, aceptada: 0, rechazada: 0, vencida: 0 };
     invitations.forEach((invitation) => {
       if (result[invitation.status] !== undefined) result[invitation.status] += 1;
     });

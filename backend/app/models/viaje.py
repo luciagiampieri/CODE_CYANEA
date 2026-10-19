@@ -1,6 +1,6 @@
 from datetime import date, datetime
 
-from sqlalchemy import CheckConstraint, Date, DateTime, ForeignKey, String, func
+from sqlalchemy import CheckConstraint, Date, DateTime, ForeignKey, Index, String, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.session import Base
@@ -13,6 +13,8 @@ class Viaje(Base):
             '"FechaFin" IS NULL OR "FechaInicio" IS NULL OR "FechaFin" >= "FechaInicio"',
             name="CK_Viajes_Fechas",
         ),
+        # US 103: el proceso diario busca viajes activos con FechaFin pasada.
+        Index("IX_Viajes_Estado_FechaFin", "IdEstadoViaje", "FechaFin"),
     )
 
     IdViaje: Mapped[int] = mapped_column(primary_key=True)

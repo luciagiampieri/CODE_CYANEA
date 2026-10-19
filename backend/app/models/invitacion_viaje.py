@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, String, UniqueConstraint, func
+from sqlalchemy import Boolean, DateTime, ForeignKey, String, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.session import Base
@@ -42,6 +42,10 @@ class InvitacionViaje(Base):
     IdUsuarioRegistrado: Mapped[int | None] = mapped_column(
         ForeignKey("Usuarios.IdUsuario", name="FK_InvitacionesViajes_Usuarios_IdUsuarioRegistrado"),
         nullable=True,
+    )
+    # US 103: venció porque el viaje finalizó (no por su propio plazo).
+    VencidaPorFinViaje: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
     )
 
     Viaje = relationship("Viaje", back_populates="Invitaciones")

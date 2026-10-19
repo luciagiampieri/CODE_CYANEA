@@ -35,7 +35,8 @@ FROM (
         ('rechazado', 'Invitacion rechazada.', TRUE),
         ('expulsado', 'Participante removido del viaje.', TRUE),
         ('salio', 'Participante abandono voluntariamente el viaje.', TRUE),
-        ('cancelada', 'Invitacion cancelada por el administrador.', TRUE)
+        ('cancelada', 'Invitacion cancelada por el administrador.', TRUE),
+        ('vencida', 'Invitacion vencida porque el viaje finalizo.', TRUE)
 ) AS datos("Nombre", "Descripcion", "Activo")
 WHERE NOT EXISTS (
     SELECT 1

@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, UniqueConstraint, func
+from sqlalchemy import Boolean, DateTime, ForeignKey, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.session import Base
@@ -57,6 +57,11 @@ class ParticipanteViaje(Base):
         ForeignKey(
             "Usuarios.IdUsuario", name="FK_ParticipantesViajes_AdminSalida"),
             nullable=True,
+    )
+    # US 103: la invitación venció porque el viaje finalizó. Si el viaje vuelve
+    # a "activo" (el admin extiende las fechas), se restaura a 'invitado'.
+    VencidaPorFinViaje: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
     )
 
     Viaje = relationship(

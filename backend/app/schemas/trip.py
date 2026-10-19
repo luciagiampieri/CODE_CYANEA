@@ -462,7 +462,7 @@ class TripSentInvitationRead(BaseModel):
     nombreUsuario: str
     nombreCompleto: str
     fotoUrl: str | None = None
-    status: Literal["pendiente", "aceptada", "rechazada"]
+    status: Literal["pendiente", "aceptada", "rechazada", "vencida"]
     invitedAt: datetime
     respondedAt: datetime | None = None
 

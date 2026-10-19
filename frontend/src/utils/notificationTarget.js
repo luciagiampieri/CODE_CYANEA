@@ -13,6 +13,7 @@ const TAB_POR_EVENTO = {
   settlement_updated: "gastos",
   transfer_reported: "gastos",
   transfer_rejected: "gastos",
+  trip_finished: "gastos",
   voting_created: "votar",
   checklist_task_created: "checklist",
   checklist_task_assigned: "checklist",
@@ -30,6 +31,7 @@ const TAB_POR_TIPO = {
   liquidacion_actualizada: "gastos",
   transferencia_informada: "gastos",
   transferencia_rechazada: "gastos",
+  viaje_finalizado: "gastos",
   nueva_votacion: "votar",
   tarea_entradas_creada: "checklist",
   tarea_entradas_asignada: "checklist",
@@ -42,8 +44,11 @@ const TAB_POR_TIPO = {
 };
 
 // Avisos que hablan de a quién transferir: abren Gastos en "Transferencias".
+// El aviso de fin de viaje (US 103) invita a revisar la liquidación.
 const VER_TRANSFERENCIAS = new Set([
   "settlement_updated",
+  "trip_finished",
+  "viaje_finalizado",
   "transfer_reported",
   "transfer_rejected",
   "liquidacion_actualizada",
