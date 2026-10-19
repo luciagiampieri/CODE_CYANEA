@@ -80,14 +80,46 @@ describe("SentInvitationsList", () => {
     expect(getByText(/Todavía no enviaste invitaciones/)).toBeTruthy();
   });
 
-  it("muestra mensaje cuando ninguna invitación coincide con el filtro", async () => {
-    const { getByTestId, getByText } = await render(
+  it("no muestra filtros si todas las invitaciones tienen el mismo estado", async () => {
+    const { getByText, queryByTestId } = await render(
       <SentInvitationsList invitations={[invitacion({ status: "pendiente" })]} />
     );
 
-    await fireEvent.press(getByTestId("invitation-filter-rechazada"));
+    expect(getByText("@pepe")).toBeTruthy();
+    expect(queryByTestId("invitation-filter-todas")).toBeNull();
+    expect(queryByTestId("invitation-filter-pendiente")).toBeNull();
+  });
 
-    expect(getByText("No hay invitaciones con este estado.")).toBeTruthy();
+  it("muestra solo los filtros de estados que tienen invitaciones", async () => {
+    const lista = [
+      invitacion({ userId: 1, status: "pendiente" }),
+      invitacion({ userId: 3, nombreUsuario: "rita", status: "rechazada" }),
+    ];
+    const { getByTestId, queryByTestId } = await render(<SentInvitationsList invitations={lista} />);
+
+    expect(getByTestId("invitation-filter-todas")).toBeTruthy();
+    expect(getByTestId("invitation-filter-pendiente")).toBeTruthy();
+    expect(getByTestId("invitation-filter-rechazada")).toBeTruthy();
+    expect(queryByTestId("invitation-filter-aceptada")).toBeNull();
+    expect(queryByTestId("invitation-filter-vencida")).toBeNull();
+  });
+
+  it("vuelve a 'Todas' si el estado elegido se queda sin invitaciones", async () => {
+    const lista = [
+      invitacion({ userId: 1, status: "pendiente" }),
+      invitacion({ userId: 2, nombreUsuario: "ana", status: "aceptada" }),
+      invitacion({ userId: 3, nombreUsuario: "rita", status: "rechazada" }),
+    ];
+    const utils = await render(<SentInvitationsList invitations={lista} />);
+
+    await fireEvent.press(utils.getByTestId("invitation-filter-pendiente"));
+    expect(utils.queryByText("@ana")).toBeNull();
+
+    await utils.rerender(<SentInvitationsList invitations={lista.slice(1)} />);
+
+    expect(utils.getByText("@ana")).toBeTruthy();
+    expect(utils.getByText("@rita")).toBeTruthy();
+    expect(utils.getByTestId("invitation-filter-todas").props.accessibilityState.selected).toBe(true);
   });
 
   it("permite cancelar solo las invitaciones pendientes", async () => {
@@ -109,8 +141,8 @@ describe("SentInvitationsList", () => {
       <SentInvitationsList invitations={invitaciones} onResend={onResend} />
     );
 
-    expect(queryByTestId("sent-invitation-resend-1")).toBeNull(); // pendiente
-    expect(queryByTestId("sent-invitation-resend-2")).toBeNull(); // aceptada
+    expect(queryByTestId("sent-invitation-resend-1")).toBeNull(); 
+    expect(queryByTestId("sent-invitation-resend-2")).toBeNull();
 
     await fireEvent.press(getByTestId("sent-invitation-resend-3"));
     expect(onResend).toHaveBeenCalledWith(expect.objectContaining({ userId: 3 }));

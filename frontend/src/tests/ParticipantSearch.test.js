@@ -39,7 +39,7 @@ describe("ParticipantSearch", () => {
       <ParticipantSearch {...baseProps} onSearchChange={onSearchChange} />
     );
 
-    fireEvent.changeText(getByPlaceholderText("Busca por nombre o correo"), "ada");
+    fireEvent.changeText(getByPlaceholderText("Busca por usuario o correo"), "ada");
 
     expect(onSearchChange).toHaveBeenCalledWith("ada");
   });

@@ -1,4 +1,4 @@
-import { fireEvent, render } from "@testing-library/react-native";
+import { fireEvent, render, waitFor } from "@testing-library/react-native";
 
 import GroupMemberList from "../components/trip/GroupMemberList";
 
@@ -21,7 +21,8 @@ describe("GroupMemberList", () => {
     const utils = await render(<GroupMemberList canManage members={[member]} onTransferAdministration={onTransferAdministration} />);
     await fireEvent.press(utils.getByTestId("group-member-menu-1"));
     await fireEvent.press(utils.getByTestId("group-member-transfer-1"));
-    expect(onTransferAdministration).toHaveBeenCalledWith(member);
+    // El menú flotante se cierra antes de ejecutar la acción.
+    await waitFor(() => expect(onTransferAdministration).toHaveBeenCalledWith(member));
     expect(utils.queryByTestId("group-member-transfer-1")).toBeNull();
   });
 
@@ -96,7 +97,7 @@ describe("GroupMemberList", () => {
     await fireEvent.press(getByTestId("group-member-menu-2"));
     await fireEvent.press(getByTestId("group-member-remove-2"));
 
-    expect(onRemove).toHaveBeenCalledWith(member);
+    await waitFor(() => expect(onRemove).toHaveBeenCalledWith(member));
     expect(queryByTestId("group-member-remove-2")).toBeNull();
   });
 });

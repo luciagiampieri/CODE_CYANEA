@@ -1360,8 +1360,7 @@ export default function TripDetailScreen({ navigation, route }) {
     });
   }, [trip?.cronograma, trip?.startDate, trip?.endDate]);
 
-  // Día que abre el FAB "Sugerir con IA": el día expandido si todavía no pasó;
-  // si no, el primer día de hoy en adelante. Si el viaje ya terminó, no hay FAB.
+
   const diaParaSugerir = useMemo(() => {
     const hoy = hoyLocalISO();
     const noPasado = (d) => !d.fechaRaw || String(d.fechaRaw).slice(0, 10) >= hoy;
@@ -1370,6 +1369,16 @@ export default function TripDetailScreen({ navigation, route }) {
     if (expandido && noPasado(expandido)) return expandido;
     return candidatos.find(noPasado) ?? null;
   }, [itinerarioDias, expandedDayId]);
+
+  const cantDiasLibres = useMemo(() => {
+    const hoy = hoyLocalISO();
+    return itinerarioDias.filter(
+      (d) =>
+        Number.isInteger(d.dayId) &&
+        (!d.fechaRaw || String(d.fechaRaw).slice(0, 10) >= hoy) &&
+        (d.actividades?.length ?? 0) === 0
+    ).length;
+  }, [itinerarioDias]);
 
   async function loadVotaciones() {
     if (!trip?.id) return;
@@ -1385,9 +1394,7 @@ export default function TripDetailScreen({ navigation, route }) {
     }
   }
 
-  // También al cambiar el estado del viaje (US 103): si finaliza, las votaciones
-  // abiertas pasan a cerradas, y si vuelve a estar activo se reabren. Sin esto
-  // seguían mostrándose como estaban hasta salir y volver a entrar.
+
   useEffect(() => {
     loadVotaciones();
   }, [trip?.id, trip?.status]);
@@ -1561,8 +1568,7 @@ export default function TripDetailScreen({ navigation, route }) {
     );
   }
 
-  // Quien rechazó la invitación puede ser invitado de nuevo (misma lógica que agregar
-  // un participante: el backend reactiva la invitación como pendiente).
+
   function handleResendInvitation(invitation) {
     if (!lock.canEdit("participantes") || !trip?.id) return;
     confirmar(
@@ -1691,11 +1697,11 @@ export default function TripDetailScreen({ navigation, route }) {
     try {
       const confirmado = await new Promise((resolve) => {
         appAlert(
-          `¿Transferir la administración a ${participant.nombreCompleto}?`,
+          `¿Transferir la organización a ${participant.nombreCompleto}?`,
           `${participant.nombreCompleto} podrá administrar el viaje. Vos seguirás en el grupo como participante y perderás los permisos de administrador.`,
           [
             { text: "Cancelar", style: "cancel", onPress: () => resolve(false) },
-            { text: "Transferir administración", onPress: () => resolve(true) },
+            { text: "Transferir organización", onPress: () => resolve(true) },
           ],
           { tipo: "warning", cancelable: true, onDismiss: () => resolve(false) },
         );
@@ -2094,6 +2100,10 @@ export default function TripDetailScreen({ navigation, route }) {
     );
   }
 
+  const mostrarBannerDiasLibres = lock.canEdit("itinerario") && cantDiasLibres > 0;
+  const etiquetaExplorar = lock.canEdit("itinerario") ? "Explorar lugares" : "Ver mapa del viaje";
+
+
   return (
     <ScreenContainer fullWidth padded={false}>
       {loading ? (
@@ -2483,57 +2493,69 @@ export default function TripDetailScreen({ navigation, route }) {
           {/* TAB 1: ITINERARIO */}
           {activeTab === "itinerario" ? (
             <>
-              <Pressable
-                accessibilityRole="button"
-                onPress={() => navigation.navigate("ExplorePlaces", { tripId: trip.id })}
-                style={({ pressed }) => [
-                  styles.itineraryExploreRow,
-                  pressed && styles.itineraryExploreRowPressed,
+              {mostrarBannerDiasLibres ? (
+                <View style={styles.itineraryTopRow}>
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel={`Tenés ${cantDiasLibres} ${
+                      cantDiasLibres === 1 ? "día" : "días"
+                    } sin planes. Completar con IA`}
+                    onPress={() => setShowDiasLibresModal(true)}
+                    style={({ pressed }) => [
+                      styles.freeDaysBanner,
+                      styles.freeDaysBannerEnFila,
+                      pressed && styles.freeDaysBannerPressed,
+                    ]}
+                    testID="completar-dias-libres"
+                  >
+                    <View style={styles.freeDaysIcon}>
+                      <FontAwesome6 name="wand-magic-sparkles" size={14} color={colors.primary} />
+                    </View>
+                    <View style={styles.freeDaysContent}>
+                      <Text style={styles.freeDaysTitle}>
+                        {cantDiasLibres === 1
+                          ? "Tenés 1 día sin planes"
+                          : `Tenés ${cantDiasLibres} días sin planes`}
+                      </Text>
+                      <Text style={styles.freeDaysSubtitle}>
+                        {cantDiasLibres === 1 ? "Completalo con IA" : "Completalos con IA"}
+                      </Text>
+                    </View>
+                    <FontAwesome6 name="chevron-right" size={13} color={colors.primary} />
+                  </Pressable>
+
+                  <Pressable
+                    accessibilityLabel={etiquetaExplorar}
+                    accessibilityRole="button"
+                    onPress={() => navigation.navigate("ExplorePlaces", { tripId: trip.id })}
+                    style={({ pressed }) => [styles.exploreTile, pressed && styles.exploreIconPressed]}
+                    testID="explorar-lugares"
+                  >
+                    <FontAwesome6 name="map-location-dot" size={18} color={colors.primary} />
+                    <Text style={styles.exploreTileText}>Explorar</Text>
+                  </Pressable>
+                </View>
+              ) : null}
+
+              <View
+                style={[
+                  styles.itinerarioHeader,
+                  mostrarBannerDiasLibres && styles.itinerarioHeaderSoloToggle,
                 ]}
               >
-                <View style={styles.itineraryExploreIcon}>
-                  <FontAwesome6 name="map-location-dot" size={16} color={colors.primary} />
-                </View>
-                <View style={styles.itineraryExploreContent}>
-                  <Text style={styles.itineraryExploreTitle}>
-                    {lock.canEdit("itinerario") ? "Explorar lugares de interés" : "Ver mapa del viaje"}
-                  </Text>
-                  <Text style={styles.itineraryExploreSubtitle}>
-                    {lock.canEdit("itinerario")
-                      ? "Buscá y guardá lugares para tu itinerario"
-                      : "Consultá los lugares guardados"}
-                  </Text>
-                </View>
-                <FontAwesome6 name="chevron-right" size={13} color={colors.primary} />
-              </Pressable>
-              {/* US 92: completar días y franjas libres con el asistente */}
-              {lock.canEdit("itinerario") ? (
-                <Pressable
-                  accessibilityRole="button"
-                  onPress={() => setShowDiasLibresModal(true)}
-                  style={({ pressed }) => [
-                    styles.itineraryExploreRow,
-                    pressed && styles.itineraryExploreRowPressed,
-                  ]}
-                  testID="completar-dias-libres"
-                >
-                  <View style={styles.itineraryExploreIcon}>
-                    <FontAwesome6 name="wand-magic-sparkles" size={16} color={colors.primary} />
-                  </View>
-                  <View style={styles.itineraryExploreContent}>
-                    <Text style={styles.itineraryExploreTitle}>Completar días libres con IA</Text>
-                    <Text style={styles.itineraryExploreSubtitle}>
-                      Detectá huecos del itinerario y recibí sugerencias
-                    </Text>
-                  </View>
-                  <FontAwesome6 name="chevron-right" size={13} color={colors.primary} />
-                </Pressable>
-              ) : null}
-              <View style={styles.itinerarioHeader}>
-                <ItinerarioViewToggle
-                  onChange={setItinerarioView}
-                  value={itinerarioView}
-                />
+                {!mostrarBannerDiasLibres ? (
+                  <Pressable
+                    accessibilityLabel={etiquetaExplorar}
+                    accessibilityRole="button"
+                    hitSlop={6}
+                    onPress={() => navigation.navigate("ExplorePlaces", { tripId: trip.id })}
+                    style={({ pressed }) => [styles.exploreIconRound, pressed && styles.exploreIconPressed]}
+                    testID="explorar-lugares"
+                  >
+                    <FontAwesome6 name="map-location-dot" size={14} color={colors.primary} />
+                  </Pressable>
+                ) : null}
+                <ItinerarioViewToggle onChange={setItinerarioView} value={itinerarioView} />
               </View>
             </>
           ) : null}
@@ -2661,8 +2683,6 @@ export default function TripDetailScreen({ navigation, route }) {
                             canEdit: lock.canEdit("itinerario"),
                           });
                           const puedeEditarRuta = puedeGenerarRuta && lock.canEdit("itinerario");
-                          // El botón se pinta de azul cuando hay que generar o cuando el modo
-                          // elegido no coincide con la ruta guardada (hay que regenerar).
                           const destacarAccion = !ruta || modoSeleccionado !== ruta.modo;
                           const mostrarCabecera = Boolean(ruta) || puedeEditarRuta;
 
@@ -3549,20 +3569,21 @@ export default function TripDetailScreen({ navigation, route }) {
                 </View>
 
                 {canInviteToGroup && showInvitePanel ? (
-                  <ParticipantSearch
-                    autoFocus
-                    canInviteExternal={canInviteExternal}
-                    message={participantMessage}
-                    onInviteExternal={handleAddExternalInvite}
-                    onSearchChange={setParticipantSearch}
-                    onSelectUser={handleAddParticipant}
-                    search={participantSearch}
-                    showLabel={false}
-                    suggestions={selectableUsers}
-                  />
+                  <View style={styles.invitePanel}>
+                    <ParticipantSearch
+                      canInviteExternal={canInviteExternal}
+                      message={participantMessage}
+                      onInviteExternal={handleAddExternalInvite}
+                      onSearchChange={setParticipantSearch}
+                      onSelectUser={handleAddParticipant}
+                      search={participantSearch}
+                      showLabel={false}
+                      suggestions={selectableUsers}
+                    />
+                    {trip.status === "activo" ? <TripInvitationLink tripId={trip.id} /> : null}
+                  </View>
                 ) : null}
 
-                {canInviteToGroup && trip.status === "activo" ? <TripInvitationLink tripId={trip.id} /> : null}
 
                 {isAdmin ? (
                   <SegmentedControl
@@ -3607,7 +3628,7 @@ export default function TripDetailScreen({ navigation, route }) {
                 {transfiriendoAdministracion ? (
                   <View accessibilityLiveRegion="polite">
                     <ActivityIndicator color={colors.primary} />
-                    <Text style={styles.sectionCopy}>Transfiriendo administración…</Text>
+                    <Text style={styles.sectionCopy}>Transfiriendo organización…</Text>
                   </View>
                 ) : null}
               </View>
@@ -3983,7 +4004,7 @@ export default function TripDetailScreen({ navigation, route }) {
             <View style={styles.modalIconContainer}>
               <FontAwesome6 name="user-shield" size={22} color={colors.primary} />
             </View>
-            <Text style={styles.modalTitle}>Transferir administración</Text>
+            <Text style={styles.modalTitle}>Transferir organización</Text>
             <Text style={styles.modalMessage}>
               Sos el administrador de este viaje. Antes de abandonarlo, debés designar a otro
               participante como nuevo administrador:
@@ -4348,42 +4369,69 @@ const styles = StyleSheet.create({
   },
   itinerarioHeader: {
     flexDirection: "row",
-    justifyContent: "flex-end",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: spacing.sm,
   },
-  itineraryExploreRow: {
-    ...surfaces.card,
+  freeDaysBanner: {
     flexDirection: "row",
     alignItems: "center",
     gap: spacing.sm,
     paddingVertical: spacing.sm,
     paddingHorizontal: spacing.md,
     borderRadius: radii.lg || 16,
+    backgroundColor: "#fdf3d6",
+    borderWidth: 1,
+    borderColor: colors.accent,
   },
-  itineraryExploreRowPressed: {
-    opacity: 0.7,
+  exploreIconRound: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  exploreIconPressed: {
     backgroundColor: colors.surfaceAlt,
   },
-  itineraryExploreIcon: {
-    width: 34,
-    height: 34,
+  freeDaysBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+    borderRadius: radii.lg || 16,
+    backgroundColor: "#fdf3d6",
+    borderWidth: 1,
+    borderColor: colors.accent,
+  },
+  freeDaysBannerPressed: {
+    opacity: 0.75,
+  },
+  freeDaysIcon: {
+    width: 32,
+    height: 32,
     borderRadius: 10,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: colors.surfaceAlt,
+    backgroundColor: colors.accent,
   },
-  itineraryExploreContent: {
+  freeDaysContent: {
     flex: 1,
   },
-  itineraryExploreTitle: {
+  freeDaysTitle: {
     ...textStyles.bodyStrong,
     color: colors.primary,
     fontSize: 14,
   },
-  itineraryExploreSubtitle: {
+  freeDaysSubtitle: {
     ...textStyles.meta,
     color: colors.textSecondary,
-    fontSize: 11,
-    marginTop: 2,
+    fontSize: 12,
+    marginTop: 1,
   },
   loadingWrap: {
     position: "absolute",
@@ -5001,5 +5049,35 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(0, 0, 0, 0.6)",
     zIndex: 10,
     width: "100%",
+  },
+  invitePanel: {
+  gap: spacing.sm,
+  },
+  itineraryTopRow: {
+    flexDirection: "row",
+    alignItems: "stretch",
+    gap: spacing.sm,
+  },
+  freeDaysBannerEnFila: {
+    flex: 1,
+  },
+  itinerarioHeaderSoloToggle: {
+    justifyContent: "flex-end",
+  },
+  exploreTile: {
+    width: 64,
+    borderRadius: radii.lg || 16,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 4,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  exploreTileText: {
+    ...textStyles.meta,
+    color: colors.primary,
+    fontSize: 11,
+    fontWeight: "700",
   },
 });

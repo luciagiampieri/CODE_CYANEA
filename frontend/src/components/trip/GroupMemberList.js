@@ -1,18 +1,12 @@
 import { FontAwesome6 } from "@expo/vector-icons";
-import { useState } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { StyleSheet, Text, View } from "react-native";
 
+import ActionMenu from "../ui/ActionMenu";
 import Avatar from "../ui/Avatar";
 import { colors, radii, spacing, textStyles } from "../../theme/tokens";
 
-/**
- * Lista del grupo en formato filas (tab "Grupo" del detalle del viaje).
- * Las acciones sobre cada integrante se abren desde el botón de tres puntos,
- * para no cargar cada fila con botones que casi nunca se usan.
- */
-export default function GroupMemberList({ members = [], canManage = false, onRemove, onTransferAdministration }) {
-  const [openMenuKey, setOpenMenuKey] = useState(null);
 
+export default function GroupMemberList({ members = [], canManage = false, onRemove, onTransferAdministration }) {
   if (members.length === 0) {
     return (
       <View style={styles.emptyState}>
@@ -29,8 +23,6 @@ export default function GroupMemberList({ members = [], canManage = false, onRem
         const canRemove = canManage && !isOrganizer && typeof onRemove === "function";
         const canTransfer = canManage && !isOrganizer && member.status === "aceptado" &&
           member.kind !== "external" && Boolean(member.id) && typeof onTransferAdministration === "function";
-        const hasActions = canRemove || canTransfer;
-        const menuOpen = openMenuKey === member.key;
         const isLast = index === members.length - 1;
 
         return (
@@ -39,72 +31,50 @@ export default function GroupMemberList({ members = [], canManage = false, onRem
             style={[styles.row, !isLast && styles.rowDivider]}
             testID={`group-member-${member.key}`}
           >
-            <View style={styles.rowMain}>
-              <Avatar imageUrl={member.fotoUrl} name={member.nombreCompleto} size={40} />
-              <View style={styles.body}>
-                <Text numberOfLines={1} style={styles.name}>
-                  {member.nombreCompleto}
+            <Avatar imageUrl={member.fotoUrl} name={member.nombreCompleto} size={40} />
+            <View style={styles.body}>
+              <Text numberOfLines={1} style={styles.name}>
+                {member.nombreCompleto}
+              </Text>
+              {member.nombreUsuario || isPending ? (
+                <Text numberOfLines={1} style={styles.meta}>
+                  {member.nombreUsuario ? `@${member.nombreUsuario}` : ""}
+                  {member.nombreUsuario && isPending ? " · " : ""}
+                  {isPending ? <Text style={styles.pending}>Invitación pendiente</Text> : null}
                 </Text>
-                {member.nombreUsuario || isPending ? (
-                  <Text numberOfLines={1} style={styles.meta}>
-                    {member.nombreUsuario ? `@${member.nombreUsuario}` : ""}
-                    {member.nombreUsuario && isPending ? " · " : ""}
-                    {isPending ? <Text style={styles.pending}>Invitación pendiente</Text> : null}
-                  </Text>
-                ) : null}
-              </View>
-
-              {isOrganizer ? (
-                <View style={styles.organizerBadge}>
-                  <FontAwesome6 color={colors.warning} name="crown" size={10} />
-                  <Text style={styles.organizerText}>Organizador</Text>
-                </View>
-              ) : null}
-
-              {hasActions ? (
-                <Pressable
-                  accessibilityLabel={`Acciones para ${member.nombreCompleto}`}
-                  hitSlop={8}
-                  onPress={() => setOpenMenuKey(menuOpen ? null : member.key)}
-                  style={[styles.menuButton, menuOpen && styles.menuButtonActive]}
-                  testID={`group-member-menu-${member.key}`}
-                >
-                  <FontAwesome6 color={colors.textMuted} name="ellipsis-vertical" size={14} />
-                </Pressable>
               ) : null}
             </View>
 
-            {hasActions && menuOpen ? (
-              <View style={styles.actions}>
-                {canTransfer ? (
-                  <Pressable
-                    accessibilityRole="button"
-                    onPress={() => {
-                      setOpenMenuKey(null);
-                      onTransferAdministration(member);
-                    }}
-                    style={[styles.actionButton, styles.transferButton]}
-                    testID={`group-member-transfer-${member.key}`}
-                  >
-                    <FontAwesome6 color={colors.primary} name="crown" size={12} />
-                    <Text style={styles.actionTransfer}>Transferir administración</Text>
-                  </Pressable>
-                ) : null}
-                {canRemove ? (
-                <Pressable
-                  onPress={() => {
-                    setOpenMenuKey(null);
-                    onRemove(member);
-                  }}
-                  style={styles.actionButton}
-                  testID={`group-member-remove-${member.key}`}
-                >
-                  <FontAwesome6 color={colors.danger} name="user-minus" size={12} />
-                  <Text style={styles.actionDanger}>Expulsar del viaje</Text>
-                </Pressable>
-                ) : null}
+            {isOrganizer ? (
+              <View style={styles.organizerBadge}>
+                <FontAwesome6 color={colors.warning} name="crown" size={10} />
+                <Text style={styles.organizerText}>Organizador</Text>
               </View>
             ) : null}
+
+            <ActionMenu
+              accessibilityLabel={`Acciones para ${member.nombreCompleto}`}
+              testID={`group-member-menu-${member.key}`}
+              items={[
+                canTransfer
+                  ? {
+                      label: "Transferir organización",
+                      icon: "crown",
+                      onPress: () => onTransferAdministration(member),
+                      testID: `group-member-transfer-${member.key}`,
+                    }
+                  : null,
+                canRemove
+                  ? {
+                      label: "Expulsar del viaje",
+                      icon: "user-minus",
+                      destructive: true,
+                      onPress: () => onRemove(member),
+                      testID: `group-member-remove-${member.key}`,
+                    }
+                  : null,
+              ]}
+            />
           </View>
         );
       })}
@@ -124,16 +94,14 @@ const styles = StyleSheet.create({
     textAlign: "center",
   },
   row: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
     paddingVertical: spacing.sm,
   },
   rowDivider: {
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: colors.border,
-  },
-  rowMain: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing.sm,
   },
   body: {
     flex: 1,
@@ -166,37 +134,4 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: "700",
   },
-  menuButton: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  menuButtonActive: {
-    backgroundColor: colors.surfaceAlt,
-  },
-  actions: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: spacing.xs,
-    justifyContent: "flex-end",
-    paddingTop: spacing.xs,
-  },
-  actionButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    borderRadius: radii.pill,
-    backgroundColor: colors.dangerSurface,
-    paddingHorizontal: spacing.sm,
-    paddingVertical: 6,
-  },
-  actionDanger: {
-    ...textStyles.meta,
-    color: colors.danger,
-    fontWeight: "700",
-  },
-  transferButton: { backgroundColor: colors.surfaceAlt },
-  actionTransfer: { ...textStyles.meta, color: colors.primary, fontWeight: "700" },
 });

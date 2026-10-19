@@ -1,5 +1,5 @@
 import { FontAwesome6 } from "@expo/vector-icons";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Pressable,
@@ -62,6 +62,17 @@ export default function SentInvitationsList({
     return invitations.filter((invitation) => invitation.status === filter);
   }, [filter, invitations]);
 
+  const visibleFilters = useMemo(
+    () => INVITATION_FILTERS.filter((option) => option.id === "todas" || counts[option.id] > 0),
+    [counts]
+  );
+
+  const showFilters = visibleFilters.length > 2;
+
+  useEffect(() => {
+    if (filter !== "todas" && !counts[filter]) setFilter("todas");
+  }, [counts, filter]);
+
   if (error && !loading) {
     return (
       <View style={styles.errorState}>
@@ -88,32 +99,39 @@ export default function SentInvitationsList({
 
   return (
     <View style={styles.container}>
-      <ScrollView
-        contentContainerStyle={styles.filters}
-        horizontal
-        showsHorizontalScrollIndicator={false}
-      >
-        {INVITATION_FILTERS.map((option) => {
-          const selected = option.id === filter;
-          return (
-            <Pressable
-              accessibilityRole="button"
-              accessibilityState={{ selected }}
-              key={option.id}
-              onPress={() => setFilter(option.id)}
-              style={[styles.filter, selected && styles.filterSelected]}
-              testID={`invitation-filter-${option.id}`}
-            >
-              <Text style={[styles.filterText, selected && styles.filterTextSelected]}>
-                {option.label}
-              </Text>
-              <Text style={[styles.filterCount, selected && styles.filterTextSelected]}>
-                {counts[option.id]}
-              </Text>
-            </Pressable>
-          );
-        })}
-      </ScrollView>
+      {showFilters ? (
+        <ScrollView
+          contentContainerStyle={styles.filters}
+          horizontal
+          showsHorizontalScrollIndicator={false}
+        >
+          {visibleFilters.map((option) => {
+            const selected = option.id === filter;
+            return (
+              <Pressable
+                accessibilityLabel={`${option.label}, ${counts[option.id]}`}
+                accessibilityRole="button"
+                accessibilityState={{ selected }}
+                key={option.id}
+                onPress={() => setFilter(option.id)}
+                style={({ pressed }) => [
+                  styles.filter,
+                  selected && styles.filterSelected,
+                  pressed && !selected && styles.filterPressed,
+                ]}
+                testID={`invitation-filter-${option.id}`}
+              >
+                <Text style={[styles.filterText, selected && styles.filterTextSelected]}>
+                  {option.label}
+                </Text>
+                <View style={[styles.countBadge, selected && styles.countBadgeSelected]}>
+                  <Text style={styles.filterCount}>{counts[option.id]}</Text>
+                </View>
+              </Pressable>
+            );
+          })}
+        </ScrollView>
+      ) : null}
 
       {loading ? (
         <ActivityIndicator color={colors.primary} style={styles.loader} />
@@ -193,33 +211,53 @@ const styles = StyleSheet.create({
     gap: spacing.xs,
   },
   filters: {
-    gap: spacing.md,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.border,
+    gap: spacing.xs,
+    paddingVertical: 2,
   },
   filter: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 5,
-    paddingVertical: spacing.xs,
-    borderBottomWidth: 2,
-    borderBottomColor: "transparent",
+    gap: 6,
+    paddingVertical: 5,
+    paddingLeft: spacing.sm,
+    paddingRight: 5,
+    borderRadius: radii.pill,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
   },
   filterSelected: {
-    borderBottomColor: colors.primary,
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
+  },
+  filterPressed: {
+    backgroundColor: colors.surfaceAlt,
   },
   filterText: {
     ...textStyles.meta,
-    color: colors.textSecondary,
+    color: colors.primary,
     fontWeight: "600",
+  },
+  filterTextSelected: {
+    color: colors.textInverse,
+  },
+  countBadge: {
+    minWidth: 20,
+    height: 20,
+    paddingHorizontal: 6,
+    borderRadius: radii.pill,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.surfaceAlt,
+  },
+  countBadgeSelected: {
+    backgroundColor: colors.accent,
   },
   filterCount: {
     ...textStyles.meta,
-    color: colors.textMuted,
-  },
-  filterTextSelected: {
-    color: colors.primary,
+    fontSize: 11,
     fontWeight: "700",
+    color: colors.primary,
   },
   loader: {
     paddingVertical: spacing.md,

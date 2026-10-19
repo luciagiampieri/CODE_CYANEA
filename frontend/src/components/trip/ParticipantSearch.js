@@ -25,7 +25,7 @@ export default function ParticipantSearch({
           autoCorrect={false}
           autoFocus={autoFocus}
           onChangeText={onSearchChange}
-          placeholder="Busca por nombre o correo"
+          placeholder="Busca por usuario o correo"
           placeholderTextColor={colors.overlayStrong}
           style={styles.input}
           value={search}

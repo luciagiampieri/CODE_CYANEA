@@ -144,7 +144,7 @@ it("el organizador genera y copia el enlace", async () => {
   await waitFor(() => expect(api.getTripInvitationLink).toHaveBeenCalledWith(12));
   await press(utils, "Generar enlace");
   expect(api.createTripInvitationLink).toHaveBeenCalledWith(12);
-  await press(utils, "Copiar enlace");
+  await act(async () => { await fireEvent.press(await utils.findByLabelText("Copiar enlace")); });
   expect(Clipboard.setStringAsync).toHaveBeenCalledWith(link.url);
 });
 
@@ -152,7 +152,7 @@ it.each([true, false])("renovar=%s requiere confirmar", async (renovar) => {
   api.getTripInvitationLink.mockResolvedValue(link);
   const utils = await render(<TripInvitationLink tripId={12} />);
   await press(utils, "Invitar con enlace");
-  await press(utils, renovar ? "Renovar enlace" : "Revocar enlace");
+  await press(utils, renovar ? "Renovar" : "Revocar");
   expect(api.createTripInvitationLink).not.toHaveBeenCalled();
   expect(api.revokeTripInvitationLink).not.toHaveBeenCalled();
   await act(async () => Alert.alert.mock.calls[0][2].find((b) => b.text === (renovar ? "Renovar" : "Revocar")).onPress());

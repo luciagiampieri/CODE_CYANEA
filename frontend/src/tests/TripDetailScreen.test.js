@@ -154,7 +154,7 @@ function makeNavigation() {
   };
 }
 
-describe("Transferir administración sin abandonar", () => {
+describe("Transferir organización sin abandonar", () => {
   const WebSocketOriginal = global.WebSocket;
   const trip = {
     id: 1, title: "Viaje grupal", status: "activo", hasLeft: false, currency: "ARS",
@@ -179,16 +179,24 @@ describe("Transferir administración sin abandonar", () => {
     global.WebSocket = WebSocketOriginal;
   });
 
+  function confirmacion() {
+    return Alert.alert.mock.calls.find(([titulo]) => titulo.includes("¿Transferir"));
+  }
+
+  function botonesConfirmacion() {
+    return confirmacion()[2];
+  }
+
   async function abrirAccion() {
     const utils = await render(<TripDetailScreen navigation={makeNavigation()} route={{ params: { trip } }} />);
     await fireEvent.press(await utils.findByText("Grupo"));
     await fireEvent.press(await utils.findByTestId("group-member-menu-user-2"));
     await fireEvent.press(await utils.findByTestId("group-member-transfer-user-2"));
+    // El menú flotante se cierra antes de ejecutar la acción, así que la
+    // confirmación llega un instante después. Esperarla acá también evita que
+    // el temporizador de un test se dispare durante el siguiente.
+    await waitFor(() => expect(confirmacion()).toBeTruthy());
     return utils;
-  }
-
-  function botonesConfirmacion() {
-    return Alert.alert.mock.calls.find(([titulo]) => titulo.includes("¿Transferir"))[2];
   }
 
   test.each(["cancelar", "exito", "error"])("web usa el diálogo de Cyanea para %s", async (caso) => {
@@ -209,10 +217,10 @@ describe("Transferir administración sin abandonar", () => {
       await fireEvent.press(await utils.findByText("Grupo"));
       await fireEvent.press(await utils.findByTestId("group-member-menu-user-2"));
       await fireEvent.press(await utils.findByTestId("group-member-transfer-user-2"));
-      expect(await utils.findByText("¿Transferir la administración a Carlos Gómez?")).toBeTruthy();
-      await fireEvent.press(utils.getByText(caso === "cancelar" ? "Cancelar" : "Transferir administración"));
+      expect(await utils.findByText("¿Transferir la organización a Carlos Gómez?")).toBeTruthy();
+      await fireEvent.press(utils.getByText(caso === "cancelar" ? "Cancelar" : "Transferir organización"));
       if (caso === "cancelar") {
-        await waitFor(() => expect(utils.queryByText("¿Transferir la administración a Carlos Gómez?")).toBeNull());
+        await waitFor(() => expect(utils.queryByText("¿Transferir la organización a Carlos Gómez?")).toBeNull());
         expect(transferTripAdministration).not.toHaveBeenCalled();
       } else {
         expect(await utils.findByText(caso === "exito" ? "Administración transferida" : "No se pudo transferir la administración")).toBeTruthy();
@@ -240,7 +248,7 @@ describe("Transferir administración sin abandonar", () => {
     const detalleNuevo = { ...trip, admin: { id: 2, nombreCompleto: "Carlos Gómez" },
       participants: trip.participants.map((p) => ({ ...p, role: p.id === 2 ? "administrador" : "participante" })) };
     getTripDetail.mockResolvedValue(detalleNuevo);
-    await act(async () => botonesConfirmacion().find((b) => b.text === "Transferir administración").onPress());
+    await act(async () => botonesConfirmacion().find((b) => b.text === "Transferir organización").onPress());
     await waitFor(() => expect(transferTripAdministration).toHaveBeenCalledWith(1, 2));
     await waitFor(() => expect(utils.queryByTestId("group-invite-toggle")).toBeNull());
     expect(utils.queryByText("Ya no formás parte de este viaje")).toBeNull();
@@ -252,7 +260,7 @@ describe("Transferir administración sin abandonar", () => {
     transferTripAdministration.mockRejectedValue(new Error("El participante abandonó el viaje."));
     const utils = await abrirAccion();
     const lecturas = getTripDetail.mock.calls.length;
-    await act(async () => botonesConfirmacion().find((b) => b.text === "Transferir administración").onPress());
+    await act(async () => botonesConfirmacion().find((b) => b.text === "Transferir organización").onPress());
     await waitFor(() => expect(Alert.alert).toHaveBeenCalledWith("No se pudo transferir la administración", "El participante abandonó el viaje.", undefined, { tipo: "error" }));
     expect(getTripDetail.mock.calls.length).toBeGreaterThan(lecturas);
     expect(await utils.findByTestId("group-invite-toggle")).toBeTruthy();
@@ -271,12 +279,12 @@ describe("Transferir administración sin abandonar", () => {
     let completar;
     transferTripAdministration.mockImplementation(() => new Promise((resolve) => { completar = resolve; }));
     const utils = await abrirAccion();
-    await act(async () => botonesConfirmacion().find((b) => b.text === "Transferir administración").onPress());
-    expect(await utils.findByText("Transfiriendo administración…")).toBeTruthy();
+    await act(async () => botonesConfirmacion().find((b) => b.text === "Transferir organización").onPress());
+    expect(await utils.findByText("Transfiriendo organización…")).toBeTruthy();
     expect(utils.queryByTestId("group-member-menu-user-2")).toBeNull();
     expect(utils.queryByTestId("group-invite-toggle")).toBeNull();
     await act(async () => completar({ message: "Transferida" }));
-    await waitFor(() => expect(utils.queryByText("Transfiriendo administración…")).toBeNull());
+    await waitFor(() => expect(utils.queryByText("Transfiriendo organización…")).toBeNull());
     expect(transferTripAdministration).toHaveBeenCalledTimes(1);
   });
 
@@ -447,7 +455,7 @@ describe("US 68 - Abandonar un viaje (Suite completa de tests frontend)", () => 
     await fireEvent.press(await findByText("Grupo"));
     await fireEvent.press(await findByText("Abandonar viaje"));
 
-    expect(await findByText("Transferir administración")).toBeTruthy();
+    expect(await findByText("Transferir organización")).toBeTruthy();
   });
 
   test("7. si el admin intenta confirmar la salida sin elegir nuevo administrador, falla y no llama a leaveTrip", async () => {
@@ -533,7 +541,7 @@ describe("US 68 - Abandonar un viaje (Suite completa de tests frontend)", () => 
     await fireEvent.press(await findByText("Grupo"));
     await fireEvent.press(await findByText("Abandonar viaje"));
 
-    expect(queryByText("Transferir administración")).toBeNull();
+    expect(queryByText("Transferir organización")).toBeNull();
   });
 
   test("10. mostrar mensaje de error cuando se quiera abandonar un viaje que ya finalizó", async () => {
@@ -552,7 +560,7 @@ describe("US 68 - Abandonar un viaje (Suite completa de tests frontend)", () => 
     // Con el viaje finalizado la opción directamente no se ofrece.
     await waitFor(() => expect(queryByText("Abandonar viaje")).toBeNull());
     expect(leaveTrip).not.toHaveBeenCalled();
-    expect(queryByText("Transferir administración")).toBeNull();
+    expect(queryByText("Transferir organización")).toBeNull();
   });
 
   test("11. en la pestaña de resumen, un viaje finalizado muestra 'Finalizado' y no 'En curso'", async () => {
@@ -786,7 +794,7 @@ describe("Viaje finalizado: solo lectura salvo Gastos", () => {
     await waitFor(() => expect(queryByText("Abandonar viaje")).toBeNull());
 
     await fireEvent.press(await findByLabelText("Itinerario, solo lectura"));
-    expect(await findByText("Ver mapa del viaje")).toBeTruthy();
+    expect(await findByLabelText("Ver mapa del viaje")).toBeTruthy();
     expect(queryByText("Explorar destinos de interés")).toBeNull();
   });
 
