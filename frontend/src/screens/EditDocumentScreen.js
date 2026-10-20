@@ -8,7 +8,6 @@ import {
   TextInput,
   ActivityIndicator,
   FlatList,
-  Platform,
   KeyboardAvoidingView,
   TouchableOpacity,
 } from "react-native";
@@ -28,16 +27,11 @@ import { colors, radii, spacing, surfaces, textStyles } from "../theme/tokens";
 import { appAlert } from "../components/ui/AppDialog";
 
 function mostrarAlertaConfirmacion(titulo, mensaje, onAceptar) {
-    if (Platform.OS === "web") {
-        window.alert(`${titulo}\n\n${mensaje}`);
-        if (onAceptar) onAceptar();
-    } else {
-        appAlert(
-            titulo,
-            mensaje,
-            onAceptar ? [{ text: "Aceptar", onPress: onAceptar }] : undefined
-        );
-    }
+    appAlert(
+        titulo,
+        mensaje,
+        onAceptar ? [{ text: "Aceptar", onPress: onAceptar }] : undefined
+    );
 }
 
 

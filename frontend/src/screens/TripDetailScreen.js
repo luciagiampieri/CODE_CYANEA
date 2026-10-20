@@ -254,37 +254,22 @@ const ESTADO_VOTACION_LABEL = {
 };
 
 function avisar(titulo, mensaje) {
-  if (Platform.OS === "web") {
-    window.alert(mensaje);
-  } else {
-    appAlert(titulo, mensaje);
-  }
+  appAlert(titulo, mensaje);
 }
 
 function mostrarAlertaConfirmacion(titulo, mensaje, onAceptar) {
-  if (Platform.OS === "web") {
-    window.alert(`${titulo}\n\n${mensaje}`);
-    if (onAceptar) onAceptar();
-  } else {
-    appAlert(
-      titulo,
-      mensaje,
-      onAceptar ? [{ text: "Aceptar", onPress: onAceptar }] : undefined
-    );
-  }
+  appAlert(
+    titulo,
+    mensaje,
+    onAceptar ? [{ text: "Aceptar", onPress: onAceptar }] : undefined
+  );
 }
 
 function confirmar(titulo, mensaje, onConfirmar) {
-  if (Platform.OS === "web") {
-    if (window.confirm(mensaje)) {
-      onConfirmar();
-    }
-  } else {
-    appAlert(titulo, mensaje, [
-      { text: "Volver", style: "cancel" },
-      { text: "Confirmar", style: "destructive", onPress: onConfirmar },
-    ]);
-  }
+  appAlert(titulo, mensaje, [
+    { text: "Volver", style: "cancel" },
+    { text: "Confirmar", style: "destructive", onPress: onConfirmar },
+  ]);
 }
 
 function computeCenterFromMarkers(markers) {
@@ -1998,25 +1983,18 @@ export default function TripDetailScreen({ navigation, route }) {
     const eliminar = () =>
       ejecutarBorradoActividad(dayId, activityId, activityTitle, { confirmarEliminarTareas: conTareas });
 
-    // Usamos el mismo estilo de alerta de confirmación que en documentos
-    if (Platform.OS === "web") {
-      if (window.confirm(`¿Eliminar actividad?\n\n${mensaje}`)) {
-        eliminar();
-      }
-    } else {
-      appAlert(
-        "¿Eliminar actividad?",
-        mensaje,
-        [
-          { text: "Cancelar", style: "cancel" },
-          {
-            text: "Eliminar",
-            style: "destructive",
-            onPress: eliminar,
-          }
-        ]
-      );
-    }
+    appAlert(
+      "¿Eliminar actividad?",
+      mensaje,
+      [
+        { text: "Cancelar", style: "cancel" },
+        {
+          text: "Eliminar",
+          style: "destructive",
+          onPress: eliminar,
+        }
+      ]
+    );
   }
 
   async function ejecutarBorradoActividad(dayId, activityId, title, opciones = {}) {

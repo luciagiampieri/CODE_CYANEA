@@ -1,7 +1,6 @@
 import React, { useEffect, useState } from "react";
 import {
   ActivityIndicator,
-  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -23,12 +22,7 @@ const MAX_CONSIDERACIONES_DEFAULT = 300;
 const PRESUPUESTO_REGEX = /^\d+([.,]\d{1,2})?$/;
 
 function mostrarAlerta(titulo, mensaje, onAceptar) {
-  if (Platform.OS === "web") {
-    window.alert(`${titulo}\n\n${mensaje}`);
-    if (onAceptar) onAceptar();
-  } else {
-    appAlert(titulo, mensaje, onAceptar ? [{ text: "Aceptar", onPress: onAceptar }] : undefined);
-  }
+  appAlert(titulo, mensaje, onAceptar ? [{ text: "Aceptar", onPress: onAceptar }] : undefined);
 }
 
 export function validarPreferencias({ intereses, ritmo, presupuesto, consideraciones, maxConsideraciones }) {

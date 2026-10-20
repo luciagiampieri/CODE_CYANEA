@@ -89,13 +89,6 @@ export function isPushDisponible(platformOS, availabilityReason = getPushAvailab
 }
 
 export function confirmarConsentimiento({ titulo, mensaje }) {
-  if (Platform.OS === "web") {
-    const confirmado = typeof window !== "undefined" && typeof window.confirm === "function"
-      ? window.confirm(`${titulo}\n\n${mensaje}`)
-      : false;
-    return Promise.resolve(Boolean(confirmado));
-  }
-
   return new Promise((resolve) => {
     appAlert(
       titulo,

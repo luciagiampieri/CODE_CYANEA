@@ -8,7 +8,6 @@ import {
   TextInput,
   ActivityIndicator,
   FlatList,
-  Platform,
   KeyboardAvoidingView,
   TouchableOpacity,
   Animated,
@@ -32,16 +31,11 @@ import { colors, radii, spacing, surfaces, textStyles } from "../theme/tokens";
 import { appAlert } from "../components/ui/AppDialog";
 
 function mostrarAlertaConfirmacion(titulo, mensaje, onAceptar) {
-    if (Platform.OS === "web") {
-        window.alert(`${titulo}\n\n${mensaje}`);
-        if (onAceptar) onAceptar();
-    } else {
-        appAlert(
-            titulo,
-            mensaje,
-            onAceptar ? [{ text: "Aceptar", onPress: onAceptar }] : undefined
-        );
-    }
+    appAlert(
+        titulo,
+        mensaje,
+        onAceptar ? [{ text: "Aceptar", onPress: onAceptar }] : undefined
+    );
 }
 
 const ICONOS_CATEGORIAS_DOCUMENTOS = {
@@ -218,48 +212,34 @@ export default function DocumentsScreen({
                 setSaving(false); 
                 gastoRegistradoRef.current = false;
                 
-                if (Platform.OS === "web") {
-                    const deseaRegistrar = window.confirm(
-                        "¡Se encontró un gasto asociado a este documento!\n\n" +
-                        `Concepto: ${sugg.Nombre || "Sin nombre"}\n` +
-                        `Monto: ${sugg.MonedaOriginal || ""} ${sugg.MontoOriginal || ""}\n\n` +
-                        "¿Deseás registrar este gasto ahora?"
-                    );
-                    if (deseaRegistrar) {
-                        setDatosGastoSugerido(sugg);
-                        setGastoSugeridoModalVisible(true);
-                        return;
-                    } else {
-                        mostrarAlertaConfirmacion("Éxito", "Documento subido correctamente.", () => {
-                            onClose();
-                        });
-                        return;
-                    }
-                } else {
-                    appAlert(
-                        "¡Gasto detectado!",
-                        "El sistema analizó el documento y encontró un posible gasto asociado. ¿Deseás registrarlo?",
-                        [
-                            {
-                                text: "No",
-                                style: "cancel",
-                                onPress: () => {
-                                    mostrarAlertaConfirmacion("Éxito", "Documento subido correctamente.", () => {
-                                        onClose();
-                                    });
-                                }
-                            },
-                            {
-                                text: "Sí, registrar",
-                                onPress: () => {
-                                    setDatosGastoSugerido(sugg);
-                                    setGastoSugeridoModalVisible(true);
-                                }
+                const concepto = sugg.Nombre || "Sin nombre";
+                const monto = `${sugg.MonedaOriginal || ""} ${sugg.MontoOriginal || ""}`.trim();
+                appAlert(
+                    "¡Gasto detectado!",
+                    "El sistema analizó el documento y encontró un posible gasto asociado.\n\n" +
+                    `Concepto: ${concepto}` +
+                    (monto ? `\nMonto: ${monto}` : "") +
+                    "\n\n¿Deseás registrarlo?",
+                    [
+                        {
+                            text: "No",
+                            style: "cancel",
+                            onPress: () => {
+                                mostrarAlertaConfirmacion("Éxito", "Documento subido correctamente.", () => {
+                                    onClose();
+                                });
                             }
-                        ]
-                    );
-                    return;
-                }
+                        },
+                        {
+                            text: "Sí, registrar",
+                            onPress: () => {
+                                setDatosGastoSugerido(sugg);
+                                setGastoSugeridoModalVisible(true);
+                            }
+                        }
+                    ]
+                );
+                return;
             }
 
             setSaving(false);

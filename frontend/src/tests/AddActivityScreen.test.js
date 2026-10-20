@@ -13,6 +13,7 @@
  * debe enviarle el nombre de la actividad y, si hay, el idLugarInteres.
  */
 import { Alert, Dimensions, Platform, StyleSheet } from "react-native";
+import { simularDialogos } from "./helpers/dialogosSimulados";
 import { act, fireEvent, render, waitFor } from "@testing-library/react-native";
 
 import AddActivityScreen from "../screens/AddActivityScreen";
@@ -26,12 +27,13 @@ jest.mock("../services/api", () => ({
 
 const TITULO_ADVERTENCIA = "Revisá el horario de tu actividad";
 
+let avisos;
+let confirmaciones;
+
 beforeEach(() => {
   jest.clearAllMocks();
   Platform.OS = "web";
-  // En el entorno jest de React Native `window.alert/confirm` no existen: los mockeamos.
-  window.alert = jest.fn();
-  window.confirm = jest.fn().mockReturnValue(false);
+  ({ avisos, confirmaciones } = simularDialogos({ confirma: false }));
 });
 
 afterEach(() => {
@@ -112,7 +114,13 @@ async function renderEdicionYEnviar(onSubmit, activity = actividadEditable) {
 }
 
 function mensajeDelConfirm() {
-  return window.confirm.mock.calls[0][0];
+  return confirmaciones.mock.calls[0][0];
+}
+
+// Textos de los botones del primer diálogo de confirmación (cancelar primero).
+function textosBotonesConfirm() {
+  const llamada = Alert.alert.mock.calls.find(([, , botones]) => botones?.some((b) => b.style === "cancel"));
+  return llamada[2].map((b) => b.text);
 }
 
 function crearDeferred() {
@@ -171,10 +179,10 @@ describe("AddActivityScreen", () => {
     await llenarFormularioValido(utils);
     await pressSubmit(utils, "Agregar actividad");
 
-    // El éxito ahora se informa con un alert (window.alert en web), no con un texto en pantalla.
-    await waitFor(() => expect(window.alert).toHaveBeenCalled());
-    expect(window.alert.mock.calls[0][0]).toContain("Éxito");
-    expect(window.alert.mock.calls[0][0]).toContain("Actividad registrada correctamente.");
+    // El éxito ahora se informa con un alert (avisos en web), no con un texto en pantalla.
+    await waitFor(() => expect(avisos).toHaveBeenCalled());
+    expect(avisos.mock.calls[0][0]).toContain("Éxito");
+    expect(avisos.mock.calls[0][0]).toContain("Actividad registrada correctamente.");
 
     // onSubmit recibe ahora un segundo argumento con { ignorarAdvertencia }.
     expect(onSubmit).toHaveBeenCalledWith(
@@ -466,9 +474,9 @@ describe("US 98 - horario dentro del horario de apertura", () => {
 
     await renderYEnviar(onSubmit);
 
-    await waitFor(() => expect(window.alert).toHaveBeenCalled());
-    expect(window.confirm).not.toHaveBeenCalled();
-    expect(window.alert.mock.calls[0][0]).toContain("Actividad registrada correctamente.");
+    await waitFor(() => expect(avisos).toHaveBeenCalled());
+    expect(confirmaciones).not.toHaveBeenCalled();
+    expect(avisos.mock.calls[0][0]).toContain("Actividad registrada correctamente.");
     expect(onSubmit).toHaveBeenCalledTimes(1);
     expect(baseProps.onClose).toHaveBeenCalled();
   });
@@ -478,8 +486,8 @@ describe("US 98 - horario dentro del horario de apertura", () => {
 
     await renderYEnviar(onSubmit);
 
-    await waitFor(() => expect(window.alert).toHaveBeenCalled());
-    expect(window.confirm).not.toHaveBeenCalled();
+    await waitFor(() => expect(avisos).toHaveBeenCalled());
+    expect(confirmaciones).not.toHaveBeenCalled();
   });
 
   it("al editar, el mensaje de éxito indica que la actividad fue editada", async () => {
@@ -487,9 +495,9 @@ describe("US 98 - horario dentro del horario de apertura", () => {
 
     await renderEdicionYEnviar(onSubmit);
 
-    await waitFor(() => expect(window.alert).toHaveBeenCalled());
-    expect(window.confirm).not.toHaveBeenCalled();
-    expect(window.alert.mock.calls[0][0]).toContain("Actividad editada correctamente.");
+    await waitFor(() => expect(avisos).toHaveBeenCalled());
+    expect(confirmaciones).not.toHaveBeenCalled();
+    expect(avisos.mock.calls[0][0]).toContain("Actividad editada correctamente.");
   });
 });
 
@@ -506,7 +514,7 @@ describe("US 98 - horario fuera del horario de apertura", () => {
 
     await renderYEnviar(onSubmit, { inicio: "20:00", fin: "22:00" });
 
-    await waitFor(() => expect(window.confirm).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(confirmaciones).toHaveBeenCalledTimes(1));
     const mensaje = mensajeDelConfirm();
     expect(mensaje).toContain(TITULO_ADVERTENCIA);
     expect(mensaje).toContain("Museo del Prado");
@@ -520,11 +528,10 @@ describe("US 98 - horario fuera del horario de apertura", () => {
 
     await renderYEnviar(onSubmit, { inicio: "20:00", fin: "22:00" });
 
-    await waitFor(() => expect(window.confirm).toHaveBeenCalled());
+    await waitFor(() => expect(confirmaciones).toHaveBeenCalled());
     const mensaje = mensajeDelConfirm();
     expect(mensaje).toContain("Podés modificar el horario de la actividad o registrarla igualmente.");
-    expect(mensaje).toContain("Cancelar: modificar el horario.");
-    expect(mensaje).toContain("Aceptar: registrar igual.");
+    expect(textosBotonesConfirm()).toEqual(["Modificar horario", "Registrar igual"]);
   });
 
   it("muestra todos los tramos cuando el lugar tiene horario cortado o especial", async () => {
@@ -535,7 +542,7 @@ describe("US 98 - horario fuera del horario de apertura", () => {
 
     await renderYEnviar(onSubmit, { inicio: "14:00", fin: "15:00" });
 
-    await waitFor(() => expect(window.confirm).toHaveBeenCalled());
+    await waitFor(() => expect(confirmaciones).toHaveBeenCalled());
     expect(mensajeDelConfirm()).toContain("Horario del establecimiento: 09:00 a 13:00, 16:00 a 20:00");
   });
 
@@ -544,10 +551,10 @@ describe("US 98 - horario fuera del horario de apertura", () => {
 
     await renderEdicionYEnviar(onSubmit);
 
-    await waitFor(() => expect(window.confirm).toHaveBeenCalled());
+    await waitFor(() => expect(confirmaciones).toHaveBeenCalled());
     const mensaje = mensajeDelConfirm();
     expect(mensaje).toContain("Podés modificar el horario de la actividad o guardarla igualmente.");
-    expect(mensaje).toContain("Aceptar: guardar igual.");
+    expect(textosBotonesConfirm()).toEqual(["Modificar horario", "Guardar igual"]);
   });
 
   it("no registra la actividad ni cierra el formulario mientras el usuario no confirme", async () => {
@@ -555,8 +562,8 @@ describe("US 98 - horario fuera del horario de apertura", () => {
 
     await renderYEnviar(onSubmit);
 
-    await waitFor(() => expect(window.confirm).toHaveBeenCalled());
-    expect(window.alert).not.toHaveBeenCalled(); // sin mensaje de éxito
+    await waitFor(() => expect(confirmaciones).toHaveBeenCalled());
+    expect(avisos).not.toHaveBeenCalled(); // sin mensaje de éxito
     expect(baseProps.onClose).not.toHaveBeenCalled();
     expect(onSubmit).toHaveBeenCalledTimes(1);
   });
@@ -569,7 +576,7 @@ describe("US 98 - horario fuera del horario de apertura", () => {
 
     await renderEdicionYEnviar(onSubmit);
 
-    await waitFor(() => expect(window.confirm).toHaveBeenCalled());
+    await waitFor(() => expect(confirmaciones).toHaveBeenCalled());
     expect(mensajeDelConfirm()).toContain("Restó La Cyanea");
   });
 
@@ -581,7 +588,7 @@ describe("US 98 - horario fuera del horario de apertura", () => {
 
     await renderYEnviar(onSubmit, { nombre: "Visita al museo" });
 
-    await waitFor(() => expect(window.confirm).toHaveBeenCalled());
+    await waitFor(() => expect(confirmaciones).toHaveBeenCalled());
     expect(mensajeDelConfirm()).toContain("el lugar de Visita al museo");
   });
 });
@@ -597,7 +604,7 @@ describe("US 98 - establecimiento cerrado el día de la actividad", () => {
 
     await renderYEnviar(onSubmit);
 
-    await waitFor(() => expect(window.confirm).toHaveBeenCalled());
+    await waitFor(() => expect(confirmaciones).toHaveBeenCalled());
     const mensaje = mensajeDelConfirm();
     expect(mensaje).toContain("Museo del Prado");
     expect(mensaje).toContain("El lugar permanece cerrado los lunes.");
@@ -610,7 +617,7 @@ describe("US 98 - establecimiento cerrado el día de la actividad", () => {
       .fn()
       .mockResolvedValueOnce({ advertencia: true, nombreLugar: "Museo", horariosApertura: "", mensaje: "Cerrado los lunes." })
       .mockResolvedValueOnce({ advertencia: false });
-    window.confirm.mockReturnValue(true);
+    confirmaciones.mockReturnValue(true);
 
     await renderYEnviar(onSubmit);
 
@@ -625,9 +632,9 @@ describe("US 98 - nombre sin lugar identificable", () => {
 
     await renderYEnviar(onSubmit, { nombre: "Descansar un rato" });
 
-    await waitFor(() => expect(window.alert).toHaveBeenCalled());
-    expect(window.confirm).not.toHaveBeenCalled();
-    expect(window.alert.mock.calls[0][0]).toContain("Actividad registrada correctamente.");
+    await waitFor(() => expect(avisos).toHaveBeenCalled());
+    expect(confirmaciones).not.toHaveBeenCalled();
+    expect(avisos.mock.calls[0][0]).toContain("Actividad registrada correctamente.");
   });
 });
 
@@ -640,9 +647,9 @@ describe("US 98 - sin información confiable de horarios", () => {
 
     await renderYEnviar(onSubmit);
 
-    await waitFor(() => expect(window.alert).toHaveBeenCalled());
-    expect(window.confirm).not.toHaveBeenCalled();
-    const textoMostrado = window.alert.mock.calls.map((c) => c[0]).join(" ");
+    await waitFor(() => expect(avisos).toHaveBeenCalled());
+    expect(confirmaciones).not.toHaveBeenCalled();
+    const textoMostrado = avisos.mock.calls.map((c) => c[0]).join(" ");
     expect(textoMostrado).not.toContain("no se encuentra abierto");
   });
 });
@@ -659,7 +666,7 @@ describe("US 98 - la advertencia no impide registrar o modificar", () => {
       .fn()
       .mockResolvedValueOnce(advertencia)
       .mockResolvedValueOnce({ advertencia: false });
-    window.confirm.mockReturnValue(true);
+    confirmaciones.mockReturnValue(true);
 
     await renderYEnviar(onSubmit, { inicio: "20:00", fin: "22:00" });
 
@@ -669,8 +676,8 @@ describe("US 98 - la advertencia no impide registrar o modificar", () => {
     // Mismos datos en ambos envíos
     expect(onSubmit.mock.calls[1][0]).toEqual(onSubmit.mock.calls[0][0]);
 
-    await waitFor(() => expect(window.alert).toHaveBeenCalled());
-    expect(window.alert.mock.calls[0][0]).toContain("Actividad registrada correctamente.");
+    await waitFor(() => expect(avisos).toHaveBeenCalled());
+    expect(avisos.mock.calls[0][0]).toContain("Actividad registrada correctamente.");
     expect(baseProps.onClose).toHaveBeenCalled();
   });
 
@@ -679,15 +686,15 @@ describe("US 98 - la advertencia no impide registrar o modificar", () => {
       .fn()
       .mockResolvedValueOnce(advertencia)
       .mockResolvedValueOnce({ advertencia: false });
-    window.confirm.mockReturnValue(true);
+    confirmaciones.mockReturnValue(true);
 
     await renderEdicionYEnviar(onSubmit);
 
     await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(2));
     expect(onSubmit.mock.calls[1][0]).toEqual(expect.objectContaining({ id: 5 }));
     expect(onSubmit.mock.calls[1][1]).toEqual({ ignorarAdvertencia: true });
-    await waitFor(() => expect(window.alert).toHaveBeenCalled());
-    expect(window.alert.mock.calls[0][0]).toContain("Actividad editada correctamente.");
+    await waitFor(() => expect(avisos).toHaveBeenCalled());
+    expect(avisos.mock.calls[0][0]).toContain("Actividad editada correctamente.");
   });
 
   it("si el usuario elige modificar el horario, no se reenvía y puede corregir y volver a enviar", async () => {
@@ -695,10 +702,10 @@ describe("US 98 - la advertencia no impide registrar o modificar", () => {
       .fn()
       .mockResolvedValueOnce(advertencia)
       .mockResolvedValueOnce({ advertencia: false });
-    window.confirm.mockReturnValue(false);
+    confirmaciones.mockReturnValue(false);
 
     const utils = await renderYEnviar(onSubmit, { inicio: "20:00", fin: "22:00" });
-    await waitFor(() => expect(window.confirm).toHaveBeenCalled());
+    await waitFor(() => expect(confirmaciones).toHaveBeenCalled());
     expect(onSubmit).toHaveBeenCalledTimes(1);
 
     // El formulario sigue editable y el botón vuelve a estar disponible.
@@ -719,8 +726,7 @@ describe("US 98 - advertencia en dispositivos nativos (Alert.alert)", () => {
   // En nativo la advertencia usa Alert.alert con dos botones. Para no depender del DateTimePicker,
   // se edita una actividad que ya trae horario y se renderiza directamente como android.
   beforeEach(() => {
-    jest.spyOn(Alert, "alert").mockImplementation(() => {});
-    Platform.OS = "android";
+      Platform.OS = "android";
   });
 
   afterEach(() => {
@@ -797,7 +803,7 @@ describe("US 98 - errores durante el análisis", () => {
     const utils = await renderYEnviar(onSubmit);
 
     await waitFor(() => expect(utils.getByText("El servidor no responde.")).toBeTruthy());
-    expect(window.confirm).not.toHaveBeenCalled();
+    expect(confirmaciones).not.toHaveBeenCalled();
     expect(baseProps.onClose).not.toHaveBeenCalled();
   });
 
@@ -813,8 +819,8 @@ describe("US 98 - errores durante el análisis", () => {
     await pressSubmit(utils);
 
     await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(2));
-    await waitFor(() => expect(window.alert).toHaveBeenCalled());
-    expect(window.alert.mock.calls[0][0]).toContain("Actividad registrada correctamente.");
+    await waitFor(() => expect(avisos).toHaveBeenCalled());
+    expect(avisos.mock.calls[0][0]).toContain("Actividad registrada correctamente.");
     expect(utils.queryByText("Falló la consulta del lugar.")).toBeNull();
   });
 
@@ -839,7 +845,7 @@ describe("US 98 - errores durante el análisis", () => {
       .fn()
       .mockResolvedValueOnce({ advertencia: true, nombreLugar: "Museo", horariosApertura: "10:00 - 18:00" })
       .mockRejectedValueOnce(new Error("No se pudo guardar."));
-    window.confirm.mockReturnValue(true);
+    confirmaciones.mockReturnValue(true);
 
     const utils = await renderYEnviar(onSubmit);
 
@@ -857,7 +863,7 @@ describe("US 98 - validación de horarios inválidos (no llega al análisis)", (
       utils.getByText("La hora de fin debe ser posterior a la hora de inicio (dentro del mismo día).")
     ).toBeTruthy();
     expect(onSubmit).not.toHaveBeenCalled();
-    expect(window.confirm).not.toHaveBeenCalled();
+    expect(confirmaciones).not.toHaveBeenCalled();
   });
 
   it("no envía nada si inicio y fin son iguales", async () => {
@@ -940,7 +946,7 @@ describe("US 98 - estado de carga durante el análisis", () => {
       deferred.resolve({ advertencia: true, nombreLugar: "Museo", horariosApertura: "10:00 - 18:00" });
     });
 
-    await waitFor(() => expect(window.confirm).toHaveBeenCalled());
+    await waitFor(() => expect(confirmaciones).toHaveBeenCalled());
     expect(utils.queryByText("Validando horarios")).toBeNull();
   });
 
@@ -988,7 +994,7 @@ describe("US 98 - estado de carga durante el análisis", () => {
       .fn()
       .mockResolvedValueOnce({ advertencia: true, nombreLugar: "Museo", horariosApertura: "10:00 - 18:00" })
       .mockImplementationOnce(() => deferred.promise);
-    window.confirm.mockReturnValue(true);
+    confirmaciones.mockReturnValue(true);
 
     const utils = await renderYEnviar(onSubmit);
 
@@ -1014,11 +1020,11 @@ describe("Advertencias de lugar cerrado (día, reformas, definitivo)", () => {
 
     await renderYEnviar(onSubmit);
 
-    await waitFor(() => expect(window.confirm).toHaveBeenCalled());
+    await waitFor(() => expect(confirmaciones).toHaveBeenCalled());
     const mensaje = mensajeDelConfirm();
     expect(mensaje).toContain("El lugar está cerrado ese día");
     expect(mensaje).toContain("Vuelve a abrir el martes 08/12 de 10:00 a 20:00");
-    expect(mensaje).toContain("Cancelar: modificar la actividad.");
+    expect(textosBotonesConfirm()).toEqual(["Modificar actividad", "Registrar igual"]);
     expect(mensaje).not.toContain("Horario del establecimiento:");
   });
 
@@ -1033,7 +1039,7 @@ describe("Advertencias de lugar cerrado (día, reformas, definitivo)", () => {
 
     await renderYEnviar(onSubmit);
 
-    await waitFor(() => expect(window.confirm).toHaveBeenCalled());
+    await waitFor(() => expect(confirmaciones).toHaveBeenCalled());
     const mensaje = mensajeDelConfirm();
     expect(mensaje).toContain("El lugar está cerrado temporalmente");
     expect(mensaje).toContain("por reformas");
@@ -1050,7 +1056,7 @@ describe("Advertencias de lugar cerrado (día, reformas, definitivo)", () => {
 
     await renderYEnviar(onSubmit);
 
-    await waitFor(() => expect(window.confirm).toHaveBeenCalled());
+    await waitFor(() => expect(confirmaciones).toHaveBeenCalled());
     expect(mensajeDelConfirm()).toContain("El lugar cerró definitivamente");
   });
 
@@ -1064,7 +1070,7 @@ describe("Advertencias de lugar cerrado (día, reformas, definitivo)", () => {
         resumen: "Cerrado el lunes 07/12",
       })
       .mockResolvedValueOnce({ advertencia: false });
-    window.confirm.mockReturnValue(true);
+    confirmaciones.mockReturnValue(true);
 
     await renderYEnviar(onSubmit);
 

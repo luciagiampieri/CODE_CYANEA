@@ -3,7 +3,6 @@ import { useFocusEffect } from "@react-navigation/native";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
-  Platform,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -161,22 +160,12 @@ export default function DaySuggestionsScreen({ navigation, route }) {
   }
 
   function mostrarMensaje(titulo, mensaje) {
-    if (Platform.OS === "web") {
-      window.alert(`${titulo}\n\n${mensaje}`);
-    } else {
-      appAlert(titulo, mensaje);
-    }
+    appAlert(titulo, mensaje);
   }
 
   // Mensaje de confirmación posterior al descarte, con acceso directo a regenerar.
   function avisarDescarte(franja) {
     const mensaje = "La sugerencia se descartó y dejó de mostrarse.";
-    if (Platform.OS === "web") {
-      if (window.confirm(`Sugerencia descartada\n\n${mensaje}\n\n¿Querés buscar otras opciones para la misma franja?`)) {
-        abrirRegenerar(franja);
-      }
-      return;
-    }
     appAlert("Sugerencia descartada", `${mensaje} ¿Querés buscar otras opciones para la misma franja?`, [
       { text: "Listo", style: "cancel" },
       { text: "Buscar otras opciones", onPress: () => abrirRegenerar(franja) },
@@ -216,10 +205,6 @@ export default function DaySuggestionsScreen({ navigation, route }) {
 
   function pedirConfirmacionDescarte(sugerencia) {
     const mensaje = `Se va a descartar "${sugerencia.Nombre}". Dejará de mostrarse y no se volverá a sugerir ese lugar para esta franja.`;
-    if (Platform.OS === "web") {
-      if (window.confirm(`¿Descartar sugerencia?\n\n${mensaje}`)) ejecutarDescarte(sugerencia);
-      return;
-    }
     appAlert("¿Descartar sugerencia?", mensaje, [
       { text: "Cancelar", style: "cancel" },
       { text: "Descartar", style: "destructive", onPress: () => ejecutarDescarte(sugerencia) },
@@ -271,10 +256,6 @@ export default function DaySuggestionsScreen({ navigation, route }) {
     cargar({ silencioso: true });
 
     const mensaje = "La votación se creó correctamente y ya la puede ver todo el grupo.";
-    if (Platform.OS === "web") {
-      if (window.confirm(`${mensaje}\n\n¿Querés ir a la votación?`)) irAVotar();
-      return;
-    }
     appAlert("Votación creada", mensaje, [
       { text: "Seguir acá", style: "cancel" },
       { text: "Ver votación", onPress: irAVotar },

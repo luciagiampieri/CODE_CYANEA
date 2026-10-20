@@ -11,6 +11,7 @@
  * sitio oficial). "Recordármelo" se prueba en RecordarTareaEntradas.test.js.
  */
 import { Alert, Linking, Platform } from "react-native";
+import { recomendaciones, simularDialogos } from "./helpers/dialogosSimulados";
 import { act, fireEvent, render, waitFor } from "@testing-library/react-native";
 
 import AddActivityScreen from "../screens/AddActivityScreen";
@@ -89,13 +90,14 @@ const actividadEditable = {
   lugarInteres: null,
 };
 
+let avisos;
+let confirmaciones;
+
 beforeEach(() => {
   jest.clearAllMocks();
   Platform.OS = "web";
-  window.alert = jest.fn();
-  window.confirm = jest.fn().mockReturnValue(true);
+  ({ avisos, confirmaciones } = simularDialogos({ confirma: true }));
   jest.spyOn(Linking, "openURL").mockResolvedValue(true);
-  jest.spyOn(Alert, "alert").mockImplementation(() => {});
 });
 
 afterEach(() => {
@@ -246,7 +248,7 @@ describe("Recomendación al registrar o modificar la actividad", () => {
     expect(botones[1]).toEqual(expect.objectContaining({ icono: "bell", variante: "contorno" }));
     expect(botones[2].icono).toBe("arrow-up-right-from-square");
     // Reemplaza al aviso de éxito: un solo mensaje.
-    expect(window.alert).not.toHaveBeenCalled();
+    expect(avisos).not.toHaveBeenCalled();
   });
 
   it("la recomendación aparece con el formulario ya cerrado (la actividad está guardada)", async () => {
@@ -352,9 +354,9 @@ describe("Recomendación al registrar o modificar la actividad", () => {
 
     await registrar(onSubmit, { nombre: "Cena con amigos" });
 
-    await waitFor(() => expect(window.alert).toHaveBeenCalled());
-    expect(window.alert.mock.calls[0][0]).toContain("Actividad registrada correctamente.");
-    expect(Alert.alert).not.toHaveBeenCalled();
+    await waitFor(() => expect(avisos).toHaveBeenCalled());
+    expect(avisos.mock.calls[0][0]).toContain("Actividad registrada correctamente.");
+    expect(recomendaciones()).toHaveLength(0);
   });
 
   it("CP19: una recomendación no verificada no se muestra", async () => {
@@ -362,8 +364,8 @@ describe("Recomendación al registrar o modificar la actividad", () => {
 
     await registrar(onSubmit);
 
-    await waitFor(() => expect(window.alert).toHaveBeenCalled());
-    expect(Alert.alert).not.toHaveBeenCalled();
+    await waitFor(() => expect(avisos).toHaveBeenCalled());
+    expect(recomendaciones()).toHaveLength(0);
   });
 
   it("CP21-CP23: si el guardado falla no hay recomendación", async () => {
@@ -372,7 +374,7 @@ describe("Recomendación al registrar o modificar la actividad", () => {
     const utils = await registrar(onSubmit);
 
     await waitFor(() => expect(utils.getByText("El servidor no responde.")).toBeTruthy());
-    expect(Alert.alert).not.toHaveBeenCalled();
+    expect(recomendaciones()).toHaveLength(0);
   });
 
   it("CP8-CP11: al editar sin cambio de lugar el backend no manda recomendación y solo se informa el éxito", async () => {
@@ -380,9 +382,9 @@ describe("Recomendación al registrar o modificar la actividad", () => {
 
     await editar(onSubmit, { title: "Visita al Museo del Prado" });
 
-    await waitFor(() => expect(window.alert).toHaveBeenCalled());
-    expect(window.alert.mock.calls[0][0]).toContain("Actividad editada correctamente.");
-    expect(Alert.alert).not.toHaveBeenCalled();
+    await waitFor(() => expect(avisos).toHaveBeenCalled());
+    expect(avisos.mock.calls[0][0]).toContain("Actividad editada correctamente.");
+    expect(recomendaciones()).toHaveLength(0);
   });
 
   it("CP12: al editar con un lugar nuevo muestra su recomendación", async () => {
@@ -412,20 +414,20 @@ describe("Recomendación al registrar o modificar la actividad", () => {
     expect(onSubmit.mock.calls[1][1]).toEqual({ ignorarAdvertencia: true });
     expect(onSubmit.mock.calls[1][0]).toEqual(expect.objectContaining({ googlePlaceIdEntradas: "ChIJprado" }));
     // La recomendación no se mezcla con la advertencia: aparece recién al guardar.
-    expect(window.confirm.mock.calls[0][0]).not.toContain("entradas antes");
+    expect(confirmaciones.mock.calls[0][0]).not.toContain("entradas antes");
     await waitFor(() => expect(Alert.alert).toHaveBeenCalled());
     expect(dialogo().titulo).toBe("Comprá tus entradas antes");
   });
 
   it("si el usuario corrige el horario, no reenvía el lugar ni muestra la recomendación anterior", async () => {
-    window.confirm.mockReturnValue(false);
+    confirmaciones.mockReturnValue(false);
     const onSubmit = jest
       .fn()
       .mockResolvedValueOnce({ advertencia: true, tipo: "fuera_de_horario", recomendacionEntradas: recomendacion(), googlePlaceIdEntradas: "ChIJprado" })
       .mockResolvedValueOnce(actividadGuardada(null));
 
     const utils = await registrar(onSubmit, { inicio: "19:00", fin: "20:00" });
-    await waitFor(() => expect(window.confirm).toHaveBeenCalled());
+    await waitFor(() => expect(confirmaciones).toHaveBeenCalled());
     await elegirHora(utils, 0, "10:00");
     await elegirHora(utils, 1, "12:00");
     await act(async () => {
@@ -435,8 +437,8 @@ describe("Recomendación al registrar o modificar la actividad", () => {
 
     await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(2));
     expect(onSubmit.mock.calls[1][0].googlePlaceIdEntradas).toBeUndefined();
-    await waitFor(() => expect(window.alert).toHaveBeenCalled());
-    expect(Alert.alert).not.toHaveBeenCalled();
+    await waitFor(() => expect(avisos).toHaveBeenCalled());
+    expect(recomendaciones()).toHaveLength(0);
   });
 
   it("en nativo también usa el diálogo de la app", async () => {

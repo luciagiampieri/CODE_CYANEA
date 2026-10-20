@@ -133,11 +133,7 @@ export default function CrearVotacionScreen({ visible, onClose, IdViaje, onVotac
                 propuestas: propuestasLimpias,
             });
 
-            if (Platform.OS === "web") {
-                window.alert("La votación se creó correctamente.");
-            } else {
-                appAlert("Votación creada", "La votación se creó correctamente.");
-            }
+            appAlert("Votación creada", "La votación se creó correctamente.");
 
             onVotacionCreada?.(nuevaVotacion);
             onClose();

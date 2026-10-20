@@ -1,17 +1,10 @@
 /**
- * Diálogos multiplataforma. En Expo Web `Alert.alert` no muestra botones,
- * así que ahí se usan `window.alert` y `window.confirm`.
+ * Diálogos multiplataforma con el estilo de Cyanea (AppDialog), también en web:
+ * nunca se usan `window.alert` ni `window.confirm` del navegador.
  */
-import { Platform } from "react-native";
-
 import { appAlert } from "../components/ui/AppDialog";
 
 export function avisar(titulo, mensaje, onAceptar) {
-  if (Platform.OS === "web") {
-    window.alert(mensaje ? `${titulo}\n\n${mensaje}` : titulo);
-    onAceptar?.();
-    return;
-  }
   if (onAceptar) {
     appAlert(titulo, mensaje, [{ text: "Aceptar", onPress: onAceptar }]);
   } else {
@@ -30,9 +23,6 @@ export function confirmar({
   // indica, AppDialog lo deduce del título.
   tipo,
 }) {
-  if (Platform.OS === "web") {
-    return Promise.resolve(window.confirm(`${titulo}\n\n${mensaje}`));
-  }
   return new Promise((resolve) => {
     appAlert(
       titulo,

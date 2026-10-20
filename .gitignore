@@ -1,7 +1,9 @@
+# Sistema operativo / OneDrive
 .DS_Store
 Thumbs.db
+desktop.ini
 
-# Root / editor
+# Editores
 .vscode/
 .idea/
 *.suo
@@ -10,35 +12,32 @@ Thumbs.db
 *.sln
 *.swp
 
+# Entornos virtuales y dependencias
+.venv/
+node_modules/
+
 # Frontend
-frontend/node_modules/
 frontend/dist/
 frontend/.expo/
+frontend/.expo-export-check/
 frontend/web-build/
-frontend-ant/node_modules/
-frontend-ant/dist/
-frontend-ant/.vite/
 dist/
 dist-ssr/
 *.local
 .eslintcache
 
 # Backend
-backend/.venv/
-backend/__pycache__/
-backend/**/*.pyc
 backend/**/__pycache__/
+backend/**/*.pyc
 backend/.pytest_cache/
 backend/.mypy_cache/
 backend/.ruff_cache/
 backend/*.egg-info/
-backend/node_modules/
 backend/coverage_report.txt
 backend/.coverage
 backend/htmlcov/
-backend/.pytest_cache/
 
-# Local env
+# Variables de entorno y credenciales
 .env
 .env.local
 .env.development.local
@@ -46,11 +45,10 @@ backend/.pytest_cache/
 .env.production.local
 backend/.env
 frontend/.env
-frontend-ant/.env
 frontend/credentials.json
 frontend/credentials/
 
-# Mobile / Expo residues
+# Residuos de builds Expo / Android
 .expo/
 web-build/
 android/
@@ -60,13 +58,10 @@ eas-tmp/
 eas-tmp-build/
 eas-tmp-clean/
 
-# Logs
+# Logs y dumps
 logs/
-backend/*.log
-frontend/*.log
+*.log
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
-
-
 *.dump

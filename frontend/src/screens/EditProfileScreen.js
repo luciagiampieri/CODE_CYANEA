@@ -173,18 +173,6 @@ export default function EditProfileScreen({ navigation }) {
       return;
     }
 
-    // Alert.alert con múltiples botones no está soportado en RN Web,
-    // así que en web usamos window.confirm como alternativa.
-    if (Platform.OS === "web") {
-      const confirmado =
-        typeof window !== "undefined" &&
-        window.confirm("¿Querés quitar tu foto de perfil actual?");
-      if (confirmado) {
-        confirmDeletePhoto();
-      }
-      return;
-    }
-
     appAlert(
       "Eliminar foto de perfil",
       "¿Querés quitar tu foto de perfil actual?",

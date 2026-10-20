@@ -43,16 +43,11 @@ const ICONOS_CATEGORIAS = {
 
 
 function mostrarAlertaConfirmacion(titulo, mensaje, onAceptar) {
-  if (Platform.OS === "web") {
-    window.alert(`${titulo}\n\n${mensaje}`);
-    if (onAceptar) onAceptar();
-  } else {
-    appAlert(
-      titulo,
-      mensaje,
-      onAceptar ? [{ text: "Aceptar", onPress: onAceptar }] : undefined
-    );
-  }
+  appAlert(
+    titulo,
+    mensaje,
+    onAceptar ? [{ text: "Aceptar", onPress: onAceptar }] : undefined
+  );
 }
 
 /**

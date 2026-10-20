@@ -12,6 +12,7 @@
  * `appAlert` delega en `Alert.alert` en los tests.
  */
 import { Alert, Linking, Platform } from "react-native";
+import { simularDialogos } from "./helpers/dialogosSimulados";
 import { act, fireEvent, render, waitFor } from "@testing-library/react-native";
 
 import AddActivityScreen from "../screens/AddActivityScreen";
@@ -73,13 +74,14 @@ const actividadEditable = {
   lugarInteres: null,
 };
 
+let avisos;
+let confirmaciones;
+
 beforeEach(() => {
   jest.clearAllMocks();
   Platform.OS = "web";
-  window.alert = jest.fn();
-  window.confirm = jest.fn().mockReturnValue(true);
+  ({ avisos, confirmaciones } = simularDialogos({ confirma: true }));
   jest.spyOn(Linking, "openURL").mockResolvedValue(true);
-  jest.spyOn(Alert, "alert").mockImplementation(() => {});
   crearTareaEntradas.mockResolvedValue(TAREA_CREADA);
 });
 
@@ -304,19 +306,19 @@ describe("Cambio de lugar de una actividad con tareas pendientes", () => {
     await editar(onSubmit);
 
     await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(2));
-    expect(window.confirm).toHaveBeenCalledWith(expect.stringContaining("«Comprar entradas – Museo del Prado»"));
-    expect(window.confirm).toHaveBeenCalledWith(expect.stringContaining("Si cancelás, no se guardan los cambios."));
+    expect(confirmaciones).toHaveBeenCalledWith(expect.stringContaining("«Comprar entradas – Museo del Prado»"));
+    expect(confirmaciones).toHaveBeenCalledWith(expect.stringContaining("Si cancelás, no se guardan los cambios."));
     expect(onSubmit.mock.calls[0][0].tareasEntradasAEliminar).toBeUndefined();
     expect(onSubmit.mock.calls[1][0].tareasEntradasAEliminar).toEqual([31]);
   });
 
   it("si cancela no guarda nada y el formulario sigue abierto", async () => {
-    window.confirm.mockReturnValue(false);
+    confirmaciones.mockReturnValue(false);
     const onSubmit = jest.fn().mockResolvedValueOnce(CONFIRMACION);
 
     await editar(onSubmit);
 
-    await waitFor(() => expect(window.confirm).toHaveBeenCalled());
+    await waitFor(() => expect(confirmaciones).toHaveBeenCalled());
     expect(onSubmit).toHaveBeenCalledTimes(1);
     expect(baseProps.onClose).not.toHaveBeenCalled();
   });

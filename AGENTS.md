@@ -69,34 +69,41 @@ CODE_CYANEA/
 |  |  `- sql/
 |  |- tests/
 |  |- .env.example
+|  |- Dockerfile
 |  |- pyproject.toml
-|  `- README.md
+|  `- README.md          (stub requerido por pyproject y Dockerfile)
 |- frontend/
 |  |- assets/
 |  |- src/
 |  |  |- components/
+|  |  |- context/
+|  |  |- database/
 |  |  |- hooks/
 |  |  |- navigation/
 |  |  |- screens/
 |  |  |- services/
-|  |  `- theme/
+|  |  |- tests/
+|  |  |- theme/
+|  |  `- utils/
 |  |- .env.example
 |  |- App.js
 |  |- app.json
+|  |- app.config.js
+|  |- eas.json
 |  |- index.js
-|  |- package.json
-|  `- README.md
-|- frontend-ant/
-|  `- ... resguardo del frontend anterior
-`- logs/
+|  `- package.json
+`- docs/
+   |- testing-backend.md
+   `- testing-frontend.md
 ```
 
 Reglas estructurales vigentes:
 
-- `frontend/` es el unico frontend activo del proyecto
+- `frontend/` es el unico frontend activo del proyecto (el frontend anterior `frontend-ant/` fue retirado)
 - No crear carpetas paralelas tipo `frontend-mobile/`, `frontend-web/` o similares
-- No continuar nuevas funcionalidades en `frontend-ant/`
 - El backend activo es solo `backend/` con FastAPI
+- La documentacion para personas vive en el `README.md` raiz (instalacion, tests, despliegue) y en `docs/` (guias de testing); las convenciones tecnicas viven en este `AGENTS.md`. No agregar README por carpeta que dupliquen ese contenido
+- No versionar artefactos generados: exports web (`frontend/dist/`, `frontend/.expo-export-check/`), reportes de jest/cobertura, lockfiles vacios ni archivos de sistema (`desktop.ini`)
 
 ## Instalacion local
 
@@ -333,7 +340,7 @@ Reglas vigentes para la HU de balance y liquidacion:
 
 - Se reutiliza `AddGastoScreen`: las reglas de esta US aplican cuando el formulario se precargo desde un comprobante (`escaneoAplicado`, tanto por `ReceiptScanButton` como por `initialData` de la US 84); la carga manual no cambia
 - `ReceiptScanButton` llama `onScanned(datos, imagen)`; `imagen.uri` (JPEG comprimido) se muestra como vista previa ampliable junto al formulario (AC1). La imagen no se persiste: se borra del cache con `expo-file-system` (`File.delete`) al registrar, al cancelar o al re-escanear (AC9)
-- Cancelar (boton "Cancelar", cruz o back de Android) pide confirmacion con `confirmar()` de `frontend/src/utils/dialogs.js` y no llama a `createExpense`. `dialogs.js` usa `window.confirm`/`window.alert` en web porque `Alert.alert` de React Native Web no muestra botones
+- Cancelar (boton "Cancelar", cruz o back de Android) pide confirmacion con `confirmar()` de `frontend/src/utils/dialogs.js` y no llama a `createExpense`
 - Pagador por defecto (AC4): `GET /gastos/trips/{trip_id}/participants` devuelve `EsUsuarioActual`; el formulario precarga `IdPagador` con ese participante. En gasto personal se informa "Pagado por ... (vos)"; para cambiar el pagador se elige "Compartido". El cache offline `cache_participantes` guarda `es_usuario_actual` para precargar el pagador sin conexion
 - Validaciones (AC3): `frontend/src/utils/comprobanteGasto.js` concentra las reglas puras (`parsearMonto` acepta coma decimal y exige numero > 0 segun RN-21, `requiereConversionARS`, `fechaFueraDelViaje`). El backend valida `MontoOriginal > 0` (400) y, en gasto compartido, `IdPagador` obligatorio y participante activo del viaje (RN-19)
 - Conversion a ARS (AC6, AC7, RN-39): si la moneda del comprobante no es `ARS` se informa la moneda detectada y el monto en pesos se completa automaticamente con `GET /monedas/cotizacion?origen&destino=ARS&monto&fecha` (mismo servicio de la US-85, cotizacion de la fecha del gasto o de hoy si es futura; requiere sesion; 503 `EXCHANGE_RATE_UNAVAILABLE` si no responde). El usuario puede corregir el monto (queda "manual" y no se recalcula) y volver a "Usar la cotizacion automatica". Solo si la cotizacion falla se exige ingresarlo a mano; mientras se calcula no se puede confirmar. `GastoCreate` suma `DesdeComprobante` y `MontoConvertidoARS` (el frontend siempre envia el monto en ARS que ve el usuario):
@@ -533,6 +540,8 @@ Para retomar o replicar la configuracion de push Android:
 ### Dialogos y mensajes
 
 - No usar `Alert.alert` directamente: usar `appAlert` de `frontend/src/components/ui/AppDialog.js`, que tiene la misma firma y muestra el dialogo con la identidad visual de Cyanea
+- Todos los mensajes son pop-ups de la app, tambien en web: no usar `window.alert`, `window.confirm` ni `window.prompt` ni ramas `Platform.OS === "web"` para dialogos; `AppDialog` funciona igual en web y mobile
+- En tests, `simularDialogos` de `frontend/src/tests/helpers/dialogosSimulados.js` espia `Alert.alert` y simula al usuario: acepta los avisos y responde las confirmaciones segun `confirma`
 - `<DialogHost root />` se monta una sola vez en `App.js`; sin ese host (tests) `appAlert` delega en `Alert.alert` con los mismos argumentos, asi que los tests pueden seguir espiando `Alert.alert`
 - No importar `Modal` de `react-native`: usar `import Modal from ".../components/ui/AppModal"` (mismas props). AppModal monta su propio `DialogHost` y `appAlert` dibuja el dialogo en el modal visible mas reciente; con el `Modal` de react-native el dialogo quedaria detras del modal abierto (Android nueva arquitectura / iOS)
 - El tipo (icono y color) se deduce del titulo (`Éxito`, `Error`, `¿...?`, `Atención`) o se fuerza con `appAlert(titulo, mensaje, botones, { tipo: "success" | "error" | "warning" | "info" | "confirm" })`

@@ -1,162 +1,128 @@
-# 🐙 Cyanea - Gestión Integral de Viajes Grupales
+# Cyanea — Gestión integral de viajes grupales
 
-> *“Muchas manos, un único destino”*
+> *"Muchas manos, un único destino"*
 
-**Cyanea** es una plataforma digital colaborativa (móvil y web) diseñada para centralizar la logística y la información técnica de los viajes en grupo. El sistema optimiza las etapas de planificación, organización y ejecución de los itinerarios, mitigando la fragmentación de datos en canales externos (como WhatsApp o planillas de cálculo), agilizando la comunicación y estructurando la toma de decisiones mediante un sistema de votaciones democráticas.
+**Cyanea** es una plataforma colaborativa (mobile y web) que centraliza la planificación, organización y ejecución de viajes en grupo: itinerario, gastos compartidos y liquidación, votaciones, documentos, checklists, exploración de lugares y un asistente de planificación con IA.
 
-Este desarrollo se realiza en el marco del **Proyecto Final de Carrera** para la carrera de **Ingeniería en Sistemas de Información** en la **Universidad Tecnológica Nacional - Facultad Regional Córdoba (UTN FRC)**.
+Proyecto Final de la carrera **Ingeniería en Sistemas de Información** — **Universidad Tecnológica Nacional, Facultad Regional Córdoba (UTN FRC)**.
 
 ---
 
 ## Stack
- 
-- `frontend/`: Expo (React Native + react-native-web)
-- `backend/`: FastAPI + SQLAlchemy + Alembic
-- `docker-compose.yml`: PostgreSQL + backend + frontend
+
+| Capa | Tecnología |
+|------|------------|
+| Frontend (mobile + web) | Expo (React Native + react-native-web), React Navigation |
+| Backend | FastAPI, SQLAlchemy, Alembic |
+| Base de datos | PostgreSQL 16 |
+| Servicios externos | Google Places/Maps, Gemini, Supabase Storage, Expo Push (FCM), SMTP |
+
+Requisitos locales: **Python 3.12**, **Node.js >= 20.19.4** (lo exige Expo) y **PostgreSQL 16** o compatible.
+
 ## Estructura
- 
-```
+
+```text
 CODE_CYANEA/
-├─ backend/
-│  ├─ app/
-│  ├─ tests/              # tests de integración (pytest)
-│  └─ pyproject.toml
-├─ frontend/
-├─ .github/
-│  └─ workflows/          # CI: corre los tests en cada push/PR
-├─ docker-compose.yml
-├─ AGENTS.md
-└─ README.md
+├─ backend/                 API FastAPI
+│  ├─ app/                  rutas, modelos, schemas, servicios y templates de mail
+│  ├─ alembic/              migraciones de base de datos
+│  ├─ scripts/              utilidades (crear admin, confirmar usuario, SQL manual)
+│  └─ tests/                tests de integración (pytest)
+├─ frontend/                app Expo única para Android, iOS y web
+│  └─ src/                  screens, components, services, hooks, theme, tests
+├─ docs/                    guías de testing
+├─ .github/workflows/       CI: tests de backend y frontend en cada push/PR
+├─ docker-compose.yml       PostgreSQL + backend + Mailpit para desarrollo
+└─ AGENTS.md                convenciones técnicas y decisiones de arquitectura
 ```
- 
-## Arranque rápido
- 
+
+## Puesta en marcha
+
 ### Backend
- 
-```
+
+```powershell
 cd backend
 python -m venv .venv
 .venv\Scripts\activate
 pip install -e .[dev]
-copy .env.example .env
+copy .env.example .env          # completar DATABASE_URL y credenciales
+alembic upgrade head
 .venv\Scripts\python.exe -m uvicorn app.main:app --host 127.0.0.1 --port 8000
 ```
- 
+
+- API: `http://127.0.0.1:8000` · Swagger: `http://127.0.0.1:8000/docs` · Health: `GET /health`
+- Todas las variables disponibles están documentadas en [`backend/.env.example`](backend/.env.example).
+- Para crear un administrador del backoffice: `python -m scripts.crear_admin_sistema`.
+
 ### Frontend
- 
-```
+
+```powershell
 cd frontend
+copy .env.example .env          # EXPO_PUBLIC_API_BASE_URL apunta al backend
 npm install
-copy .env.example .env
-npm run web
+npm run web                     # http://localhost:8081
 ```
- 
-## Servicios esperados
- 
-- Frontend web: `http://localhost:8081`
-- Backend: `http://127.0.0.1:8000`
-- Docs API: `http://127.0.0.1:8000/docs`
 
-## Notificaciones push Android
+Otros comandos: `npm run start`, `npm run android`, `npm run web:clear`.
 
-El proyecto usa Expo Push Notifications sobre FCM V1 para Android.
+Valor de `EXPO_PUBLIC_API_BASE_URL` según dónde corre la app:
 
-Configuracion versionada que debe viajar con el codigo:
+| Entorno | URL |
+|---------|-----|
+| Web local | `http://127.0.0.1:8000/api/v1` |
+| Emulador Android | `http://10.0.2.2:8000/api/v1` |
 
-- `frontend/app.json`
-  - `owner`: `lcorrea87s-team`
-  - `extra.eas.projectId`: `0dddd612-ef66-4470-9a77-ce206f823efd`
-  - `android.package`: `com.ticigaticasteam.cyanea`
-  - `android.googleServicesFile`: `./google-services.json`
-  - plugin `expo-notifications`
-- `frontend/eas.json`
-  - perfiles `development` y `production`
-- `frontend/google-services.example.json`
-  - ejemplo de estructura/ubicacion del archivo real
-- `backend/.env.example`
-  - `PUSH_ENABLED`
-  - `EXPO_PUSH_URL`
-  - `EXPO_PUSH_ACCESS_TOKEN`
-  - variables de recordatorios de actividad
-
-Archivos locales o secretos que no se versionan:
-
-- `frontend/google-services.json`: descargarlo desde Firebase para el package `com.ticigaticasteam.cyanea`
-- service account JSON de Firebase Admin/FCM V1: no guardarlo en el repo; se carga en EAS
-- `backend/.env` y `frontend/.env`
-- `cyfb/`, `frontend/android/`, caches y logs de build
-
-Credenciales EAS/FCM:
-
-- el proyecto EAS activo es `@lcorrea87s-team/cyanea`
-- FCM V1 esta configurado en EAS para `com.ticigaticasteam.cyanea`
-- Firebase project actual: `cyanea-8aba1`
-- si se cambia `extra.eas.projectId`, cada dispositivo debe regenerar su Expo Push Token
-
-Comandos utiles:
+### Con Docker (alternativa)
 
 ```powershell
-cd frontend
-$env:NODE_OPTIONS="--use-system-ca"
-npx eas-cli project:info
-npx eas-cli credentials -p android
+docker compose up --build
 ```
 
-Para emulador Android, `frontend/.env` normalmente debe usar:
+Levanta PostgreSQL, el backend (aplica migraciones al iniciar) y [Mailpit](http://localhost:8025) para ver los correos de desarrollo. Requiere `backend/.env`; los puertos y credenciales de Postgres se pueden ajustar con un `.env` en la raíz.
 
-```env
-EXPO_PUBLIC_API_BASE_URL=http://10.0.2.2:8000/api/v1
-```
-
-Para Expo Web o navegador local:
-
-```env
-EXPO_PUBLIC_API_BASE_URL=http://127.0.0.1:8000/api/v1
-```
-
-Si el token push queda asociado a un `projectId` anterior, desactivar y activar push en la app para registrar un token nuevo. El token viejo debe quedar inactivo en `TokensPushUsuarios`.
-
-## Build Android local
-
-En repos dentro de OneDrive pueden aparecer errores de permisos o path length durante Gradle. Para evitar subir caches al repo, usar carpetas locales ignoradas por git:
-
-```powershell
-$env:GRADLE_USER_HOME="X:\cyfb\gradle-home"
-$env:TEMP="X:\cyfb\tmp"
-$env:TMP="X:\cyfb\tmp"
-```
-
-`cyfb/` esta ignorada y no debe subirse.
 ## Tests
- 
-El backend tiene tests de integración con `pytest` (base de datos SQLite en
-memoria, sin necesidad de Postgres levantado). Ver [`backend/TESTING.md`](backend/TESTING.md)
-para la estrategia completa.
- 
-```
+
+```powershell
+# Backend: SQLite en memoria, no necesita Postgres
 cd backend
 .venv\Scripts\python.exe -m pytest -v
-```
- 
-Con reporte de cobertura:
-```
 .venv\Scripts\python.exe -m pytest --cov=app --cov-report=term-missing
-```
- 
-Los tests corren automáticamente en cada push/PR vía GitHub Actions
-(`.github/workflows/backend-tests.yml`).
- 
-## Documentación operativa
- 
-Antes de trabajar en el proyecto, leer:
- 
-- `AGENTS.md`
-- `backend/TESTING.md` (estrategia de testing del backend)
 
-`AGENTS.md` contiene:
- 
-- convenciones de naming
-- reglas de base de datos
-- estructura del proyecto
-- criterios de frontend responsive
-- pautas de trabajo para colaboradores y Codex
+# Frontend: jest-expo + Testing Library
+cd frontend
+npm test
+npm run test:coverage           # falla si la cobertura baja del piso configurado
+```
+
+GitHub Actions corre ambas suites en cada push y pull request. Las estrategias y patrones de testing están en [`docs/testing-backend.md`](docs/testing-backend.md) y [`docs/testing-frontend.md`](docs/testing-frontend.md).
+
+## Builds y despliegue
+
+- **Backend**: imagen Docker definida en [`backend/Dockerfile`](backend/Dockerfile) (desplegada en Railway); ejecuta `alembic upgrade head` antes de iniciar uvicorn.
+- **Web**: `npx expo export --platform web` genera `frontend/dist`, que se publica con Cloudflare Workers ([`frontend/wrangler.jsonc`](frontend/wrangler.jsonc)).
+- **Mobile**: EAS Build, proyecto `@lcorrea87s-team/cyanea`, perfiles `development` y `production` en [`frontend/eas.json`](frontend/eas.json).
+
+### Notificaciones push en Android
+
+Usan Expo Push sobre FCM V1 (proyecto Firebase `cyanea-8aba1`, package `com.ticigaticasteam.cyanea`).
+
+- `frontend/google-services.json` **no se versiona**: cada integrante lo descarga desde Firebase (ver `frontend/google-services.example.json`). Sin ese archivo la app funciona igual en Expo Go y web, pero sin push.
+- Las credenciales FCM se administran en EAS: `npx eas-cli credentials -p android` (con `$env:NODE_OPTIONS="--use-system-ca"` si la red usa certificados propios).
+- Si cambia `extra.eas.projectId`, cada dispositivo debe regenerar su token push (desactivar y activar push en la app).
+
+### Repositorio dentro de OneDrive
+
+Si Gradle falla con errores de permisos o rutas largas, compilar con carpetas locales fuera de OneDrive:
+
+```powershell
+$env:CYANEA_ANDROID_BUILD_ROOT="$env:TEMP\cyanea-android-build"
+$env:GRADLE_USER_HOME="X:\cyfb\gradle-home"
+```
+
+## Seguridad
+
+Nunca versionar `.env`, `google-services.json`, `GoogleService-Info.plist`, service accounts de Firebase ni claves de firma. Los ejemplos de configuración (`*.example*`) solo llevan valores ficticios.
+
+## Para colaboradores
+
+Antes de proponer o implementar cambios, leer [`AGENTS.md`](AGENTS.md): concentra las convenciones de nombres (dominio en español), reglas de base de datos, contratos de cada historia de usuario y criterios de frontend. Toda decisión técnica nueva se documenta ahí en el mismo trabajo.

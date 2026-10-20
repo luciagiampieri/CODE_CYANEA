@@ -29,11 +29,7 @@ const TIPOS = [
 ];
 
 function avisar(titulo, mensaje) {
-    if (Platform.OS === "web") {
-        window.alert(mensaje);
-    } else {
-        appAlert(titulo, mensaje);
-    }
+    appAlert(titulo, mensaje);
 }
 
 export default function GuardarInformacionScreen({ visible, onClose, tripId, item, onItemGuardado }) {

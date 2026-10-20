@@ -7,7 +7,7 @@
 //   "Recordármelo" para agregarla como tarea al checklist;
 // - el aviso de que se eliminan las tareas pendientes de "Recordármelo" al cambiar
 //   el lugar de la actividad.
-import { Linking, Platform } from "react-native";
+import { Linking } from "react-native";
 
 import { appAlert, appToast } from "../components/ui/AppDialog";
 import { crearTareaEntradas } from "../services/api";
@@ -72,15 +72,6 @@ export function mostrarAdvertenciaHorario(datos, { esEdicion = false, onConfirma
   const textoConfirmar = esEdicion ? "Guardar igual" : "Registrar igual";
   const esFueraDeHorario = datos.tipo === "fuera_de_horario" || !datos.tipo;
   const textoModificar = esFueraDeHorario ? "Modificar horario" : "Modificar actividad";
-  const accionModificarWeb = esFueraDeHorario ? "modificar el horario" : "modificar la actividad";
-
-  if (Platform.OS === "web") {
-    const confirmado = window.confirm(
-      `${titulo}\n\n${mensaje}\n\nAceptar: ${textoConfirmar.toLowerCase()}. Cancelar: ${accionModificarWeb}.`
-    );
-    if (confirmado) onConfirmar?.();
-    return;
-  }
 
   appAlert(titulo, mensaje, [
     { text: textoModificar, style: "cancel" },
@@ -190,11 +181,6 @@ export async function agregarTareaAlChecklist(recomendacion, { tripId, activityI
 export function mostrarConfirmacionTareasEntradas(datos, { onConfirmar } = {}) {
   const ids = (datos?.tareas || []).map((t) => t.idChecklist);
   const mensaje = `${datos?.mensaje || "Al cambiar el lugar de la actividad se eliminará la tarea del checklist."}\n\nSi cancelás, no se guardan los cambios.`;
-
-  if (Platform.OS === "web") {
-    if (window.confirm(`¿Cambiar el lugar de la actividad?\n\n${mensaje}`)) onConfirmar?.(ids);
-    return;
-  }
 
   appAlert("¿Cambiar el lugar de la actividad?", mensaje, [
     { text: "Cancelar", style: "cancel" },

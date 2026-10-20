@@ -42,16 +42,11 @@ import {
 const COLOR_SOFT = colors.primarySoft ? `${colors.primarySoft}33` : "#eef2ff";
 
 function mostrarAlertaConfirmacion(titulo, mensaje, onAceptar) {
-    if (Platform.OS === "web") {
-        window.alert(`${titulo}\n\n${mensaje}`);
-        if (onAceptar) onAceptar();
-    } else {
-        appAlert(
-            titulo,
-            mensaje,
-            onAceptar ? [{ text: "Aceptar", onPress: onAceptar }] : undefined
-        );
-    }
+    appAlert(
+        titulo,
+        mensaje,
+        onAceptar ? [{ text: "Aceptar", onPress: onAceptar }] : undefined
+    );
 }
 
 const ICON_OPTIONS = [
