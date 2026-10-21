@@ -39,19 +39,18 @@ class ResultadoSugerenciasRead(BaseModel):
     IdSolicitud: int
     Sugerencias: list[SugerenciaActividadRead]
     Mensaje: str | None = None
-    SolicitudesRestantes: int
-    LimiteDiario: int
+    SolicitudesRestantes: int | None
+    LimiteDiario: int | None
 
 
 class ContextoSugerenciasRead(BaseModel):
     PuedeSolicitar: bool
-    LimiteDiario: int
-    SolicitudesRestantes: int
+    LimiteDiario: int | None
+    SolicitudesRestantes: int | None
     ParticipantesTotal: int
     ParticipantesConPreferencias: int
     MisPreferenciasConfiguradas: bool
 
-# --- US 88: aceptar una sugerencia ---------------------------------------------
 
 
 class AceptarSugerenciaRequest(BaseModel):
@@ -59,7 +58,6 @@ class AceptarSugerenciaRequest(BaseModel):
 
     HoraInicio: time | None = None
     HoraFin: time | None = None
-    # El usuario ya vio la advertencia de superposición y confirma igual.
     ConfirmarSuperposicion: bool = False
 
 
@@ -84,9 +82,6 @@ class AceptacionSugerenciaRead(BaseModel):
     Sugerencia: SugerenciaActividadRead | None = None
 
 
-# --- US 92: completar días libres ------------------------------------------------
-
-
 class FranjaLibreRead(BaseModel):
     IdDiaCronograma: int
     Fecha: date
@@ -100,8 +95,8 @@ class FranjasLibresRead(BaseModel):
     Franjas: list[FranjaLibreRead]
     ItinerarioCompleto: bool
     Mensaje: str | None = None
-    SolicitudesRestantes: int
-    LimiteDiario: int
+    SolicitudesRestantes: int | None
+    LimiteDiario: int | None
     MaxSugerenciasPorFranja: int
 
 
@@ -129,5 +124,5 @@ class ResultadoFranjaRead(BaseModel):
 
 class ResultadoCompletarDiasLibresRead(BaseModel):
     Resultados: list[ResultadoFranjaRead]
-    SolicitudesRestantes: int
-    LimiteDiario: int
+    SolicitudesRestantes: int | None
+    LimiteDiario: int | None

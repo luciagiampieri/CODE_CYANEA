@@ -35,6 +35,7 @@ import useResponsive from "../hooks/useResponsive";
 import {
   createTrip,
   getCurrentUser,
+  getMyLimits,
   getUsers,
   getCurrencies,
   searchDestinations,
@@ -43,12 +44,12 @@ import {
   generateCoverPreviewAI,
   acceptTripCoverAI,
 } from "../services/api.js";
+import { esErrorDeLimite, irAPlanes, mostrarLimiteAlcanzado } from "../utils/limitesPlan";
 import { colors, radii, spacing, surfaces, textStyles } from "../theme/tokens";
 import * as ImagePicker from "expo-image-picker";
 
 const MONTH_NAMES_ES = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
 
-// Configuración del calendario en Español (react-native-calendars)
 LocaleConfig.locales["es"] = {
   monthNames: MONTH_NAMES_ES,
   monthNamesShort: ["Ene.", "Feb.", "Mar.", "Abr.", "May.", "Jun.", "Jul.", "Ago.", "Sep.", "Oct.", "Nov.", "Dic."],
@@ -81,7 +82,6 @@ const COLOR_SOFT = colors.primarySoft ? `${colors.primarySoft}33` : "#eef2ff";
 const COLOR_DANGER = colors.danger || "#FF3B30";
 const COLOR_DANGER_SOFT = colors.danger ? `${colors.danger}14` : "rgba(255,59,48,0.08)";
 
-/* ───────────────────────── Utilidades ───────────────────────── */
 
 function isValidEmail(email) {
   const normalized = email.trim().toLowerCase();
@@ -122,13 +122,6 @@ function describeDuration(startDate, endDate) {
   return `${nights} ${nights === 1 ? "noche" : "noches"} · ${days} días`;
 }
 
-/**
- * Indica si el teclado está abierto.
- * - Nativo: eventos de Keyboard.
- * - Web: en el navegador no existen esos eventos, así que se detecta comparando
- *   el alto de la ventana con el área visible (visualViewport), que se achica
- *   cuando aparece el teclado del celular.
- */
 function useKeyboardVisible() {
   const [visible, setVisible] = useState(false);
   useEffect(() => {
@@ -153,11 +146,7 @@ function useKeyboardVisible() {
   return visible;
 }
 
-/**
- * Mantiene visible el campo que se está editando moviendo el scroll SOLO lo necesario,
- * para que quede justo por encima del teclado (sin empujarlo hasta arriba de todo).
- * `registrarBase` guarda la posición de la tarjeta que contiene los campos.
- */
+
 function useScrollAlCampo(margen = 20) {
   const ref = useRef(null);
   const scrollY = useRef(0);
@@ -225,7 +214,6 @@ function useScrollAlCampo(margen = 20) {
   return { ref, scrollProps, registrar, registrarBase, enfocar, limpiar };
 }
 
-/* ───────────────────────── Componentes ───────────────────────── */
 
 function Stepper({ step }) {
   return (
@@ -383,8 +371,6 @@ function DateField({
   return (
     <View style={styles.dateField}>
       {Platform.OS === "web" ? (
-        // Web: se muestra el mismo diseño que en la app y encima va el <input type="date">
-        // invisible, ocupando toda la tarjeta. Al tocarlo se abre el calendario nativo del navegador.
         <View
           style={[
             styles.dateTile,
@@ -402,11 +388,9 @@ function DateField({
             value={pickerValue || ""}
             onChange={(e) => onChange(fieldName, e.target.value)}
             onClick={(e) => {
-              // En escritorio el calendario solo se abre tocando el iconito; showPicker lo abre siempre.
               try {
                 e.currentTarget.showPicker?.();
               } catch {
-                // Algunos navegadores no lo permiten: se ignora y queda el comportamiento por defecto.
               }
             }}
             style={{
@@ -420,7 +404,7 @@ function DateField({
               padding: 0,
               border: "none",
               boxSizing: "border-box",
-              fontSize: 16, // evita el zoom automático de iPhone al tocar el campo
+              fontSize: 16, 
               cursor: disabled ? "not-allowed" : "pointer",
             }}
           />
@@ -553,7 +537,6 @@ function pickDestinationImage(dest) {
   return null;
 }
 
-// Avatar redondo de un destino ya elegido: foto de Google o, si no hay, ícono de ubicación.
 function DestinationAvatar({ uri, size = 32 }) {
   const [failed, setFailed] = useState(false);
 
@@ -591,12 +574,10 @@ function DestinationPickerModal({
   const count = selectedDestinations.length;
 
 
-  // Con el teclado abierto el pie se compacta (el contenido sube con KeyboardAvoidingView).
-  // useKeyboardVisible también funciona en web.
+
   const keyboardOpen = useKeyboardVisible();
   const keyboardVisible = visible && keyboardOpen;
 
-  // Aviso breve al agregar un destino: confirma que se sumó aunque la lista de resultados siga a la vista.
   const prevCountRef = useRef(count);
   const [toast, setToast] = useState("");
 
@@ -614,7 +595,6 @@ function DestinationPickerModal({
     return () => {
       if (timer) clearTimeout(timer);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [count, visible]);
 
   return (
@@ -865,7 +845,7 @@ function DestinationPickerModal({
 }
 
 export default function CreateTripScreen({ navigation }) {
-  const [step, setStep] = useState(1); // Control del paso actual (1, 2, 3)
+  const [step, setStep] = useState(1);
 
   const [currentUser, setCurrentUser] = useState(null);
   const [userOptions, setUserOptions] = useState([]);
@@ -891,10 +871,15 @@ export default function CreateTripScreen({ navigation }) {
   const [hasSearchedDestinations, setHasSearchedDestinations] = useState(false);
   const [coverImage, setCoverImage] = useState(null);
   const [coverError, setCoverError] = useState("");
-  const [aiCover, setAiCover] = useState(null); // { imageBase64, mimeType } generada con IA, se aplica al crear
+  const [aiCover, setAiCover] = useState(null);
   const [showAiGenerator, setShowAiGenerator] = useState(false);
   const lastContentHeightRef = useRef(0);
   const coverMode = coverImage ? "gallery" : aiCover ? "ai" : "destination";
+
+  const [viajesActivos, setViajesActivos] = useState(null);
+  const viajesLimitados =
+    Boolean(viajesActivos) && !viajesActivos.ilimitado && viajesActivos.limite != null;
+  const sinViajesDisponibles = viajesLimitados && viajesActivos.usoActual >= viajesActivos.limite;
 
   const tecladoVisible = useKeyboardVisible();
   const formScroll = useScrollAlCampo();
@@ -1011,6 +996,19 @@ export default function CreateTripScreen({ navigation }) {
     }
     loadCurrentUser();
   }, []);
+
+  const cargarLimites = useCallback(async () => {
+    try {
+      const limites = await getMyLimits();
+      setViajesActivos(limites?.viajesActivos ?? null);
+    } catch {
+      setViajesActivos(null);
+    }
+  }, []);
+
+  useEffect(() => {
+    cargarLimites();
+  }, [cargarLimites]);
 
   const lastQueryLengthRef = useRef(0);
 
@@ -1265,7 +1263,6 @@ export default function CreateTripScreen({ navigation }) {
     setDestinationOptions([]);
   }
 
-  // Validaciones por cada paso
   function validateStep1() {
     const localErrors = {};
     if (!form.title.trim()) localErrors.title = "El título del viaje no puede quedar vacío.";
@@ -1277,7 +1274,7 @@ export default function CreateTripScreen({ navigation }) {
     }
     if (!form.currency.trim()) localErrors.currency = "La moneda es obligatoria.";
 
-    // Comparación de strings "YYYY-MM-DD": getTodayIso() tiene que devolver la fecha LOCAL (ver utils/dates).
+
     if (form.startDate && form.startDate < getTodayIso()) {
       localErrors.startDate = "La fecha de inicio no puede ser anterior a la fecha actual.";
     }
@@ -1303,6 +1300,7 @@ export default function CreateTripScreen({ navigation }) {
 
   function handleNext() {
     dismissAllInputs();
+    if (step === 1 && sinViajesDisponibles) return;
     if (step === 1 && validateStep1()) {
       setStep(2);
     } else if (step === 2 && validateStep2()) {
@@ -1367,6 +1365,12 @@ export default function CreateTripScreen({ navigation }) {
       setSubmitMessage("Viaje creado correctamente.");
       navigation.navigate("Tabs", { screen: "Inicio" });
     } catch (error) {
+      if (esErrorDeLimite(error)) {
+        setSubmitStatus("idle");
+        cargarLimites();
+        mostrarLimiteAlcanzado(error);
+        return;
+      }
       setSubmitStatus("error");
       setSubmitMessage(error.message);
     }
@@ -1374,6 +1378,42 @@ export default function CreateTripScreen({ navigation }) {
 
   const coverTitle = form.title.trim() || primaryDestination?.name || "";
   const submitting = submitStatus === "submitting";
+
+  function renderLimiteViajes() {
+    if (step !== 1 || !viajesLimitados) return null;
+    return (
+      <View
+        style={[styles.limitBox, sinViajesDisponibles && styles.limitBoxFull]}
+        testID="create-trip-limite-viajes"
+      >
+        <FontAwesome6
+          name={sinViajesDisponibles ? "crown" : "suitcase-rolling"}
+          size={14}
+          color={sinViajesDisponibles ? COLOR_DANGER : colors.primary}
+          style={styles.limitIcon}
+        />
+        <View style={styles.flex}>
+          <Text style={styles.limitText}>
+            {sinViajesDisponibles
+              ? `Llegaste al límite de ${viajesActivos.limite} viajes activos de tu plan. Para crear otro, eliminá o transferí la administración de alguno de los viajes que administrás, o pasate a un plan superior.`
+              : `Administrás ${viajesActivos.usoActual} de ${viajesActivos.limite} viajes activos que permite tu plan.`}
+          </Text>
+          {sinViajesDisponibles ? (
+            <Pressable
+              onPress={irAPlanes}
+              hitSlop={8}
+              style={styles.limitLink}
+              accessibilityRole="button"
+              testID="create-trip-ver-planes"
+            >
+              <Text style={styles.limitLinkText}>Ver planes</Text>
+              <FontAwesome6 name="arrow-right" size={11} color={colors.primary} />
+            </Pressable>
+          ) : null}
+        </View>
+      </View>
+    );
+  }
 
   function renderCoverPreview() {
     let source = null;
@@ -1486,6 +1526,8 @@ export default function CreateTripScreen({ navigation }) {
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode="on-drag"
         >
+          {renderLimiteViajes()}
+
           {/* PASO 1: DATOS BÁSICOS Y FECHAS */}
           {step === 1 && (
             <View style={styles.card} onLayout={formScroll.registrarBase}>
@@ -1533,7 +1575,6 @@ export default function CreateTripScreen({ navigation }) {
                 </View>
 
                 <View style={[styles.row, isTablet && styles.rowTablet]}>
-                  {/* Fecha de ida: desde hoy (inclusive) en adelante */}
                   <DateField
                     error={errors.startDate}
                     icon="plane-departure"
@@ -1550,7 +1591,6 @@ export default function CreateTripScreen({ navigation }) {
                     setPickerVisible={setShowStartPicker}
                   />
 
-                  {/* Fecha de vuelta: requiere fecha de ida, y desde ese mismo día (inclusive) en adelante */}
                   <DateField
                     error={errors.endDate}
                     icon="plane-arrival"
@@ -1684,7 +1724,6 @@ export default function CreateTripScreen({ navigation }) {
                   </View>
                 )}
 
-                {/* Con el buscador abierto, el error se muestra dentro del buscador para que el usuario lo vea */}
                 {errors.destinations && !showDestinationPicker ? (
                   <View style={styles.errorRow}>
                     <FontAwesome6 name="circle-exclamation" size={12} color={COLOR_DANGER} />
@@ -1743,7 +1782,6 @@ export default function CreateTripScreen({ navigation }) {
                   </View>
                 ) : null}
 
-                {/* Siempre montado (solo oculto) para no perder lo que el usuario ya escribió o generó */}
                 <View style={!showAiGenerator && styles.hidden}>
                   <AICoverGenerator
                     generate={handleGenerateAiCover}
@@ -1816,7 +1854,6 @@ export default function CreateTripScreen({ navigation }) {
           )}
         </ScrollView>
 
-        {/* Mensaje de resultado visible junto a los botones */}
         {submitMessage ? (
           <View style={[styles.banner, submitStatus === "error" ? styles.bannerError : styles.bannerSuccess]}>
             <FontAwesome6
@@ -1830,7 +1867,6 @@ export default function CreateTripScreen({ navigation }) {
           </View>
         ) : null}
 
-        {/* Barra de acciones: no se muestra mientras el teclado está abierto */}
         {!tecladoVisible && (
           <View style={styles.actionBar}>
             <PrimaryButton
@@ -1841,7 +1877,12 @@ export default function CreateTripScreen({ navigation }) {
               style={styles.actionSecondary}
             />
             {step < 3 ? (
-              <PrimaryButton label="Siguiente" onPress={handleNext} style={styles.actionPrimary} />
+              <PrimaryButton
+                label="Siguiente"
+                onPress={handleNext}
+                disabled={step === 1 && sinViajesDisponibles}
+                style={styles.actionPrimary}
+              />
             ) : (
               <PrimaryButton
                 disabled={!currentUser}
@@ -1873,7 +1914,6 @@ export default function CreateTripScreen({ navigation }) {
   );
 }
 
-/* ───────────────────────── Estilos ───────────────────────── */
 
 const styles = StyleSheet.create({
   flex: {
@@ -1957,8 +1997,6 @@ const styles = StyleSheet.create({
   stepLineOn: {
     backgroundColor: "#FFFFFF",
   },
-
-  /* Contenido */
   scroll: {
     flex: 1,
     backgroundColor: colors.background,
@@ -1969,6 +2007,36 @@ const styles = StyleSheet.create({
     paddingTop: spacing.md,
     paddingBottom: spacing.xl,
     gap: spacing.md,
+  },
+  limitBox: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 10,
+    padding: spacing.md,
+    borderRadius: radii.md,
+    backgroundColor: COLOR_SOFT,
+  },
+  limitBoxFull: {
+    backgroundColor: COLOR_DANGER_SOFT,
+  },
+  limitIcon: {
+    marginTop: 2,
+  },
+  limitText: {
+    ...textStyles.meta,
+    color: colors.textPrimary,
+  },
+  limitLink: {
+    flexDirection: "row",
+    alignItems: "center",
+    alignSelf: "flex-start",
+    gap: 6,
+    marginTop: 6,
+  },
+  limitLinkText: {
+    ...textStyles.bodyStrong,
+    color: colors.primary,
+    fontSize: 13,
   },
   card: {
     ...surfaces.card,
@@ -2007,8 +2075,6 @@ const styles = StyleSheet.create({
   rowTablet: {
     flexDirection: "row",
   },
-
-  /* Campos de texto */
   field: {
     gap: spacing.xs,
   },
@@ -2081,8 +2147,6 @@ const styles = StyleSheet.create({
     ...textStyles.meta,
     color: colors.textSecondary,
   },
-
-  /* Fechas */
   dateField: {
     flex: 1,
     gap: spacing.xs,
@@ -2148,8 +2212,6 @@ const styles = StyleSheet.create({
     color: colors.primary,
     fontWeight: "700",
   },
-
-  /* Destinos (paso 2) */
   searchBar: {
     minHeight: 56,
     borderWidth: 1.5,
@@ -2266,8 +2328,6 @@ const styles = StyleSheet.create({
     ...textStyles.bodyStrong,
     color: colors.primary,
   },
-
-  /* Portada */
   coverPreview: {
     height: 200,
     borderRadius: radii.lg,
@@ -2395,8 +2455,6 @@ const styles = StyleSheet.create({
   hidden: {
     display: "none",
   },
-
-  /* Administrador y resumen (paso 3) */
   ownerCard: {
     flexDirection: "row",
     alignItems: "center",
@@ -2462,8 +2520,6 @@ const styles = StyleSheet.create({
     ...textStyles.body,
     color: colors.textPrimary,
   },
-
-  /* Mensaje de resultado y barra de acciones */
   banner: {
     flexDirection: "row",
     alignItems: "flex-start",
@@ -2506,8 +2562,6 @@ const styles = StyleSheet.create({
   actionSecondary: {
     flex: 1,
   },
-
-  /* Buscador de destinos (modal) */
   destinationCountry: {
     ...textStyles.meta,
     color: colors.textSecondary,

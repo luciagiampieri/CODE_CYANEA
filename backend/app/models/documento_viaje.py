@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import String, ForeignKey, DateTime, func, UniqueConstraint, Boolean
+from sqlalchemy import BigInteger, String, ForeignKey, DateTime, func, UniqueConstraint, Boolean
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.session import Base
@@ -48,6 +48,11 @@ class DocumentoViaje(Base):
     UrlArchivo: Mapped[str] = mapped_column(
         String(500),
         nullable=False
+    )
+
+    TamanoBytes: Mapped[int | None] = mapped_column(
+        BigInteger,
+        nullable=True
     )
 
     FechaSubida: Mapped[datetime] = mapped_column(

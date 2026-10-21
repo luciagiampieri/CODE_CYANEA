@@ -93,6 +93,7 @@ from app.services.receipt_ai.base import (
     MENSAJE_TIEMPO_AGOTADO,
 )
 from app.services.comprobante_gasto import guardar_comprobante
+from app.services.limites_planes import registrar_escaneo, validar_almacenamiento, validar_escaneos
 from app.services.supabase.storage import eliminar_documento, eliminar_documento_storage, obtener_url_publica
 from app.services.websocket_manager import manager
 
@@ -152,10 +153,8 @@ TIPO_CAMBIO_PRECISION = Decimal("0.000001")
 
 def _cotizacion(origen: str, destino: str, fecha: date) -> Decimal:
     try:
-        # Se pasa la fecha del gasto para contemplar registros offline o históricos
         return Decimal(str(obtener_tipo_cambio(origen, destino, fecha=fecha)))
     except Exception:
-        # Si el servicio no está disponible, lanzamos 503 (US-85)
         raise HTTPException(
             status_code=503,
             detail="Servicio de cotización no disponible. No se pudo realizar la conversión de moneda.",
@@ -188,13 +187,11 @@ def _resolver_conversion(
         if moneda_base == MONEDA_PESOS_ARGENTINOS:
             monto_convertido = monto_ars
         else:
-            # Viaje con otra moneda base: se lleva el monto en ARS a esa moneda.
             monto_convertido = monto_ars * _cotizacion(MONEDA_PESOS_ARGENTINOS, moneda_base, fecha_gasto)
         tipo_cambio = (monto_convertido / data.MontoOriginal).quantize(TIPO_CAMBIO_PRECISION)
         return monto_convertido, tipo_cambio
 
     if data.DesdeComprobante and en_otra_moneda:
-        # RN-39: no se confirma un gasto escaneado sin la conversión a ARS.
         raise HTTPException(
             status_code=400,
             detail=(
@@ -246,20 +243,16 @@ def _validar_datos_gasto(db: Session, data: GastoCreate | GastoUpdate, viaje_id:
             detail="La fecha del gasto no puede ser posterior a la fecha actual."
         )
 
-    # RN-21: el monto debe ser numérico (lo garantiza el schema) y mayor a cero.
     if data.MontoOriginal is None or data.MontoOriginal <= 0:
         raise HTTPException(
             status_code=400,
             detail="El monto del gasto debe ser mayor a cero.",
         )
 
-    # Categoría obligatoria. En el alta el schema ya la exige; en la edición
-    # puede llegar vacía y se responde 400 con un mensaje claro.
     if data.IdCategoria is None:
         raise HTTPException(status_code=400, detail="Debés seleccionar una categoría.")
 
-    # RN-19: en un gasto compartido el pagador es obligatorio y debe ser un
-    # participante activo del viaje. En un gasto personal paga el usuario actual.
+
     if data.EsCompartido:
         if data.IdPagador is None:
             raise HTTPException(
@@ -447,24 +440,21 @@ async def create_gasto(data: GastoCreate, db: Session = Depends(get_db), current
 
     monto_convertido, tipo_cambio = _resolver_conversion(data, moneda_gasto, moneda_base, fecha_gasto_dt)
 
-    # En un gasto personal paga quien lo registra.
     id_pagador, tipo_division_final, participantes_ids, monto_por_participante = _resolver_division(
         db, data, data.IdViaje, monto_convertido, participante_actual.IdParticipanteViaje
     )
 
     print(f"DEBUG: Guardando gasto: {data.Nombre}, Monto Original: {data.MontoOriginal} {moneda_gasto}, Monto Convertido: {monto_convertido}")
 
-    # Transferencias pendientes antes del gasto, para avisar a quien le cambie
-    # a quién transferir o de quién cobrar.
     transferencias_antes = transferencias_pendientes_por_participante(db, data.IdViaje)
       
     gasto = Gasto(
         IdViaje=data.IdViaje,
         Nombre=data.Nombre,
-        Monto=monto_convertido,            # Monto convertido a la moneda base (usado para cálculos)
-        MontoOriginal=data.MontoOriginal,  # Monto ingresado originalmente
-        MonedaOriginal=moneda_gasto,       # Moneda seleccionada
-        TipoCambio=tipo_cambio,            # Tasa aplicada
+        Monto=monto_convertido,          
+        MontoOriginal=data.MontoOriginal, 
+        MonedaOriginal=moneda_gasto,      
+        TipoCambio=tipo_cambio,        
         IdCategoria=data.IdCategoria,
         IdPagador=id_pagador,
         FechaGasto=fecha_gasto_dt,
@@ -491,13 +481,10 @@ async def create_gasto(data: GastoCreate, db: Session = Depends(get_db), current
     rebuild_settlement_plan(db, data.IdViaje)
     transferencias_despues = transferencias_pendientes_por_participante(db, data.IdViaje)
 
-    # Los demás ven el gasto nuevo y los saldos sin recargar la pantalla.
     await manager.broadcast_to_trip(
         data.IdViaje, {"tipo": "gasto_actualizado", "idGasto": gasto.IdGasto}
     )
 
-    # Personal: nadie. Compartido: división y pagador, y aviso de liquidación
-    # actualizada a quien le cambie a quién transferir.
     await notificar_alta_gasto(
         db, viaje, gasto, current_user, transferencias_antes, transferencias_despues
     )
@@ -519,7 +506,6 @@ async def delete_gasto(
     current_user: Usuario = Depends(get_current_user),
 ):
     gasto = db.scalar(select(Gasto).where(Gasto.IdGasto == gasto_id))
-    # Un gasto personal ajeno responde igual que uno inexistente.
     exigir_gasto_visible(gasto, current_user.IdUsuario)
 
     viaje = require_trip_edit_access(
@@ -539,8 +525,7 @@ async def delete_gasto(
 
     viaje_id = gasto.IdViaje
 
-    # Reglas para borrar también el comprobante: solo si lo subió quien elimina
-    # y si el viaje no finalizó (los documentos quedan bloqueados al finalizar).
+
     documento = (
         db.get(DocumentoViaje, gasto.IdDocumentoComprobante)
         if gasto.IdDocumentoComprobante is not None
@@ -558,8 +543,7 @@ async def delete_gasto(
 
     ruta_storage = documento.UrlArchivo if borrar_documento else None
 
-    # Foto de las transferencias pendientes antes de borrar, para avisar a
-    # quienes les cambie a quién transferir o de quién cobrar.
+
     transferencias_antes = transferencias_pendientes_por_participante(db, viaje_id)
 
     db.delete(gasto)
@@ -575,11 +559,9 @@ async def delete_gasto(
         try:
             eliminar_documento(ruta_storage)
         except Exception:
-            # Si el archivo ya no estaba en el storage, no bloqueamos la eliminación.
             pass
         await manager.broadcast_to_trip(viaje_id, {"tipo": "documento_actualizado"})
 
-    # Los demás dejan de ver el gasto y se actualizan sus saldos.
     await manager.broadcast_to_trip(viaje_id, {"tipo": "gasto_eliminado", "idGasto": gasto_id})
 
     await notificar_liquidacion_actualizada(
@@ -622,6 +604,8 @@ async def asociar_comprobante_gasto(
         mime = validar_documento(contenido)
     except ReceiptScanError as error:
         raise _error_escaneo(error)
+
+    validar_almacenamiento(db, viaje, len(contenido))
 
     ruta_subida = None
     try:
@@ -697,7 +681,6 @@ async def escanear_comprobante(
     No registra nada: el gasto se guarda recién cuando el usuario confirma el
     formulario con POST /gastos (RNF-31).
     """
-    # AC1: solo participantes actuales (aceptados) y viaje no finalizado.
     viaje = require_trip_edit_access(get_trip_with_relations(db, trip_id), current_user)
     if is_trip_finished(viaje):
         raise HTTPException(
@@ -707,7 +690,6 @@ async def escanear_comprobante(
             headers={"X-Error-Code": TRIP_FINISHED_CODE},
         )
 
-    # AC5: consentimiento explícito antes de enviar la imagen a un servicio externo.
     if not current_user.ConsienteProcesamientoIA:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -716,7 +698,8 @@ async def escanear_comprobante(
             headers={"X-Error-Code": AI_CONSENT_REQUIRED},
         )
 
-    # AC3: formato y tamaño (se lee un byte de más para detectar el exceso).
+    validar_escaneos(db, current_user)
+
     contenido = await archivo.read(MAX_RECEIPT_BYTES + 1)
     try:
         mime = validar_documento(contenido)
@@ -731,13 +714,11 @@ async def escanear_comprobante(
     }
     monedas = {codigo.upper() for codigo in db.scalars(select(Moneda.Codigo)).all()}
 
-    # AC14 / AC15: el servicio externo puede fallar o demorar; nunca bloquea la carga manual.
     try:
         crudo = await asyncio.wait_for(
             extractor.extraer(contenido, mime, list(categorias.keys())),
             timeout=settings.ai_receipt_timeout_seconds + 1,
         )
-        # AC6: la respuesta se valida contra el esquema y las reglas de negocio.
         resultado = construir_resultado(validar_esquema(crudo), categorias, monedas)
     except TimeoutError:
         raise HTTPException(
@@ -748,13 +729,14 @@ async def escanear_comprobante(
     except ReceiptScanError as error:
         raise _error_escaneo(error)
     except Exception:
-        # RNF-30: cualquier falla inesperada del servicio externo degrada a carga manual.
         logger.exception("Error inesperado al escanear comprobante con IA")
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail=MENSAJE_NO_DISPONIBLE,
             headers={"X-Error-Code": AI_UNAVAILABLE},
         )
+
+    registrar_escaneo(db, current_user, trip_id)
 
     return EscaneoComprobanteRead(
         Nombre=resultado.Nombre,
@@ -797,7 +779,6 @@ def list_trip_gastos(
             ),
         )
         .where(Gasto.IdViaje == trip_id)
-        # Los gastos personales solo los ve su dueño (creador o pagador).
         .where(condicion_gasto_visible(current_user.IdUsuario))
         .order_by(Gasto.FechaGasto.desc(), Gasto.FechaCreacion.desc(), Gasto.IdGasto.desc())
     )
@@ -807,7 +788,6 @@ def list_trip_gastos(
     gastos = db.scalars(query).all()
 
     def _comprobante_visible(gasto: Gasto) -> bool:
-        # Mismas reglas de acceso que el repositorio: público o propio (RN-28).
         comprobante = gasto.Comprobante
         return (
             es_participante_actual
@@ -893,7 +873,6 @@ def get_posibles_duplicados(
         fecha_gasto=fecha_gasto,
         monto_original=monto_original,
         moneda_original=moneda_original,
-        # En un gasto personal paga quien lo registra (igual que en el alta).
         id_pagador=id_pagador if es_compartido else participante_actual.IdParticipanteViaje,
         es_compartido=es_compartido,
     )
@@ -1016,9 +995,7 @@ def validar_permiso_edicion_gasto(db: Session, viaje: Viaje, gasto: Gasto, usuar
             headers={"X-Error-Code": TRIP_FINISHED_CODE},
         )
 
-    # Solo el creador original o el pagador actual. Ser parte de la división o
-    # administrador del viaje no alcanza. Como se compara contra el pagador
-    # actual, al cambiar el pagador el permiso pasa al nuevo automáticamente.
+
     participacion = _participacion_aceptada(viaje, usuario)
     if participacion is None or participacion.IdParticipanteViaje not in {
         gasto.IdParticipanteCreador,
@@ -1081,7 +1058,6 @@ async def update_gasto(
     viaje = require_trip_access(get_trip_with_relations(db, gasto.IdViaje), current_user)
     validar_permiso_edicion_gasto(db, viaje, gasto, current_user)
 
-    # Edición concurrente: si otro usuario tiene la edición activa, no se guarda.
     id_editor = manager.obtener_editor_gasto(gasto_id)
     if id_editor is not None and id_editor != current_user.IdUsuario:
         raise HTTPException(
@@ -1103,15 +1079,13 @@ async def update_gasto(
     else:
         monto_convertido, tipo_cambio = gasto.Monto, gasto.TipoCambio
 
-    # En un gasto personal se conserva el pagador actual, salvo que se indique
-    # otro: quien edita puede ser el creador y no el pagador.
+
     id_pagador_personal = gasto.IdPagador
     if not data.EsCompartido and data.IdPagador is not None:
         _validar_participantes_activos(db, viaje_id, [data.IdPagador])
         id_pagador_personal = data.IdPagador
 
-    # En la edición un gasto compartido tiene que indicar cómo se divide: si
-    # no, se perdería la división anterior sin reemplazarla.
+
     if data.EsCompartido and data.TipoDivision is None:
         raise HTTPException(status_code=400, detail="Debés indicar el tipo de división del gasto.")
 
@@ -1120,7 +1094,6 @@ async def update_gasto(
     )
 
     nombre_anterior = gasto.Nombre
-    # Foto de las transferencias pendientes antes de guardar los cambios.
     transferencias_antes = transferencias_pendientes_por_participante(db, viaje_id)
 
     try:
@@ -1134,10 +1107,6 @@ async def update_gasto(
         gasto.FechaGasto = fecha_gasto_dt
         gasto.DividirEntreTodos = data.DividirEntreTodos
         gasto.TipoDivision = tipo_division
-
-        # Se borra la división anterior y se hace flush antes de insertar la
-        # nueva: si no, SQLAlchemy inserta primero y choca con la UNIQUE
-        # (IdGasto, IdParticipanteViaje).
         gasto.ParticipantesAsociados.clear()
         db.flush()
         for id_part in participantes_ids:
@@ -1149,27 +1118,23 @@ async def update_gasto(
             )
         db.flush()
 
-        # Regenera la liquidación activa y confirma todo junto (hace commit).
         rebuild_settlement_plan(db, viaje_id)
     except Exception:
         db.rollback()
         raise
     transferencias_despues = transferencias_pendientes_por_participante(db, viaje_id)
 
-    # Los cambios se reflejan para todos sin recargar la pantalla.
     await manager.broadcast_to_trip(
         viaje_id,
         {"tipo": "gasto_actualizado", "idGasto": gasto_id},
     )
 
-    # Guardar libera la edición para que otro usuario autorizado pueda editar.
     if await manager.finalizar_edicion_gasto(gasto_id, current_user.IdUsuario):
         await manager.broadcast_to_trip(
             viaje_id,
             {"tipo": "edicion_gasto_liberada", "idGasto": gasto_id},
         )
 
-    # Notificaciones: solo se llega hasta acá si los cambios se guardaron.
     db.refresh(gasto)
     destinatarios_ids = _destinatarios_modificacion(gasto, current_user.IdUsuario)
     if destinatarios_ids:
@@ -1198,7 +1163,6 @@ async def update_gasto(
             list(destinatarios),
         )
 
-    # A los demás solo se les avisa si les cambió a quién transferir o de quién cobrar.
     await notificar_liquidacion_actualizada(
         db,
         viaje,
@@ -1213,8 +1177,7 @@ async def update_gasto(
         "IdGasto": gasto_id,
     }
 
-# Cada cuántos segundos el cliente debe renovar la edición mientras el
-# formulario está abierto.
+
 SEGUNDOS_RENOVACION_EDICION_GASTO = 30
 
 
@@ -1257,7 +1220,6 @@ async def edicion_gasto_ws(websocket: WebSocket, gasto_id: int, token: str = Que
             return
         viaje_id = gasto.IdViaje
 
-        # Mismas reglas que el PUT: estado del viaje, permiso y liquidación.
         try:
             viaje = require_trip_access(get_trip_with_relations(db, viaje_id), current_user)
             validar_permiso_edicion_gasto(db, viaje, gasto, current_user)
@@ -1286,7 +1248,6 @@ async def edicion_gasto_ws(websocket: WebSocket, gasto_id: int, token: str = Que
             mensaje = await websocket.receive_json()
             if mensaje.get("tipo") == "renovar":
                 if not await manager.renovar_edicion_gasto(gasto_id, current_user.IdUsuario):
-                    # Venció por inactividad y la tomó otro: hay que salir.
                     await websocket.send_json({"tipo": "edicion_gasto_perdida", "idGasto": gasto_id})
                     await websocket.close()
                     return
@@ -1330,7 +1291,6 @@ def get_gasto(
 
     viaje = require_trip_access(get_trip_with_relations(db, gasto.IdViaje), current_user)
 
-    # Mismas reglas que el PUT y el WebSocket, pero informadas en vez de lanzadas.
     codigo_no_editable = None
     motivo_no_editable = None
     try:
@@ -1339,7 +1299,6 @@ def get_gasto(
         codigo_no_editable = (error.headers or {}).get("X-Error-Code")
         motivo_no_editable = error.detail
 
-    # Si otro usuario tiene la edición activa, se informa quién.
     id_editor = manager.obtener_editor_gasto(gasto_id)
     nombre_editor = None
     if id_editor is not None:

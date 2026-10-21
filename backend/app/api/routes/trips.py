@@ -101,6 +101,7 @@ from app.services.entradas_ai import EvaluacionEntradas, evaluar_entradas, norma
 from app.services import tareas_entradas
 from app.services.cupos_viajes import require_trip_capacity
 from app.services.administracion_viajes import bloquear_viaje, cambiar_administrador, transferir_administracion
+from app.services.limites_planes import validar_viajes_activos
 from app.models.checklist import Checklist
 
 ROUTE_GENERATION_AVAILABLE = True
@@ -169,7 +170,6 @@ def _require_trip_admin(viaje: Viaje, current_user: Usuario) -> None:
 
 
 def _actor_display_name(usuario: Usuario) -> str:
-    # Respeta la privacidad del nombre (US 61): estos textos los leen otras personas.
     return nombre_para_otros(usuario) or usuario.NombreUsuario
 
 
@@ -246,7 +246,6 @@ def _respuesta_advertencia(analisis: dict, entradas: EvaluacionEntradas | None =
         "tipo": analisis.get("tipo"),
         "proximaApertura": analisis.get("proxima_apertura"),
         "resumen": analisis.get("resumen"),
-        # Recomendación de entradas/reservas para mostrar si el usuario confirma.
         "recomendacionEntradas": entradas.recomendacion if entradas else None,
         "googlePlaceIdEntradas": entradas.place_id_guardado if entradas else None,
     }
@@ -430,7 +429,6 @@ def _build_trip_detail(
     has_left = False
     participantes_salidos_despues = []
     participacion_usuario = None
-    # Los datos de los demás usuarios respetan su configuración de privacidad (US 61).
     id_observador = current_user.IdUsuario if current_user is not None else None
 
     if current_user is not None:
@@ -603,17 +601,11 @@ def _build_trip_detail(
     )
 
 
-# Estados de participación desde los que se puede volver a invitar a alguien.
-# HU 72: una invitación cancelada o rechazada se puede reenviar; quien fue expulsado
-# o salió del viaje también puede ser invitado de nuevo. Los demás estados (invitado,
-# aceptado) significan que la persona ya está en el viaje o tiene una invitación vigente.
 ESTADOS_REINVITABLES = {
     "cancelada": "Invitación reenviada correctamente",
     "rechazado": "Invitación reenviada correctamente",
     "expulsado": "Participante vuelto a invitar correctamente",
     "salio": "Participante vuelto a invitar correctamente",
-    # US 103: venció al finalizar el viaje (solo se puede reinvitar si el viaje
-    # volvió a estar activo; con el viaje finalizado la invitación se rechaza antes).
     "vencida": "Invitación reenviada correctamente",
 }
 
@@ -630,7 +622,7 @@ def _reinvitar_participante(db, existente, estado_invitado, rol_participante, cu
     existente.IdRolParticipante = rol_participante.IdRolParticipante
     existente.InvitadoPor = current_user.IdUsuario
     existente.FechaInvitacion = datetime.now()
-    existente.FechaRespuesta = None  # la respuesta anterior (rechazo) ya no aplica
+    existente.FechaRespuesta = None 
     existente.VencidaPorFinViaje = False
     db.commit()
     return mensaje
@@ -737,7 +729,6 @@ async def respond_to_invitation(
             detail="Esta invitación fue cancelada por el administrador del viaje."
         )
 
-    # US 103: al finalizar el viaje las invitaciones pendientes vencen.
     if participacion.EstadoParticipacion.Nombre == "vencida":
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -1079,7 +1070,6 @@ async def update_trip(
     for indice, dia in enumerate(dias_ordenados, start=1):
         dia.IndiceDia = indice
 
-    # US 103: con las fechas nuevas el viaje puede finalizar o volver a estar activo.
     cambio_estado = recalcular_estado_viaje(db, viaje.IdViaje)
 
     db.commit()
@@ -1215,7 +1205,6 @@ async def create_activity(
         Icono=payload.icono,
         GooglePlaceIdEntradas=entradas.place_id_guardado,
     )
-    # El usuario vio la advertencia y registró igual: queda marcada en el itinerario.
     if ignorar_advertencia and payload.advertenciaHorario is not None:
         actividad.TipoAdvertenciaHorario = payload.advertenciaHorario.tipo
         actividad.AdvertenciaHorario = payload.advertenciaHorario.resumen.strip()
@@ -1225,16 +1214,12 @@ async def create_activity(
 
     resultado = _build_actividad_read(actividad)
 
-    # Avisamos a todos los conectados al itinerario de este viaje (menos a
-    # quien lo acaba de crear, que ya lo ve por la respuesta REST normal).
     await manager.broadcast(trip_id, {
         "tipo": "actividad_creada",
         "idDiaCronograma": dia.IdDiaCronograma,
         "actividad": resultado.model_dump(by_alias=True),
     })
-    # Aviso solo para quien registra: no se pudo verificar el horario (no bloquea).
     resultado.avisoHorario = analisis.get("aviso")
-    # Recomendación de entradas/reservas solo para quien registra (no bloquea).
     resultado.recomendacionEntradas = _recomendacion_read(entradas)
 
     await _sincronizar_y_notificar_ruta(db, dia, trip_id)
@@ -1341,14 +1326,11 @@ async def update_activity(
     cambia_horario = (
         payload.horaInicio != actividad.HoraInicio or payload.horaFin != actividad.HoraFin
     )
-    # Si el usuario ya aceptó una advertencia y no cambia el lugar, no se le vuelve
-    # a mostrar: el análisis corre en silencio solo para mantener la marca al día.
     advertencia_ya_aceptada = actividad.TipoAdvertenciaHorario is not None and not cambia_lugar
 
     tipo_advertencia = actividad.TipoAdvertenciaHorario
     texto_advertencia = actividad.AdvertenciaHorario
     analisis: dict = {"advertencia": False}
-    # Lo completa el análisis de horarios con el lugar identificado (si corre).
     contexto_lugar: dict = {}
     analisis_corrio = False
     respuesta_advertencia: dict | None = None
@@ -1360,7 +1342,7 @@ async def update_activity(
         elif cambia_lugar:
             tipo_advertencia = texto_advertencia = None
     elif advertencia_ya_aceptada and not cambia_horario:
-        pass  # Mismo lugar y mismo horario: la marca sigue vigente sin consultar nada.
+        pass 
     else:
         analisis = await analizar_horario_actividad(
             db=db,
@@ -1375,8 +1357,6 @@ async def update_activity(
         analisis_corrio = True
         if analisis.get("advertencia"):
             if not advertencia_ya_aceptada:
-                # Se devuelve después de revisar las tareas de "Recordármelo": si el
-                # lugar cambia, primero se confirma que se eliminan.
                 respuesta_advertencia = _respuesta_advertencia(
                     analisis,
                     await evaluar_entradas(actividad.GooglePlaceIdEntradas, contexto_lugar),
@@ -1387,11 +1367,9 @@ async def update_activity(
         elif analisis.get("compatible"):
             tipo_advertencia = texto_advertencia = None
         elif cambia_lugar:
-            # Lugar nuevo sin horarios verificables: la marca anterior ya no aplica.
             tipo_advertencia = texto_advertencia = None
 
-    # Tareas pendientes de "Recordármelo": si la edición cambia el lugar para el que
-    # se crearon, se eliminan, pero antes se le pide confirmación al usuario.
+
     tareas_a_eliminar = _tareas_entradas_que_cambian(
         db,
         actividad,
@@ -1529,8 +1507,7 @@ async def delete_activity(
     if actividad is None:
         raise HTTPException(status_code=404, detail="La actividad no existe en este día del itinerario.")
 
-    # Tareas pendientes de "Recordármelo": se eliminan con la actividad, pero la app
-    # tiene que haber avisado (`confirmar_eliminar_tareas`). Las hechas se conservan.
+
     pendientes = tareas_entradas.tareas_pendientes(db, actividad.IdActividad)
     if pendientes and not confirmar_eliminar_tareas:
         raise HTTPException(
@@ -1554,8 +1531,7 @@ async def delete_activity(
             db, viaje, tareas_eliminadas, current_user, "eliminó la actividad"
         )
 
-    # Avisamos a todos los conectados al itinerario de este viaje (menos a
-    # quien la acaba de eliminar, que ya lo ve por la respuesta REST normal).
+
     await manager.broadcast(trip_id, {
         "tipo": "actividad_eliminada",
         "idDiaCronograma": dia.IdDiaCronograma,
@@ -1851,9 +1827,7 @@ def remove_trip_participant(
     if estado_expulsado is None:
         raise HTTPException(status_code=500, detail="Faltan datos maestros requeridos")
 
-    # Advertencia: si el participante tiene saldo pendiente de liquidar,
-    # se informa antes de confirmar la operación (el balance nunca se
-    # persiste, se recalcula siempre desde Gastos/ParticipantesGastos).
+
     advertencia = None
     _, _, balances = calcular_balances_participantes(db, trip_id)
     saldo = balances.get(participacion.IdParticipanteViaje)
@@ -1925,9 +1899,6 @@ def remove_trip_external_invitation(
     return TripMutationResponse(message="Invitación externa eliminada correctamente")
 
 
-# HU 71 - Visualizar invitaciones enviadas.
-# Las invitaciones a usuarios registrados viven en ParticipantesViajes; su
-# EstadoParticipacion se traduce al estado de la invitacion que ve el admin.
 ESTADO_PARTICIPACION_A_ESTADO_INVITACION = {
     "invitado": "pendiente",
     "aceptado": "aceptada",
@@ -1975,7 +1946,6 @@ def list_sent_invitations(
             == ESTADO_INVITACION_A_ESTADO_PARTICIPACION[estado]
         )
     ]
-    # CA: ordenadas de la mas reciente a la mas antigua.
     invitaciones.sort(key=lambda item: item.FechaInvitacion, reverse=True)
 
     return [
@@ -1992,7 +1962,6 @@ def list_sent_invitations(
     ]
 
 
-# HU 72 - Cancelar invitación enviada.
 @router.post(
     "/{trip_id}/invitations/{user_id}/cancel",
     response_model=TripMutationResponse,
@@ -2045,8 +2014,7 @@ async def cancel_sent_invitation(
     participacion.FechaRespuesta = datetime.now()
     db.commit()
 
-    # CA 5: aviso interno (+ push si el usuario lo tiene habilitado). Un error
-    # al notificar no revierte la cancelación: el dispatcher lo registra y sigue.
+
     await dispatch_user_notification(
         db,
         TripNotificationEvent(
@@ -2087,17 +2055,14 @@ async def remove_trip_cover(
 
     ruta_portada = viaje.UrlPortadaPersonalizada
 
-    # Si no tiene portada personalizada, no hay nada que eliminar.
     if not ruta_portada:
         return TripMutationResponse(
             message="El viaje ya utiliza la portada predeterminada."
         )
 
-    # Primero quitamos la referencia de la BD.
     viaje.UrlPortadaPersonalizada = None
     db.commit()
 
-    # Después eliminamos el archivo de Supabase.
     try:
         eliminar_documento_storage(ruta_portada)
     except Exception as e:
@@ -2304,9 +2269,10 @@ async def create_trip(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
 ) -> TripRead:
-    # El administrador siempre es el usuario autenticado
     administrador = current_user
     admin_user_id = current_user.IdUsuario
+
+    validar_viajes_activos(db, current_user)
 
     participantes_ids = set(payload.participantUserIds) - {admin_user_id}
     if participantes_ids:
@@ -2617,7 +2583,6 @@ async def leave_trip(
             detail="No puedes abandonar un viaje que no está activo",
         )
 
-    # En la base puede seguir "activo" aunque ya pasó la fecha de fin.
     require_trip_not_finished(viaje, "la lista de participantes")
 
     participacion = db.scalar(
@@ -2653,7 +2618,6 @@ async def leave_trip(
         )
     ).all()
 
-    # CASO ESPECIAL: el administrador es el único participante
     if es_administrador and not otros_participantes:
         estado_salio = db.scalar(
             select(EstadoParticipacion).where(
@@ -2675,11 +2639,9 @@ async def leave_trip(
                 detail="Faltan estados maestros requeridos."
             )
 
-        # El administrador abandona
         participacion.IdEstadoParticipacion = estado_salio.IdEstadoParticipacion
         participacion.FechaSalida = datetime.now()
 
-        # Como no quedan participantes, se cancela el viaje
         viaje.IdEstadoViaje = estado_cancelado.IdEstadoViaje
 
         db.commit()
@@ -2705,7 +2667,6 @@ async def leave_trip(
 
     nuevo_administrador = None
 
-    # CASO 1: El usuario es administrador
 
     if es_administrador:
 
@@ -2742,7 +2703,6 @@ async def leave_trip(
 
         nuevo_administrador_usuario = nuevo_administrador.Usuario
 
-    # Buscamos estados y roles maestros necesarios para la operación
     estado_salio = db.scalar(
         select(EstadoParticipacion)
         .where(
@@ -2778,7 +2738,6 @@ async def leave_trip(
         db.add(notificacion)
         db.commit()
 
-    # CASO 2: El usuario no es administrador
 
     else:
         participacion.IdEstadoParticipacion = estado_salio.IdEstadoParticipacion
@@ -2799,7 +2758,6 @@ async def leave_trip(
         db.add(notificacion)
         db.commit()
 
-    # avisar que un usuario abandono el viaje asi se actualiza la lista de participantes
     await manager.broadcast_to_trip(
         viaje.IdViaje,
         {
@@ -2809,7 +2767,6 @@ async def leave_trip(
         }
     )
 
-    # avisar al usuario destinario de la notificación que tiene una nueva notificación
     await manager.broadcast_to_user(
         notificacion.IdUsuario,
         {

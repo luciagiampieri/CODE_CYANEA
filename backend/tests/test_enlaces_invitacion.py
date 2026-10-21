@@ -104,7 +104,7 @@ def test_cupo_incluye_administrador_y_se_modifica_en_bd_sin_reiniciar(
     lleno = client.post(consulta(token) + "/unirse", headers=headers(cuarto))
     assert lleno.status_code == 409
     assert lleno.headers["X-Error-Code"] == "TRIP_PARTICIPANT_LIMIT_REACHED"
-    assert "3 participantes" in lleno.json()["detail"]
+    assert "3 participantes" in lleno.json()["detail"]["mensaje"]
     plan = db_session.get(Plan, 1)
     plan.MaxParticipantesViaje = 4
     db_session.commit()
@@ -132,7 +132,7 @@ def test_se_usa_el_plan_actual_del_administrador_y_no_el_del_solicitante(
     token = generar(client, viaje, auth_headers)
     lleno = client.post(consulta(token) + "/unirse", headers=headers(invitado))
     assert lleno.status_code == 409
-    assert "1 participantes" in lleno.json()["detail"]
+    assert "1 participantes" in lleno.json()["detail"]["mensaje"]
     usuario_activo.IdPlan = 1
     db_session.commit()
     assert client.post(consulta(token) + "/unirse", headers=headers(invitado)).status_code == 200

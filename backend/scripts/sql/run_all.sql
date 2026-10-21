@@ -14,3 +14,5 @@
 \i 012_backoffice.sql
 \i 013_enlaces_invitacion_viajes.sql
 \i 014_planes_y_cupos.sql
+\i 015_limites_y_suscripciones.sql
+\i 016_sugerencias_actividades.sql

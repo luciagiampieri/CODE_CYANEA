@@ -17,13 +17,14 @@ import PrimaryButton from "../components/ui/PrimaryButton";
 import { getActivitySuggestionsContext, requestActivitySuggestions } from "../services/api";
 import { colors, radii, spacing, textStyles } from "../theme/tokens";
 import { acotarFranja, aMinutos, calcularHuecosLibres } from "../utils/huecosLibres";
+import { esErrorDeLimite, irAPlanes } from "../utils/limitesPlan";
 import PlanningPreferencesScreen from "./PlanningPreferencesScreen";
 
 const DURACION_MINIMA_MINUTOS = 60;
 
 const FRANJA_POR_DEFECTO = { inicio: "10:00", fin: "13:00" };
 
-// Solo se ofrecen cuando el día no tiene actividades (si tiene, se ofrecen sus huecos libres).
+
 const FRANJAS_RAPIDAS = [
   { id: "manana", label: "Mañana", inicio: "09:00", fin: "13:00" },
   { id: "tarde", label: "Tarde", inicio: "14:00", fin: "18:00" },
@@ -98,7 +99,6 @@ function partesDeFecha(fechaRaw) {
   };
 }
 
-// Huecos libres del día (≥ 1 h), acotados a 4 h. Si el día es hoy, descarta los que ya pasaron.
 function huecosDelDia(dia, hoy) {
   if (!dia) return [];
   let huecos = calcularHuecosLibres(dia.actividades);
@@ -153,7 +153,6 @@ export default function ActivitySuggestionsScreen({
   const actividadesDelDia = diaSeleccionado?.actividades ?? [];
   const huecosSeleccionado = huecosDelDia(diaSeleccionado, hoy);
 
-  // Actividades del día que pisan la franja elegida (solo para avisar, no bloquea).
   const superpuestas =
     franja.inicio && diaSeleccionado
       ? actividadesDelDia.filter((actividad) => {
@@ -184,6 +183,11 @@ export default function ActivitySuggestionsScreen({
     setMostrarDias(false);
   }
 
+  function verPlanes() {
+    onClose?.();
+    irAPlanes();
+  }
+
   async function cargarContexto() {
     if (!tripId) return;
     setCargandoContexto(true);
@@ -211,8 +215,7 @@ export default function ActivitySuggestionsScreen({
     cargarContexto();
   }, [visible, tripId]);
 
-  // Al abrir (o si cambian el día o la franja con que se abre): precarga día y horario.
-  // Si se abrió desde un hueco libre, usa ese hueco; si no, el primer hueco del día.
+
   useEffect(() => {
     if (!visible) return;
     const primerDiaDisponible =
@@ -264,7 +267,11 @@ export default function ActivitySuggestionsScreen({
         setFase("formulario");
         return;
       }
-      setErrorInfo({ message: error?.message || "No se pudieron generar las sugerencias.", code: error?.code });
+      setErrorInfo({
+        message: error?.message || "No se pudieron generar las sugerencias.",
+        code: error?.code,
+        esLimite: esErrorDeLimite(error),
+      });
       setFase("error");
       cargarContexto();
     }
@@ -545,7 +552,6 @@ export default function ActivitySuggestionsScreen({
     );
   }
 
-  // Pie fijo del formulario: contador de solicitudes y botón de generar.
   function renderPieFormulario() {
     return (
       <View style={styles.pie}>
@@ -555,6 +561,17 @@ export default function ActivitySuggestionsScreen({
               ? `Alcanzaste el límite de ${contexto?.LimiteDiario ?? ""} solicitudes de hoy para este viaje.`
               : `Te quedan ${restantes} ${restantes === 1 ? "solicitud" : "solicitudes"} hoy en este viaje.`}
           </Text>
+        ) : null}
+        {limiteAlcanzado ? (
+          <Pressable
+            accessibilityRole="button"
+            onPress={verPlanes}
+            style={styles.linkPlanes}
+            testID="suggestions-ver-planes"
+          >
+            <FontAwesome6 name="crown" size={12} color={colors.primary} />
+            <Text style={styles.linkText}>Ver planes</Text>
+          </Pressable>
         ) : null}
         <Pressable
           accessibilityRole="button"
@@ -631,13 +648,26 @@ export default function ActivitySuggestionsScreen({
     return (
       <View style={styles.centrado} testID="suggestions-error">
         <FontAwesome6 name="circle-exclamation" size={22} color={colors.danger} />
-        <Text style={styles.emptyTitle}>No se pudieron generar las sugerencias</Text>
+        <Text style={styles.emptyTitle}>
+          {errorInfo?.esLimite ? "Llegaste al límite del plan" : "No se pudieron generar las sugerencias"}
+        </Text>
         <Text style={styles.emptyText}>{errorInfo?.message}</Text>
-        {esErrorDeIA ? (
+        {errorInfo?.esLimite ? (
+          <PrimaryButton
+            label="Ver planes"
+            icon="crown"
+            iconPosition="left"
+            onPress={verPlanes}
+            style={styles.submitButton}
+            testID="suggestions-error-ver-planes"
+          />
+        ) : null}
+        {esErrorDeIA || errorInfo?.esLimite ? (
           <PrimaryButton
             label="Crear actividad manualmente"
             icon="plus"
             iconPosition="left"
+            variant={errorInfo?.esLimite ? "secondary" : undefined}
             onPress={() => onCrearManual?.(dayId)}
             style={styles.submitButton}
           />
@@ -955,6 +985,13 @@ const styles = StyleSheet.create({
   linkRow: {
     flexDirection: "row",
     alignItems: "center",
+    gap: spacing.xs,
+    paddingVertical: spacing.xs,
+  },
+  linkPlanes: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
     gap: spacing.xs,
     paddingVertical: spacing.xs,
   },

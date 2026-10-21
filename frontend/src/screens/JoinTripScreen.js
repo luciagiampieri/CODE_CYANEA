@@ -5,6 +5,7 @@ import RecoveryLayout from "../components/ui/RecoveryLayout";
 import PrimaryButton from "../components/ui/PrimaryButton";
 import { appAlert } from "../components/ui/AppDialog";
 import { previewSharedInvitation, joinTripByLink, getTripDetail } from "../services/api";
+import { esErrorDeLimite, mostrarLimiteAlcanzado } from "../utils/limitesPlan";
 import { colors, spacing, textStyles } from "../theme/tokens";
 
 export default function JoinTripScreen({ route, navigation }) {
@@ -81,6 +82,9 @@ export default function JoinTripScreen({ route, navigation }) {
       setError(err.message);
       setNeedsConfirmation(err.code === "EMAIL_CONFIRMATION_REQUIRED");
       setBlocked(["ALREADY_TRIP_PARTICIPANT", "INVITATION_MEMBERSHIP_BLOCKED"].includes(err.code));
+      if (esErrorDeLimite(err)) {
+        mostrarLimiteAlcanzado(err, { titulo: "El viaje está completo", ofrecerPlanes: false });
+      }
     } finally { joining.current = false; setBusy(false); }
   }
 

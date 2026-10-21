@@ -1,4 +1,3 @@
-// US 92: helpers puros para mostrar y seleccionar los días y franjas libres.
 
 const DIAS = ["Domingo", "Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"];
 const MESES = [
@@ -15,7 +14,6 @@ export function claveFranja(franja) {
   return `${franja.IdDiaCronograma}|${franja.HoraInicio}|${franja.HoraFin}`;
 }
 
-/** "2026-10-19" -> "Lunes 19 de octubre" (sin depender de la zona horaria). */
 export function fechaLegible(fechaISO) {
   const [y, m, d] = String(fechaISO ?? "").slice(0, 10).split("-").map(Number);
   if (!y || !m || !d) return "";
@@ -33,7 +31,6 @@ export function textoFranja(franja) {
   return `${rango} · ${duracion} libres`;
 }
 
-/** Agrupa franjas o resultados por día, respetando el orden en que llegan. */
 export function agruparPorDia(items) {
   const grupos = [];
   const porDia = new Map();
@@ -54,8 +51,8 @@ export function agruparPorDia(items) {
   return grupos;
 }
 
-/** Mensaje si la selección supera las solicitudes que le quedan hoy al viaje (RNF-36). */
 export function avisoLimiteSeleccion(cantidad, restantes) {
+  if (restantes == null) return null;
   if (cantidad <= restantes) return null;
   if (restantes <= 0) {
     return "El viaje ya usó todas las solicitudes de sugerencias de hoy. Podés intentar mañana.";

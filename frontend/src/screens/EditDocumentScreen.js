@@ -24,6 +24,8 @@ import {
 
 import { colors, radii, spacing, surfaces, textStyles } from "../theme/tokens";
 
+import { esErrorDeLimite, mostrarLimiteAlcanzado } from "../utils/limitesPlan";
+
 import { appAlert } from "../components/ui/AppDialog";
 
 function mostrarAlertaConfirmacion(titulo, mensaje, onAceptar) {
@@ -183,6 +185,15 @@ export default function EditDocumentScreen({ visible, onClose, tripId, documento
             });
         } catch (error) {
             console.log("ERROR updateTripDocument:", error);
+
+            if (esErrorDeLimite(error)) {
+                mostrarLimiteAlcanzado(error, {
+                    titulo: "El viaje se quedó sin espacio",
+                    antesDeIr: onClose,
+                });
+                return;
+            }
+
             const mensajeError = (error?.message || "").toLowerCase();
             const esNombreDuplicado =
                 mensajeError.includes("duplicate") ||

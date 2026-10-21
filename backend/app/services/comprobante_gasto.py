@@ -1,13 +1,3 @@
-"""Comprobante escaneado asociado a un gasto y guardado en el repositorio (US 96).
-
-Reglas:
-- Se guarda como DocumentoViaje en la categoría "Comprobantes" (se crea si falta).
-- Nombre: "Comprobante - [nombre del gasto] - [dd-mm-aaaa]", con sufijo
-    " (2)", " (3)"... si ya existe (la unicidad de nombres es por viaje).
-- Se crea público: lo ven todos los participantes, igual que el gasto.
-- Se rige por las reglas de acceso de los documentos del viaje (RN-28, RNF-14).
-"""
-
 from __future__ import annotations
 
 import io
@@ -101,6 +91,7 @@ def guardar_comprobante(
         IdUsuarioSubida=usuario.IdUsuario,
         NombreArchivo=nombre,
         UrlArchivo=url_archivo,
+        TamanoBytes=len(contenido),
         EsPublico=True,
     )
     db.add(documento)

@@ -1,25 +1,13 @@
-/**
- * Escanear comprobante de gasto mediante IA (US 93).
- *
- * Maneja todo el flujo y entrega a `onScanned(datos, imagen)` los datos para
- * precargar el formulario y la imagen procesada (`imagen.uri`), que el
- * formulario muestra como vista previa (US 94, AC1). Nunca registra el gasto:
- * eso lo hace el usuario al confirmar el formulario (RNF-31).
- *
- * Flujo: origen (cámara o galería, AC2) -> consentimiento la primera vez
- * (AC5) -> validación de formato y tamaño (AC3) -> compresión (AC4) ->
- * indicador de progreso con tiempo máximo de 15 s (AC15) -> datos o un
- * mensaje de error que ofrece la carga manual (AC13, AC14).
- */
-import React, { useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { ActivityIndicator, Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import Modal from "../ui/AppModal";
 import { FontAwesome6 } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
 
 import PrimaryButton from "../ui/PrimaryButton";
-import { getCurrentUser, scanReceipt, updateAiConsent } from "../../services/api";
+import { getCurrentUser, getMyLimits, scanReceipt, updateAiConsent } from "../../services/api";
 import { comprimirImagenComprobante, validarImagenComprobante } from "../../utils/receiptImage";
+import { esErrorDeLimite, irAPlanes } from "../../utils/limitesPlan";
 import { colors, radii, spacing, textStyles } from "../../theme/tokens";
 
 export const RECEIPT_SCAN_TIMEOUT_MS = 15000;
@@ -36,6 +24,8 @@ export const MENSAJE_PERMISO_CAMARA =
   "Necesitamos permiso para usar la cámara. Podés habilitarlo en la configuración del dispositivo o elegir una imagen de la galería.";
 export const MENSAJE_VIAJE_FINALIZADO =
   "El viaje ya finalizó: no se pueden escanear comprobantes. Podés cargar el gasto manualmente.";
+export const MENSAJE_SIN_ESCANEOS =
+  "Usaste todos los escaneos de esta semana. Se renuevan el lunes. Podés completar el gasto manualmente.";
 
 class TiempoAgotadoError extends Error {}
 class PermisoError extends Error {}
@@ -59,14 +49,17 @@ function esErrorDeRed(error) {
   );
 }
 
-/** Mensaje para el usuario según el error recibido. */
 export function mensajeParaError(error) {
   if (error instanceof TiempoAgotadoError) return MENSAJE_TIEMPO_AGOTADO;
   if (error?.code === "TRIP_FINISHED") return MENSAJE_VIAJE_FINALIZADO;
-  // Los mensajes del backend ya están pensados para el usuario (y ofrecen la carga manual).
   if (error?.status && error?.message) return error.message;
   if (esErrorDeRed(error)) return MENSAJE_SIN_CONEXION;
   return MENSAJE_GENERICO;
+}
+
+function escaneosRestantes(escaneos) {
+  if (!escaneos || escaneos.ilimitado || escaneos.limite == null) return null;
+  return Math.max(escaneos.limite - escaneos.usoActual, 0);
 }
 
 export default function ReceiptScanButton({
@@ -74,17 +67,23 @@ export default function ReceiptScanButton({
   onScanned,
   disabled = false,
   timeoutMs = RECEIPT_SCAN_TIMEOUT_MS,
+  onVerPlanes,
 }) {
   const [origenVisible, setOrigenVisible] = useState(false);
-  const [origenPendiente, setOrigenPendiente] = useState(null); // origen que espera el consentimiento
+  const [origenPendiente, setOrigenPendiente] = useState(null); 
   const [guardandoConsentimiento, setGuardandoConsentimiento] = useState(false);
   const [escaneando, setEscaneando] = useState(false);
   const [segundos, setSegundos] = useState(0);
   const [error, setError] = useState(null);
+  const [errorDeLimite, setErrorDeLimite] = useState(false);
+  const [escaneos, setEscaneos] = useState(null);
 
-  // null = todavía no se consultó; se cachea para no pedir /users/me en cada escaneo.
   const consentimientoRef = useRef(null);
   const montadoRef = useRef(true);
+
+  const restantes = escaneosRestantes(escaneos);
+  const sinEscaneos = restantes === 0;
+  const deshabilitado = disabled || escaneando || sinEscaneos;
 
   useEffect(() => {
     montadoRef.current = true;
@@ -93,6 +92,19 @@ export default function ReceiptScanButton({
     };
   }, []);
 
+  const cargarLimites = useCallback(async () => {
+    try {
+      const limites = await getMyLimits();
+      if (montadoRef.current) setEscaneos(limites?.escaneosSemanales ?? null);
+    } catch {
+      if (montadoRef.current) setEscaneos(null);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!disabled) cargarLimites();
+  }, [disabled, cargarLimites]);
+
   useEffect(() => {
     if (!escaneando) return undefined;
     setSegundos(0);
@@ -100,8 +112,18 @@ export default function ReceiptScanButton({
     return () => clearInterval(intervalo);
   }, [escaneando]);
 
-  function mostrarError(mensaje) {
-    if (montadoRef.current) setError(mensaje);
+  function mostrarError(mensaje, { porLimite = false } = {}) {
+    if (!montadoRef.current) return;
+    setError(mensaje);
+    setErrorDeLimite(porLimite);
+  }
+
+  function verPlanes() {
+    if (onVerPlanes) {
+      onVerPlanes();
+      return;
+    }
+    irAPlanes();
   }
 
   async function tieneConsentimiento() {
@@ -116,7 +138,6 @@ export default function ReceiptScanButton({
       mediaTypes: ["images"],
       quality: 1,
       allowsEditing: false,
-      // iOS: pide la versión más compatible de la foto (JPEG en vez de HEIC).
       preferredAssetRepresentationMode: "compatible",
     };
     if (origen === "camara") {
@@ -151,11 +172,14 @@ export default function ReceiptScanButton({
       const imagen = await comprimirImagenComprobante(asset);
       const datos = await conTiempoMaximo(scanReceipt(tripId, imagen), timeoutMs);
       if (montadoRef.current) onScanned?.(datos, imagen);
+      cargarLimites();
     } catch (e) {
       if (e?.code === "AI_CONSENT_REQUIRED") {
-        // El backend no tiene el consentimiento (por ejemplo, se revocó en otro dispositivo).
         consentimientoRef.current = false;
         if (montadoRef.current) setOrigenPendiente(origen);
+      } else if (esErrorDeLimite(e)) {
+        mostrarError(e.message, { porLimite: true });
+        cargarLimites();
       } else {
         mostrarError(mensajeParaError(e));
       }
@@ -167,6 +191,7 @@ export default function ReceiptScanButton({
   async function elegirOrigen(origen) {
     setOrigenVisible(false);
     setError(null);
+    setErrorDeLimite(false);
     try {
       if (!(await tieneConsentimiento())) {
         setOrigenPendiente(origen);
@@ -199,23 +224,32 @@ export default function ReceiptScanButton({
   function rechazarConsentimiento() {
     setOrigenPendiente(null);
     setError(MENSAJE_SIN_CONSENTIMIENTO);
+    setErrorDeLimite(false);
   }
 
   function abrirOrigen() {
     setError(null);
+    setErrorDeLimite(false);
     setOrigenVisible(true);
   }
+
+  const subtitulo =
+    restantes == null
+      ? "Completá el gasto con una foto del ticket"
+      : sinEscaneos
+        ? "No te quedan escaneos esta semana"
+        : `Te ${restantes === 1 ? "queda 1 escaneo" : `quedan ${restantes} escaneos`} esta semana`;
 
   return (
     <View>
       <Pressable
         testID="receipt-scan-button"
         accessibilityRole="button"
-        disabled={disabled || escaneando}
+        disabled={deshabilitado}
         onPress={abrirOrigen}
         style={({ pressed }) => [
           styles.scanCard,
-          (disabled || escaneando) && styles.scanCardDisabled,
+          deshabilitado && styles.scanCardDisabled,
           pressed && styles.scanCardPressed,
         ]}
       >
@@ -224,10 +258,24 @@ export default function ReceiptScanButton({
         </View>
         <View style={styles.scanTexts}>
           <Text style={styles.scanTitle}>Escanear comprobante</Text>
-          <Text style={styles.scanSubtitle}>Completá el gasto con una foto del ticket</Text>
+          <Text style={styles.scanSubtitle}>{subtitulo}</Text>
         </View>
         <FontAwesome6 name="wand-magic-sparkles" size={14} color={colors.primarySoft} />
       </Pressable>
+
+      {sinEscaneos && !error && !disabled ? (
+        <View style={styles.errorBanner} testID="receipt-scan-sin-escaneos">
+          <View style={styles.errorRow}>
+            <FontAwesome6 name="crown" size={13} color={colors.warning} />
+            <Text style={styles.errorText}>{MENSAJE_SIN_ESCANEOS}</Text>
+          </View>
+          <View style={styles.errorActions}>
+            <Pressable onPress={verPlanes} hitSlop={8} testID="receipt-scan-ver-planes">
+              <Text style={styles.errorAction}>Ver planes</Text>
+            </Pressable>
+          </View>
+        </View>
+      ) : null}
 
       {error ? (
         <View style={styles.errorBanner} testID="receipt-scan-error">
@@ -236,10 +284,22 @@ export default function ReceiptScanButton({
             <Text style={styles.errorText}>{error}</Text>
           </View>
           <View style={styles.errorActions}>
-            <Pressable onPress={abrirOrigen} hitSlop={8}>
-              <Text style={styles.errorActionSecondary}>Reintentar</Text>
-            </Pressable>
-            <Pressable onPress={() => setError(null)} hitSlop={8}>
+            {errorDeLimite ? (
+              <Pressable onPress={verPlanes} hitSlop={8} testID="receipt-scan-error-ver-planes">
+                <Text style={styles.errorActionSecondary}>Ver planes</Text>
+              </Pressable>
+            ) : (
+              <Pressable onPress={abrirOrigen} hitSlop={8}>
+                <Text style={styles.errorActionSecondary}>Reintentar</Text>
+              </Pressable>
+            )}
+            <Pressable
+              onPress={() => {
+                setError(null);
+                setErrorDeLimite(false);
+              }}
+              hitSlop={8}
+            >
               <Text style={styles.errorAction}>Completar manualmente</Text>
             </Pressable>
           </View>

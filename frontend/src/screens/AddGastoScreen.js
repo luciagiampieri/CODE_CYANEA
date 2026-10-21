@@ -50,6 +50,7 @@ import {
 } from "../utils/comprobanteGasto";
 import { avisar, confirmar } from "../utils/dialogs";
 import { criteriosDuplicado } from "../utils/duplicadosGasto";
+import { irAPlanes } from "../utils/limitesPlan";
 import { EDICION_GASTO, useEdicionGasto } from "../hooks/useEdicionGasto";
 
 const DEMORA_COTIZACION_MS = 400;
@@ -184,7 +185,6 @@ function useScrollAlCampo(margen = 20) {
   const enfocar = useCallback(
     (key) => {
       activo.current = key;
-      // Se reintenta cuando el teclado terminó de abrirse
       setTimeout(asegurarVisible, 120);
       setTimeout(asegurarVisible, 380);
     },
@@ -202,7 +202,6 @@ function useScrollAlCampo(margen = 20) {
     },
     onLayout: (e) => {
       alturaVisible.current = e.nativeEvent.layout.height;
-      // Si el área visible cambió (se abrió el teclado), se reacomoda el campo activo
       if (activo.current != null) setTimeout(asegurarVisible, 50);
     },
   };
@@ -284,10 +283,7 @@ function SummaryRow({ caption, leading, value, placeholder = false, sub, subTone
   );
 }
 
-// US 79: el backend guarda cada parte de la división en la moneda del viaje,
-// pero el formulario la muestra en la moneda del gasto (la misma en que el
-// usuario la cargó). Se convierte con la proporción del gasto y la diferencia
-// de redondeo queda en la última parte, así la suma coincide con el monto.
+
 export function montosEnMonedaDelGasto(gasto, division) {
   const montoBase = Number(gasto.Monto);
   const montoOriginal = Number(gasto.MontoOriginal);
@@ -303,7 +299,6 @@ export function montosEnMonedaDelGasto(gasto, division) {
   );
 }
 
-// US 79: estado de la edición activa del gasto, arriba del formulario.
 function AvisoEdicion({ edicion }) {
   if (edicion.estado === EDICION_GASTO.CONECTANDO) {
     return (
@@ -335,12 +330,10 @@ export default function AddGastoScreen({
   mostrarAlertaExito = true,
   FechaInicioViaje = null,
   FechaFinViaje = null,
-  // US 79: detalle del gasto (GET /gastos/{id}) para abrir el formulario en modo edición.
   gastoAEditar = null,
 }) {
   const monedaBase = Moneda || "USD";
   const modoEdicion = Boolean(gastoAEditar);
-  // Edición activa por WebSocket: solo una persona edita el gasto a la vez.
   const edicion = useEdicionGasto(gastoAEditar?.IdGasto, modoEdicion && visible);
   const tecladoVisible = useKeyboardVisible();
 
@@ -355,7 +348,6 @@ export default function AddGastoScreen({
   const [monto, setMonto] = useState("");
   const [monedaSeleccionada, setMonedaSeleccionada] = useState(monedaBase);
 
-  // Declaración previa de montoValido para evitar ReferenceError
   const montoValido = parsearMonto(monto).valor;
 
   const [idCategoria, setIdCategoria] = useState(null);
@@ -364,9 +356,7 @@ export default function AddGastoScreen({
   const [modalCategoriaVisible, setModalCategoriaVisible] = useState(false);
   const [modalPagadorVisible, setModalPagadorVisible] = useState(false);
 
-  // Paso guiado pendiente (abrir sola la hoja de pagador o de división después
-  // de elegir "Compartido" o un pagador). Si el usuario abre una hoja a mano
-  // antes de que se dispare, se cancela: así nunca quedan dos hojas abiertas.
+
   const pasoGuiadoRef = useRef(null);
   const cancelarPasoGuiado = useCallback(() => {
     clearTimeout(pasoGuiadoRef.current);
@@ -404,13 +394,10 @@ export default function AddGastoScreen({
 
   const [conversion, setConversion] = useState({ estado: "idle", fecha: null });
 
-  // US 95: gastos existentes que podrían ser el mismo pago (null = sin advertencia).
   const [posiblesDuplicados, setPosiblesDuplicados] = useState(null);
   const resolverDuplicadoRef = useRef(null);
-  // Si el formulario se cierra con la advertencia abierta, el gasto no se registra.
   useEffect(() => () => resolverDuplicadoRef.current?.(false), []);
 
-  // Scroll inteligente: deja el campo editado justo sobre el teclado
   const scrollPrincipal = useScrollAlCampo();
   const scrollDivision = useScrollAlCampo();
 
@@ -449,7 +436,6 @@ export default function AddGastoScreen({
   }, 0);
 
   const cantidadSeleccionados = idsParticipantesSeleccionados.length;
-  // Participantes elegidos SIN contar al pagador (que siempre está incluido)
   const cantidadOtros = idsParticipantesSeleccionados.filter((id) => id !== idPagador).length;
 
   const montoPorPersona =
@@ -458,7 +444,6 @@ export default function AddGastoScreen({
   const diferenciaPersonalizada = montoDivisionNum - sumaMontosPersonalizados;
   const personalizadaCuadra = Math.abs(diferenciaPersonalizada) <= 0.01;
 
-  // Mientras no haya nadie más que el pagador, el campo sigue pidiendo seleccionar
   const textoParticipantes =
     cantidadOtros === 0
       ? "Seleccioná participantes"
@@ -524,7 +509,6 @@ export default function AddGastoScreen({
     };
   }, [requiereConversion, monedaSeleccionada, montoValido, fechaIso, conversion.estado === "manual"]);
 
-  // ───────────── Selección de participantes ─────────────
 
   function toggleSeleccionParticipante(id) {
     if (id === "TODOS") {
@@ -541,7 +525,6 @@ export default function AddGastoScreen({
       return;
     }
 
-    // El pagador siempre está incluido: se ignora el toque sin molestar con alertas
     if (id === idPagador) return;
 
     if (idsParticipantesSeleccionados.includes(id)) {
@@ -567,7 +550,6 @@ export default function AddGastoScreen({
     setEsDivisionIgualitaria(igualitaria);
   }
 
-  // ───────────── Flujo guiado de "Compartido" ─────────────
 
   function activarCompartido() {
     if (unicoParticipante) {
@@ -579,7 +561,6 @@ export default function AddGastoScreen({
     Keyboard.dismiss();
     setEsCompartido(true);
 
-    // Lleva al usuario al dato que falta
     programarPasoGuiado(() => {
       if (!idPagador) {
         setModalPagadorVisible(true);
@@ -601,7 +582,6 @@ export default function AddGastoScreen({
       idsParticipantesSeleccionados.length === 1 &&
       idsParticipantesSeleccionados[0] === pagadorAnterior
     ) {
-      // Solo estaba el pagador anterior: se reemplaza por el nuevo
       nuevaSeleccion = [nuevoPagadorId];
     } else if (idsParticipantesSeleccionados.includes(nuevoPagadorId)) {
       nuevaSeleccion = idsParticipantesSeleccionados;
@@ -610,7 +590,6 @@ export default function AddGastoScreen({
     }
     setIdsParticipantesSeleccionados(nuevaSeleccion);
 
-    // Siguiente paso: elegir entre quiénes se divide
     const otros = nuevaSeleccion.filter((id) => id !== nuevoPagadorId).length;
     if (otros === 0) {
       programarPasoGuiado(() => setModalDivisionVisible(true), 300);
@@ -619,7 +598,6 @@ export default function AddGastoScreen({
 
   useEffect(() => {
     if (!visible) {
-      // Al cerrar el formulario no se abre ninguna hoja pendiente.
       cancelarPasoGuiado();
       return;
     }
@@ -763,7 +741,6 @@ export default function AddGastoScreen({
     setEscaneoAplicado(true);
   }
 
-  // US 79: carga en el formulario los datos actuales del gasto a editar.
   function precargarGasto(gasto) {
     setNombre(gasto.Nombre || "");
     setMonto(montoParaInput(gasto.MontoOriginal));
@@ -790,6 +767,12 @@ export default function AddGastoScreen({
     setComprobanteImagen(null);
   }
 
+  function verPlanes() {
+    descartarComprobante();
+    onClose();
+    irAPlanes();
+  }
+
   async function handleCancelar() {
     if (saving) return;
     if (desdeComprobante) {
@@ -808,18 +791,11 @@ export default function AddGastoScreen({
     onClose();
   }
 
-  // US 95: antes de registrar, advierte si el gasto podría estar duplicado.
-  // Aplica igual a la carga manual y a la confirmación de un comprobante.
-  // Resuelve true si hay que registrar (no hay posibles duplicados o el
-  // usuario confirma) y false si el usuario cancela. Los gastos existentes se
-  // muestran como el detalle de un gasto (PossibleDuplicateExpenseModal).
   async function confirmarSiHayPosiblesDuplicados(gasto) {
     let posibles;
     try {
       posibles = await getPossibleDuplicateExpenses(IdViaje, criteriosDuplicado(gasto));
     } catch (error) {
-      // La advertencia nunca bloquea: sin conexión (el gasto va a la cola
-      // offline) o si la verificación falla, se sigue con el registro.
       return true;
     }
     if (!Array.isArray(posibles) || posibles.length === 0) return true;
@@ -836,8 +812,7 @@ export default function AddGastoScreen({
     resolverDuplicadoRef.current = null;
   }
 
-  // "Descartar gasto nuevo": era un duplicado, así que no se registra y se
-  // cierra el formulario (y se borra la imagen del comprobante, si la hay).
+
   function descartarPorDuplicado() {
     responderPosibleDuplicado(false);
     descartarComprobante();
@@ -959,8 +934,6 @@ export default function AddGastoScreen({
           onGastoCreado?.();
           onClose();
         } catch (apiError) {
-          // En la edición no hay modo offline: los cambios se validan en el
-          // servidor (permisos, edición activa de otro usuario, pagos registrados).
           appAlert(
             "No se pudieron guardar los cambios",
             apiError?.message || "El servidor rechazó los cambios del gasto."
@@ -969,8 +942,6 @@ export default function AddGastoScreen({
         return;
       }
 
-      // Si cancela, el gasto no se registra y el formulario queda abierto
-      // con los datos cargados para corregirlos o descartarlos.
       const registrar = await confirmarSiHayPosiblesDuplicados(nuevoGasto);
       if (!registrar) return;
 
@@ -1113,7 +1084,12 @@ export default function AddGastoScreen({
                   ) : null}
 
                   {puedeEscanear && !modoEdicion ? (
-                    <ReceiptScanButton tripId={IdViaje} onScanned={aplicarEscaneo} disabled={saving} />
+                    <ReceiptScanButton
+                      tripId={IdViaje}
+                      onScanned={aplicarEscaneo}
+                      disabled={saving}
+                      onVerPlanes={verPlanes}
+                    />
                   ) : null}
 
                   {escaneoAplicado ? (
@@ -1300,7 +1276,6 @@ export default function AddGastoScreen({
                     <View style={styles.tileWrap}>
                       <Text style={styles.label}>Fecha</Text>
                       {Platform.OS === "web" ? (
-                        // Web: mismo diseño que en la app; encima va el selector de fecha del navegador.
                         <View
                           style={[
                             styles.tile,

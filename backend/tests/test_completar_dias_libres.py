@@ -10,11 +10,11 @@ from types import SimpleNamespace
 import pytest
 
 from app.api.routes import sugerencias as rutas_sugerencias
-from app.core.config import settings
 from app.main import app
 from app.models.actividad_itinerario import ActividadItinerario
 from app.models.dia_cronograma import DiaCronograma
 from app.models.estado_viaje import EstadoViaje
+from app.models.plan import PLAN_GRATUITO, Plan
 from app.models.sugerencia_actividad import (
     EstadoSugerenciaActividad,
     SolicitudSugerenciaActividad,
@@ -33,6 +33,12 @@ def _dia(id_dia, fecha, indice=1):
 
 def _act(inicio, fin):
     return SimpleNamespace(HoraInicio=time(*inicio), HoraFin=time(*fin))
+
+
+def _limite_diario(db, valor):
+    """US 118: el límite diario sale del plan del administrador (gratuito en estos tests)."""
+    db.get(Plan, PLAN_GRATUITO).MaxSugerenciasDiarias = valor
+    db.commit()
 
 
 # --- Detección (funciones puras) ------------------------------------------------
@@ -305,11 +311,10 @@ def test_las_sugerencias_generadas_quedan_pendientes_y_visibles(
 
 
 def test_cp7_mas_franjas_que_solicitudes_disponibles_falla_sin_generar_nada(
-    client, db_session, auth_headers, viaje_con_admin, dias, estados_sugerencias, sugeridor,
-    monkeypatch,
+    client, db_session, auth_headers, viaje_con_admin, dias, estados_sugerencias, sugeridor
 ):
     viaje, _ = viaje_con_admin
-    monkeypatch.setattr(settings, "ai_suggestions_daily_limit", 1)
+    _limite_diario(db_session, 1)
 
     respuesta = client.post(
         _url(viaje, "completar-dias-libres"),
@@ -325,16 +330,16 @@ def test_cp7_mas_franjas_que_solicitudes_disponibles_falla_sin_generar_nada(
 
     assert respuesta.status_code == 429
     assert respuesta.headers["X-Error-Code"] == "SUGGESTION_LIMIT_REACHED"
-    assert "Seleccionaste 2 franjas" in respuesta.json()["detail"]
+    assert "Seleccionaste 2 franjas" in respuesta.json()["detail"]["mensaje"]
     assert sugeridor.contextos == []
     assert db_session.query(SolicitudSugerenciaActividad).count() == 0
 
 
 def test_cada_franja_descuenta_una_solicitud_del_limite_diario(
-    client, auth_headers, viaje_con_admin, dias, estados_sugerencias, sugeridor, monkeypatch
+    client, db_session, auth_headers, viaje_con_admin, dias, estados_sugerencias, sugeridor
 ):
     viaje, _ = viaje_con_admin
-    monkeypatch.setattr(settings, "ai_suggestions_daily_limit", 5)
+    _limite_diario(db_session, 5)
 
     respuesta = client.post(
         _url(viaje, "completar-dias-libres"),

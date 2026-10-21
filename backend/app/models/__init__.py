@@ -2,6 +2,8 @@
 
 from app.models.estado_invitacion import EstadoInvitacion
 from app.models.plan import Plan
+from app.models.estado_suscripcion import EstadoSuscripcion
+from app.models.suscripcion_usuario import SuscripcionUsuario
 from app.models.estado_participacion import EstadoParticipacion
 from app.models.estado_viaje import EstadoViaje
 from app.models.invitacion_viaje import InvitacionViaje
@@ -20,6 +22,7 @@ from app.models.dia_cronograma import DiaCronograma
 from app.models.moneda import Moneda
 from app.models.categorias_documento import CategoriaDocumento
 from app.models.documento_viaje import DocumentoViaje
+from app.models.escaneo_comprobante import EscaneoComprobante
 from app.models.estado_transferencia_liquidacion import EstadoTransferenciaLiquidacion
 from app.models.liquidacion_viaje import LiquidacionViaje
 from app.models.lugar_interes import LugarInteres
@@ -43,6 +46,9 @@ from app.models.sesion_backoffice import SesionBackoffice
 from app.models.sugerencia_actividad import (EstadoSugerenciaActividad, SolicitudSugerenciaActividad, SugerenciaActividad,)
 __all__ = [
     "EstadoInvitacion",
+    "Plan",
+    "EstadoSuscripcion",
+    "SuscripcionUsuario",
     "EstadoParticipacion",
     "EstadoViaje",
     "InvitacionViaje",
@@ -61,6 +67,7 @@ __all__ = [
     "Moneda",
     "CategoriaDocumento",
     "DocumentoViaje",
+    "EscaneoComprobante",
     "EstadoTransferenciaLiquidacion",
     "LiquidacionViaje",
     "LugarInteres",

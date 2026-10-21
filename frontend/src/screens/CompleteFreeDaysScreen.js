@@ -16,27 +16,28 @@ import {
   textoFranja,
 } from "../utils/diasLibres";
 import { confirmar } from "../utils/dialogs";
+import { esErrorDeLimite, irAPlanes } from "../utils/limitesPlan";
 
 function tituloDia(grupo) {
   const fecha = fechaLegible(grupo.Fecha);
   return grupo.IndiceDia ? `Día ${grupo.IndiceDia} · ${fecha}` : fecha;
 }
 
-// US 92: el asistente detecta los días y franjas libres del itinerario y sugiere
-// actividades para las que el usuario elija. Fases: cargando, seleccion, completo,
-// generando, resultados y error.
+
 export default function CompleteFreeDaysScreen({ visible, tripId, tripTitle, onClose, onGenerado }) {
   const [fase, setFase] = useState("cargando");
   const [datos, setDatos] = useState(null);
   const [seleccionadas, setSeleccionadas] = useState([]);
   const [resultado, setResultado] = useState(null);
   const [error, setError] = useState("");
+  const [errorDeLimite, setErrorDeLimite] = useState(false);
   const [expandidaId, setExpandidaId] = useState(null);
 
   const cargar = useCallback(async () => {
     if (!tripId) return;
     setFase("cargando");
     setError("");
+    setErrorDeLimite(false);
     setSeleccionadas([]);
     setResultado(null);
     try {
@@ -54,9 +55,11 @@ export default function CompleteFreeDaysScreen({ visible, tripId, tripTitle, onC
   }, [visible, cargar]);
 
   const franjas = datos?.Franjas ?? [];
-  const restantes = datos?.SolicitudesRestantes ?? 0;
+  const restantes = datos?.SolicitudesRestantes ?? null;
+  const ilimitado = Boolean(datos) && restantes == null;
   const aviso = avisoLimiteSeleccion(seleccionadas.length, restantes);
   const puedeGenerar = seleccionadas.length > 0 && !aviso;
+  const mostrarVerPlanes = errorDeLimite || restantes === 0;
 
   function alternar(franja) {
     const clave = claveFranja(franja);
@@ -65,10 +68,16 @@ export default function CompleteFreeDaysScreen({ visible, tripId, tripTitle, onC
     );
   }
 
+  function verPlanes() {
+    onClose?.();
+    irAPlanes();
+  }
+
   async function generar({ continuarSinPreferencias = false } = {}) {
     const elegidas = franjas.filter((f) => seleccionadas.includes(claveFranja(f)));
     setFase("generando");
     setError("");
+    setErrorDeLimite(false);
     try {
       const respuesta = await completeFreeItinerarySlots(
         tripId,
@@ -93,6 +102,7 @@ export default function CompleteFreeDaysScreen({ visible, tripId, tripTitle, onC
         return;
       }
       setError(err?.message || "No se pudieron generar las sugerencias.");
+      setErrorDeLimite(esErrorDeLimite(err));
       setFase("seleccion");
     }
   }
@@ -134,8 +144,8 @@ export default function CompleteFreeDaysScreen({ visible, tripId, tripTitle, onC
       <>
         <Text style={styles.intro}>
           Elegí qué días y franjas querés completar. El asistente propone hasta{" "}
-          {datos?.MaxSugerenciasPorFranja ?? 3} actividades por franja y cada una cuenta como una
-          solicitud del límite diario del viaje.
+          {datos?.MaxSugerenciasPorFranja ?? 3} actividades por franja
+          {ilimitado ? "." : " y cada una cuenta como una solicitud del límite diario del viaje."}
         </Text>
         {agruparPorDia(franjas).map((grupo) => (
           <View key={grupo.IdDiaCronograma} style={styles.grupo}>
@@ -267,7 +277,9 @@ export default function CompleteFreeDaysScreen({ visible, tripId, tripTitle, onC
               <Text style={styles.pieTexto}>
                 {seleccionadas.length} {seleccionadas.length === 1 ? "franja seleccionada" : "franjas seleccionadas"}
                 {" · "}
-                {restantes} {restantes === 1 ? "solicitud disponible" : "solicitudes disponibles"} hoy
+                {ilimitado
+                  ? "sin límite de solicitudes"
+                  : `${restantes ?? 0} ${restantes === 1 ? "solicitud disponible" : "solicitudes disponibles"} hoy`}
               </Text>
               {aviso ? (
                 <Text style={styles.pieAviso} testID="aviso-limite-franjas">
@@ -278,6 +290,17 @@ export default function CompleteFreeDaysScreen({ visible, tripId, tripTitle, onC
                 <Text style={styles.pieAviso} testID="completar-dias-libres-error">
                   {error}
                 </Text>
+              ) : null}
+              {mostrarVerPlanes ? (
+                <Pressable
+                  accessibilityRole="button"
+                  onPress={verPlanes}
+                  style={({ pressed }) => [styles.linkPlanes, pressed && styles.presionado]}
+                  testID="completar-dias-libres-ver-planes"
+                >
+                  <FontAwesome6 name="crown" size={12} color={colors.primary} />
+                  <Text style={styles.linkPlanesTexto}>Ver planes</Text>
+                </Pressable>
               ) : null}
               <PrimaryButton
                 disabled={!puedeGenerar}
@@ -477,6 +500,18 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "600",
     color: colors.danger,
+  },
+  linkPlanes: {
+    flexDirection: "row",
+    alignItems: "center",
+    alignSelf: "flex-start",
+    gap: spacing.xs,
+    paddingVertical: spacing.xs,
+  },
+  linkPlanesTexto: {
+    ...textStyles.bodyStrong,
+    fontSize: 13,
+    color: colors.primary,
   },
   presionado: {
     opacity: 0.85,

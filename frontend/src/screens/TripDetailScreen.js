@@ -118,6 +118,7 @@ import TripAssistantButton from "../components/assistant/TripAssistantButton"; /
 
 import { appAlert } from "../components/ui/AppDialog";
 import { avisoTareasAlEliminar } from "../utils/dialogosActividad";
+import { esErrorDeLimite, mostrarLimiteAlcanzado } from "../utils/limitesPlan";
 
 const tabs = [
   { id: "resumen", label: "Resumen", icon: "chart-pie" },
@@ -1711,7 +1712,11 @@ export default function TripDetailScreen({ navigation, route }) {
       await loadTripDetail();
       appAlert("Administración transferida", resultado.message, undefined, { tipo: "success" });
     } catch (error) {
-      appAlert("No se pudo transferir la administración", error.message, undefined, { tipo: "error" });
+      if (esErrorDeLimite(error)) {
+        mostrarLimiteAlcanzado(error, { titulo: "No se pudo transferir la administración" });
+      } else {
+        appAlert("No se pudo transferir la administración", error.message, undefined, { tipo: "error" });
+      }
       await loadTripDetail();
     } finally {
       transferenciaPendienteRef.current = false;
@@ -2637,7 +2642,7 @@ export default function TripDetailScreen({ navigation, route }) {
                           }
                         />
 
-                        {/* SUGERENCIAS (US 87) + proponer a votación (US 90) */}
+                        {/* SUGERENCIAS */}
                         <DaySuggestionsSection
                           tripId={trip?.id}
                           dia={day}
@@ -3250,7 +3255,6 @@ export default function TripDetailScreen({ navigation, route }) {
                           : v
                       )
                     );
-                    // US 90: si venía de sugerencias, vuelven a "Pendiente".
                     cargarSugerencias();
                   } catch (error) {
                     avisar(

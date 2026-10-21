@@ -23,6 +23,7 @@ from app.models import (
     Moneda,
 )
 from app.schemas.documento_viaje import DocumentoViajeRead
+from app.schemas.limite_plan import UsoLimiteRead
 
 from app.services.supabase.storage import (
     subir_documento,
@@ -32,6 +33,7 @@ from app.services.supabase.storage import (
     eliminar_documento_storage
 )
 
+from app.services.limites_planes import presentar, uso_almacenamiento, validar_almacenamiento
 from app.services.websocket_manager import manager
 from app.services.trip_access import get_trip_with_relations, require_trip_access, require_trip_edit_access, require_trip_not_finished
 from app.services.receipt_ai import (
@@ -127,10 +129,9 @@ async def subir_documento_viaje(
     ".png"
     }
 
-    # Leemos el contenido completo del archivo (con un byte extra para control de tamaño)
-    contenido = await archivo.read(MAX_RECEIPT_BYTES + 1)
+    contenido = await archivo.read()
+    tamano_bytes = len(contenido)
     
-    # Validamos formato básico de archivo de imagen permitidos
     extension = Path(archivo.filename).suffix.lower()
     if extension not in extensiones_permitidas:
         raise HTTPException(
@@ -176,11 +177,8 @@ async def subir_documento_viaje(
             detail="Ya existe un documento con ese nombre en este viaje."
         )
 
-    # Reiniciamos el puntero del archivo o volvemos a pasarlo al storage
-    # Como UploadFile ya fue leído parcialmente, recreamos un UploadFile o pasamos el contenido al storage si la función lo soporta.
-    # Nota: subir_documento espera un UploadFile. Para evitar problemas de EOF, podemos reasignarlo o reubicar el puntero si es un file-like, 
-    # o pasarlo adecuadamente. Revisemos cómo recibe `subir_documento` el archivo.
-    # Dado que `subir_documento` suele leer desde el principio, rebobinamos el archivo:
+    validar_almacenamiento(db, viaje, tamano_bytes)
+
     await archivo.seek(0)
 
     url_archivo = subir_documento(
@@ -194,6 +192,7 @@ async def subir_documento_viaje(
         IdUsuarioSubida=current_user.IdUsuario,
         NombreArchivo=nombre_final,
         UrlArchivo=url_archivo,
+        TamanoBytes=tamano_bytes,
         EsPublico=EsPublico
     )
 
@@ -215,13 +214,10 @@ async def subir_documento_viaje(
         {"tipo": "documento_actualizado"}
     )
 
-    # === US 84: DETECCIÓN DE GASTOS ASOCIADOS AL DOCUMENTO ===
     sugerencia_gasto = None
     try:
-        # Validamos si el usuario tiene consentimiento de IA y si la extensión es válida para analizar (ahora incluimos .pdf)
         if current_user.ConsienteProcesamientoIA and extension in {".jpg", ".jpeg", ".png", ".pdf"}:
             
-            # Usamos validar_documento (asegúrate de importarlo arriba en lugar de validar_imagen)
             mime = validar_documento(contenido, archivo.filename)
             
             categorias_gastos = {
@@ -246,10 +242,7 @@ async def subir_documento_viaje(
                     "CamposBajaConfianza": resultado_ia.CamposBajaConfianza,
                 }
     except Exception as e:
-        # Criterio de aceptación: Si se produce un error durante el análisis, la subida del documento 
-        # debe conservarse correctamente y el sistema simplemente no genera sugerencia o informa que no fue posible.
         logger.warning("No se pudo realizar la detección automática de gasto en el documento subido: %s", e)
-    # ========================================================
 
     response_data = {
         "message": "Documento subido correctamente",
@@ -302,6 +295,19 @@ def listar_documentos_viaje(
     )
 
     return [_serializar_documento(documento, current_user.IdUsuario) for documento in documentos]
+
+
+@router.get("/{trip_id}/documents/almacenamiento", response_model=UsoLimiteRead)
+def obtener_almacenamiento_viaje(
+    trip_id: int,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> UsoLimiteRead:
+    viaje = require_trip_access(
+        get_trip_with_relations(db, trip_id),
+        current_user,
+    )
+    return UsoLimiteRead(**presentar(uso_almacenamiento(db, viaje)))
 
 
 @router.put("/{trip_id}/documents/{document_id}")
@@ -370,6 +376,13 @@ async def editar_o_reemplazar_documento_viaje(
                 status_code=400,
                 detail="Tipo de archivo no permitido. Solo se permiten PDF, JPG, JPEG y PNG."
             )
+
+        contenido_nuevo = await archivo.read()
+        tamano_nuevo = len(contenido_nuevo)
+        diferencia = tamano_nuevo - (documento.TamanoBytes or 0)
+        if diferencia > 0:
+            validar_almacenamiento(db, viaje, diferencia)
+        await archivo.seek(0)
             
         ruta_archivo_vieja = documento.UrlArchivo
     
@@ -390,6 +403,7 @@ async def editar_o_reemplazar_documento_viaje(
                     
         url_archivo = subir_documento(archivo, ruta_archivo)
         documento.UrlArchivo = url_archivo
+        documento.TamanoBytes = tamano_nuevo
 
     duplicado = db.scalar(
         select(DocumentoViaje).where(
@@ -507,8 +521,6 @@ async def eliminar_documento_viaje(
     try:
         eliminar_documento(documento.UrlArchivo)
     except Exception:
-        # No bloqueamos la eliminación del registro si el archivo ya no
-        # está en el storage (por ejemplo, borrado manualmente antes).
         pass
 
     db.delete(documento)

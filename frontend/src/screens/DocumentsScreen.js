@@ -22,13 +22,17 @@ import AddGastoScreen from "./AddGastoScreen";
 
 import {
     getDocumentCategories,
+    getTripStorage,
     uploadTripDocument,
 } from "../services/api";
 
 import { colors, radii, spacing, surfaces, textStyles } from "../theme/tokens";
 
+import { esErrorDeLimite, irAPlanes, mostrarLimiteAlcanzado } from "../utils/limitesPlan";
 
 import { appAlert } from "../components/ui/AppDialog";
+
+const BYTES_POR_MB = 1024 * 1024;
 
 function mostrarAlertaConfirmacion(titulo, mensaje, onAceptar) {
     appAlert(
@@ -36,6 +40,11 @@ function mostrarAlertaConfirmacion(titulo, mensaje, onAceptar) {
         mensaje,
         onAceptar ? [{ text: "Aceptar", onPress: onAceptar }] : undefined
     );
+}
+
+function formatearMb(valor) {
+    const numero = Number(valor ?? 0);
+    return Number.isInteger(numero) ? `${numero}` : numero.toFixed(1);
 }
 
 const ICONOS_CATEGORIAS_DOCUMENTOS = {
@@ -74,17 +83,24 @@ export default function DocumentsScreen({
 
     const [errores, setErrores] = useState({});
 
-    // Estados para controlar la sugerencia de gastos (US 84)
+    const [almacenamiento, setAlmacenamiento] = useState(null);
+
     const [gastoSugeridoModalVisible, setGastoSugeridoModalVisible] = useState(false);
     const [datosGastoSugerido, setDatosGastoSugerido] = useState(null);
-    // Ref (y no state) para que onClose vea el valor actualizado en el mismo ciclo que onGastoCreado
     const gastoRegistradoRef = useRef(false);
-    // Evita subir dos veces si se toca el botón muy rápido (el disabled tarda un render)
     const subiendoRef = useRef(false);
 
     const categoriaSeleccionada = categorias.find(
         (c) => c.IdCategoriaDocumento === idCategoria
     );
+
+    const almacenamientoLimitado = Boolean(almacenamiento) && !almacenamiento.ilimitado && almacenamiento.limite != null;
+    const porcentajeUsado = almacenamientoLimitado
+        ? Math.min(100, Math.round((almacenamiento.usoActual / almacenamiento.limite) * 100))
+        : 0;
+    const tamanoArchivoMb = archivo?.size ? archivo.size / BYTES_POR_MB : 0;
+    const archivoNoEntra =
+        almacenamientoLimitado && almacenamiento.usoActual + tamanoArchivoMb > almacenamiento.limite;
 
     const slideAnimCategoria = useRef(new Animated.Value(300)).current;
 
@@ -95,6 +111,16 @@ export default function DocumentsScreen({
             slideAnimCategoria.setValue(300);
         }
     }, [modalCategoriaVisible]);
+
+    async function cargarAlmacenamiento() {
+        if (!tripId) return;
+        try {
+            const data = await getTripStorage(tripId);
+            setAlmacenamiento(data);
+        } catch {
+            setAlmacenamiento(null);
+        }
+    }
 
     useEffect(() => {
         async function cargarCategorias() {
@@ -116,6 +142,7 @@ export default function DocumentsScreen({
 
         if (visible) {
             cargarCategorias();
+            cargarAlmacenamiento();
         } else {
             setArchivo(null);
             setNombreDocumento("");
@@ -123,6 +150,7 @@ export default function DocumentsScreen({
             setIdCategoria(null);
             setEsPublico(true);
             setErrores({});
+            setAlmacenamiento(null);
             gastoRegistradoRef.current = false;
         }
     }, [visible, tripId]);
@@ -134,6 +162,11 @@ export default function DocumentsScreen({
             delete next[campo];
             return next;
         });
+    }
+
+    function verPlanes() {
+        onClose?.();
+        irAPlanes();
     }
 
     async function seleccionarArchivo() {
@@ -206,7 +239,6 @@ export default function DocumentsScreen({
 
             if (onDocumentoSubido) onDocumentoSubido();
 
-            // Verificamos si la IA detectó un gasto asociado en el documento subido (US 84)
             if (respuesta && respuesta.sugerencia_gasto) {
                 const sugg = respuesta.sugerencia_gasto;
                 setSaving(false); 
@@ -249,6 +281,15 @@ export default function DocumentsScreen({
         } catch (error) {
             setSaving(false);
             console.log("ERROR uploadTripDocument:", error);
+
+            if (esErrorDeLimite(error)) {
+                cargarAlmacenamiento();
+                mostrarLimiteAlcanzado(error, {
+                    titulo: "El viaje se quedó sin espacio",
+                    antesDeIr: onClose,
+                });
+                return;
+            }
 
             const mensajeError = (error?.message || "").toLowerCase();
             const esNombreDuplicado =
@@ -294,6 +335,27 @@ export default function DocumentsScreen({
                                 </View>
                             ) : (
                                 <View style={styles.content}>
+
+                                    {almacenamientoLimitado ? (
+                                        <View style={styles.storageBox} testID="documentos-almacenamiento">
+                                            <View style={styles.storageRow}>
+                                                <FontAwesome6 name="hard-drive" size={13} color={colors.primary} />
+                                                <Text style={styles.storageText}>
+                                                    Espacio del viaje: {formatearMb(almacenamiento.usoActual)} MB de{" "}
+                                                    {formatearMb(almacenamiento.limite)} MB
+                                                </Text>
+                                            </View>
+                                            <View style={styles.storageTrack}>
+                                                <View
+                                                    style={[
+                                                        styles.storageFill,
+                                                        porcentajeUsado >= 90 && styles.storageFillAlto,
+                                                        { width: `${porcentajeUsado}%` },
+                                                    ]}
+                                                />
+                                            </View>
+                                        </View>
+                                    ) : null}
                                     
                                     <Text style={styles.label}>Documento del viaje</Text>
                                     {!archivo ? (
@@ -306,7 +368,7 @@ export default function DocumentsScreen({
                                             <Text style={styles.uploadDescription}>PDF, JPG, JPEG o PNG</Text>
                                         </TouchableOpacity>
                                     ) : (
-                                        <View style={styles.fileCard}>
+                                        <View style={[styles.fileCard, archivoNoEntra && { borderColor: colors.danger }]}>
                                             <FontAwesome6 name="file" size={22} color={colors.primary} />
                                             <View style={{ flex: 1, marginLeft: 10 }}>
                                                 <Text style={styles.fileName} numberOfLines={1}>{archivo.name}</Text>
@@ -320,6 +382,17 @@ export default function DocumentsScreen({
                                         </View>
                                     )}
                                     {errores.archivo && <Text style={styles.error}>{errores.archivo}</Text>}
+                                    {archivoNoEntra ? (
+                                        <View style={styles.limiteBox} testID="documentos-sin-espacio">
+                                            <Text style={styles.error}>
+                                                Este archivo supera el espacio disponible del viaje según el plan de su administrador.
+                                            </Text>
+                                            <Pressable onPress={verPlanes} hitSlop={8} style={styles.linkPlanes}>
+                                                <FontAwesome6 name="crown" size={12} color={colors.primary} />
+                                                <Text style={styles.linkPlanesTexto}>Ver planes</Text>
+                                            </Pressable>
+                                        </View>
+                                    ) : null}
 
                                     <Text style={styles.label}>Nombre del documento</Text>
                                     <View style={[styles.inputBox, errores.nombre && { borderColor: colors.danger }]}>
@@ -399,7 +472,7 @@ export default function DocumentsScreen({
                                         label="Subir documento"
                                         loading={false}
                                         onPress={handleSubir}
-                                        disabled={saving}
+                                        disabled={saving || archivoNoEntra}
                                         style={styles.submitButton}
                                     />
                                 </View>
@@ -469,9 +542,7 @@ export default function DocumentsScreen({
                         mostrarAlertaExito={false}
                         onClose={() => {
                             setGastoSugeridoModalVisible(false);
-                            // Si el gasto se registró, el cartel único ya lo maneja onGastoCreado
                             if (gastoRegistradoRef.current) return;
-                            // Si cierra con la cruz sin registrar el gasto, informamos solo que el documento se subió correctamente
                             mostrarAlertaConfirmacion("Éxito", "Documento subido correctamente.", () => {
                                 onClose();
                             });
@@ -483,7 +554,6 @@ export default function DocumentsScreen({
                         onGastoCreado={() => {
                             gastoRegistradoRef.current = true;
                             setGastoSugeridoModalVisible(false);
-                            // Cartel único y definitivo indicando que ambos se registraron
                             mostrarAlertaConfirmacion("Éxito", "El documento y el gasto se registraron correctamente.", () => {
                                 onClose();
                             });
@@ -535,6 +605,52 @@ const styles = StyleSheet.create({
         color: colors.primary,
         marginTop: spacing.md,
         marginBottom: spacing.xs,
+    },
+    storageBox: {
+        gap: spacing.xs,
+        padding: spacing.sm,
+        borderRadius: radii.md,
+        backgroundColor: colors.surfaceAlt,
+    },
+    storageRow: {
+        flexDirection: "row",
+        alignItems: "center",
+        gap: spacing.xs,
+    },
+    storageText: {
+        ...textStyles.meta,
+        color: colors.textSecondary,
+        fontSize: 12,
+        flex: 1,
+    },
+    storageTrack: {
+        height: 6,
+        borderRadius: 3,
+        backgroundColor: colors.border,
+        overflow: "hidden",
+    },
+    storageFill: {
+        height: "100%",
+        borderRadius: 3,
+        backgroundColor: colors.primary,
+    },
+    storageFillAlto: {
+        backgroundColor: colors.danger,
+    },
+    limiteBox: {
+        gap: spacing.xxs,
+    },
+    linkPlanes: {
+        flexDirection: "row",
+        alignItems: "center",
+        alignSelf: "flex-start",
+        gap: spacing.xs,
+        paddingVertical: spacing.xs,
+    },
+    linkPlanesTexto: {
+        ...textStyles.bodyStrong,
+        color: colors.primary,
+        fontSize: 13,
     },
     analyzingBox: {
         flexDirection: "column",

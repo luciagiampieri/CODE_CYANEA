@@ -38,6 +38,7 @@ from app.schemas.sugerencia_actividad import (
     SolicitudSugerenciasCreate,
     SugerenciaActividadRead,
 )
+from app.services import limites_planes
 from app.services.activity_ai import ActivitySuggester, SuggestionError, get_activity_suggester
 from app.services.activity_ai.base import (
     AI_UNAVAILABLE,
@@ -96,13 +97,9 @@ router = APIRouter()
 DURACION_MINIMA_FRANJA_MINUTOS = 60
 DISTANCIAS_PERMITIDAS_KM = (5, 15, 30)
 SEGUNDOS_SOLICITUD_ABANDONADA = 90
-# Las solicitudes sin resultados no cuentan para el límite diario (como las fallidas).
-ESTADOS_QUE_CUENTAN = ("en_proceso", "completada")
 
-# Si después de filtrar quedan menos que esto, se reintenta una vez con la IA.
 MIN_SUGERENCIAS_DESEADAS = 3
 
-# Si el día no tiene actividades con lugar, se buscan en los días vecinos (±1, luego ±2).
 DIAS_VECINOS_MAXIMOS = 2
 MAX_DIRECCIONES_REFERENCIA = 5
 
@@ -115,7 +112,6 @@ ESTADO_EN_VOTACION = "en_votacion"
 ESTADO_DESCARTADA = "descartada"
 ESTADO_ACEPTADA = "aceptada"
 
-# US 92: cada franja libre recibe hasta tres sugerencias.
 MAX_SUGERENCIAS_POR_FRANJA = 3
 MENSAJE_ITINERARIO_COMPLETO = (
     "Tu itinerario se encuentra completo: no hay días ni franjas libres de al menos tres "
@@ -128,7 +124,6 @@ SUGGESTION_IN_VOTING = "SUGGESTION_IN_VOTING"
 SUGGESTION_ALREADY_ACCEPTED = "SUGGESTION_ALREADY_ACCEPTED"
 
 
-# Formato del nombre de foto que devuelve Google Places (New): places/<id>/photos/<ref>.
 PATRON_FOTO = re.compile(r"^places/[A-Za-z0-9_-]+/photos/[A-Za-z0-9_-]+$")
 URL_FOTO_GOOGLE = "https://places.googleapis.com/v1/{nombre}/media"
 
@@ -146,6 +141,12 @@ def _error(status_code: int, mensaje: str, codigo: str) -> HTTPException:
     return HTTPException(
         status_code=status_code, detail=mensaje, headers={"X-Error-Code": codigo}
     )
+
+
+def _mensaje_de(error: HTTPException) -> str:
+    if isinstance(error.detail, dict):
+        return str(error.detail.get("mensaje", ""))
+    return str(error.detail)
 
 
 def _zona_horaria():
@@ -182,25 +183,10 @@ def _preferencias_del_grupo(db: Session, participaciones: list) -> list[Preferen
     )
 
 
-def _contar_solicitudes_hoy(db: Session, trip_id: int) -> int:
-    zona = _zona_horaria()
-    hoy = datetime.now(zona).date()
-    desde = datetime(hoy.year, hoy.month, hoy.day, tzinfo=zona)
-    hasta = desde + timedelta(days=1)
-    return db.scalar(
-        select(func.count())
-        .select_from(SolicitudSugerenciaActividad)
-        .where(
-            SolicitudSugerenciaActividad.IdViaje == trip_id,
-            SolicitudSugerenciaActividad.FechaSolicitud >= desde,
-            SolicitudSugerenciaActividad.FechaSolicitud < hasta,
-            SolicitudSugerenciaActividad.Estado.in_(ESTADOS_QUE_CUENTAN),
-        )
-    ) or 0
-
-
-def _restantes(db: Session, trip_id: int) -> int:
-    return max(settings.ai_suggestions_daily_limit - _contar_solicitudes_hoy(db, trip_id), 0)
+def _restantes(uso: limites_planes.UsoLimite) -> int | None:
+    if uso.ilimitado:
+        return None
+    return max(uso.limite - uso.uso, 0)
 
 
 def _actividades_con_lugar(db: Session, ids_dias: list[int]) -> list[ActividadItinerario]:
@@ -370,7 +356,6 @@ def _elegir_destino(viaje, puntos: list[tuple[float, float]]) -> tuple[str, floa
 
     nombre = (elegido.Nombre or "").strip()
     pais = (getattr(elegido, "Pais", None) or "").strip()
-    # Evita "España, España" cuando el destino es directamente el país.
     if pais and pais.lower() != nombre.lower():
         nombre = f"{nombre}, {pais}"
     return nombre or viaje.Titulo, elegido.Lat, elegido.Lng
@@ -421,11 +406,16 @@ def obtener_contexto_sugerencias(
     preferencias = _preferencias_del_grupo(db, aceptadas)
     mia = next((p for p in aceptadas if p.IdUsuario == current_user.IdUsuario), None)
     ids_con_prefs = {p.IdParticipanteViaje for p in preferencias}
-    restantes = _restantes(db, trip_id)
+    uso = limites_planes.uso_sugerencias(db, viaje)
+    restantes = _restantes(uso)
 
     return ContextoSugerenciasRead(
-        PuedeSolicitar=mia is not None and not is_trip_finished(viaje) and restantes > 0,
-        LimiteDiario=settings.ai_suggestions_daily_limit,
+        PuedeSolicitar=(
+            mia is not None
+            and not is_trip_finished(viaje)
+            and (restantes is None or restantes > 0)
+        ),
+        LimiteDiario=uso.limite,
         SolicitudesRestantes=restantes,
         ParticipantesTotal=len(aceptadas),
         ParticipantesConPreferencias=len(preferencias),
@@ -555,7 +545,6 @@ async def solicitar_sugerencias(
 
     if payload.DistanciaMaximaKm is not None and payload.DistanciaMaximaKm not in DISTANCIAS_PERMITIDAS_KM:
         raise _error(400, "La distancia de búsqueda seleccionada no es válida.", SLOT_INVALID)
-    # Distancia elegida por el usuario en el sheet (5, 15 o 30 km); si no llega, la de configuración.
     max_km = float(payload.DistanciaMaximaKm or settings.ai_suggestions_max_distance_km)
 
     dia: DiaCronograma | None = next(
@@ -587,12 +576,13 @@ async def solicitar_sugerencias(
         max_resultados=max_resultados,
         inicio_total=inicio_total,
     )
+    uso = limites_planes.uso_sugerencias(db, viaje)
     return ResultadoSugerenciasRead(
         IdSolicitud=id_solicitud,
         Sugerencias=[_serializar(fila, ESTADO_PENDIENTE) for fila in filas],
         Mensaje=None if filas else MENSAJE_SIN_OPCIONES,
-        SolicitudesRestantes=_restantes(db, trip_id),
-        LimiteDiario=settings.ai_suggestions_daily_limit,
+        SolicitudesRestantes=_restantes(uso),
+        LimiteDiario=uso.limite,
     )
 
 
@@ -632,8 +622,7 @@ async def _generar_sugerencias_franja(
             SLOT_FULL,
         )
 
-    # ¿Dónde va a estar el grupo ese día? Primero las actividades del propio día; si no hay,
-    # las de los días vecinos; si tampoco, el destino del viaje.
+
     puntos_referencia, direcciones_referencia = _referencia_de_actividades(actividades_dia)
     origen_referencia = "actividades del día"
     if not puntos_referencia:
@@ -644,21 +633,10 @@ async def _generar_sugerencias_franja(
 
     destinos_viaje = [rel.Destino for rel in viaje.Destinos if rel.Destino is not None]
     if not puntos_referencia and len(destinos_viaje) > 1:
-        # Con varios destinos y sin ninguna actividad cerca no hay forma de saber en cuál
-        # está el grupo: se avisa antes de crear la solicitud (no descuenta del límite).
         raise _error(409, MENSAJE_SIN_REFERENCIA, NO_LOCATION_REFERENCE)
 
-    limite = settings.ai_suggestions_daily_limit
-    if _contar_solicitudes_hoy(db, trip_id) >= limite:
-        raise _error(
-            429,
-            f"Se alcanzó el límite de {limite} solicitudes de sugerencias por día para este "
-            "viaje. Podés intentar mañana o crear las actividades manualmente.",
-            SUGGESTION_LIMIT_REACHED,
-        )
+    limites_planes.validar_sugerencias(db, viaje)
 
-    # Se valida antes de llamar a la IA: si falta el dato maestro no se gasta una
-    # llamada ni queda una solicitud trabada "en_proceso".
     estado_pendiente = _estado_pendiente(db)
 
     nombres_prohibidos = nombres_a_ocultar(p.Usuario for p in viaje.Participantes)
@@ -701,7 +679,6 @@ async def _generar_sugerencias_franja(
         for lugar in (_lugar_de(a) for a in actividades_viaje)
         if lugar is not None
     }
-    # No repetir lugares ya sugeridos que siguen pendientes o están en votación.
     previas_visibles = db.scalars(
         select(SugerenciaActividad.GooglePlaceId)
         .join(SugerenciaActividad.Estado)
@@ -712,7 +689,6 @@ async def _generar_sugerencias_franja(
     ).all()
     excluidos |= {normalizar_id(pid) for pid in previas_visibles}
 
-    # No repetir lugares de sugerencias descartadas para esta franja: mismo día y horario
     descartadas_franja = db.execute(
         select(SugerenciaActividad.GooglePlaceId, SugerenciaActividad.LugarNombre)
         .join(SugerenciaActividad.Estado)
@@ -752,7 +728,6 @@ async def _generar_sugerencias_franja(
             "consideraciones_adicionales": grupo["consideraciones"],
         },
         "cantidad_maxima": max_resultados,
-        # Se piden el doble de candidatas porque varias se descartan en las validaciones.
         "cantidad_candidatas": max_resultados * 2,
         "lugares_a_evitar": lugares_descartados,
         "indicacion_para_esta_busqueda": indicacion or None,
@@ -823,7 +798,6 @@ async def _generar_sugerencias_franja(
         segundos = max(3.0, _segundos_restantes(inicio_total))
         validas = await filtrar_sugerencias(respuesta, reglas, buscar_lugares_google, segundos)
 
-        # Reintento: solo si quedaron pocas y hay tiempo para otra llamada completa (RNF-34).
         if (
             len(validas) < MIN_SUGERENCIAS_DESEADAS
             and _segundos_restantes(inicio_total) > settings.ai_suggestions_timeout_seconds + 3
@@ -852,7 +826,6 @@ async def _generar_sugerencias_franja(
                     respuesta_retry, reglas_retry, buscar_lugares_google, segundos_retry
                 )
             except SuggestionError as error:
-                # Si falla el reintento, se devuelve lo que ya se tenía.
                 logger.warning(
                     "Solicitud %s: falló el reintento de sugerencias (%s)", id_solicitud, error.code
                 )
@@ -905,8 +878,6 @@ async def _generar_sugerencias_franja(
 
 def _a_hora(minutos: int) -> time:
     return time(minutos // 60, minutos % 60)
-
-# --- US 88: aceptar una sugerencia ----------------------------------------------
 
 
 def _sugerencia_del_viaje(db: Session, trip_id: int, sugerencia_id: int) -> SugerenciaActividad:
@@ -998,7 +969,7 @@ async def aceptar_sugerencia(
         if actividad.HoraInicio < hora_fin and hora_inicio < actividad.HoraFin
     ]
     if superpuestas and not payload.ConfirmarSuperposicion:
-        db.rollback()  # libera el bloqueo de la sugerencia: no se modificó nada
+        db.rollback() 
         nombres = ", ".join(f"«{a.Nombre}»" for a in superpuestas)
         return AceptacionSugerenciaRead(
             Aceptada=False,
@@ -1075,7 +1046,6 @@ async def _avisar_actividad_aceptada(
         logger.exception("No se pudo avisar en tiempo real la sugerencia aceptada")
 
     try:
-        # El dispatcher central respeta consentimiento y preferencias de cada participante.
         await dispatch_trip_notification(
             db,
             TripNotificationEvent(
@@ -1098,8 +1068,6 @@ async def _avisar_actividad_aceptada(
     except Exception:
         logger.exception("No se pudo notificar la sugerencia aceptada")
 
-
-# --- US 92: completar días libres -----------------------------------------------
 
 
 def _franjas_libres(db: Session, viaje) -> list:
@@ -1133,6 +1101,7 @@ def obtener_franjas_libres(
     require_trip_not_finished(viaje, "las sugerencias de actividades")
 
     franjas = _franjas_libres(db, viaje)
+    uso = limites_planes.uso_sugerencias(db, viaje)
     return FranjasLibresRead(
         Franjas=[
             FranjaLibreRead(
@@ -1147,8 +1116,8 @@ def obtener_franjas_libres(
         ],
         ItinerarioCompleto=not franjas,
         Mensaje=None if franjas else MENSAJE_ITINERARIO_COMPLETO,
-        SolicitudesRestantes=_restantes(db, trip_id),
-        LimiteDiario=settings.ai_suggestions_daily_limit,
+        SolicitudesRestantes=_restantes(uso),
+        LimiteDiario=uso.limite,
         MaxSugerenciasPorFranja=_max_sugerencias_por_franja(),
     )
 
@@ -1180,8 +1149,6 @@ async def completar_dias_libres(
 
     hoy = datetime.now(_zona_horaria()).date()
     dias = {d.IdDiaCronograma: d for d in viaje.Cronograma}
-    # (IdDiaCronograma, Fecha, inicio, fin): se guardan los valores y no los objetos,
-    # porque cada franja hace commit y expira los objetos de la sesión.
     franjas: list[tuple[int, date, time, time]] = []
     for franja in payload.Franjas:
         dia = dias.get(franja.IdDiaCronograma)
@@ -1211,20 +1178,27 @@ async def completar_dias_libres(
             raise _error(400, "Seleccionaste la misma franja más de una vez.", SLOT_INVALID)
         franjas.append(clave)
 
-    limite = settings.ai_suggestions_daily_limit
-    restantes = _restantes(db, trip_id)
-    if len(franjas) > restantes:
+    uso = limites_planes.uso_sugerencias(db, viaje)
+    if not uso.permite(len(franjas)):
+        restantes = _restantes(uso)
         disponibles = (
             f"solo queda {restantes} solicitud disponible"
             if restantes == 1
             else f"solo quedan {restantes} solicitudes disponibles"
         )
-        raise _error(
-            429,
-            f"Seleccionaste {len(franjas)} franjas, pero hoy {disponibles} de las {limite} "
-            "diarias del viaje. Cada franja cuenta como una solicitud: elegí menos franjas o "
-            "intentá mañana.",
-            SUGGESTION_LIMIT_REACHED,
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail={
+                "mensaje": (
+                    f"Seleccionaste {len(franjas)} franjas, pero hoy {disponibles} de las "
+                    f"{uso.limite} diarias del viaje. Cada franja cuenta como una solicitud: "
+                    "elegí menos franjas o intentá mañana."
+                ),
+                "tipoLimite": limites_planes.LIMITE_SUGERENCIAS,
+                "limite": uso.limite,
+                "usoActual": uso.uso,
+            },
+            headers={"X-Error-Code": SUGGESTION_LIMIT_REACHED},
         )
 
     aceptadas = _participaciones_aceptadas(viaje)
@@ -1243,7 +1217,6 @@ async def completar_dias_libres(
             "HoraFin": fin.strftime("%H:%M"),
         }
         try:
-            # Cada franja es una solicitud propia, con su propio tiempo máximo (RNF-34).
             _, filas = await _generar_sugerencias_franja(
                 db,
                 viaje,
@@ -1262,7 +1235,7 @@ async def completar_dias_libres(
             resultados.append(
                 ResultadoFranjaRead(
                     **base,
-                    Mensaje=str(error.detail),
+                    Mensaje=_mensaje_de(error),
                     CodigoError=(error.headers or {}).get("X-Error-Code"),
                 )
             )
@@ -1282,8 +1255,9 @@ async def completar_dias_libres(
         except Exception:
             logger.exception("No se pudo avisar en tiempo real las sugerencias generadas")
 
+    uso_final = limites_planes.uso_sugerencias(db, viaje)
     return ResultadoCompletarDiasLibresRead(
         Resultados=resultados,
-        SolicitudesRestantes=_restantes(db, trip_id),
-        LimiteDiario=limite,
+        SolicitudesRestantes=_restantes(uso_final),
+        LimiteDiario=uso_final.limite,
     )

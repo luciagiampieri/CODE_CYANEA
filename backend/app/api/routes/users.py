@@ -35,6 +35,7 @@ from app.schemas.usuario import (
     CambioPasswordRequest,
     CambioPasswordResponse,
 )
+from app.services import limites_planes
 from app.services.auth import password_change_service
 from app.services.mail import get_mail_service
 from app.services.mail.service import MailService
@@ -45,8 +46,6 @@ from app.services.websocket_manager import manager
 router = APIRouter()
 
 
-# Preferencias por tipo de notificación y canal (US 60): campo del payload
-# -> atributo del modelo Usuario.
 _PREFERENCIAS_NOTIFICACION = {
     "recibeEmailsNuevasActividades": "RecibeEmailsNuevasActividades",
     "recibeEmailsNuevaVotacion": "RecibeEmailsNuevaVotacion",
@@ -69,6 +68,20 @@ class PaisesVisitadosRead(BaseModel):
     paises: list[str]
     totalPaises: int
     totalViajes: int
+
+
+class UsoLimiteRead(BaseModel):
+    tipoLimite: str
+    limite: float | None
+    usoActual: float
+    ilimitado: bool
+    renuevaEl: datetime | None = None
+
+
+class LimitesUsuarioRead(BaseModel):
+    plan: str
+    viajesActivos: UsoLimiteRead
+    escaneosSemanales: UsoLimiteRead
 
 
 def _serializar_usuario_actual(usuario: Usuario) -> UsuarioProfileRead:
@@ -143,7 +156,7 @@ def _anonimizar_usuario(usuario: Usuario) -> None:
     usuario.RecibePushRecordatoriosActividad = False
     usuario.RecibePushRecordatoriosReserva = False
 
-    # Una cuenta eliminada no se muestra ni se puede encontrar (US 61).
+
     usuario.VisibilidadNombre = VISIBILIDAD_PRIVADO
     usuario.VisibilidadEmail = VISIBILIDAD_PRIVADO
     usuario.VisibilidadFotoPerfil = VISIBILIDAD_PRIVADO
@@ -204,6 +217,14 @@ def _reasignar_administracion_viajes(
 @router.get("/me", response_model=UsuarioProfileRead)
 def get_me(current_user: Usuario = Depends(get_current_user)) -> UsuarioProfileRead:
     return _serializar_usuario_actual(current_user)
+
+
+@router.get("/me/limites", response_model=LimitesUsuarioRead)
+def get_my_limits(
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> LimitesUsuarioRead:
+    return LimitesUsuarioRead(**limites_planes.resumen_usuario(db, current_user))
 
 
 @router.put("/me/consentimiento-ia", response_model=ConsentimientoIARead)
@@ -304,9 +325,6 @@ def update_me(
     current_user.NombreUsuario = nombre_usuario_normalizado
     current_user.FotoUrl = payload.fotoUrl.strip() if payload.fotoUrl else None
 
-    # Campos opcionales: solo se tocan si vienen en el payload, para no
-    # pisar el consentimiento/preferencias cuando se edita el perfil desde
-    # la pantalla de "Cuenta" (que no los envía).
     ahora = datetime.now(timezone.utc)
 
     if payload.consienteNotificacionesEmail is not None:
@@ -321,8 +339,6 @@ def update_me(
             current_user.FechaConsentimientoNotificacionesPush = ahora
         elif not payload.consienteNotificacionesPush:
             current_user.FechaConsentimientoNotificacionesPush = None
-            # Al revocar el consentimiento se dan de baja los tokens de todos
-            # los dispositivos de la cuenta.
             db.execute(
                 update(TokenPushUsuario)
                 .where(

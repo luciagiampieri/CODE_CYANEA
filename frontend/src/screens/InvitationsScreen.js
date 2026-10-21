@@ -23,6 +23,7 @@ import {
   getTripDetail,
 } from "../services/api";
 import { resolveNotificationTarget } from "../utils/notificationTarget";
+import { esErrorDeLimite, mostrarLimiteAlcanzado } from "../utils/limitesPlan";
 import { colors, spacing, surfaces, textStyles, radii } from "../theme/tokens";
 
 import { appAlert } from "../components/ui/AppDialog";
@@ -43,7 +44,6 @@ function formatDate(dateString) {
   }).format(date);
 }
 
-// Resumen para el encabezado: lo que requiere acción primero, y "al día" si no hay nada pendiente.
 function buildSummary(invitationsCount, unreadCount) {
   const parts = [];
   if (invitationsCount > 0) {
@@ -79,8 +79,7 @@ export default function InvitationsScreen({ navigation }) {
   const [refreshing, setRefreshing] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
-  // `silent` evita el spinner de pantalla completa: se usa al refrescar, al llegar una
-  // notificación en vivo y después de responder una invitación, para que la lista no parpadee.
+
   const loadData = useCallback(async ({ silent = false } = {}) => {
     try {
       if (!silent) setLoading(true);
@@ -169,8 +168,11 @@ export default function InvitationsScreen({ navigation }) {
       appAlert("Éxito", result.message || "Invitación procesada correctamente.");
       await loadData({ silent: true });
     } catch (error) {
-      appAlert("Atención", error.message || "Ocurrió un error al procesar la invitación.");
-      // Si la invitación fue cancelada mientras tanto, se recarga para que desaparezca.
+      if (esErrorDeLimite(error)) {
+        mostrarLimiteAlcanzado(error, { titulo: "El viaje está completo", ofrecerPlanes: false });
+      } else {
+        appAlert("Atención", error.message || "Ocurrió un error al procesar la invitación.");
+      }
       await loadData({ silent: true });
     } finally {
       setSubmitting(false);
@@ -188,9 +190,7 @@ export default function InvitationsScreen({ navigation }) {
     }
   };
 
-  // Tocar una novedad la marca como leída y abre el viaje en la pestaña que
-  // corresponde (gastos, itinerario, votar...). Si el aviso no es de un viaje
-  // al que se pueda entrar, solo se marca como leída.
+
   const handleOpenNotification = async (item) => {
     if (item.leida === false) {
       setNotifications((prev) =>

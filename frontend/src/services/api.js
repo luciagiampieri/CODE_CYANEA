@@ -86,7 +86,6 @@ async function authHeaders() {
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
-// --- Errores de la API ---------------------------------------------------------
 
 const tripFinishedListeners = new Set();
 
@@ -95,9 +94,6 @@ export function onTripFinishedError(listener) {
   return () => tripFinishedListeners.delete(listener);
 }
 
-// US 101: si la sesión se cerró desde otro dispositivo (por ejemplo, al cambiar la
-// contraseña), el backend responde 401 "No autenticado" y la app vuelve al login.
-// Otros 401 (contraseña incorrecta al eliminar la cuenta) no cierran la sesión.
 const sessionExpiredListeners = new Set();
 
 export function onSessionExpired(listener) {
@@ -145,10 +141,30 @@ function messageFromBody(body, fallbackMessage) {
     if (Array.isArray(data?.detail)) {
       return data.detail.map((item) => item.msg ?? item.message ?? JSON.stringify(item)).join(". ");
     }
+    if (data?.detail && typeof data.detail === "object") {
+      return data.detail.mensaje || fallbackMessage;
+    }
     return data?.detail || data?.message || fallbackMessage;
   } catch {
     return fallbackMessage;
   }
+}
+
+function detalleFromBody(body) {
+  try {
+    const data = typeof body === "string" ? JSON.parse(body) : body;
+    const detail = data?.detail;
+    return detail && typeof detail === "object" && !Array.isArray(detail) ? detail : null;
+  } catch {
+    return null;
+  }
+}
+
+function buildUploadError(body, fallbackMessage, status, headers) {
+  const error = buildApiError(messageFromBody(body, fallbackMessage), status, headers);
+  const detalle = detalleFromBody(body);
+  if (detalle) error.detalle = detalle;
+  return error;
 }
 
 async function parseResponse(response, fallbackMessage) {
@@ -167,8 +183,6 @@ async function parseResponse(response, fallbackMessage) {
     } else if (typeof data.detail === "string") {
       message = data.detail;
     } else if (data.detail && typeof data.detail === "object") {
-      // Errores con datos para la app (por ejemplo, las tareas que se eliminarían
-      // con una actividad): el texto va en `mensaje` y el resto queda en `detalle`.
       detalle = data.detail;
       if (typeof data.detail.mensaje === "string") message = data.detail.mensaje;
     }
@@ -404,8 +418,7 @@ export async function saveActivityLocation(tripId, payload) {
   );
 }
 
-// Igual que createActivity: el backend valida horarios y analiza entradas/reservas.
-// `options.ignorarAdvertencia` confirma el alta aunque haya advertencia de horario.
+
 export async function scheduleTripPlace(tripId, tripPlaceId, payload, options = {}) {
   const response = await fetch(`${API_BASE_URL}/trips/${tripId}/places/${tripPlaceId}/schedule${activityWarningQuery(options)}`, {
     method: "POST",
@@ -462,8 +475,7 @@ export async function removeTripExternalInvitation(tripId, email) {
   return parseResponse(response, "No se pudo quitar la invitación externa");
 }
 
-// HU 71: listado de invitaciones enviadas (solo administrador del viaje).
-// `estado` es opcional: "pendiente" | "aceptada" | "rechazada".
+
 export async function getSentInvitations(tripId, estado) {
   const query = estado ? `?estado=${encodeURIComponent(estado)}` : "";
   const response = await fetch(`${API_BASE_URL}/trips/${tripId}/invitations/sent${query}`, {
@@ -473,7 +485,6 @@ export async function getSentInvitations(tripId, estado) {
   return parseResponse(response, "No se pudieron obtener las invitaciones enviadas");
 }
 
-// HU 72: cancelar una invitación pendiente (solo administrador del viaje).
 export async function cancelSentInvitation(tripId, userId) {
   const response = await fetch(`${API_BASE_URL}/trips/${tripId}/invitations/${userId}/cancel`, {
     method: "POST",
@@ -500,8 +511,14 @@ export async function getCurrentUser() {
   return parseResponse(response, "No se pudo obtener el usuario actual");
 }
 
-// US 101: cambio de contraseña desde "Mi cuenta". Devuelve un token nuevo: el
-// anterior (y los de otros dispositivos) dejan de valer.
+export async function getMyLimits() {
+  const response = await fetch(`${API_BASE_URL}/users/me/limites`, {
+    headers: await authHeaders(),
+    cache: "no-store",
+  });
+  return parseResponse(response, "No se pudieron obtener los límites de tu plan");
+}
+
 export async function changePassword({ passwordActual, passwordNueva, confirmacion }) {
   const response = await fetch(`${API_BASE_URL}/users/me/password`, {
     method: "PUT",
@@ -514,7 +531,6 @@ export async function changePassword({ passwordActual, passwordNueva, confirmaci
   return parseResponse(response, "No se pudo cambiar la contraseña");
 }
 
-// US 61: preferencias de privacidad del perfil.
 export async function getPrivacySettings() {
   const response = await fetch(`${API_BASE_URL}/users/me/privacidad`, {
     headers: await authHeaders(),
@@ -721,8 +737,7 @@ export async function getExpenseCategories() {
   );
 }
 
-// Listado de gastos del viaje, del más reciente al más antiguo.
-// `categoria` (IdCategoria) es opcional; el filtro de la UI se resuelve en el cliente.
+
 export async function getTripExpenses(tripId, categoria) {
   const query = categoria ? `?categoria=${encodeURIComponent(categoria)}` : "";
   const response = await fetch(`${API_BASE_URL}/gastos/trips/${tripId}${query}`, {
@@ -763,8 +778,6 @@ export async function createExpense(payload) {
 }
 
 
-// US 95: gastos existentes que podrían ser el mismo pago que se va a registrar.
-// No registra nada; el formulario lo consulta antes de createExpense.
 export async function getPossibleDuplicateExpenses(
   tripId,
   { FechaGasto, MontoOriginal, MonedaOriginal, EsCompartido, IdPagador }
@@ -805,7 +818,6 @@ export async function getExpenseDetail(expenseId) {
   return parseResponse(response, "No se pudo cargar el gasto");
 }
 
-// US 79: guarda la edición de un gasto.
 export async function updateExpense(expenseId, payload) {
   const response = await fetch(`${API_BASE_URL}/gastos/${expenseId}`, {
     method: "PUT",
@@ -818,7 +830,6 @@ export async function updateExpense(expenseId, payload) {
   return parseResponse(response, "No se pudo guardar el gasto");
 }
 
-// Otorga o revoca el consentimiento para procesar imágenes con un servicio externo de IA.
 export async function updateAiConsent(consiente) {
   const response = await fetch(`${API_BASE_URL}/users/me/consentimiento-ia`, {
     method: "PUT",
@@ -831,8 +842,7 @@ export async function updateAiConsent(consiente) {
   return parseResponse(response, "No se pudo guardar tu consentimiento");
 }
 
-// Envía la imagen (ya comprimida) y devuelve los datos para precargar el formulario.
-// No registra ningún gasto: eso ocurre recién con createExpense (RNF-31).
+
 export async function scanReceipt(tripId, imagen) {
   const url = `${API_BASE_URL}/gastos/trips/${tripId}/escanear-comprobante`;
   const mensajeError = "No se pudo escanear el comprobante";
@@ -844,7 +854,6 @@ export async function scanReceipt(tripId, imagen) {
     if (imagen.file instanceof Blob) {
       formData.append("archivo", imagen.file, nombre);
     } else {
-      // El manipulador de imágenes devuelve un data URI o un blob URI.
       const blob = await (await fetch(imagen.uri)).blob();
       formData.append("archivo", blob, nombre);
     }
@@ -866,7 +875,7 @@ export async function scanReceipt(tripId, imagen) {
   });
 
   if (result.status < 200 || result.status >= 300) {
-    throw buildApiError(messageFromBody(result.body, mensajeError), result.status, result.headers);
+    throw buildUploadError(result.body, mensajeError, result.status, result.headers);
   }
   return JSON.parse(result.body);
 }
@@ -903,7 +912,7 @@ export async function attachReceiptToExpense(gastoId, imagen) {
   });
 
   if (result.status < 200 || result.status >= 300) {
-    throw buildApiError(messageFromBody(result.body, mensajeError), result.status, result.headers);
+    throw buildUploadError(result.body, mensajeError, result.status, result.headers);
   }
   return JSON.parse(result.body);
 }
@@ -915,7 +924,6 @@ export async function getTripSettlement(tripId) {
   return parseResponse(response, "No se pudo obtener la liquidación del viaje");
 }
 
-// "De dónde sale tu saldo": gastos compartidos y transferencias del usuario, uno por uno.
 export async function getMySettlementBalance(tripId) {
   const response = await fetch(`${API_BASE_URL}/trips/${tripId}/settlement/mi-saldo`, {
     headers: await authHeaders(),
@@ -934,7 +942,6 @@ export async function rebuildTripSettlement(tripId) {
   return parseResponse(response, "No se pudo recalcular la liquidación");
 }
 
-// "Ya transferí": el deudor avisa que pagó; el acreedor tiene que confirmarlo.
 export async function reportSettlementTransfer(tripId, transferId) {
   const response = await fetch(
     `${API_BASE_URL}/trips/${tripId}/settlement/transfers/${transferId}/informar`,
@@ -943,7 +950,6 @@ export async function reportSettlementTransfer(tripId, transferId) {
   return parseResponse(response, "No se pudo avisar la transferencia");
 }
 
-// "No me llegó": el acreedor rechaza el aviso y la deuda vuelve a pendiente.
 export async function rejectSettlementTransfer(tripId, transferId) {
   const response = await fetch(
     `${API_BASE_URL}/trips/${tripId}/settlement/transfers/${transferId}/rechazar`,
@@ -952,7 +958,6 @@ export async function rejectSettlementTransfer(tripId, transferId) {
   return parseResponse(response, "No se pudo rechazar la transferencia");
 }
 
-// Solo el acreedor: "Me llegó" (realizada = true) o "Deshacer" (false).
 export async function markSettlementTransferPaid(tripId, transferId, realizada = true) {
   const response = await fetch(
     `${API_BASE_URL}/trips/${tripId}/settlement/transfers/${transferId}`,
@@ -979,9 +984,6 @@ export async function getCurrencies() {
   );
 }
 
-// Convierte un monto con la cotización del servicio de la US-85. Lo usa el
-// formulario de gasto precargado desde un comprobante para completar el monto
-// en ARS automáticamente (US 94). Responde 503 si la cotización no está disponible.
 export async function getExchangeRate({ origen, destino = "ARS", monto, fecha }) {
   const params = new URLSearchParams({ origen, destino, monto: String(monto) });
   if (fecha) params.append("fecha", fecha);
@@ -1086,8 +1088,7 @@ export async function cancelarVotacion(idVotacion) {
   return parseResponse(response, "No se pudo cancelar la votación");
 }
 
-// `options.ignorarAdvertencia` confirma el registro aunque el backend haya
-// detectado una incompatibilidad de horarios (query param `ignorar_advertencia`).
+
 function activityWarningQuery(options = {}) {
   return options.ignorarAdvertencia ? "?ignorar_advertencia=true" : "";
 }
@@ -1123,9 +1124,7 @@ export async function updateActivity(tripId, dayId, activityId, payload, options
   return parseResponse(response, "No se pudo actualizar la actividad");
 }
 
-// `confirmarEliminarTareas`: el usuario ya aceptó que se eliminen las tareas
-// pendientes de "Recordármelo" de la actividad. Sin eso, si tiene alguna, el
-// backend responde 409 con `detalle.codigo = "confirmar_tareas_entradas"`.
+
 export async function deleteActivity(tripId, dayId, activityId, { confirmarEliminarTareas = false } = {}) {
   const query = confirmarEliminarTareas ? "?confirmar_eliminar_tareas=true" : "";
   const response = await fetch(
@@ -1232,8 +1231,7 @@ export async function uploadTripDocument(
     );
 
     if (result.status < 200 || result.status >= 300) {
-      const mensaje = messageFromBody(result.body, "No se pudo subir el documento");
-      throw buildApiError(mensaje, result.status, result.headers);
+      throw buildUploadError(result.body, "No se pudo subir el documento", result.status, result.headers);
     }
 
     try {
@@ -1253,6 +1251,14 @@ export async function getTripDocuments(tripId) {
   });
 
   return parseResponse(response, "No se pudieron cargar los documentos del viaje");
+}
+
+export async function getTripStorage(tripId) {
+  const response = await fetch(`${API_BASE_URL}/trips/${tripId}/documents/almacenamiento`, {
+    headers: await authHeaders(),
+    cache: "no-store",
+  });
+  return parseResponse(response, "No se pudo obtener el espacio de almacenamiento del viaje");
 }
 
 export async function downloadTripDocument(tripId, documentId, nombreArchivo) {
@@ -1355,9 +1361,7 @@ export async function deleteRepositorioItem(tripId, itemId) {
   return parseResponse(response, "No se pudo eliminar la información");
 }
 
-// "Recordármelo" en la recomendación de entradas o reservas de una actividad: crea
-// la tarea en el checklist con el enlace oficial. Si ya existía, la devuelve
-// (`creada: false`).
+
 export async function crearTareaEntradas(tripId, activityId, { tipo, enlace = null, nombreLugar = null }) {
   const response = await fetch(`${API_BASE_URL}/trips/${tripId}/activities/${activityId}/tarea-entradas`, {
     method: "POST",
@@ -1507,8 +1511,7 @@ export async function updateTripDocument(
       );
 
       if (result.status < 200 || result.status >= 300) {
-        const mensaje = messageFromBody(result.body, "No se pudo actualizar el documento");
-        throw buildApiError(mensaje, result.status, result.headers);
+        throw buildUploadError(result.body, "No se pudo actualizar el documento", result.status, result.headers);
       }
 
       try {
@@ -1700,9 +1703,6 @@ export async function removeTripCover(tripId) {
   return parseResponse(response, "No se pudo quitar la portada personalizada");
 }
 
-// US 57: portada del viaje generada con IA.
-// La generación devuelve una vista previa (no guarda nada); la imagen recién
-// se establece como portada al aceptarla.
 export async function generateTripCoverAI(tripId, prompt) {
   const response = await fetch(`${API_BASE_URL}/trips/${tripId}/cover/ai/generate`, {
     method: "POST",
@@ -1712,7 +1712,6 @@ export async function generateTripCoverAI(tripId, prompt) {
   return parseResponse(response, "No se pudo generar la imagen de portada");
 }
 
-// Vista previa para un viaje que todavía no existe (pantalla de creación).
 export async function generateCoverPreviewAI({ title, destinations, prompt }) {
   const response = await fetch(`${API_BASE_URL}/trips/cover/ai/preview`, {
     method: "POST",
@@ -1734,7 +1733,6 @@ export async function acceptTripCoverAI(tripId, imageBase64, mimeType) {
   });
   return parseResponse(response, "No se pudo establecer la portada generada");
 }
-// Preferencias de planificación del viaje
 export async function getPlanningPreferences(tripId) {
   const response = await fetch(`${API_BASE_URL}/trips/${tripId}/preferencias-planificacion`, {
     headers: await authHeaders(),
@@ -1817,9 +1815,7 @@ export async function discardActivitySuggestion(tripId, sugerenciaId) {
   return parseResponse(response, "No se pudo descartar la sugerencia");
 }
 
-// US 88: acepta una sugerencia pendiente y crea la actividad. Si el horario se
-// superpone, responde RequiereConfirmacion y hay que reenviar con
-// ConfirmarSuperposicion: true.
+
 export async function acceptActivitySuggestion(tripId, sugerenciaId, payload = {}) {
   const response = await fetch(
     `${API_BASE_URL}/trips/${tripId}/sugerencias-actividades/${sugerenciaId}/aceptar`,
@@ -1835,7 +1831,6 @@ export async function acceptActivitySuggestion(tripId, sugerenciaId, payload = {
   return parseResponse(response, "No se pudo aceptar la sugerencia");
 }
 
-// US 92: días y franjas libres del itinerario.
 export async function getFreeItinerarySlots(tripId) {
   const response = await fetch(
     `${API_BASE_URL}/trips/${tripId}/sugerencias-actividades/franjas-libres`,
@@ -1847,7 +1842,6 @@ export async function getFreeItinerarySlots(tripId) {
   return parseResponse(response, "No se pudieron detectar los días libres del itinerario");
 }
 
-// US 92: cada franja es una solicitud a la IA con su propio tiempo máximo.
 export async function completeFreeItinerarySlots(tripId, payload) {
   const franjas = Math.max(1, payload?.Franjas?.length ?? 1);
   const controller = new AbortController();
@@ -1888,7 +1882,7 @@ export async function getActivitySuggestionPhotoSource(tripId, sugerenciaId) {
     if (!response.ok) throw new Error("No se pudo cargar la foto");
     return { uri: URL.createObjectURL(await response.blob()) };
   }
-  return { uri, headers };
+  return { uri: url, headers };
 }
 
 export async function createVotacionDesdeSugerencias(payload) {

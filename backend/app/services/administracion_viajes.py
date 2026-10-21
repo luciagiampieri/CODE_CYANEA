@@ -9,6 +9,7 @@ from app.models.participante_viaje import ParticipanteViaje
 from app.models.rol_participante import RolParticipante
 from app.models.usuario import Usuario
 from app.models.viaje import Viaje
+from app.services.limites_planes import validar_viajes_activos_destinatario
 from app.services.trip_access import require_trip_not_finished
 
 
@@ -86,6 +87,7 @@ def transferir_administracion(
     )
     if destinatario is None or not destinatario.Activo or destinatario.FechaBaja is not None:
         raise HTTPException(400, "El destinatario debe tener una cuenta activa.")
+    validar_viajes_activos_destinatario(db, destinatario)
     cambiar_administrador(db, viaje, anterior, nuevo)
     db.commit()
     return viaje, destinatario
