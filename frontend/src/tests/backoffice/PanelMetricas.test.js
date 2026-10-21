@@ -95,8 +95,8 @@ describe('PanelMetricas', () => {
     await renderizar();
 
     expect(screen.getByText('Evolución diaria')).toBeTruthy();
-    expect(screen.getByText('8 registros')).toBeTruthy();
-    expect(screen.getByText('3 viajes')).toBeTruthy();
+    expect(screen.getByText('Registros · 8 en el período')).toBeTruthy();
+    expect(screen.getByText('Viajes creados · 3 en el período')).toBeTruthy();
   });
 
   test('elegir un rango rápido recalcula las métricas', async () => {

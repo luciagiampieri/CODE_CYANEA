@@ -122,7 +122,8 @@ export default function PanelMetricas() {
   const ancho = width >= 1100;
   const hoy = aISO(new Date());
   const [preset, setPreset] = useState('30');
-  const [consulta, setConsulta] = useState(() => ({ ...rangoUltimosDias(30), historico: false }));
+  // Solo "Desde el inicio" envía { historico: true }; el resto, { desde, hasta }.
+  const [consulta, setConsulta] = useState(() => rangoUltimosDias(30));
   const [borrador, setBorrador] = useState(() => rangoUltimosDias(30));
   const [datos, setDatos] = useState(null);
   const [cargando, setCargando] = useState(true);
@@ -162,14 +163,14 @@ export default function PanelMetricas() {
     } else if (opcion.dias) {
       const rango = rangoUltimosDias(opcion.dias);
       setBorrador(rango);
-      setConsulta({ ...rango, historico: false });
+      setConsulta(rango);
     }
   }
 
   function aplicar() {
     const mensaje = validarRango(borrador, hoy);
     setErrorRango(mensaje);
-    if (!mensaje) setConsulta({ ...borrador, historico: false });
+    if (!mensaje) setConsulta({ ...borrador });
   }
 
   let subtitulo = ' ';

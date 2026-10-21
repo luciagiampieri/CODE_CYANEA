@@ -196,9 +196,11 @@ def test_error_en_una_metrica_no_impide_las_demas(client, db_session, headers_ad
     assert r.status_code == 200
     assert r.json()["viajesCreados"] == {
         "valor": None,
+        "anterior": None,
         "error": metricas_service.MENSAJE_ERROR_METRICA,
     }
-    assert r.json()["usuariosRegistrados"] == {"valor": 1, "error": None}
+    assert r.json()["usuariosRegistrados"]["valor"] == 1
+    assert r.json()["usuariosRegistrados"]["error"] is None
 
 
 def test_suscripciones_e_ingresos_no_disponibles(client, headers_admin):
