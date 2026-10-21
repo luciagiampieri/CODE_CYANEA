@@ -260,6 +260,7 @@ Respetar el modelo de dominio en espanol. No introducir nombres tipo `trip_id`, 
 - `EstadosInvitaciones`
 - `EstadosTransferenciasLiquidaciones`
 - `Planes`
+- `EstadosSuscripciones`
 
 Datos maestros y seed:
 
@@ -334,7 +335,7 @@ Reglas vigentes para la HU de balance y liquidacion:
 - La precision (RNF-35) y los tiempos (RNF-34) se miden con `python -m scripts.evaluar_escaneo_comprobantes <carpeta>` sobre tickets reales y un `esperado.csv`
 - Frontend: `frontend/src/components/trip/ReceiptScanButton.js` concentra el flujo (camara o galeria, consentimiento la primera vez, validacion, compresion, progreso con tiempo maximo de 15 s y banner de error con "Completar manualmente"); `frontend/src/utils/receiptImage.js` valida formato y tamano sobre la imagen original (en mobile acepta tambien HEIC/HEIF, el formato de las fotos de iPhone, porque la compresion siempre genera JPEG; en web los rechaza porque el navegador no los decodifica; el picker pide `preferredAssetRepresentationMode: "compatible"` para que iOS entregue JPEG cuando puede) y comprime con `expo-image-manipulator` (API `ImageManipulator.manipulate`, no `manipulateAsync` que esta deprecada) a 1600 px en el lado mayor, JPEG calidad 0,7
 - `AddGastoScreen` recibe `puedeEscanear` (TripDetail pasa `!lock.isFinished`) y precarga con `aplicarEscaneo`: los campos a revisar se resaltan con `colors.warning`/`warningSurface` hasta que el usuario los edita; sin fecha legible el campo queda vacio y el formulario exige completarla; si no se detecto la moneda se mantiene la del viaje y se pide revisarla, porque el selector no puede quedar vacio
-- Fuera de alcance de esta US: guardar la foto del comprobante en el repositorio del viaje y limitar usos por viaje (RNF-36)
+- Fuera de alcance de esta US: guardar la foto del comprobante en el repositorio del viaje. El limite de escaneos por usuario y semana (RNF-36) se implemento en la US 118 (ver "Planes y limites de uso")
 
 ## Confirmar gasto precargado desde un comprobante (US 94)
 
@@ -351,6 +352,57 @@ Reglas vigentes para la HU de balance y liquidacion:
 - Modo offline: `gastos_pendientes` guarda `desde_comprobante` y `monto_convertido_ars`, y `sincronizarGastosOffline` los reenvia solo para gastos de comprobante (los manuales mantienen el payload de la US-85). Sin esto, al sincronizar se aplicaria la cotizacion automatica en lugar del monto en ARS ingresado. Las columnas nuevas se agregan a instalaciones existentes desde `inicializarBaseDeDatos` (reconstruccion de `gastos_pendientes` y `ALTER TABLE` en `cache_participantes`)
 - Fecha fuera del viaje (AC8): `AddGastoScreen` recibe `FechaInicioViaje`/`FechaFinViaje` (TripDetail las pasa directo y a `DocumentsScreen` como `tripFechaInicio`/`tripFechaFin`) y muestra una nota informativa, sin dialogo ni bloqueo: pagar antes del viaje (reservas, excursiones, pasajes) es normal, y la nota sirve para detectar una fecha mal leida del comprobante (por ejemplo un ano equivocado). El backend tampoco lo bloquea
 - Tests: `backend/tests/test_confirmar_gasto_comprobante.py` y `frontend/src/tests/ConfirmarGastoComprobante.test.js` (mapean CP1 a CP10); la persistencia offline en `GastosLocal.test.js` y las migraciones SQLite en `DatabaseNative.test.js`
+
+## Planes y limites de uso (US 118)
+
+### Modelo
+
+- Los limites viven en la tabla maestra `Planes` (migracion `c118a1b2c3d4`, script `015_limites_y_suscripciones.sql`): `MaxParticipantesViaje`, `MaxViajesActivos`, `MaxSugerenciasDiarias`, `MaxEscaneosSemanales` y `MaxAlmacenamientoMb`, todos `INTEGER NULL`. `NULL` significa ilimitado. Constantes `PLAN_GRATUITO=1` y `PLAN_PRO=2` en `app/models/plan.py`
+- Valores vigentes:
+
+| Campo | Gratuito | Pro |
+|---|---|---|
+| `MaxParticipantesViaje` | 3 | 10 |
+| `MaxViajesActivos` | 5 | 15 |
+| `MaxSugerenciasDiarias` | 10 | 20 |
+| `MaxEscaneosSemanales` | 3 | 50 |
+| `MaxAlmacenamientoMb` | 100 | 2048 |
+
+- Los valores se cambian directamente en base (`UPDATE "Planes" ...`) sin reiniciar el backend
+- `EstadosSuscripciones` (`activa`, `cancelada`, `vencida`) y `SuscripcionesUsuarios` (`IdUsuario`, `IdPlan`, `IdEstadoSuscripcion`, `FechaInicio`, `FechaFin`, `FechaCancelacion`, `FechaCreacion`) se crean en la misma migracion como base para "Gestionar suscripcion Pro" y "Volver al plan gratuito"; los limites se calculan siempre desde `Usuarios.IdPlan`
+- Migracion `c118b2c3d4e5` (script `016_escaneos_y_tamano_documentos.sql`): tabla `EscaneosComprobantes` (`IdUsuario`, `IdViaje`, `FechaEscaneo`, indice `IX_EscaneosComprobantes_Usuario_Fecha`) y columna `DocumentosViajes.TamanoBytes BIGINT NULL`. Los documentos anteriores a la migracion quedan con `NULL` y cuentan como 0
+
+### Reglas de conteo
+
+- Plan de un viaje = plan del administrador actual; si se transfiere la administracion, el limite se recalcula automaticamente con el plan del nuevo administrador
+- Viajes activos: solo los que el usuario administra en estado `borrador` o `activo`. Se valida al crear un viaje y al recibir una transferencia de administracion (el destinatario no puede superar su limite)
+- Participantes: solo participaciones `aceptado`, incluido el administrador; las invitaciones pendientes no reservan lugar. Se valida al aceptar una invitacion personal y al unirse por enlace (`require_trip_capacity`); generar invitaciones o enlaces no valida
+- Sugerencias: por viaje y por dia (00:00 de `AI_SUGGESTIONS_TIMEZONE`); cuentan las solicitudes de todos los participantes, excepto las fallidas o sin resultados. En "Completar dias libres" cada franja cuenta como una solicitud
+- Escaneos: por usuario y por semana (lunes 00:00 hora Argentina), sumando todos sus viajes. Solo se registra el escaneo si la IA respondio con exito; la deteccion automatica de gastos al subir documentos (US 84) no cuenta
+- Almacenamiento: suma de `TamanoBytes` de los documentos del viaje, incluidos los comprobantes guardados desde gastos. Al reemplazar un archivo solo se valida la diferencia si el nuevo es mas grande
+- Superar un limite nunca elimina contenido existente: solo bloquea nuevas acciones (por ejemplo, si al transferir la administracion el viaje queda con mas participantes que el nuevo plan, nadie es expulsado)
+
+### Contrato de errores
+
+- Toda la logica vive en `backend/app/services/limites_planes.py` (contadores, `validar_*`, `registrar_escaneo`, `resumen_usuario`, `resumen_viaje`). Las rutas solo llaman a los validadores; no reimplementar conteos en las rutas
+- Al superar un limite se responde 409 (429 para sugerencias) con header `X-Error-Code` y `detail` objeto: `{ mensaje, tipoLimite, limite, usoActual }`
+- Codigos: `TRIP_ACTIVE_LIMIT_REACHED`, `TRIP_PARTICIPANT_LIMIT_REACHED`, `SUGGESTION_LIMIT_REACHED`, `RECEIPT_SCAN_LIMIT_REACHED`, `STORAGE_LIMIT_REACHED`; plan ausente o inactivo 503 `PLAN_UNAVAILABLE`
+- `tipoLimite`: `viajes_activos`, `viajes_activos_destinatario`, `participantes`, `sugerencias_diarias`, `escaneos_semanales`, `almacenamiento`
+
+### Consulta de uso (CA 7)
+
+- `GET /users/me/limites`: uso y limite de viajes activos y escaneos semanales del usuario
+- `GET /trips/{trip_id}/documents/almacenamiento`: espacio usado y limite del viaje, en MB (schema `UsoLimiteRead` de `app/schemas/limite_plan.py`)
+- Las sugerencias informan `LimiteDiario` y `SolicitudesRestantes` en el contexto y en las franjas libres; ambos son `null` cuando el plan es ilimitado
+
+### Frontend
+
+- `frontend/src/utils/limitesPlan.js`: `esErrorDeLimite(error)`, `irAPlanes()` y `mostrarLimiteAlcanzado(error, { titulo, ofrecerPlanes, antesDeIr })`. `antesDeIr` cierra el modal abierto antes de navegar, para que la pantalla de planes no quede tapada
+- `api.js` conserva el `detail` objeto en `error.detalle` (tambien en las subidas mobile, via `buildUploadError`) y expone `getMyLimits()` y `getTripStorage()`
+- La pantalla de planes es la ruta `Planes`; mientras no exista, `irAPlanes()` navega a `Configuracion`
+- "Ver planes" se ofrece solo cuando el usuario puede resolverlo cambiando su propio plan: no al unirse a un viaje lleno ni al aceptar una invitacion (el limite es del administrador), ni cuando el destinatario de una transferencia esta en su limite
+- Donde se informa el uso: `CreateTripScreen` (viajes activos, bloquea "Siguiente" si no hay cupo), `ReceiptScanButton` (escaneos restantes de la semana; prop `onVerPlanes` para cerrar `AddGastoScreen`), `DocumentsScreen` (barra de almacenamiento y aviso previo si el archivo no entra), `ActivitySuggestionsScreen` y `CompleteFreeDaysScreen` (solicitudes restantes del dia)
+- Tests: `backend/tests/test_limites_planes.py` (viajes activos, participantes, transferencias), `test_limites_planes_uso.py` (escaneos y almacenamiento a nivel servicio), `test_limites_planes_endpoints.py` (409 por API de escaneo y documentos), `test_limites_sugerencias.py` (sugerencias y completar dias libres) y `test_almacenamiento_api.py`
 
 ## Integraciones externas
 
@@ -402,6 +454,8 @@ Orden actual:
 - `012_backoffice.sql`
 - `013_enlaces_invitacion_viajes.sql`
 - `014_planes_y_cupos.sql`
+- `015_limites_y_suscripciones.sql`
+- `016_escaneos_y_tamano_documentos.sql`
 
 ## Convenciones de backend
 
@@ -557,6 +611,7 @@ Para retomar o replicar la configuracion de push Android:
 - `POST /trips/{trip_id}/transferir-administracion` recibe `nuevoAdministradorId` (id de usuario entero positivo). Solo el administrador actual con participacion aceptada puede transferir a otro participante aceptado del mismo viaje y con cuenta activa sin baja. Solo aplica a viajes activos no finalizados; se conserva `TRIP_FINISHED` (409) si ya paso la fecha de fin.
 - La transferencia es inmediata tras confirmacion explicita; no requiere aceptacion del destinatario. El administrador anterior sigue como participante aceptado. No cambia fechas de incorporacion, estados de participacion, gastos, asignaciones, actividades ni invitaciones.
 - `backend/app/services/administracion_viajes.py` mantiene en la misma transaccion `Viajes.IdAdministrador`, ambos `IdRolParticipante` y `FechaActualizacion`; `cambiar_administrador` tambien se reutiliza al abandonar. Transferencia, abandono y expulsion bloquean primero la fila del viaje con `SELECT FOR UPDATE` y recargan su estado para serializar operaciones concurrentes.
+- Antes de cambiar el administrador, `transferir_administracion` valida que el destinatario no supere su limite de viajes activos (`validar_viajes_activos_destinatario`, 409 con `tipoLimite=viajes_activos_destinatario`; ver "Planes y limites de uso").
 - La UI ofrece "Transferir organización" en el menu del integrante aceptado en Grupo > Participantes. `GroupMemberList` recibe `onTransferAdministration`; confirmacion, exito y error usan `appAlert` de `AppDialog.js` tambien en web, sin `window.confirm` ni `window.alert`. La confirmacion resuelve una promesa y cancelar/cerrar no ejecuta la transferencia. Se muestra progreso y se actualizan los permisos locales y el detalle despues de confirmar. Los candidatos a administrador al abandonar tambien se filtran por estado `aceptado`.
 - Tras persistir, el evento WebSocket `administracion_transferida` recarga el detalle y cierra la gestion de invitaciones. Se notifica al nuevo administrador mediante `dispatch_user_notification`, tipo interno `nuevo_administrador` y preferencia `CAMBIO_VIAJE` para correo/push; el evento push `administration_transferred` abre Grupo. Fallos externos no revierten la transferencia. No requiere nuevas tablas ni migraciones.
 - Pruebas de negocio en `backend/tests/test_transferir_administracion.py`; regresion de abandono y expulsion en `test_trips.py`. Frontend: `GroupMemberList.test.js`, `TripDetailScreen.test.js`, `api.test.js` y `notificationTarget.test.js`.
@@ -578,10 +633,9 @@ Para retomar o replicar la configuracion de push Android:
 
 #### Cupos de participantes por plan (US 104, CA8)
 
-- `Planes` es una tabla maestra con `IdPlan`, `Nombre`, `MaxParticipantesViaje` (> 0) y `Activo`; `Usuarios.IdPlan` referencia el plan vigente. Migracion `e1710c0f1a03` y script `014_planes_y_cupos.sql`. Se inicializan `gratuito` (1) y `pro` (2), ambos con cupo 3; las cuentas existentes y nuevas quedan en gratuito por defecto. Esta estructura no implementa cobros, suscripciones ni activacion comercial de Pro.
-- El cupo se modifica directamente en base, por ejemplo `UPDATE "Planes" SET "MaxParticipantesViaje" = 5 WHERE "Nombre" = 'gratuito';`; no requiere reiniciar el backend. El plan de un administrador se asigna mediante `Usuarios.IdPlan`. El limite aplicado es siempre el del administrador actual del viaje, no el del solicitante.
-- Se cuentan todas las participaciones con estado `aceptado`, incluido el administrador. Las invitaciones pendientes no reservan lugar. Bajar un cupo o cambiar administrador no expulsa integrantes existentes; bloquea nuevas incorporaciones mientras el viaje este lleno.
-- `require_trip_capacity` de `backend/app/services/cupos_viajes.py` consulta el plan y cuenta aceptados manteniendo bloqueado el viaje hasta el commit; se usa en ingreso por enlace y en aceptacion de invitaciones personales. El plan se lee con bloqueo compartido para coordinar cambios de configuracion. Viaje lleno responde 409 `TRIP_PARTICIPANT_LIMIT_REACHED`; plan ausente/inactivo responde 503 `PLAN_UNAVAILABLE`.
+- `Planes` es una tabla maestra con `IdPlan`, `Nombre`, `MaxParticipantesViaje` y `Activo`; `Usuarios.IdPlan` referencia el plan vigente. Migracion `e1710c0f1a03` y script `014_planes_y_cupos.sql`. Las cuentas existentes y nuevas quedan en `gratuito` por defecto. Esta estructura no implementa cobros.
+- Desde la US 118 el cupo vale 3 en gratuito y 10 en Pro, y `MaxParticipantesViaje` admite `NULL` (ilimitado). Las reglas generales de limites (plan del administrador actual, conteo de aceptados, contrato de errores) estan en "Planes y limites de uso (US 118)".
+- `require_trip_capacity` de `backend/app/services/cupos_viajes.py` delega en `limites_planes.validar_participantes`, manteniendo bloqueado el viaje hasta el commit; se usa en ingreso por enlace y en aceptacion de invitaciones personales. Viaje lleno responde 409 `TRIP_PARTICIPANT_LIMIT_REACHED`; plan ausente/inactivo responde 503 `PLAN_UNAVAILABLE`.
 
 #### Invitaciones personales
 
@@ -633,7 +687,7 @@ El flujo minimo actual incluye:
   - `Activo = false` -> `suspendida`
   - resto -> `activa`
 - el metodo de registro es `Usuarios.ProveedorAutenticacion`
-- el plan informado y los filtros `gratuito`/`pro` se resuelven desde `Usuarios.IdPlan` y la tabla `Planes`; `estadoSuscripcion` sigue en `null` porque no se implementaron suscripciones ni pagos
+- el plan informado y los filtros `gratuito`/`pro` se resuelven desde `Usuarios.IdPlan` y la tabla `Planes`; `estadoSuscripcion` sigue en `null` hasta que se implemente "Gestionar suscripcion Pro", aunque la tabla `SuscripcionesUsuarios` ya existe (US 118)
 - los usuarios dados de baja ya estan anonimizados en base (`_anonimizar_usuario`, RN-07); el backoffice no enmascara datos, solo informa `anonimizado` segun `FechaBaja`
 
 ### Frontend del backoffice
