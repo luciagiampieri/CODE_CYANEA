@@ -1,4 +1,5 @@
 import math
+from datetime import date
 
 from sqlalchemy import and_, func, or_, select
 from app.models.plan import Plan
@@ -13,6 +14,7 @@ from app.schemas.backoffice_usuario import (
     UsuarioBackofficeItem,
     UsuarioBackofficePagina,
 )
+from app.services.backoffice.metricas_service import limites_utc
 
 TAMANIO_PAGINA = 20
 PLAN_GRATUITO = "gratuito"
@@ -75,6 +77,8 @@ def buscar_usuarios(
     plan: str | None,
     metodo_registro: str | None,
     pagina: int,
+    desde: date | None = None,
+    hasta: date | None = None,
 ) -> UsuarioBackofficePagina:
     consulta = select(Usuario).where(
         Usuario.IdRolSistema.is_distinct_from(ROL_ADMIN_SISTEMA)
@@ -102,6 +106,13 @@ def buscar_usuarios(
         consulta = consulta.where(
             Usuario.ProveedorAutenticacion == metodo_registro.strip().lower()
         )
+
+    if desde:
+        inicio, _ = limites_utc(desde, desde)
+        consulta = consulta.where(Usuario.FechaAlta >= inicio)
+    if hasta:
+        _, fin = limites_utc(hasta, hasta)
+        consulta = consulta.where(Usuario.FechaAlta < fin)
 
     total = db.scalar(select(func.count()).select_from(consulta.subquery())) or 0
 

@@ -11,6 +11,7 @@ import {
   useWindowDimensions,
 } from 'react-native';
 
+import CampoFecha from '../../components/backoffice/CampoFecha';
 import {
   ETIQUETAS_ESTADO,
   ETIQUETAS_METODO,
@@ -21,12 +22,16 @@ import {
 import { listarUsuarios } from '../../services/backofficeApi';
 import { backofficeColors as c } from '../../theme/backofficeTokens';
 import { fontFamilies, radii, spacing, textStyles } from '../../theme/tokens';
+import { aISO, formatearISO, rangoUltimosDias, validarRango } from '../../utils/formatoMetricas';
 
 export const FILTROS_USUARIOS_INICIALES = {
   q: '',
   estado: null,
   plan: null,
   metodoRegistro: null,
+  periodo: 'todos',
+  desde: null,
+  hasta: null,
   pagina: 1,
 };
 
@@ -53,6 +58,15 @@ const OPCIONES_ESTADO = opciones(ETIQUETAS_ESTADO);
 const OPCIONES_PLAN = opciones(ETIQUETAS_PLAN);
 const OPCIONES_METODO = opciones(ETIQUETAS_METODO);
 
+const PERIODOS_REGISTRO = [
+  { valor: 'todos', etiqueta: 'Todos' },
+  { valor: '7', etiqueta: '7 días', dias: 7 },
+  { valor: '30', etiqueta: '30 días', dias: 30 },
+  { valor: '90', etiqueta: '90 días', dias: 90 },
+  { valor: '365', etiqueta: '12 meses', dias: 365 },
+  { valor: 'personalizado', etiqueta: 'Personalizado' },
+];
+
 export default function BackofficeUsuariosScreen({
   filtros,
   onCambiarFiltros,
@@ -61,11 +75,17 @@ export default function BackofficeUsuariosScreen({
 }) {
   const { width } = useWindowDimensions();
   const tabla = width >= ANCHO_TABLA;
+  const hoy = aISO(new Date());
   const [texto, setTexto] = useState(filtros.q);
   const [datos, setDatos] = useState(null);
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState('');
   const [recarga, setRecarga] = useState(0);
+  const [borrador, setBorrador] = useState(() => ({
+    desde: filtros.desde ?? rangoUltimosDias(30).desde,
+    hasta: filtros.hasta ?? hoy,
+  }));
+  const [errorRango, setErrorRango] = useState('');
 
   useEffect(() => {
     const limpio = texto.trim();
@@ -100,19 +120,60 @@ export default function BackofficeUsuariosScreen({
     onCambiarFiltros({ ...filtros, [campo]: valor, pagina: 1 });
   }
 
+  function cambiarPeriodo(valor) {
+    setErrorRango('');
+    const opcion = PERIODOS_REGISTRO.find((p) => p.valor === valor);
+    if (valor === 'todos') {
+      onCambiarFiltros({ ...filtros, periodo: 'todos', desde: null, hasta: null, pagina: 1 });
+      return;
+    }
+    if (opcion?.dias) {
+      onCambiarFiltros({ ...filtros, periodo: valor, ...rangoUltimosDias(opcion.dias), pagina: 1 });
+      return;
+    }
+    setBorrador({
+      desde: filtros.desde ?? rangoUltimosDias(30).desde,
+      hasta: filtros.hasta ?? hoy,
+    });
+    onCambiarFiltros({ ...filtros, periodo: 'personalizado', pagina: 1 });
+  }
+
+  function aplicarRango() {
+    const mensaje = validarRango(borrador, hoy);
+    setErrorRango(mensaje);
+    if (!mensaje) {
+      onCambiarFiltros({
+        ...filtros,
+        periodo: 'personalizado',
+        desde: borrador.desde,
+        hasta: borrador.hasta,
+        pagina: 1,
+      });
+    }
+  }
+
   function irAPagina(pagina) {
     onCambiarFiltros({ ...filtros, pagina });
   }
 
   function limpiar() {
     setTexto('');
+    setErrorRango('');
     onCambiarFiltros(FILTROS_USUARIOS_INICIALES);
   }
 
   const hayFiltros = Boolean(
-    texto.trim() || filtros.estado || filtros.plan || filtros.metodoRegistro
+    texto.trim() ||
+      filtros.estado ||
+      filtros.plan ||
+      filtros.metodoRegistro ||
+      (filtros.periodo && filtros.periodo !== 'todos')
   );
   const total = datos?.total ?? 0;
+  const textoRango =
+    filtros.desde && filtros.hasta
+      ? ` registrados del ${formatearISO(filtros.desde)} al ${formatearISO(filtros.hasta)}`
+      : '';
 
   let contenido;
   if (cargando && !datos) {
@@ -188,30 +249,84 @@ export default function BackofficeUsuariosScreen({
         ) : null}
       </View>
 
-      <View style={styles.filtros}>
+      <View style={styles.panelFiltros}>
+        <View style={styles.filtros}>
+          <GrupoFiltro
+            etiqueta="Estado"
+            icono="circle-half-stroke"
+            onCambiar={(valor) => cambiar('estado', valor)}
+            opciones={OPCIONES_ESTADO}
+            valor={filtros.estado}
+          />
+          <GrupoFiltro
+            etiqueta="Plan"
+            icono="crown"
+            onCambiar={(valor) => cambiar('plan', valor)}
+            opciones={OPCIONES_PLAN}
+            valor={filtros.plan}
+          />
+          <GrupoFiltro
+            etiqueta="Método de registro"
+            icono="right-to-bracket"
+            onCambiar={(valor) => cambiar('metodoRegistro', valor)}
+            opciones={OPCIONES_METODO}
+            valor={filtros.metodoRegistro}
+          />
+        </View>
+
+        <View style={styles.separador} />
+
         <GrupoFiltro
-          etiqueta="Estado"
-          onCambiar={(valor) => cambiar('estado', valor)}
-          opciones={OPCIONES_ESTADO}
-          valor={filtros.estado}
+          etiqueta="Fecha de registro"
+          icono="calendar-days"
+          onCambiar={cambiarPeriodo}
+          opciones={PERIODOS_REGISTRO}
+          valor={filtros.periodo ?? 'todos'}
         />
-        <GrupoFiltro
-          etiqueta="Plan"
-          onCambiar={(valor) => cambiar('plan', valor)}
-          opciones={OPCIONES_PLAN}
-          valor={filtros.plan}
-        />
-        <GrupoFiltro
-          etiqueta="Método de registro"
-          onCambiar={(valor) => cambiar('metodoRegistro', valor)}
-          opciones={OPCIONES_METODO}
-          valor={filtros.metodoRegistro}
-        />
+
+        {filtros.periodo === 'personalizado' ? (
+          <View style={styles.filaRango}>
+            <CampoFecha
+              etiqueta="Desde"
+              maximo={hoy}
+              onCambiar={(valor) => setBorrador((b) => ({ ...b, desde: valor }))}
+              valor={borrador.desde}
+            />
+            <View style={styles.flechaRango}>
+              <FontAwesome6 color={c.textoTenue} name="arrow-right" size={13} />
+            </View>
+            <CampoFecha
+              etiqueta="Hasta"
+              maximo={hoy}
+              onCambiar={(valor) => setBorrador((b) => ({ ...b, hasta: valor }))}
+              valor={borrador.hasta}
+            />
+            <Pressable
+              onPress={aplicarRango}
+              style={({ hovered, pressed }) => [
+                styles.botonAplicar,
+                hovered && styles.botonAplicarHover,
+                pressed && styles.presionado,
+              ]}
+              testID="usuarios-aplicar-rango"
+            >
+              <FontAwesome6 color={c.sobreAcento} name="check" size={13} />
+              <Text style={styles.textoBotonAplicar}>Aplicar</Text>
+            </Pressable>
+          </View>
+        ) : null}
+
+        {errorRango ? (
+          <View style={styles.avisoRango}>
+            <FontAwesome6 color={c.peligro} name="circle-exclamation" size={13} />
+            <Text style={styles.textoErrorRango}>{errorRango}</Text>
+          </View>
+        ) : null}
       </View>
 
       <View style={styles.resumen}>
         <Text style={styles.textoResumen}>
-          {datos ? `${total} ${total === 1 ? 'usuario' : 'usuarios'}` : ' '}
+          {datos ? `${total} ${total === 1 ? 'usuario' : 'usuarios'}${textoRango}` : ' '}
         </Text>
         {hayFiltros ? (
           <Pressable hitSlop={8} onPress={limpiar}>
@@ -246,23 +361,30 @@ export default function BackofficeUsuariosScreen({
   );
 }
 
-function GrupoFiltro({ etiqueta, opciones: lista, valor, onCambiar }) {
+function GrupoFiltro({ etiqueta, icono, opciones: lista, valor, onCambiar }) {
   return (
     <View style={styles.grupo}>
-      <Text style={styles.etiquetaGrupo}>{etiqueta}</Text>
+      <View style={styles.etiquetaGrupoFila}>
+        {icono ? <FontAwesome6 color={c.textoSecundario} name={icono} size={11} /> : null}
+        <Text style={styles.etiquetaGrupo}>{etiqueta}</Text>
+      </View>
       <View style={styles.chips}>
         {lista.map((opcion) => {
           const activo = opcion.valor === valor;
           return (
             <Pressable
               key={opcion.etiqueta}
+              accessibilityRole="button"
+              accessibilityState={{ selected: activo }}
               onPress={() => onCambiar(opcion.valor)}
-              style={({ pressed }) => [
+              style={({ hovered, pressed }) => [
                 styles.chip,
+                hovered && !activo && styles.chipHover,
                 activo && styles.chipActivo,
                 pressed && styles.presionado,
               ]}
             >
+              {activo ? <FontAwesome6 color={c.acento} name="check" size={10} /> : null}
               <Text style={[styles.textoChip, activo && styles.textoChipActivo]}>
                 {opcion.etiqueta}
               </Text>
@@ -398,7 +520,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.md,
     borderRadius: radii.md,
     borderWidth: 1,
-    borderColor: c.borde,
+    borderColor: c.bordeControl,
     backgroundColor: c.superficie,
   },
   input: {
@@ -409,14 +531,31 @@ const styles = StyleSheet.create({
     fontSize: 16,
     ...(Platform.OS === 'web' ? { outlineStyle: 'none' } : null),
   },
+  panelFiltros: {
+    marginTop: spacing.lg,
+    padding: spacing.lg,
+    gap: spacing.md,
+    borderRadius: radii.lg,
+    borderWidth: 1,
+    borderColor: c.borde,
+    backgroundColor: c.panel,
+  },
   filtros: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: spacing.lg,
-    marginTop: spacing.lg,
+  },
+  separador: {
+    height: 1,
+    backgroundColor: c.borde,
   },
   grupo: {
     gap: spacing.xs,
+  },
+  etiquetaGrupoFila: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
   },
   etiquetaGrupo: {
     ...textStyles.label,
@@ -428,24 +567,67 @@ const styles = StyleSheet.create({
     gap: spacing.xs,
   },
   chip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
     paddingHorizontal: spacing.md,
-    paddingVertical: 6,
+    paddingVertical: 7,
     borderRadius: 999,
     borderWidth: 1,
-    borderColor: c.borde,
-    backgroundColor: c.superficie,
+    borderColor: c.bordeControl,
+    backgroundColor: c.superficieElevada,
+  },
+  chipHover: {
+    borderColor: c.textoSecundario,
   },
   chipActivo: {
-    borderColor: c.acentoBorde,
-    backgroundColor: c.acentoSuave,
+    borderColor: c.acento,
+    backgroundColor: c.acentoMedio,
   },
   textoChip: {
     ...textStyles.meta,
-    color: c.textoSecundario,
+    color: c.texto,
     fontSize: 13,
   },
   textoChipActivo: {
+    ...textStyles.bodyStrong,
     color: c.acento,
+    fontSize: 13,
+  },
+  filaRango: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'flex-end',
+    gap: spacing.md,
+  },
+  flechaRango: {
+    height: 44,
+    justifyContent: 'center',
+  },
+  botonAplicar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    height: 44,
+    paddingHorizontal: spacing.lg,
+    borderRadius: radii.md,
+    backgroundColor: c.manteca,
+  },
+  botonAplicarHover: {
+    opacity: 0.9,
+  },
+  textoBotonAplicar: {
+    ...textStyles.bodyStrong,
+    color: c.sobreAcento,
+  },
+  avisoRango: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+  },
+  textoErrorRango: {
+    ...textStyles.meta,
+    color: c.peligro,
   },
   resumen: {
     flexDirection: 'row',
@@ -456,7 +638,7 @@ const styles = StyleSheet.create({
   },
   textoResumen: {
     ...textStyles.meta,
-    color: c.textoTenue,
+    color: c.textoSecundario,
   },
   enlace: {
     ...textStyles.meta,
@@ -589,7 +771,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.md,
     borderRadius: radii.md,
     borderWidth: 1,
-    borderColor: c.bordeFuerte,
+    borderColor: c.bordeControl,
   },
   textoBotonSecundario: {
     ...textStyles.meta,
@@ -613,7 +795,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.md,
     borderRadius: radii.md,
     borderWidth: 1,
-    borderColor: c.bordeFuerte,
+    borderColor: c.bordeControl,
   },
   textoBotonPagina: {
     ...textStyles.meta,

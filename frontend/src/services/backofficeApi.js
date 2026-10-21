@@ -88,12 +88,14 @@ export async function cerrarSesion() {
   }
 }
 
-export function listarUsuarios({ q, estado, plan, metodoRegistro, pagina = 1 } = {}) {
+export function listarUsuarios({ q, estado, plan, metodoRegistro, desde, hasta, pagina = 1 } = {}) {
   const params = new URLSearchParams();
   if (q?.trim()) params.set('q', q.trim());
   if (estado) params.set('estado', estado);
   if (plan) params.set('plan', plan);
   if (metodoRegistro) params.set('metodoRegistro', metodoRegistro);
+  if (desde) params.set('desde', desde);
+  if (hasta) params.set('hasta', hasta);
   params.set('pagina', String(pagina));
   return solicitar(`/usuarios?${params.toString()}`);
 }
@@ -102,10 +104,14 @@ export function obtenerUsuario(idUsuario) {
   return solicitar(`/usuarios/${idUsuario}`);
 }
 
-export function obtenerMetricas({ desde, hasta } = {}) {
+export function obtenerMetricas({ desde, hasta, historico = false } = {}) {
   const params = new URLSearchParams();
-  if (desde) params.set('desde', desde);
-  if (hasta) params.set('hasta', hasta);
+  if (historico) {
+    params.set('historico', 'true');
+  } else {
+    if (desde) params.set('desde', desde);
+    if (hasta) params.set('hasta', hasta);
+  }
   const consulta = params.toString();
   return solicitar(`/metricas${consulta ? `?${consulta}` : ''}`);
 }

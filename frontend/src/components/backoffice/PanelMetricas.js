@@ -1,23 +1,30 @@
 import { FontAwesome6 } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { createElement, useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
-  Platform,
   Pressable,
   StyleSheet,
   Text,
-  TextInput,
   View,
   useWindowDimensions,
 } from 'react-native';
 
 import { obtenerMetricas } from '../../services/backofficeApi';
 import { backofficeColors as c } from '../../theme/backofficeTokens';
-import { fontFamilies, radii, spacing, textStyles } from '../../theme/tokens';
-
-const COLOR_USUARIOS = c.manteca;
-const COLOR_VIAJES = c.cielo;
+import { radii, spacing, textStyles } from '../../theme/tokens';
+import {
+  aISO,
+  diasDelRango,
+  formatearISO,
+  formatearNumero,
+  rangoUltimosDias,
+  validarRango,
+} from '../../utils/formatoMetricas';
+import { variacion } from '../../utils/tendencias';
+import CampoFecha from './CampoFecha';
+import GraficoCombinado from './GraficoCombinado';
+import MapaEstacional from './MapaEstacional';
 
 const KPIS = [
   { clave: 'usuariosRegistrados', titulo: 'Usuarios registrados', icono: 'users', color: c.manteca },
@@ -37,67 +44,12 @@ const PRESETS = [
   { id: '30', etiqueta: '30 días', dias: 30 },
   { id: '90', etiqueta: '90 días', dias: 90 },
   { id: '365', etiqueta: '12 meses', dias: 365 },
+  { id: 'inicio', etiqueta: 'Desde el inicio', historico: true },
   { id: 'personalizado', etiqueta: 'Personalizado', dias: null },
 ];
 
-const MESES = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
-const ALTO_GRAFICO = 240;
 const ALTO_SPARKLINE = 40;
 const DURACION_CONTADOR = 800;
-
-function aISO(fecha) {
-  const mes = String(fecha.getMonth() + 1).padStart(2, '0');
-  const dia = String(fecha.getDate()).padStart(2, '0');
-  return `${fecha.getFullYear()}-${mes}-${dia}`;
-}
-
-function rangoUltimosDias(dias) {
-  const hasta = new Date();
-  const desde = new Date();
-  desde.setDate(desde.getDate() - (dias - 1));
-  return { desde: aISO(desde), hasta: aISO(hasta) };
-}
-
-function formatearISO(iso) {
-  const [anio, mes, dia] = iso.split('-');
-  return `${dia}/${mes}/${anio}`;
-}
-
-function etiquetaCorta(iso, agrupacion) {
-  const [anio, mes, dia] = iso.split('-');
-  return agrupacion === 'mes' ? `${MESES[Number(mes) - 1]} ${anio.slice(2)}` : `${dia}/${mes}`;
-}
-
-function etiquetaLarga(iso, agrupacion) {
-  const [anio, mes] = iso.split('-');
-  return agrupacion === 'mes' ? `${MESES[Number(mes) - 1]} ${anio}` : formatearISO(iso);
-}
-
-function diasDelRango(desde, hasta) {
-  return Math.round((Date.parse(hasta) - Date.parse(desde)) / 86400000) + 1;
-}
-
-function formatearNumero(valor, moneda) {
-  if (valor === null || valor === undefined) return '—';
-  if (moneda) {
-    return valor.toLocaleString('es-AR', { style: 'currency', currency: 'ARS', maximumFractionDigits: 0 });
-  }
-  return valor.toLocaleString('es-AR');
-}
-
-function escalaRedonda(maximo) {
-  if (maximo <= 4) return 4;
-  const magnitud = 10 ** Math.floor(Math.log10(maximo));
-  if (magnitud === 1) return maximo + (maximo % 2);
-  return Math.ceil(maximo / magnitud) * magnitud;
-}
-
-function validarRango({ desde, hasta }, hoy) {
-  if (!desde || !hasta) return 'Completá ambas fechas.';
-  if (hasta < desde) return 'La fecha de fin no puede ser anterior a la fecha de inicio.';
-  if (hasta > hoy) return 'La fecha de fin no puede ser posterior a hoy.';
-  return '';
-}
 
 function useContador(objetivo) {
   const [valor, setValor] = useState(0);
@@ -138,12 +90,39 @@ function NumeroAnimado({ valor, moneda, style }) {
   );
 }
 
+function VariacionBadge({ actual, anterior }) {
+  const cambio = variacion(actual, anterior);
+  if (!cambio) return null;
+  let color = c.textoSecundario;
+  let icono = 'minus';
+  if (cambio.direccion === 'sube') {
+    color = c.salvia;
+    icono = 'arrow-trend-up';
+  } else if (cambio.direccion === 'baja') {
+    color = c.peligro;
+    icono = 'arrow-trend-down';
+  }
+  const signo = cambio.porcentaje > 0 ? '+' : '';
+  return (
+    <View style={styles.variacion} testID="variacion-periodo">
+      <View style={[styles.pildoraVariacion, { backgroundColor: `${color}1F`, borderColor: `${color}55` }]}>
+        <FontAwesome6 color={color} name={icono} size={11} />
+        <Text style={[styles.textoVariacion, { color }]}>
+          {signo}
+          {cambio.porcentaje}%
+        </Text>
+      </View>
+      <Text style={styles.detalleVariacion}>vs. período anterior</Text>
+    </View>
+  );
+}
+
 export default function PanelMetricas() {
   const { width } = useWindowDimensions();
   const ancho = width >= 1100;
   const hoy = aISO(new Date());
   const [preset, setPreset] = useState('30');
-  const [consulta, setConsulta] = useState(() => rangoUltimosDias(30));
+  const [consulta, setConsulta] = useState(() => ({ ...rangoUltimosDias(30), historico: false }));
   const [borrador, setBorrador] = useState(() => rangoUltimosDias(30));
   const [datos, setDatos] = useState(null);
   const [cargando, setCargando] = useState(true);
@@ -178,17 +157,26 @@ export default function PanelMetricas() {
   function elegirPreset(opcion) {
     setPreset(opcion.id);
     setErrorRango('');
-    if (opcion.dias) {
+    if (opcion.historico) {
+      setConsulta({ historico: true });
+    } else if (opcion.dias) {
       const rango = rangoUltimosDias(opcion.dias);
       setBorrador(rango);
-      setConsulta(rango);
+      setConsulta({ ...rango, historico: false });
     }
   }
 
   function aplicar() {
     const mensaje = validarRango(borrador, hoy);
     setErrorRango(mensaje);
-    if (!mensaje) setConsulta({ ...borrador });
+    if (!mensaje) setConsulta({ ...borrador, historico: false });
+  }
+
+  let subtitulo = ' ';
+  if (datos) {
+    subtitulo = datos.historico
+      ? `Desde el inicio (${formatearISO(datos.desde)}) al ${formatearISO(datos.hasta)}`
+      : `Del ${formatearISO(datos.desde)} al ${formatearISO(datos.hasta)}`;
   }
 
   let contenido;
@@ -218,13 +206,16 @@ export default function PanelMetricas() {
         </View>
         <View style={[styles.filaInferior, ancho && styles.filaInferiorAncha]}>
           <View style={ancho ? styles.columnaGrafico : null}>
-            <GraficoEvolucion serie={datos.evolucion} />
+            <GraficoCombinado serie={datos.evolucion} />
           </View>
           <View style={[styles.columnaLateral, ancho && styles.columnaLateralAncha]}>
             {SECUNDARIAS.map((metrica) => (
               <TarjetaSecundaria key={metrica.clave} metrica={datos[metrica.clave]} {...metrica} />
             ))}
           </View>
+        </View>
+        <View style={styles.seccionEstacional}>
+          <MapaEstacional estacionalidad={datos.estacionalidad} />
         </View>
       </View>
     );
@@ -235,9 +226,12 @@ export default function PanelMetricas() {
       <View style={styles.barraHerramientas}>
         <View>
           <Text style={styles.tituloPanel}>Métricas de la plataforma</Text>
-          <Text style={styles.subtituloPanel}>
-            {datos ? `Del ${formatearISO(datos.desde)} al ${formatearISO(datos.hasta)}` : ' '}
-          </Text>
+          <Text style={styles.subtituloPanel}>{subtitulo}</Text>
+          {datos?.desdeAnterior ? (
+            <Text style={styles.comparacionPanel}>
+              Comparado con el {formatearISO(datos.desdeAnterior)} al {formatearISO(datos.hastaAnterior)}
+            </Text>
+          ) : null}
         </View>
         <View style={styles.segmentos}>
           {PRESETS.map((opcion) => {
@@ -310,34 +304,6 @@ export default function PanelMetricas() {
       ) : null}
 
       {contenido}
-    </View>
-  );
-}
-
-function CampoFecha({ etiqueta, valor, maximo, onCambiar }) {
-  return (
-    <View style={styles.grupoFecha}>
-      <Text style={styles.etiquetaFecha}>{etiqueta}</Text>
-      <View style={styles.cajaFecha}>
-        <FontAwesome6 color={c.textoTenue} name="calendar" size={13} />
-        {Platform.OS === 'web' ? (
-          createElement('input', {
-            type: 'date',
-            value: valor,
-            max: maximo,
-            onChange: (evento) => onCambiar(evento.target.value),
-            style: estiloInputWeb,
-          })
-        ) : (
-          <TextInput
-            onChangeText={onCambiar}
-            placeholder="AAAA-MM-DD"
-            placeholderTextColor={c.textoTenue}
-            style={styles.inputFecha}
-            value={valor}
-          />
-        )}
-      </View>
     </View>
   );
 }
@@ -417,6 +383,7 @@ function TarjetaKpi({ clave, titulo, icono, color, datos }) {
       ) : (
         <>
           <NumeroAnimado style={styles.valorKpi} valor={metrica?.valor} />
+          <VariacionBadge actual={metrica?.valor} anterior={metrica?.anterior} />
           <View style={styles.zonaPie}>{pie?.grafico}</View>
           <Text style={styles.pieKpi}>
             {pie?.destacado ? <Text style={[styles.destacadoPie, { color }]}>{pie.destacado} </Text> : null}
@@ -464,159 +431,16 @@ function TarjetaSecundaria({ titulo, icono, color, detalle, metrica, moneda }) {
             <Text style={styles.textoAvisoSecundaria}>{metrica.error}</Text>
           </View>
         ) : (
-          <NumeroAnimado moneda={moneda} style={styles.valorSecundaria} valor={metrica?.valor} />
+          <>
+            <NumeroAnimado moneda={moneda} style={styles.valorSecundaria} valor={metrica?.valor} />
+            <VariacionBadge actual={metrica?.valor} anterior={metrica?.anterior} />
+          </>
         )}
         <Text style={styles.detalleSecundaria}>{detalle}</Text>
       </View>
     </View>
   );
 }
-
-function GraficoEvolucion({ serie }) {
-  const [activo, setActivo] = useState(null);
-
-  if (serie.error) {
-    return (
-      <View style={styles.panelGrafico}>
-        <View style={styles.avisoSecundaria}>
-          <FontAwesome6 color={c.textoTenue} name="triangle-exclamation" size={13} />
-          <Text style={styles.textoAvisoSecundaria}>{serie.error}</Text>
-        </View>
-      </View>
-    );
-  }
-
-  const puntos = serie.puntos;
-  const totalUsuarios = puntos.reduce((suma, p) => suma + p.usuarios, 0);
-  const totalViajes = puntos.reduce((suma, p) => suma + p.viajes, 0);
-  const maximo = escalaRedonda(Math.max(0, ...puntos.flatMap((p) => [p.usuarios, p.viajes])));
-  const cadaCuanto = Math.max(1, Math.ceil(puntos.length / 8));
-  const alto = (valor) => (valor ? Math.max(3, Math.round((valor / maximo) * ALTO_GRAFICO)) : 0);
-  const mitad = puntos.length / 2;
-
-  return (
-    <View style={styles.panelGrafico}>
-      <View style={styles.cabeceraGrafico}>
-        <View>
-          <Text style={styles.tituloGrafico}>
-            Evolución {serie.agrupacion === 'mes' ? 'mensual' : 'diaria'}
-          </Text>
-          <Text style={styles.subtituloGrafico}>Registros de usuarios y viajes creados</Text>
-        </View>
-        <View style={styles.pastillas}>
-          <Pastilla color={COLOR_USUARIOS} texto={`${formatearNumero(totalUsuarios)} registros`} />
-          <Pastilla color={COLOR_VIAJES} texto={`${formatearNumero(totalViajes)} viajes`} />
-        </View>
-      </View>
-
-      {totalUsuarios + totalViajes === 0 ? (
-        <View style={styles.vacio}>
-          <View style={styles.burbujaVacio}>
-            <FontAwesome6 color={c.manteca} name="chart-column" size={22} />
-          </View>
-          <Text style={styles.tituloVacio}>Sin movimiento en este período</Text>
-          <Text style={styles.textoVacio}>Probá con un rango de fechas más amplio.</Text>
-        </View>
-      ) : (
-        <View style={styles.lienzo}>
-          <View style={styles.ejeY}>
-            {[maximo, maximo / 2, 0].map((valor) => (
-              <Text key={valor} style={styles.etiquetaEjeY}>
-                {formatearNumero(Math.round(valor))}
-              </Text>
-            ))}
-          </View>
-          <View style={styles.zonaGrafico}>
-            <View style={styles.areaBarras}>
-              {[0, 0.5, 1].map((fraccion) => (
-                <View
-                  key={fraccion}
-                  style={[styles.lineaGuia, { bottom: fraccion * ALTO_GRAFICO }]}
-                />
-              ))}
-              <View style={styles.columnas}>
-                {puntos.map((punto, indice) => (
-                  <Pressable
-                    key={punto.fecha}
-                    onHoverIn={() => setActivo(indice)}
-                    onHoverOut={() => setActivo((actual) => (actual === indice ? null : actual))}
-                    onPress={() => setActivo((actual) => (actual === indice ? null : indice))}
-                    style={[styles.columna, activo === indice && styles.columnaActiva]}
-                  >
-                    <View style={[styles.barrasColumna, activo === indice && styles.barrasResaltadas]}>
-                      <View
-                        style={[styles.barra, { height: alto(punto.usuarios), backgroundColor: COLOR_USUARIOS }]}
-                      />
-                      <View
-                        style={[styles.barra, { height: alto(punto.viajes), backgroundColor: COLOR_VIAJES }]}
-                      />
-                    </View>
-                    {activo === indice ? (
-                      <View
-                        style={[
-                          styles.tooltip,
-                          { bottom: Math.max(alto(punto.usuarios), alto(punto.viajes)) + 10 },
-                          indice < mitad ? styles.tooltipIzquierda : styles.tooltipDerecha,
-                        ]}
-                      >
-                        <Text style={styles.fechaTooltip}>
-                          {etiquetaLarga(punto.fecha, serie.agrupacion)}
-                        </Text>
-                        <FilaTooltip color={COLOR_USUARIOS} texto="Registros" valor={punto.usuarios} />
-                        <FilaTooltip color={COLOR_VIAJES} texto="Viajes" valor={punto.viajes} />
-                      </View>
-                    ) : null}
-                  </Pressable>
-                ))}
-              </View>
-            </View>
-            <View style={styles.etiquetasX}>
-              {puntos.map((punto, indice) => (
-                <Text key={punto.fecha} numberOfLines={1} style={styles.etiquetaEjeX}>
-                  {indice % cadaCuanto === 0 ? etiquetaCorta(punto.fecha, serie.agrupacion) : ' '}
-                </Text>
-              ))}
-            </View>
-          </View>
-        </View>
-      )}
-    </View>
-  );
-}
-
-function Pastilla({ color, texto }) {
-  return (
-    <View style={[styles.pastilla, { backgroundColor: `${color}14`, borderColor: `${color}40` }]}>
-      <View style={[styles.puntoPastilla, { backgroundColor: color }]} />
-      <Text style={[styles.textoPastilla, { color }]}>{texto}</Text>
-    </View>
-  );
-}
-
-function FilaTooltip({ color, texto, valor }) {
-  return (
-    <View style={styles.filaTooltip}>
-      <View style={[styles.puntoPastilla, { backgroundColor: color }]} />
-      <Text style={styles.textoTooltip}>{texto}</Text>
-      <Text style={styles.valorTooltip}>{formatearNumero(valor)}</Text>
-    </View>
-  );
-}
-
-const estiloInputWeb = {
-  flex: 1,
-  minWidth: 0,
-  height: 42,
-  padding: 0,
-  border: 'none',
-  outline: 'none',
-  background: 'transparent',
-  color: c.texto,
-  colorScheme: 'dark',
-  fontFamily: fontFamilies.sans,
-  fontSize: 15,
-  cursor: 'pointer',
-};
 
 const styles = StyleSheet.create({
   barraHerramientas: {
@@ -637,6 +461,12 @@ const styles = StyleSheet.create({
     color: c.textoSecundario,
     marginTop: 2,
   },
+  comparacionPanel: {
+    ...textStyles.meta,
+    color: c.textoTenue,
+    fontSize: 12,
+    marginTop: 2,
+  },
   segmentos: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -644,7 +474,7 @@ const styles = StyleSheet.create({
     padding: 4,
     borderRadius: 999,
     borderWidth: 1,
-    borderColor: c.borde,
+    borderColor: c.bordeControl,
     backgroundColor: c.panel,
   },
   segmento: {
@@ -653,14 +483,14 @@ const styles = StyleSheet.create({
     borderRadius: 999,
   },
   segmentoHover: {
-    backgroundColor: c.acentoSuave,
+    backgroundColor: c.acentoMedio,
   },
   segmentoActivo: {
     backgroundColor: c.manteca,
   },
   textoSegmento: {
     ...textStyles.meta,
-    color: c.textoSecundario,
+    color: c.texto,
     fontSize: 13,
   },
   textoSegmentoActivo: {
@@ -689,33 +519,6 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
     alignItems: 'flex-end',
     gap: spacing.md,
-  },
-  grupoFecha: {
-    gap: 6,
-  },
-  etiquetaFecha: {
-    ...textStyles.meta,
-    color: c.textoSecundario,
-    fontSize: 12,
-  },
-  cajaFecha: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-    width: 200,
-    height: 44,
-    paddingHorizontal: spacing.md,
-    borderRadius: radii.md,
-    borderWidth: 1,
-    borderColor: c.bordeFuerte,
-    backgroundColor: c.fondo,
-  },
-  inputFecha: {
-    flex: 1,
-    height: 42,
-    color: c.texto,
-    fontFamily: fontFamilies.sans,
-    fontSize: 15,
   },
   flechaRango: {
     height: 44,
@@ -762,7 +565,7 @@ const styles = StyleSheet.create({
   kpi: {
     flexGrow: 1,
     flexBasis: 250,
-    minHeight: 210,
+    minHeight: 230,
     gap: spacing.sm,
     padding: spacing.lg,
     borderRadius: 22,
@@ -798,6 +601,29 @@ const styles = StyleSheet.create({
     color: c.texto,
     fontSize: 44,
     marginTop: spacing.xs,
+  },
+  variacion: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+  },
+  pildoraVariacion: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 999,
+    borderWidth: 1,
+  },
+  textoVariacion: {
+    ...textStyles.bodyStrong,
+    fontSize: 12,
+  },
+  detalleVariacion: {
+    ...textStyles.meta,
+    color: c.textoTenue,
+    fontSize: 12,
   },
   zonaPie: {
     height: ALTO_SPARKLINE,
@@ -866,6 +692,9 @@ const styles = StyleSheet.create({
     flex: 1,
     minWidth: 280,
   },
+  seccionEstacional: {
+    marginTop: spacing.lg,
+  },
   secundaria: {
     flex: 1,
     flexDirection: 'row',
@@ -913,196 +742,6 @@ const styles = StyleSheet.create({
     ...textStyles.meta,
     color: c.textoTenue,
     flex: 1,
-  },
-  panelGrafico: {
-    flex: 1,
-    padding: spacing.xl,
-    borderRadius: 22,
-    borderWidth: 1,
-    borderColor: c.borde,
-    backgroundColor: c.superficie,
-  },
-  cabeceraGrafico: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    alignItems: 'flex-start',
-    justifyContent: 'space-between',
-    gap: spacing.md,
-    marginBottom: spacing.xl,
-  },
-  tituloGrafico: {
-    ...textStyles.bodyStrong,
-    color: c.texto,
-    fontSize: 19,
-  },
-  subtituloGrafico: {
-    ...textStyles.meta,
-    color: c.textoTenue,
-    marginTop: 2,
-  },
-  pastillas: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: spacing.sm,
-  },
-  pastilla: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: spacing.md,
-    paddingVertical: 6,
-    borderRadius: 999,
-    borderWidth: 1,
-  },
-  puntoPastilla: {
-    width: 9,
-    height: 9,
-    borderRadius: 5,
-  },
-  textoPastilla: {
-    ...textStyles.bodyStrong,
-    fontSize: 13,
-  },
-  lienzo: {
-    flexDirection: 'row',
-    gap: spacing.sm,
-  },
-  ejeY: {
-    height: ALTO_GRAFICO,
-    justifyContent: 'space-between',
-    alignItems: 'flex-end',
-    marginTop: -7,
-  },
-  etiquetaEjeY: {
-    ...textStyles.meta,
-    color: c.textoTenue,
-    fontSize: 11,
-  },
-  zonaGrafico: {
-    flex: 1,
-    minWidth: 0,
-  },
-  areaBarras: {
-    height: ALTO_GRAFICO,
-  },
-  lineaGuia: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    height: 1,
-    backgroundColor: c.borde,
-  },
-  columnas: {
-    ...StyleSheet.absoluteFillObject,
-    flexDirection: 'row',
-    alignItems: 'flex-end',
-    gap: 3,
-  },
-  columna: {
-    flex: 1,
-    minWidth: 0,
-    height: '100%',
-    justifyContent: 'flex-end',
-  },
-  columnaActiva: {
-    zIndex: 10,
-  },
-  barrasColumna: {
-    height: '100%',
-    flexDirection: 'row',
-    alignItems: 'flex-end',
-    justifyContent: 'center',
-    gap: 2,
-    borderRadius: 6,
-  },
-  barrasResaltadas: {
-    backgroundColor: c.acentoSuave,
-  },
-  barra: {
-    flex: 1,
-    maxWidth: 16,
-    borderTopLeftRadius: 4,
-    borderTopRightRadius: 4,
-  },
-  tooltip: {
-    position: 'absolute',
-    width: 160,
-    gap: 4,
-    padding: spacing.sm,
-    borderRadius: radii.md,
-    borderWidth: 1,
-    borderColor: c.bordeFuerte,
-    backgroundColor: c.panel,
-    shadowColor: '#000000',
-    shadowOpacity: 0.4,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 6 },
-  },
-  tooltipIzquierda: {
-    left: 0,
-  },
-  tooltipDerecha: {
-    right: 0,
-  },
-  fechaTooltip: {
-    ...textStyles.bodyStrong,
-    color: c.texto,
-    fontSize: 13,
-    marginBottom: 2,
-  },
-  filaTooltip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  textoTooltip: {
-    ...textStyles.meta,
-    color: c.textoSecundario,
-    fontSize: 12,
-    flex: 1,
-  },
-  valorTooltip: {
-    ...textStyles.bodyStrong,
-    color: c.texto,
-    fontSize: 13,
-  },
-  etiquetasX: {
-    flexDirection: 'row',
-    gap: 3,
-    marginTop: spacing.xs,
-  },
-  etiquetaEjeX: {
-    ...textStyles.meta,
-    flex: 1,
-    minWidth: 0,
-    color: c.textoTenue,
-    fontSize: 11,
-    overflow: 'visible',
-  },
-  vacio: {
-    alignItems: 'center',
-    paddingVertical: 60,
-  },
-  burbujaVacio: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: c.acentoSuave,
-    borderWidth: 1,
-    borderColor: c.acentoBorde,
-    marginBottom: spacing.md,
-  },
-  tituloVacio: {
-    ...textStyles.bodyStrong,
-    color: c.texto,
-    fontSize: 17,
-  },
-  textoVacio: {
-    ...textStyles.body,
-    color: c.textoSecundario,
-    marginTop: spacing.xs,
   },
   cajaError: {
     flexDirection: 'row',

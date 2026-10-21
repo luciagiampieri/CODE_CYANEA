@@ -84,10 +84,19 @@ def listar_usuarios_backoffice(
     estado: EstadoCuenta | None = None,
     plan: PlanUsuario | None = None,
     metodoRegistro: str | None = Query(default=None, max_length=30),
+    desde: date | None = None,
+    hasta: date | None = None,
     pagina: int = Query(default=1, ge=1),
     db: Session = Depends(get_db),
 ) -> UsuarioBackofficePagina:
-    return usuarios_service.buscar_usuarios(db, q, estado, plan, metodoRegistro, pagina)
+    if desde and hasta and hasta < desde:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="La fecha de fin no puede ser anterior a la fecha de inicio.",
+        )
+    return usuarios_service.buscar_usuarios(
+        db, q, estado, plan, metodoRegistro, pagina, desde=desde, hasta=hasta
+    )
 
 
 @router.get("/usuarios/{id_usuario}", response_model=UsuarioBackofficeDetalle)
@@ -108,13 +117,17 @@ def detalle_usuario_backoffice(
 def metricas_backoffice(
     desde: date | None = None,
     hasta: date | None = None,
+    historico: bool = False,
     db: Session = Depends(get_db),
 ) -> MetricasDashboard:
-    try:
-        desde, hasta = metricas_service.resolver_rango(desde, hasta)
-    except metricas_service.RangoInvalido as error:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=str(error),
-        )
-    return metricas_service.obtener_metricas(db, desde, hasta)
+    if historico:
+        desde, hasta = metricas_service.rango_historico(db)
+    else:
+        try:
+            desde, hasta = metricas_service.resolver_rango(desde, hasta)
+        except metricas_service.RangoInvalido as error:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=str(error),
+            )
+    return metricas_service.obtener_metricas(db, desde, hasta, historico=historico)
