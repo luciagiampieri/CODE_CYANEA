@@ -24,4 +24,23 @@ describe('BackofficeHomeScreen', () => {
 
     expect(onAbrirUsuarios).toHaveBeenCalledTimes(1);
   });
+
+  test('ofrece accesos a categorías y al monitoreo de IA', async () => {
+    const onAbrirCategorias = jest.fn();
+    const onAbrirMonitoreoIA = jest.fn();
+    await render(
+      <BackofficeHomeScreen
+        admin={ADMIN}
+        onAbrirCategorias={onAbrirCategorias}
+        onAbrirMonitoreoIA={onAbrirMonitoreoIA}
+        onAbrirUsuarios={jest.fn()}
+      />
+    );
+
+    await fireEvent.press(screen.getByText('Categorías'));
+    await fireEvent.press(screen.getByText('Monitoreo de IA'));
+
+    expect(onAbrirCategorias).toHaveBeenCalledTimes(1);
+    expect(onAbrirMonitoreoIA).toHaveBeenCalledTimes(1);
+  });
 });

@@ -21,6 +21,8 @@ import { FontAwesome6 } from "@expo/vector-icons";
 import PrimaryButton from "../components/ui/PrimaryButton";
 
 import { createChecklist, updateChecklist, getChecklistCategories } from "../services/api";
+import { conCategoriaActual } from "../utils/categoriasActuales";
+import { TIPOS_CATEGORIA, iconoDeCategoria } from "../utils/iconosCategorias";
 import { colors, radii, spacing, textStyles } from "../theme/tokens";
 
 import { appAlert } from "../components/ui/AppDialog";
@@ -28,18 +30,8 @@ import { appAlert } from "../components/ui/AppDialog";
 // Igual que el nombre de las actividades: entran los nombres de lugares largos.
 const NOMBRE_MAX_LENGTH = 150;
 
-const ICONOS_CATEGORIAS = {
-  "Documentación": "passport",
-  "Transporte": "car",
-  "Alojamiento": "hotel",
-  "Equipamiento": "suitcase", 
-  "Salud": "kit-medical",
-  "Seguros": "shield-halved",
-  "Finanzas": "money-bill-transfer",
-  "Comida": "utensils",
-  "Reservas y entradas": "ticket",
-  "Otros": "list-check",
-};
+const iconoCategoria = (categoria) =>
+  iconoDeCategoria(TIPOS_CATEGORIA.CHECKLIST, categoria?.Nombre, categoria?.Icono);
 
 
 function mostrarAlertaConfirmacion(titulo, mensaje, onAceptar) {
@@ -145,8 +137,8 @@ export default function CrearChecklistScreen({
       async function cargarCats() {
         setLoadingCategorias(true);
         try {
-          const cats = await getChecklistCategories();     
-          setCategorias(cats);
+          const cats = await getChecklistCategories();
+          setCategorias(conCategoriaActual(cats, checklistToEdit?.CategoriaChecklist, "IdCategoriaChecklist"));
         } catch (error) {
           console.error("No se pudieron cargar las categorías", error);
         } finally {
@@ -301,7 +293,7 @@ export default function CrearChecklistScreen({
                 >
                   <View style={styles.dropdownLeftContent}>
                     <FontAwesome6
-                      name={categoriaSeleccionada ? ICONOS_CATEGORIAS[categoriaSeleccionada.Nombre] || "tags" : "tags"}
+                      name={categoriaSeleccionada ? iconoCategoria(categoriaSeleccionada) : "tags"}
                       size={14}
                       color={categoriaSeleccionada ? colors.primary : colors.overlay}
                       style={{ marginRight: 10, width: 20, textAlign: "center" }}
@@ -365,7 +357,7 @@ export default function CrearChecklistScreen({
                 <Text style={styles.sinCategorias}>No hay categorías disponibles.</Text>
               }
               renderItem={({ item, index }) => {
-                const iconoName = ICONOS_CATEGORIAS[item.Nombre] || "tags";
+                const iconoName = iconoCategoria(item);
                 const esActivo = categoria === item.IdCategoriaChecklist;
                 const esElUltimo = index === categorias.length - 1;
 

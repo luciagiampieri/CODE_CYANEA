@@ -6,7 +6,12 @@ import PanelMetricas from '../../components/backoffice/PanelMetricas';
 import { backofficeColors as c } from '../../theme/backofficeTokens';
 import { spacing, textStyles } from '../../theme/tokens';
 
-export default function BackofficeHomeScreen({ admin, onAbrirUsuarios }) {
+export default function BackofficeHomeScreen({
+  admin,
+  onAbrirUsuarios,
+  onAbrirCategorias,
+  onAbrirMonitoreoIA,
+}) {
   const nombre = admin.nombreCompleto.split(' ').filter(Boolean)[0] || '';
 
   return (
@@ -43,6 +48,25 @@ export default function BackofficeHomeScreen({ admin, onAbrirUsuarios }) {
         </Pressable>
       </LinearGradient>
 
+      <View style={styles.accesos}>
+        {onAbrirCategorias ? (
+          <Acceso
+            descripcion="Gastos, documentos y tareas del checklist"
+            icono="tags"
+            onPress={onAbrirCategorias}
+            titulo="Categorías"
+          />
+        ) : null}
+        {onAbrirMonitoreoIA ? (
+          <Acceso
+            descripcion="Consumo, fallas y costo de la IA"
+            icono="microchip"
+            onPress={onAbrirMonitoreoIA}
+            titulo="Monitoreo de IA"
+          />
+        ) : null}
+      </View>
+
       <PanelMetricas />
 
       <View style={styles.infoSesion}>
@@ -55,7 +79,73 @@ export default function BackofficeHomeScreen({ admin, onAbrirUsuarios }) {
   );
 }
 
+function Acceso({ icono, titulo, descripcion, onPress }) {
+  return (
+    <Pressable
+      accessibilityRole="button"
+      onPress={onPress}
+      style={({ hovered, pressed }) => [
+        styles.acceso,
+        hovered && styles.accesoHover,
+        pressed && styles.presionado,
+      ]}
+    >
+      <View style={styles.iconoAcceso}>
+        <FontAwesome6 color={c.acento} name={icono} size={15} />
+      </View>
+      <View style={styles.textosAcceso}>
+        <Text style={styles.tituloAcceso}>{titulo}</Text>
+        <Text style={styles.descripcionAcceso}>{descripcion}</Text>
+      </View>
+      <FontAwesome6 color={c.textoTenue} name="chevron-right" size={12} />
+    </Pressable>
+  );
+}
+
 const styles = StyleSheet.create({
+  accesos: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.md,
+    marginBottom: spacing.xl,
+  },
+  acceso: {
+    flexGrow: 1,
+    flexBasis: 280,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    padding: spacing.lg,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: c.borde,
+    backgroundColor: c.panel,
+  },
+  accesoHover: {
+    borderColor: c.acentoBorde,
+  },
+  iconoAcceso: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: c.acentoSuave,
+    borderWidth: 1,
+    borderColor: c.acentoBorde,
+  },
+  textosAcceso: {
+    flex: 1,
+  },
+  tituloAcceso: {
+    ...textStyles.bodyStrong,
+    color: c.texto,
+  },
+  descripcionAcceso: {
+    ...textStyles.meta,
+    color: c.textoTenue,
+    fontSize: 12,
+  },
   banner: {
     flexDirection: 'row',
     flexWrap: 'wrap',

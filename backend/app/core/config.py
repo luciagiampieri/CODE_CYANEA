@@ -114,6 +114,14 @@ class Settings(BaseSettings):
     ai_entradas_busqueda_google: bool = True
     ai_entradas_busqueda_timeout_seconds: float = 15.0
 
+    # Monitoreo de consumo de IA (US 114): precios de referencia en USD para estimar
+    # el costo de cada solicitud. Los modelos "lite" usan sus propios precios.
+    ai_cost_input_usd_per_million_tokens: float = 0.30
+    ai_cost_output_usd_per_million_tokens: float = 2.50
+    ai_cost_lite_input_usd_per_million_tokens: float = 0.10
+    ai_cost_lite_output_usd_per_million_tokens: float = 0.40
+    ai_cost_image_usd: float = 0.0011
+
     expense_edit_lock_ttl_seconds: int = 120
 
     model_config = SettingsConfigDict(

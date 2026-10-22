@@ -29,6 +29,11 @@ from app.services.receipt_ai.base import (
     ReceiptScanError,
 )
 from app.services.receipt_ai.prompt import construir_esquema_json, construir_prompt
+from app.services.registro_ia import (
+    SERVICIO_ESCANEO_COMPROBANTES,
+    medir_solicitud_ia,
+    servicio_actual,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -151,6 +156,25 @@ class GeminiReceiptExtractor:
         categorias: list[str],
         timeout_seconds: float,
     ) -> dict:
+        # El mismo lector sirve para el escaneo (US 93) y para detectar gastos al
+        # subir documentos (US 84): la ruta indica la funcionalidad (US 114).
+        servicio = servicio_actual(SERVICIO_ESCANEO_COMPROBANTES)
+        with medir_solicitud_ia(servicio, model) as medicion:
+            resultado = await self._llamar_gemini(
+                model, imagen, mime_type, categorias, timeout_seconds, medicion
+            )
+            medicion.exitosa = True
+            return resultado
+
+    async def _llamar_gemini(
+        self,
+        model: str,
+        imagen: bytes,
+        mime_type: str,
+        categorias: list[str],
+        timeout_seconds: float,
+        medicion,
+    ) -> dict:
         url = GEMINI_URL.format(model=model)
         pedido = self._armar_pedido(model, imagen, mime_type, categorias)
 
@@ -186,6 +210,7 @@ class GeminiReceiptExtractor:
             data = response.json()
         except ValueError:
             raise ReceiptScanError(MENSAJE_RESPUESTA_INVALIDA, 502, AI_INVALID_RESPONSE)
+        medicion.usar_respuesta(data)
 
         # Si el filtro de seguridad bloquea la imagen, no es un comprobante procesable.
         if (data.get("promptFeedback") or {}).get("blockReason"):

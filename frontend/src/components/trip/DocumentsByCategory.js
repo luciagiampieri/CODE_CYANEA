@@ -14,6 +14,12 @@ import { FontAwesome6 } from "@expo/vector-icons";
 
 import { colors, radii, spacing, surfaces, textStyles } from "../../theme/tokens";
 import { centerInScroll } from "../../utils/scrollHelpers";
+import {
+    NOMBRES_CATEGORIAS_BASE,
+    TIPOS_CATEGORIA,
+    iconoDeCategoria,
+    normalizarNombreCategoria,
+} from "../../utils/iconosCategorias";
 
 export const ID_TODAS = "TODAS";
 
@@ -36,17 +42,8 @@ const ETIQUETA_VISIBILIDAD = {
     [FILTRO_VISIBILIDAD.PRIVADOS]: "Privados",
 };
 
-const ICONOS_CATEGORIAS_DOCUMENTOS = {
-    Vuelos: "plane",
-    Alojamiento: "hotel",
-    Excursiones: "map-location-dot",
-    Seguros: "shield-halved",
-    Documentación: "id-card",
-    Comprobantes: "receipt", 
-    Otros: "ellipsis",
-};
-
-const iconoCategoria = (nombre) => ICONOS_CATEGORIAS_DOCUMENTOS[nombre] || "tags";
+const iconoCategoria = (categoria) =>
+    iconoDeCategoria(TIPOS_CATEGORIA.DOCUMENTOS, categoria?.nombre, categoria?.icono);
 
 const TINTE_PRIMARIO = colors.primarySoft ? `${colors.primarySoft}22` : "#eef4ff";
 
@@ -70,6 +67,8 @@ function coincideVisibilidad(documento, filtro) {
 
 export default function DocumentosPorCategoria({
     documentos = [],
+    // Categorías activas (US 110): se muestran aunque todavía no tengan documentos.
+    categorias = [],
     onAbrir,
     onDescargar,
     onEditar,
@@ -110,6 +109,7 @@ export default function DocumentosPorCategoria({
                 mapa.set(key, {
                     id: key,
                     nombre: doc.NombreCategoria,
+                    icono: doc.IconoCategoria,
                     documentos: [],
                 });
             }
@@ -118,14 +118,18 @@ export default function DocumentosPorCategoria({
             }
         });
 
-        Object.keys(ICONOS_CATEGORIAS_DOCUMENTOS).forEach((nombreStd, index) => {
+        const base = categorias.length
+            ? categorias.map((c) => ({ nombre: c.Nombre, icono: c.Icono }))
+            : NOMBRES_CATEGORIAS_BASE[TIPOS_CATEGORIA.DOCUMENTOS].map((nombre) => ({ nombre }));
+        base.forEach(({ nombre: nombreStd, icono }, index) => {
             const existe = Array.from(mapa.values()).some(
-                (c) => c.nombre.trim().toLowerCase() === nombreStd.trim().toLowerCase()
+                (c) => normalizarNombreCategoria(c.nombre) === normalizarNombreCategoria(nombreStd)
             );
             if (!existe) {
                 mapa.set(`std-${index}`, {
                     id: `std-${index}`,
                     nombre: nombreStd,
+                    icono,
                     documentos: [],
                 });
             }
@@ -140,7 +144,7 @@ export default function DocumentosPorCategoria({
             if (!aEsOtros && bEsOtros) return -1;
             return a.nombre.localeCompare(b.nombre);
         });
-    }, [documentos, busquedaNormalizada]);
+    }, [documentos, busquedaNormalizada, categorias]);
 
     const categoriasConResultados = useMemo(
         () =>
@@ -425,7 +429,7 @@ export default function DocumentosPorCategoria({
                             hitSlop={6}
                             testID={`documentos-filtro-tag-categoria-${cat.id}`}
                         >
-                            <FontAwesome6 name={iconoCategoria(cat.nombre)} size={11} color={colors.primary} />
+                            <FontAwesome6 name={iconoCategoria(cat)} size={11} color={colors.primary} />
                             <Text style={styles.tagActivoTexto} numberOfLines={1}>
                                 {cat.nombre}
                             </Text>
@@ -614,7 +618,7 @@ export default function DocumentosPorCategoria({
                                                 <View style={styles.settingsIcon}>
                                                     <FontAwesome6
                                                         color={colors.primary}
-                                                        name={iconoCategoria(cat.nombre)}
+                                                        name={iconoCategoria(cat)}
                                                         size={13}
                                                     />
                                                 </View>
@@ -697,7 +701,7 @@ function SeccionCategoria({
                     style={styles.seccionChevron}
                 />
                 <FontAwesome6
-                    name={iconoCategoria(categoria.nombre)}
+                    name={iconoCategoria(categoria)}
                     size={14}
                     color={colors.primary}
                 />

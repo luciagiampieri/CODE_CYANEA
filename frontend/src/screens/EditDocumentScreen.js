@@ -28,6 +28,8 @@ import { esErrorDeLimite, mostrarLimiteAlcanzado } from "../utils/limitesPlan";
 
 import { appAlert } from "../components/ui/AppDialog";
 
+import { conCategoriaActual } from "../utils/categoriasActuales";
+
 function mostrarAlertaConfirmacion(titulo, mensaje, onAceptar) {
     appAlert(
         titulo,
@@ -78,7 +80,17 @@ export default function EditDocumentScreen({ visible, onClose, tripId, documento
                 setLoading(true);
                 setLoadError("");
                 const data = await getDocumentCategories();
-                setCategorias(data);
+                setCategorias(
+                    conCategoriaActual(
+                        data,
+                        documento && {
+                            IdCategoriaDocumento: documento.IdCategoriaDocumento,
+                            Nombre: documento.NombreCategoria,
+                            Icono: documento.IconoCategoria,
+                        },
+                        "IdCategoriaDocumento"
+                    )
+                );
             } catch (error) {
                 console.log("📡 No se pudieron cargar las categorías de documentos:", error);
                 setLoadError(
@@ -93,7 +105,7 @@ export default function EditDocumentScreen({ visible, onClose, tripId, documento
         if (visible) {
             cargarCategorias();
         }
-    }, [visible]);
+    }, [visible, documento]);
 
     function limpiarError(campo) {
         setErrores((current) => {

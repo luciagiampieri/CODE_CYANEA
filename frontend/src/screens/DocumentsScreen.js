@@ -31,6 +31,7 @@ import { colors, radii, spacing, surfaces, textStyles } from "../theme/tokens";
 import { esErrorDeLimite, irAPlanes, mostrarLimiteAlcanzado } from "../utils/limitesPlan";
 
 import { appAlert } from "../components/ui/AppDialog";
+import { TIPOS_CATEGORIA, iconoDeCategoria } from "../utils/iconosCategorias";
 
 const BYTES_POR_MB = 1024 * 1024;
 
@@ -47,14 +48,8 @@ function formatearMb(valor) {
     return Number.isInteger(numero) ? `${numero}` : numero.toFixed(1);
 }
 
-const ICONOS_CATEGORIAS_DOCUMENTOS = {
-    Vuelos: "plane",
-    Alojamiento: "hotel",
-    Excursiones: "map-location-dot",
-    Seguros: "shield-halved",
-    Documentación: "id-card",
-    Otros: "ellipsis",
-};
+const iconoCategoria = (categoria) =>
+    iconoDeCategoria(TIPOS_CATEGORIA.DOCUMENTOS, categoria?.Nombre, categoria?.Icono);
 
 
 export default function DocumentsScreen({
@@ -420,7 +415,7 @@ export default function DocumentsScreen({
                                     >
                                         <View style={styles.dropdownLeftContent}>
                                             <FontAwesome6
-                                                name={categoriaSeleccionada ? ICONOS_CATEGORIAS_DOCUMENTOS[categoriaSeleccionada.Nombre] || "tags" : "tags"}
+                                                name={categoriaSeleccionada ? iconoCategoria(categoriaSeleccionada) : "tags"}
                                                 size={14}
                                                 color={categoriaSeleccionada ? colors.primary : colors.overlay}
                                                 style={{ marginRight: 10, width: 18, textAlign: "center" }}
@@ -511,7 +506,7 @@ export default function DocumentsScreen({
                                             >
                                                 <View style={{ flexDirection: "row", alignItems: "center", flex: 1 }}>
                                                     <FontAwesome6
-                                                        name={ICONOS_CATEGORIAS_DOCUMENTOS[item.Nombre] || "tags"}
+                                                        name={iconoCategoria(item)}
                                                         size={16}
                                                         color={esActivo ? colors.primary : "#4b5563"}
                                                         style={{ marginRight: 12, width: 24, textAlign: "center" }}

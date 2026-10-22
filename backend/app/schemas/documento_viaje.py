@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field
 class CategoriasDocumentosRead(BaseModel):
     IdCategoriaDocumento: int
     Nombre: str
+    Icono: str | None = None
 
     model_config = {
         "from_attributes": True
@@ -27,6 +28,7 @@ class DocumentoViajeRead(BaseModel):
     FechaSubida: datetime
 
     NombreCategoria: str
+    IconoCategoria: str | None = None
     NombreUsuarioSubida: str
     EsPublico: bool
     EsPropio: bool = Field(

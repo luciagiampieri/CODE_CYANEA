@@ -776,6 +776,7 @@ def desglose_saldo_usuario(db: Session, trip_id: int, id_usuario: int) -> MiSald
                 Nombre=gasto.Nombre,
                 FechaGasto=gasto.FechaGasto,
                 NombreCategoria=gasto.Categoria.Nombre,
+                IconoCategoria=gasto.Categoria.Icono,
                 Monto=_round_money(Decimal(gasto.Monto)),
                 NombrePagador=_nombre_usuario(gasto.Pagador),
                 PagasteVos=pague,

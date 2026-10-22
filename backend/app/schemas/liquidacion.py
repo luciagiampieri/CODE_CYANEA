@@ -57,6 +57,7 @@ class MiSaldoGastoRead(BaseModel):
     Nombre: str
     FechaGasto: date
     NombreCategoria: str
+    IconoCategoria: str | None = None
     Monto: Decimal
     NombrePagador: str
     PagasteVos: bool

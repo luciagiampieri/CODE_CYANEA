@@ -26,6 +26,17 @@ export function registrarExpiracionSesion(callback) {
   alExpirarSesion = callback;
 }
 
+// FastAPI devuelve el detalle como texto o, en errores de validación (422),
+// como una lista de errores por campo.
+function mensajeDeError(detalle) {
+  if (typeof detalle === 'string') return detalle;
+  if (Array.isArray(detalle) && detalle.length) {
+    const mensaje = String(detalle[0]?.msg ?? '').replace(/^Value error, /, '');
+    if (mensaje) return mensaje;
+  }
+  return 'Ocurrió un error inesperado.';
+}
+
 async function solicitar(ruta, { method = 'GET', body, auth = true } = {}) {
   const headers = { 'Content-Type': 'application/json' };
   const token = obtenerToken();
@@ -55,10 +66,9 @@ async function solicitar(ruta, { method = 'GET', body, auth = true } = {}) {
       borrarToken();
       alExpirarSesion?.();
     }
-    const error = new Error(
-      typeof datos?.detail === 'string' ? datos.detail : 'Ocurrió un error inesperado.'
-    );
+    const error = new Error(mensajeDeError(datos?.detail));
     error.status = respuesta.status;
+    error.codigo = respuesta.headers?.get?.('X-Error-Code') ?? null;
     throw error;
   }
 
@@ -114,4 +124,42 @@ export function obtenerMetricas({ desde, hasta, historico = false } = {}) {
   }
   const consulta = params.toString();
   return solicitar(`/metricas${consulta ? `?${consulta}` : ''}`);
+}
+
+export function listarCategorias() {
+  return solicitar('/categorias');
+}
+
+export function crearCategoria({ tipo, nombre, icono }) {
+  return solicitar('/categorias', { method: 'POST', body: { tipo, nombre, icono } });
+}
+
+export function actualizarCategoria(tipo, idCategoria, { nombre, icono }) {
+  return solicitar(`/categorias/${tipo}/${idCategoria}`, { method: 'PUT', body: { nombre, icono } });
+}
+
+export function cambiarEstadoCategoria(tipo, idCategoria, activa) {
+  return solicitar(`/categorias/${tipo}/${idCategoria}/estado`, {
+    method: 'PATCH',
+    body: { activa },
+  });
+}
+
+export function eliminarCategoria(tipo, idCategoria) {
+  return solicitar(`/categorias/${tipo}/${idCategoria}`, { method: 'DELETE' });
+}
+
+export function obtenerMonitoreoIA({ desde, hasta } = {}) {
+  const params = new URLSearchParams();
+  if (desde) params.set('desde', desde);
+  if (hasta) params.set('hasta', hasta);
+  const consulta = params.toString();
+  return solicitar(`/monitoreo-ia${consulta ? `?${consulta}` : ''}`);
+}
+
+export function configurarUmbralCostoIA(umbralMensualUSD) {
+  return solicitar('/monitoreo-ia/umbral', {
+    method: 'PUT',
+    body: { umbralMensualUSD },
+  });
 }

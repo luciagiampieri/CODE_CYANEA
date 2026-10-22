@@ -38,6 +38,16 @@ jest.mock('../../screens/backoffice/BackofficeUsuariosScreen', () => ({
   FILTROS_USUARIOS_INICIALES: { q: '', estado: null, plan: null, metodoRegistro: null, pagina: 1 },
 }));
 
+jest.mock('../../screens/backoffice/BackofficeCategoriasScreen', () => ({
+  __esModule: true,
+  default: require('./pantallasFalsas').CategoriasFalso,
+}));
+
+jest.mock('../../screens/backoffice/BackofficeMonitoreoIAScreen', () => ({
+  __esModule: true,
+  default: require('./pantallasFalsas').MonitoreoFalso,
+}));
+
 jest.mock('../../screens/backoffice/BackofficeUsuarioDetalleScreen', () => ({
   __esModule: true,
   default: require('./pantallasFalsas').DetalleFalso,
@@ -116,6 +126,26 @@ describe('BackofficeApp', () => {
     expect(screen.getByText('Usuarios q=lucia')).toBeTruthy();
 
     await presionar('Volver');
+    expect(screen.getByText(INICIO)).toBeTruthy();
+  });
+
+  test('abre la gestión de categorías y vuelve al inicio', async () => {
+    await iniciarConSesion();
+
+    await presionar('Ir a categorías');
+    expect(screen.getByText('Pantalla de categorías')).toBeTruthy();
+
+    await presionar('Volver de categorías');
+    expect(screen.getByText(INICIO)).toBeTruthy();
+  });
+
+  test('abre el monitoreo de IA y vuelve al inicio', async () => {
+    await iniciarConSesion();
+
+    await presionar('Ir a monitoreo');
+    expect(screen.getByText('Pantalla de monitoreo')).toBeTruthy();
+
+    await presionar('Volver de monitoreo');
     expect(screen.getByText(INICIO)).toBeTruthy();
   });
 

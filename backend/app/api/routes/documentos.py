@@ -22,7 +22,8 @@ from app.models import (
     CategoriasGastos,
     Moneda,
 )
-from app.schemas.documento_viaje import DocumentoViajeRead
+from app.schemas.documento_viaje import CategoriasDocumentosRead, DocumentoViajeRead
+from app.services.registro_ia import SERVICIO_DETECCION_GASTOS_DOCUMENTOS, servicio_ia
 from app.schemas.limite_plan import UsoLimiteRead
 
 from app.services.supabase.storage import (
@@ -62,6 +63,7 @@ def _serializar_documento(
         UrlArchivo=obtener_url_publica(documento.UrlArchivo),
         FechaSubida=documento.FechaSubida,
         NombreCategoria=documento.CategoriaDocumentoRelacion.Nombre,
+        IconoCategoria=documento.CategoriaDocumentoRelacion.Icono,
         NombreUsuarioSubida=f"{documento.UsuarioSubida.Nombre} {documento.UsuarioSubida.Apellido}",
         EsPublico=documento.EsPublico,
         EsPropio=documento.IdUsuarioSubida == current_user_id,
@@ -86,13 +88,16 @@ def _obtener_documento_del_viaje(
         )
     return documento
 
-@router.get("/documents/categories")
+@router.get("/documents/categories", response_model=list[CategoriasDocumentosRead])
 def obtener_categorias_documentos(db: Session = Depends(get_db)):
-    categorias = (
+    # Las categorías desactivadas desde el backoffice no se ofrecen para documentos
+    # nuevos (US 110); los documentos existentes las conservan.
+    return (
         db.query(CategoriaDocumento)
+        .filter(CategoriaDocumento.Activo.is_(True))
+        .order_by(CategoriaDocumento.Nombre)
         .all()
     )
-    return categorias
 
 @router.post("/{trip_id}/documents")
 async def subir_documento_viaje(
@@ -120,6 +125,11 @@ async def subir_documento_viaje(
         raise HTTPException(
             status_code=404,
             detail="Categoría de documento no encontrada"
+        )
+    if not categoria.Activo:
+        raise HTTPException(
+            status_code=400,
+            detail="La categoría seleccionada está inactiva."
         )
 
     extensiones_permitidas = {
@@ -226,10 +236,12 @@ async def subir_documento_viaje(
             }
             monedas = {codigo.upper() for codigo in db.scalars(select(Moneda.Codigo)).all()}
 
-            crudo = await asyncio.wait_for(
-                extractor.extraer(contenido, mime, list(categorias_gastos.keys())),
-                timeout=settings.ai_receipt_timeout_seconds + 1,
-            )
+            # El consumo se registra como detección de gastos en documentos (US 114).
+            with servicio_ia(SERVICIO_DETECCION_GASTOS_DOCUMENTOS):
+                crudo = await asyncio.wait_for(
+                    extractor.extraer(contenido, mime, list(categorias_gastos.keys())),
+                    timeout=settings.ai_receipt_timeout_seconds + 1,
+                )
             resultado_ia = construir_resultado(validar_esquema(crudo), categorias_gastos, monedas)
             
             if resultado_ia and resultado_ia.MontoOriginal is not None:
@@ -335,12 +347,17 @@ async def editar_o_reemplazar_documento_viaje(
             detail="Solo el usuario que cargó el documento puede modificarlo."
         )
     
-    if IdCategoriaDocumento is not None:
+    if IdCategoriaDocumento is not None and IdCategoriaDocumento != documento.IdCategoriaDocumento:
         categoria = db.get(CategoriaDocumento, IdCategoriaDocumento)
         if not categoria:
             raise HTTPException(
                 status_code=404,
                 detail="Categoría de documento no encontrada"
+            )
+        if not categoria.Activo:
+            raise HTTPException(
+                status_code=400,
+                detail="La categoría seleccionada está inactiva."
             )
         
         documento.IdCategoriaDocumento = IdCategoriaDocumento

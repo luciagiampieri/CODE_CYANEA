@@ -15,4 +15,6 @@
 \i 013_enlaces_invitacion_viajes.sql
 \i 014_planes_y_cupos.sql
 \i 015_limites_y_suscripciones.sql
-\i 016_sugerencias_actividades.sql
+\i 016_escaneos_y_tamano_documentos.sql
+\i 017_gestion_categorias.sql
+\i 018_monitoreo_consumo_ia.sql

@@ -15,6 +15,12 @@ import { FontAwesome6 } from "@expo/vector-icons";
 
 import { colors, radii, spacing, surfaces, textStyles } from "../../theme/tokens";
 import { centerInScroll } from "../../utils/scrollHelpers";
+import {
+    NOMBRES_CATEGORIAS_BASE,
+    TIPOS_CATEGORIA,
+    iconoDeCategoria,
+    normalizarNombreCategoria,
+} from "../../utils/iconosCategorias";
 import { dominioDe, urlSegura } from "../../utils/recomendacionEntradas";
 
 export const ID_TODAS = "TODAS";
@@ -35,20 +41,8 @@ const ETIQUETA_ASIGNACION = {
     [FILTRO_ASIGNACION.MIS_TAREAS]: "Mis tareas",
 };
 
-const ICONOS_CATEGORIAS_CHECKLIST = {
-    "Documentación": "passport",
-    "Transporte": "car",
-    "Alojamiento": "hotel",
-    "Equipamiento": "suitcase",
-    "Salud": "kit-medical",
-    "Seguros": "shield-halved",
-    "Finanzas": "money-bill-transfer",
-    "Comida": "utensils",
-    "Reservas y entradas": "ticket",
-    "Otros": "list-check",
-};
-
-const iconoCategoria = (nombre) => ICONOS_CATEGORIAS_CHECKLIST[nombre] || "tags";
+const iconoCategoria = (categoria) =>
+    iconoDeCategoria(TIPOS_CATEGORIA.CHECKLIST, categoria?.nombre, categoria?.icono);
 
 const TINTE_PRIMARIO = colors.primarySoft ? `${colors.primarySoft}22` : "#eef4ff";
 
@@ -73,6 +67,8 @@ function coincideAsignacion(tarea, filtro, currentUserId) {
 
 export default function ChecklistsByCategory({
     checklists = [],
+    // Categorías activas (US 110): se muestran aunque todavía no tengan tareas.
+    categorias = [],
     onEditar,
     onEliminar,
     onToggle,
@@ -116,6 +112,7 @@ export default function ChecklistsByCategory({
                 mapa.set(key, {
                     id: key,
                     nombre: nombreCat,
+                    icono: tarea.CategoriaChecklist?.Icono,
                     tareas: [],
                 });
             }
@@ -124,14 +121,18 @@ export default function ChecklistsByCategory({
             }
         });
 
-        Object.keys(ICONOS_CATEGORIAS_CHECKLIST).forEach((nombreStd, index) => {
+        const base = categorias.length
+            ? categorias.map((c) => ({ nombre: c.Nombre, icono: c.Icono }))
+            : NOMBRES_CATEGORIAS_BASE[TIPOS_CATEGORIA.CHECKLIST].map((nombre) => ({ nombre }));
+        base.forEach(({ nombre: nombreStd, icono }, index) => {
             const existe = Array.from(mapa.values()).some(
-                (c) => c.nombre.trim().toLowerCase() === nombreStd.trim().toLowerCase()
+                (c) => normalizarNombreCategoria(c.nombre) === normalizarNombreCategoria(nombreStd)
             );
             if (!existe) {
                 mapa.set(`std-${index}`, {
                     id: `std-${index}`,
                     nombre: nombreStd,
+                    icono,
                     tareas: [],
                 });
             }
@@ -146,7 +147,7 @@ export default function ChecklistsByCategory({
             if (!aEsOtros && bEsOtros) return -1;
             return a.nombre.localeCompare(b.nombre);
         });
-    }, [checklists, busquedaNormalizada]);
+    }, [checklists, busquedaNormalizada, categorias]);
 
     const categoriasConResultados = useMemo(
         () =>
@@ -431,7 +432,7 @@ export default function ChecklistsByCategory({
                             style={styles.tagActivo}
                             hitSlop={6}
                         >
-                            <FontAwesome6 name={iconoCategoria(cat.nombre)} size={11} color={colors.primary} />
+                            <FontAwesome6 name={iconoCategoria(cat)} size={11} color={colors.primary} />
                             <Text style={styles.tagActivoTexto} numberOfLines={1}>
                                 {cat.nombre}
                             </Text>
@@ -613,7 +614,7 @@ export default function ChecklistsByCategory({
                                                 <View style={styles.settingsIcon}>
                                                     <FontAwesome6
                                                         color={colors.primary}
-                                                        name={iconoCategoria(cat.nombre)}
+                                                        name={iconoCategoria(cat)}
                                                         size={13}
                                                     />
                                                 </View>
@@ -692,7 +693,7 @@ function SeccionCategoria({
                     style={styles.seccionChevron}
                 />
                 <FontAwesome6
-                    name={iconoCategoria(categoria.nombre)}
+                    name={iconoCategoria(categoria)}
                     size={14}
                     color={colors.primary}
                 />

@@ -64,16 +64,11 @@ import {
 } from "../database/gastosLocal";
 
 import { appAlert } from "../components/ui/AppDialog";
+import { conCategoriaActual } from "../utils/categoriasActuales";
+import { TIPOS_CATEGORIA, iconoDeCategoria } from "../utils/iconosCategorias";
 
-const ICONOS_CATEGORIAS = {
-  "Comida y Bebida": "utensils",
-  Transporte: "car",
-  Alojamiento: "hotel",
-  Entretenimiento: "ticket-simple",
-  Compras: "bag-shopping",
-  Servicios: "file-invoice-dollar",
-  Otros: "ellipsis",
-};
+const iconoCategoria = (categoria) =>
+  iconoDeCategoria(TIPOS_CATEGORIA.GASTOS, categoria?.Nombre, categoria?.Icono);
 
 const COLOR_SUPERFICIE_SUAVE = colors.surfaceMuted || "#F2F4F7";
 
@@ -644,7 +639,17 @@ export default function AddGastoScreen({
           getTripParticipants(IdViaje),
         ]);
 
-        const categoriasOrdenadas = cats.sort((a, b) => {
+        // Al editar, el gasto conserva su categoría aunque se haya desactivado
+        // desde el backoffice (US 110): se suma al selector.
+        const categoriasOrdenadas = conCategoriaActual(
+          cats,
+          gastoAEditar && {
+            IdCategoria: gastoAEditar.IdCategoria,
+            Nombre: gastoAEditar.NombreCategoria,
+            Icono: gastoAEditar.IconoCategoria,
+          },
+          "IdCategoria"
+        ).sort((a, b) => {
           if (a.Nombre === "Otros") return 1;
           if (b.Nombre === "Otros") return -1;
           return a.Nombre.localeCompare(b.Nombre);
@@ -1345,7 +1350,7 @@ export default function AddGastoScreen({
                         }}
                       >
                         <FontAwesome6
-                          name={categoriaSeleccionada ? ICONOS_CATEGORIAS[categoriaSeleccionada.Nombre] || "tags" : "tags"}
+                          name={categoriaSeleccionada ? iconoCategoria(categoriaSeleccionada) : "tags"}
                           size={15}
                           color={categoriaSeleccionada ? colors.primary : colors.overlay}
                         />
@@ -1542,7 +1547,7 @@ export default function AddGastoScreen({
             data={categorias}
             keyExtractor={(item) => item.IdCategoria.toString()}
             renderItem={({ item, index }) => {
-              const iconoName = ICONOS_CATEGORIAS[item.Nombre] || "tags";
+              const iconoName = iconoCategoria(item);
               const esActivo = idCategoria === item.IdCategoria;
               const esElUltimo = index === categorias.length - 1;
 

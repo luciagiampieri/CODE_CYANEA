@@ -456,6 +456,8 @@ Orden actual:
 - `014_planes_y_cupos.sql`
 - `015_limites_y_suscripciones.sql`
 - `016_escaneos_y_tamano_documentos.sql`
+- `017_gestion_categorias.sql`
+- `018_monitoreo_consumo_ia.sql`
 
 ## Convenciones de backend
 
@@ -690,9 +692,33 @@ El flujo minimo actual incluye:
 - el plan informado y los filtros `gratuito`/`pro` se resuelven desde `Usuarios.IdPlan` y la tabla `Planes`; `estadoSuscripcion` sigue en `null` hasta que se implemente "Gestionar suscripcion Pro", aunque la tabla `SuscripcionesUsuarios` ya existe (US 118)
 - los usuarios dados de baja ya estan anonimizados en base (`_anonimizar_usuario`, RN-07); el backoffice no enmascara datos, solo informa `anonimizado` segun `FechaBaja`
 
+### Gestion de categorias predefinidas (US 110)
+
+- Las categorias de gastos (`CategoriasGastos`), documentos (`CategoriasDocumentos`) y tareas del checklist (`CategoriasChecklist`) se administran desde el backoffice sin tocar codigo. Migracion `d110a1b2c3d4` (script `017_gestion_categorias.sql`): las tres tablas suman `Icono` (nombre de FontAwesome 6, `NOT NULL DEFAULT 'tags'`) y `CategoriasDocumentos` suma `Activo` y `EsSistema`
+- Rutas en `router` de `backoffice.py`: `GET /backoffice/categorias` (agrupadas por tipo con `cantidadUsos`), `POST /backoffice/categorias` (`tipo`, `nombre`, `icono`), `PUT /backoffice/categorias/{tipo}/{id}` (nombre y/o icono), `PATCH /backoffice/categorias/{tipo}/{id}/estado` (`activa`) y `DELETE /backoffice/categorias/{tipo}/{id}`. `tipo` es `gastos`, `documentos` o `checklist`
+- La logica vive en `backend/app/services/backoffice/categorias_service.py`; los errores llevan `X-Error-Code`: `CATEGORY_NOT_FOUND` (404), `CATEGORY_NAME_DUPLICATED`, `CATEGORY_IN_USE`, `CATEGORY_SYSTEM_PROTECTED`, `CATEGORY_LAST_ACTIVE` (409)
+- Reglas: nombre unico dentro del tipo sin distinguir mayusculas, acentos ni espacios repetidos (`normalizar_nombre`; el mismo nombre en otro tipo esta permitido), hasta 50 caracteres; una categoria en uso (gastos, documentos o tareas que la referencian) no se elimina, se desactiva; cada tipo conserva al menos una activa; las categorias con `EsSistema=true` ("Comprobantes") no se desactivan ni eliminan, pero se pueden renombrar o cambiar de icono
+- `obtener_o_crear_categoria` de `comprobante_gasto.py` busca primero la categoria con `EsSistema=true`, asi el renombre desde el backoffice no rompe el guardado de comprobantes
+- Categorias desactivadas: los listados para viajeros (`/gastos/categories`, `/trips/documents/categories`, `/trips/checklists/categorias`) solo devuelven activas, y crear un gasto, documento o tarea con una inactiva responde 400. Al editar, el elemento puede conservar su categoria inactiva; solo se exige que este activa si se cambia por otra
+- Las respuestas para viajeros exponen el icono (`Icono` en las categorias, `IconoCategoria` en gastos y documentos). En el frontend `utils/iconosCategorias.js` resuelve el icono (`iconoDeCategoria`: primero el del backend, si falta el mapa por nombre) y `utils/categoriasActuales.js` suma la categoria actual al selector al editar. `TripDetailScreen` pasa las categorias activas a `DocumentsByCategory` y `ChecklistsByCategory` (prop `categorias`) para las secciones vacias. No se hardcodean iconos de categorias en pantallas
+- El cache offline de categorias de gastos (SQLite `cache_categorias`) no guarda el icono: sin conexion se usa el mapa por nombre
+- Tests: `backend/tests/test_backoffice_categorias.py` (CP1 a CP7) y `frontend/src/tests/backoffice/BackofficeCategoriasScreen.test.js`, `frontend/src/tests/CategoriasPredefinidas.test.js`
+
+### Monitoreo de consumo de IA (US 114)
+
+- Cada llamada a un proveedor de IA deja una fila en `SolicitudesIA` (migracion `d114a1b2c3d4`, script `018_monitoreo_consumo_ia.sql`) con `Servicio`, `Modelo`, `Exitosa`, `DuracionMs`, `TokensEntrada`, `TokensSalida`, `Imagenes` y `CostoEstimadoUSD`. Nunca se guarda el contenido de la solicitud ni datos del usuario o del viaje (RNF-33)
+- El registro vive en `backend/app/services/registro_ia.py`: los proveedores envuelven la llamada con `medir_solicitud_ia(servicio, modelo)` y pasan la respuesta a `medicion.usar_respuesta(data)` para tomar `usageMetadata` de Gemini (el razonamiento cuenta como salida). Un fallo al registrar no interrumpe el flujo. Toda integracion nueva con IA debe registrarse asi
+- Funcionalidades (`SERVICIO_*`): `sugerencia_actividades`, `escaneo_comprobantes`, `deteccion_gastos_documentos`, `generacion_portadas`, `analisis_horarios` (validacion de horarios), mas `recomendacion_entradas` y `asistente_viaje`. El lector de comprobantes es el mismo para el escaneo (US 93) y la deteccion al subir documentos (US 84): la ruta de documentos marca la funcionalidad con `servicio_ia(SERVICIO_DETECCION_GASTOS_DOCUMENTOS)` (contextvar). Los proveedores `mock` no registran consumo
+- Costo estimado: `estimar_costo_usd` con precios de referencia configurables (`AI_COST_INPUT_USD_PER_MILLION_TOKENS`, `AI_COST_OUTPUT_USD_PER_MILLION_TOKENS`, sus variantes `AI_COST_LITE_*` para modelos "lite" y `AI_COST_IMAGE_USD` por imagen generada). Se persiste por solicitud para que cambiar precios no altere el historico
+- Contratos (router protegido del backoffice): `GET /backoffice/monitoreo-ia?desde&hasta` (por defecto ultimos 30 dias, mismas reglas de rango que `/backoffice/metricas`) devuelve `funcionalidades` (solicitudes, fallidas, tiempo promedio, costo), `totales` y `umbral`; `PUT /backoffice/monitoreo-ia/umbral` con `umbralMensualUSD` (> 0, o `null` para quitarlo)
+- Umbral: una sola fila en `ConfiguracionesMonitoreoIA`. Se evalua sobre el mes calendario en curso (hora Argentina): `nivel` es `sin_umbral`, `normal`, `advertencia` (mas del 80%) o `superado` (mas del 100%). Al superarlo, `verificar_umbral_costo` (llamado tras cada registro y al configurar el umbral) envia `ai_cost_threshold.html/.txt` a los administradores del sistema activos y confirmados una sola vez por mes y valor de umbral (`PeriodoUltimaAlerta`, `UmbralUltimaAlertaUSD`); si el envio falla no se marca y se reintenta con la proxima solicitud
+- La logica vive en `backend/app/services/backoffice/monitoreo_ia_service.py`. Tests: `backend/tests/test_backoffice_monitoreo_ia.py` (CP1 a CP7, con Gemini simulado por `httpx.MockTransport`) y `frontend/src/tests/backoffice/BackofficeMonitoreoIAScreen.test.js`, `frontend/src/tests/formatoMonitoreo.test.js`
+
 ### Frontend del backoffice
 
-- punto de entrada: `BackofficeApp`, con navegacion por estado (`inicio`, `usuarios`, `detalleUsuario`); no usa React Navigation
+- punto de entrada: `BackofficeApp`, con navegacion por estado (`inicio`, `usuarios`, `detalleUsuario`, `categorias`, `monitoreoIA`); no usa React Navigation
+- `BackofficeApp` monta su propio `<DialogHost root />` (es una raiz distinta de `App.js`) para que `appAlert`, `confirmar` y `appToast` funcionen en el backoffice
+- `backofficeApi.js` toma el mensaje del primer error de validacion cuando el `detail` es una lista (422) y expone el header `X-Error-Code` en `error.codigo`
 - `BackofficeLayout` (`frontend/src/components/backoffice/`) concentra la barra superior; las pantallas solo renderizan su contenido
 - los filtros del listado de usuarios se guardan en `BackofficeApp` para conservarse al volver del detalle y se reinician al cerrar sesion
 - pantallas en `frontend/src/screens/backoffice/`, componentes en `frontend/src/components/backoffice/`
@@ -716,6 +742,8 @@ Backoffice:
 
 - inicio de sesion de administradores con bloqueo por intentos fallidos, auditoria y cierre por inactividad
 - consulta de usuarios de la plataforma con busqueda, filtros, paginacion y detalle
+- gestion de categorias predefinidas de gastos, documentos y tareas del checklist (US 110)
+- monitoreo del consumo, fallas y costo estimado de los servicios de IA con umbral mensual y alerta por correo (US 114)
 
 Backend:
 

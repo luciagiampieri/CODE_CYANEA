@@ -28,6 +28,7 @@ from app.services.entradas_ai.tipos import (
     Pagina,
 )
 from app.services.receipt_ai.gemini import GEMINI_URL, _config_razonamiento
+from app.services.registro_ia import SERVICIO_RECOMENDACION_ENTRADAS, medir_solicitud_ia
 
 logger = logging.getLogger(__name__)
 
@@ -154,6 +155,14 @@ class GeminiInterpreteEntradas:
             raise ErrorAnalisisEntradas(str(error)) from error
 
     async def _llamar(self, model: str, prompt: str, timeout_seconds: float) -> Interpretacion:
+        with medir_solicitud_ia(SERVICIO_RECOMENDACION_ENTRADAS, model) as medicion:
+            resultado = await self._llamar_gemini(model, prompt, timeout_seconds, medicion)
+            medicion.exitosa = True
+            return resultado
+
+    async def _llamar_gemini(
+        self, model: str, prompt: str, timeout_seconds: float, medicion
+    ) -> Interpretacion:
         generation_config: dict = {
             "responseMimeType": "application/json",
             "responseJsonSchema": construir_esquema_json(),
@@ -185,6 +194,7 @@ class GeminiInterpreteEntradas:
 
         try:
             data = response.json()
+            medicion.usar_respuesta(data)
             candidatos = data.get("candidates") or []
             partes = (candidatos[0].get("content") or {}).get("parts") or []
             texto = "".join(p.get("text", "") for p in partes if not p.get("thought")).strip()

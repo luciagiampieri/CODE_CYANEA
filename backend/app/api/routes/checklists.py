@@ -273,7 +273,12 @@ async def actualizar_checklist(
         _validar_nombre_unico(db, trip_id, nombre_limpio, checklist_id)
         checklist.Nombre = nombre_limpio
 
-    if payload.IdCategoriaChecklist is not None:
+    # Una tarea conserva su categoría aunque se haya desactivado (US 110); solo
+    # se exige que esté activa si se la cambia por otra.
+    if (
+        payload.IdCategoriaChecklist is not None
+        and payload.IdCategoriaChecklist != checklist.IdCategoriaChecklist
+    ):
         categoria = _obtener_categoria_activa(db, payload.IdCategoriaChecklist)
         checklist.IdCategoriaChecklist = payload.IdCategoriaChecklist
         checklist.CategoriaChecklist = categoria

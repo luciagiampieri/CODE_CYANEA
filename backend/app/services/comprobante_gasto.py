@@ -51,11 +51,22 @@ def generar_nombre_unico(db: Session, viaje_id: int, base: str, extension: str) 
 
 
 def obtener_o_crear_categoria(db: Session) -> CategoriaDocumento:
+    # Se busca primero la categoría de sistema: el backoffice puede renombrarla (US 110).
     categoria = db.scalar(
+        select(CategoriaDocumento)
+        .where(CategoriaDocumento.EsSistema.is_(True))
+        .order_by(CategoriaDocumento.IdCategoriaDocumento)
+        .limit(1)
+    ) or db.scalar(
         select(CategoriaDocumento).where(CategoriaDocumento.Nombre == CATEGORIA_COMPROBANTES)
     )
+    if categoria is not None and not categoria.EsSistema:
+        categoria.EsSistema = True
+        categoria.Activo = True
     if categoria is None:
-        categoria = CategoriaDocumento(Nombre=CATEGORIA_COMPROBANTES)
+        categoria = CategoriaDocumento(
+            Nombre=CATEGORIA_COMPROBANTES, Icono="receipt", Activo=True, EsSistema=True
+        )
         db.add(categoria)
         db.flush()
     return categoria

@@ -8,6 +8,7 @@ from app.models.gasto import TipoDivisionEnum
 class CategoriasGastosRead(BaseModel):
     IdCategoria: int
     Nombre: str
+    Icono: Optional[str] = None
     
     model_config = {
         "from_attributes": True
@@ -83,6 +84,7 @@ class GastoListItemRead(BaseModel):
     FechaGasto: date
     IdCategoria: int
     NombreCategoria: str
+    IconoCategoria: Optional[str] = None
     IdPagador: int
     IdUsuarioPagador: int
     NombrePagador: str
@@ -105,6 +107,8 @@ class GastoRead(BaseModel):
     TipoCambio: Decimal
 
     NombreCategoria: str
+
+    IconoCategoria: Optional[str] = None
 
     NombrePagador: str
     ApellidoPagador: str
@@ -162,6 +166,7 @@ class GastoPosibleDuplicadoRead(BaseModel):
     FechaGasto: date
     IdCategoria: int
     NombreCategoria: str
+    IconoCategoria: Optional[str] = None
     IdPagador: int
     IdUsuarioPagador: int
     NombrePagador: str
@@ -194,6 +199,7 @@ class GastoDetalleRead(BaseModel):
     FechaGasto: date
     IdCategoria: int
     NombreCategoria: str
+    IconoCategoria: Optional[str] = None
     IdPagador: int
     IdUsuarioPagador: int
     NombrePagador: str

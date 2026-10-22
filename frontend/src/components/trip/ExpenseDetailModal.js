@@ -48,7 +48,7 @@ export function ExpenseDetailContent({ gasto, pagoYo = false, fechaCarga = "" })
     <>
       <View style={styles.hero}>
         <View style={styles.heroIcon}>
-          <FontAwesome6 color={colors.primary} name={iconForCategory(gasto.NombreCategoria)} size={18} />
+          <FontAwesome6 color={colors.primary} name={iconForCategory(gasto.NombreCategoria, gasto.IconoCategoria)} size={18} />
         </View>
         <View style={styles.heroBody}>
           <Text numberOfLines={2} style={styles.nombre} testID="expense-detail-nombre">

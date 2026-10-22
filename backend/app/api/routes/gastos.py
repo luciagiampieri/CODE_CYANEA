@@ -230,9 +230,18 @@ def _viaje_tiene_transferencias_realizadas(db: Session, viaje_id: int) -> bool:
         is not None
     )
 
-def _validar_datos_gasto(db: Session, data: GastoCreate | GastoUpdate, viaje_id: int) -> date:
+def _validar_datos_gasto(
+    db: Session,
+    data: GastoCreate | GastoUpdate,
+    viaje_id: int,
+    id_categoria_actual: int | None = None,
+) -> date:
     """Validaciones de los datos de un gasto, compartidas por el alta y la
-    edición (US 79). Devuelve la fecha del gasto ya normalizada."""
+    edición (US 79). Devuelve la fecha del gasto ya normalizada.
+
+    `id_categoria_actual` es la categoría que ya tiene el gasto al editarlo: si
+    se conserva puede estar desactivada (US 110), pero una categoría nueva tiene
+    que estar activa."""
     fecha_str = str(data.FechaGasto)
     fecha_limpia = fecha_str.split("T")[0]
     fecha_gasto_dt = date.fromisoformat(fecha_limpia)
@@ -251,6 +260,14 @@ def _validar_datos_gasto(db: Session, data: GastoCreate | GastoUpdate, viaje_id:
 
     if data.IdCategoria is None:
         raise HTTPException(status_code=400, detail="Debés seleccionar una categoría.")
+
+    if data.IdCategoria != id_categoria_actual:
+        categoria = db.get(CategoriasGastos, data.IdCategoria)
+        if categoria is None or not categoria.Activo:
+            raise HTTPException(
+                status_code=400,
+                detail="La categoría seleccionada no existe o está inactiva.",
+            )
 
 
     if data.EsCompartido:
@@ -653,9 +670,10 @@ def get_categories(
     return [
         CategoriasGastosRead(
             IdCategoria=categoria.IdCategoria,
-            Nombre=categoria.Nombre
+            Nombre=categoria.Nombre,
+            Icono=categoria.Icono,
         )
-        for categoria in categorias
+        for categoria in sorted(categorias, key=lambda c: c.Nombre.casefold())
     ]
 
 
@@ -808,6 +826,7 @@ def list_trip_gastos(
             FechaGasto=gasto.FechaGasto,
             IdCategoria=gasto.IdCategoria,
             NombreCategoria=gasto.Categoria.Nombre,
+            IconoCategoria=gasto.Categoria.Icono,
             IdPagador=gasto.IdPagador,
             IdUsuarioPagador=gasto.Pagador.IdUsuario,
             NombrePagador=_actor_display_name(gasto.Pagador.Usuario),
@@ -894,6 +913,7 @@ def _posible_duplicado_read(gasto: Gasto, moneda_viaje: str) -> GastoPosibleDupl
         FechaGasto=gasto.FechaGasto,
         IdCategoria=gasto.IdCategoria,
         NombreCategoria=gasto.Categoria.Nombre,
+        IconoCategoria=gasto.Categoria.Icono,
         IdPagador=gasto.IdPagador,
         IdUsuarioPagador=gasto.Pagador.IdUsuario,
         NombrePagador=_actor_display_name(gasto.Pagador.Usuario),
@@ -1067,7 +1087,7 @@ async def update_gasto(
         )
 
     viaje_id = gasto.IdViaje
-    fecha_gasto_dt = _validar_datos_gasto(db, data, viaje_id)
+    fecha_gasto_dt = _validar_datos_gasto(db, data, viaje_id, id_categoria_actual=gasto.IdCategoria)
 
     moneda_base = (viaje.Moneda or "USD").upper()
     moneda_gasto = (data.MonedaOriginal or moneda_base).upper()
@@ -1319,6 +1339,7 @@ def get_gasto(
         FechaGasto=gasto.FechaGasto,
         IdCategoria=gasto.IdCategoria,
         NombreCategoria=gasto.Categoria.Nombre,
+        IconoCategoria=gasto.Categoria.Icono,
         IdPagador=gasto.IdPagador,
         IdUsuarioPagador=gasto.Pagador.IdUsuario,
         NombrePagador=_actor_display_name(gasto.Pagador.Usuario),

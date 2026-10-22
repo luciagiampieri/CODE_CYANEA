@@ -2,9 +2,12 @@ import { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Platform, StyleSheet, View } from 'react-native';
 
 import BackofficeLayout from '../components/backoffice/BackofficeLayout';
+import { DialogHost } from '../components/ui/AppDialog';
 import { useInactividad } from '../hooks/useInactividad';
+import BackofficeCategoriasScreen from '../screens/backoffice/BackofficeCategoriasScreen';
 import BackofficeHomeScreen from '../screens/backoffice/BackofficeHomeScreen';
 import BackofficeLoginScreen from '../screens/backoffice/BackofficeLoginScreen';
+import BackofficeMonitoreoIAScreen from '../screens/backoffice/BackofficeMonitoreoIAScreen';
 import BackofficeUsuarioDetalleScreen from '../screens/backoffice/BackofficeUsuarioDetalleScreen';
 import BackofficeUsuariosScreen, {
   FILTROS_USUARIOS_INICIALES,
@@ -99,6 +102,10 @@ export default function BackofficeApp() {
         onVolver={() => setVista(VISTA_INICIO)}
       />
     );
+  } else if (vista.nombre === 'categorias') {
+    pantalla = <BackofficeCategoriasScreen onVolver={() => setVista(VISTA_INICIO)} />;
+  } else if (vista.nombre === 'monitoreoIA') {
+    pantalla = <BackofficeMonitoreoIAScreen onVolver={() => setVista(VISTA_INICIO)} />;
   } else if (vista.nombre === 'detalleUsuario') {
     pantalla = (
       <BackofficeUsuarioDetalleScreen
@@ -110,20 +117,25 @@ export default function BackofficeApp() {
     pantalla = (
       <BackofficeHomeScreen
         admin={admin}
+        onAbrirCategorias={() => setVista({ nombre: 'categorias' })}
+        onAbrirMonitoreoIA={() => setVista({ nombre: 'monitoreoIA' })}
         onAbrirUsuarios={() => setVista({ nombre: 'usuarios' })}
       />
     );
   }
 
   return (
-    <BackofficeLayout
-      admin={admin}
-      claveVista={`${vista.nombre}-${vista.idUsuario ?? ''}`}
-      onIrInicio={() => setVista(VISTA_INICIO)}
-      onLogout={manejarLogout}
-    >
-      {pantalla}
-    </BackofficeLayout>
+    <>
+      <BackofficeLayout
+        admin={admin}
+        claveVista={`${vista.nombre}-${vista.idUsuario ?? ''}`}
+        onIrInicio={() => setVista(VISTA_INICIO)}
+        onLogout={manejarLogout}
+      >
+        {pantalla}
+      </BackofficeLayout>
+      <DialogHost root />
+    </>
   );
 }
 

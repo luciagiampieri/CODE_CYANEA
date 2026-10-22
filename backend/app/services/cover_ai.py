@@ -20,6 +20,7 @@ from dataclasses import dataclass
 import httpx
 
 from app.core.config import settings
+from app.services.registro_ia import SERVICIO_GENERACION_PORTADAS, medir_solicitud_ia
 
 logger = logging.getLogger(__name__)
 
@@ -121,6 +122,15 @@ async def _generate_cloudflare(prompt: str) -> GeneratedCover:
             status_code=503,
         )
 
+    # Se registra el consumo sin el prompt (US 114, RNF-33).
+    with medir_solicitud_ia(SERVICIO_GENERACION_PORTADAS, settings.ai_image_model) as medicion:
+        portada = await _llamar_cloudflare(prompt)
+        medicion.imagenes = 1
+        medicion.exitosa = True
+        return portada
+
+
+async def _llamar_cloudflare(prompt: str) -> GeneratedCover:
     url = CLOUDFLARE_RUN_URL.format(
         account_id=settings.cloudflare_account_id,
         model=settings.ai_image_model,

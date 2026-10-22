@@ -21,11 +21,31 @@ export function LoginFalso({ onLogin, aviso }) {
   );
 }
 
-export function HomeFalso({ admin, onAbrirUsuarios }) {
+export function HomeFalso({ admin, onAbrirUsuarios, onAbrirCategorias, onAbrirMonitoreoIA }) {
   return (
     <View>
       <Text>{`Inicio de ${admin.nombreCompleto}`}</Text>
       <Boton onPress={onAbrirUsuarios} texto="Ir a usuarios" />
+      <Boton onPress={onAbrirCategorias} texto="Ir a categorías" />
+      <Boton onPress={onAbrirMonitoreoIA} texto="Ir a monitoreo" />
+    </View>
+  );
+}
+
+export function CategoriasFalso({ onVolver }) {
+  return (
+    <View>
+      <Text>Pantalla de categorías</Text>
+      <Boton onPress={onVolver} texto="Volver de categorías" />
+    </View>
+  );
+}
+
+export function MonitoreoFalso({ onVolver }) {
+  return (
+    <View>
+      <Text>Pantalla de monitoreo</Text>
+      <Boton onPress={onVolver} texto="Volver de monitoreo" />
     </View>
   );
 }

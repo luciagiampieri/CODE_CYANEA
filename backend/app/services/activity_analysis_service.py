@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from time import monotonic
 import logging
 from datetime import time, datetime, date, timedelta
 from typing import Dict, Any, Optional
@@ -17,7 +18,11 @@ from app.services.entradas_ai.tipos import (
     LUGAR_INEXISTENTE,
     LUGAR_NO_DETERMINADO,
 )
-from app.services.registro_ia import SERVICIO_ANALISIS_HORARIOS, registrar_solicitud_ia
+from app.services.registro_ia import (
+    SERVICIO_ANALISIS_HORARIOS,
+    registrar_solicitud_ia,
+    tokens_de_respuesta,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -146,6 +151,8 @@ async def extraer_nombre_lugar_con_gemini(
     }
 
     exitosa = False
+    data = None
+    inicio = monotonic()
     try:
         async with httpx.AsyncClient(timeout=30.0, verify=False) as client:
             response = await client.post(url, headers={"x-goog-api-key": api_key}, json=payload)
@@ -165,7 +172,15 @@ async def extraer_nombre_lugar_con_gemini(
         logger.warning("No se pudo extraer el lugar de la actividad con Gemini: %s", error)
         return _fallo(str(error))
     finally:
-        registrar_solicitud_ia(SERVICIO_ANALISIS_HORARIOS, model, exitosa)
+        tokens_entrada, tokens_salida = tokens_de_respuesta(data)
+        registrar_solicitud_ia(
+            SERVICIO_ANALISIS_HORARIOS,
+            model,
+            exitosa,
+            duracion_ms=int((monotonic() - inicio) * 1000),
+            tokens_entrada=tokens_entrada,
+            tokens_salida=tokens_salida,
+        )
 
     if isinstance(resultado, dict) and resultado.get("es_lugar_concreto"):
         nombre = resultado.get("nombre_lugar")

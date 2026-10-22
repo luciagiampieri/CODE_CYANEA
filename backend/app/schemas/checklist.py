@@ -12,6 +12,7 @@ class ResponsableRead(BaseModel):
 class CategoriaChecklistRead(BaseModel):
     IdCategoriaChecklist: int
     Nombre: str
+    Icono: str | None = None
     model_config = {"from_attributes": True}
 
 

@@ -60,7 +60,10 @@ const CATEGORY_ICONS = {
   otros: "receipt",
 };
 
-export function iconForCategory(nombre) {
+// `icono` es el que configura el backoffice (US 110); el mapa por nombre queda
+// como respaldo para datos sin ícono.
+export function iconForCategory(nombre, icono) {
+  if (typeof icono === "string" && icono.trim()) return icono.trim();
   return CATEGORY_ICONS[String(nombre ?? "").trim().toLowerCase()] ?? "receipt";
 }
 
@@ -228,13 +231,18 @@ export default function ExpenseList({
 
     categories.forEach((category) => {
       const key = String(category.IdCategoria);
-      map.set(key, { id: key, nombre: category.Nombre, gastos: [] });
+      map.set(key, { id: key, nombre: category.Nombre, icono: category.Icono, gastos: [] });
     });
 
     expenses.forEach((expense) => {
       const key = String(expense.IdCategoria);
       if (!map.has(key)) {
-        map.set(key, { id: key, nombre: expense.NombreCategoria ?? "Sin categoría", gastos: [] });
+        map.set(key, {
+          id: key,
+          nombre: expense.NombreCategoria ?? "Sin categoría",
+          icono: expense.IconoCategoria,
+          gastos: [],
+        });
       }
       map.get(key).gastos.push(expense);
     });
@@ -555,7 +563,7 @@ export default function ExpenseList({
   if (categoriesActive) {
     activeChips.push({
       key: "categorias",
-      icon: selectedCategories.length === 1 ? iconForCategory(selectedCategories[0].nombre) : "tags",
+      icon: selectedCategories.length === 1 ? iconForCategory(selectedCategories[0].nombre, selectedCategories[0].icono) : "tags",
       label:
         selectedCategories.length === 1
           ? selectedCategories[0].nombre
@@ -770,7 +778,7 @@ export default function ExpenseList({
                 size={13}
                 style={styles.sectionChevron}
               />
-              <FontAwesome6 color={colors.primary} name={iconForCategory(section.nombre)} size={14} />
+              <FontAwesome6 color={colors.primary} name={iconForCategory(section.nombre, section.icono)} size={14} />
               <View style={styles.sectionTitleBox}>
                 <Text numberOfLines={1} style={styles.sectionTitle}>
                   {section.nombre}
@@ -823,7 +831,7 @@ export default function ExpenseList({
                       <View style={styles.icon}>
                         <FontAwesome6
                           color={colors.primary}
-                          name={iconForCategory(expense.NombreCategoria)}
+                          name={iconForCategory(expense.NombreCategoria, expense.IconoCategoria)}
                           size={14}
                         />
                       </View>

@@ -1,0 +1,32 @@
+{% extends "base_layout.html" %}
+{% block title %}Se superó el umbral de costo de IA{% endblock %}
+{% block content %}
+                            <h2 style="margin:0 0 12px;color:#1e3e7b;font-size:22px;">Umbral de costo de IA superado</h2>
+                            <p style="margin:0 0 18px;color:#444;line-height:1.6;">
+                                El costo estimado de los servicios de inteligencia artificial de Cyanea en
+                                <strong>{{ periodo }}</strong> superó el umbral mensual configurado en el backoffice.
+                            </p>
+
+                            <div style="margin:0 0 24px;padding:18px 20px;background:#f7f9fc;border:1px solid #e8edf4;border-radius:12px;">
+                                <p style="margin:0 0 8px;color:#1e3e7b;font-size:12px;font-weight:700;letter-spacing:0.6px;text-transform:uppercase;">
+                                    Consumo del mes
+                                </p>
+                                <p style="margin:0;color:#1e3e7b;font-size:20px;font-weight:700;">
+                                    {{ costo }} de {{ umbral }} ({{ porcentaje }}%)
+                                </p>
+                            </div>
+
+                            <div style="text-align:center;margin:32px 0;">
+                                <a href="{{ backoffice_url }}"
+                                style="background:#1e3e7b;color:#ffec80;text-decoration:none;
+                                        padding:14px 36px;border-radius:8px;font-size:16px;
+                                        font-weight:700;display:inline-block;">
+                                    Ver el monitoreo
+                                </a>
+                            </div>
+
+                            <p style="margin:0 0 8px;color:#666;font-size:13px;line-height:1.5;">
+                                Recibís este aviso porque sos administrador del sistema. Solo se envía una vez por mes
+                                para cada umbral configurado.
+                            </p>
+{% endblock %}

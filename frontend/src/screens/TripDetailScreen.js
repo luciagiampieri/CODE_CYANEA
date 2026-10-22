@@ -71,6 +71,7 @@ import {
   getExpenseDetail,
   deleteExpense,
   getTripDocuments,
+  getDocumentCategories,
   downloadTripDocument,
   deleteTripDocument,
   getRepositorioItems,
@@ -81,6 +82,7 @@ import {
   leaveTrip,
   transferTripAdministration,
   getChecklists,
+  getChecklistCategories,
   deleteChecklist,
   toggleChecklistCompletada,
   getActivitySuggestions,
@@ -293,6 +295,17 @@ function computeCenterFromMarkers(markers) {
   };
 }
 
+// Categorías activas para mostrar las secciones vacías de documentos y checklist
+// (US 110). Si no se pueden cargar se usan las categorías base.
+async function cargarCategoriasActivas(cargar) {
+  try {
+    const categorias = await cargar();
+    return Array.isArray(categorias) ? categorias : [];
+  } catch {
+    return [];
+  }
+}
+
 export default function TripDetailScreen({ navigation, route }) {
   const initialTrip = normalizeTrip(route.params?.trip);
   const { width, isTablet } = useResponsive();
@@ -352,6 +365,7 @@ export default function TripDetailScreen({ navigation, route }) {
   const [loadingSettlement, setLoadingSettlement] = useState(false);
   const [settlementError, setSettlementError] = useState("");
   const [documentos, setDocumentos] = useState([]);
+  const [categoriasDocumentos, setCategoriasDocumentos] = useState([]);
   const [loadingDocumentos, setLoadingDocumentos] = useState(false);
   const [showAddDocumentModal, setShowAddDocumentModal] = useState(false);
   const [documentoAEditar, setDocumentoAEditar] = useState(null);
@@ -514,6 +528,7 @@ export default function TripDetailScreen({ navigation, route }) {
   const [leavingTrip, setLeavingTrip] = useState(false);
 
   const [checklists, setChecklists] = useState([]);
+  const [categoriasChecklist, setCategoriasChecklist] = useState([]);
   const [loadingChecklists, setLoadingChecklists] = useState(false);
   const [checklistsError, setChecklistsError] = useState("");
   const [showCrearChecklistModal, setShowCrearChecklistModal] = useState(false);
@@ -912,8 +927,12 @@ export default function TripDetailScreen({ navigation, route }) {
     try {
       setLoadingDocumentos(true);
       setDocumentosError("");
-      const data = await getTripDocuments(initialTrip.id);
+      const [data, categorias] = await Promise.all([
+        getTripDocuments(initialTrip.id),
+        cargarCategoriasActivas(getDocumentCategories),
+      ]);
       setDocumentos(data);
+      if (categorias.length) setCategoriasDocumentos(categorias);
     } catch (error) {
       setDocumentosError(error.message || "No se pudieron cargar los documentos del viaje.");
     } finally {
@@ -942,8 +961,12 @@ export default function TripDetailScreen({ navigation, route }) {
     try {
       setLoadingChecklists(true);
       setChecklistsError("");
-      const data = await getChecklists(initialTrip.id);
+      const [data, categorias] = await Promise.all([
+        getChecklists(initialTrip.id),
+        cargarCategoriasActivas(getChecklistCategories),
+      ]);
       setChecklists(data);
+      if (categorias.length) setCategoriasChecklist(categorias);
     } catch (error) {
       setChecklistsError(error.message || "No se pudieron cargar los checklists del viaje.");
     } finally {
@@ -2976,6 +2999,7 @@ export default function TripDetailScreen({ navigation, route }) {
                   <View style={{ marginTop: spacing.sm }}>
                     <DocumentosPorCategoria
                       documentos={documentos}
+                      categorias={categoriasDocumentos}
                       categoriaFiltro={categoriaDocFiltro}
                       onCategoriaChange={setCategoriaDocFiltro}
                       onAbrir={(documento) => abrirDocumento(documento.UrlArchivo)}
@@ -3110,6 +3134,7 @@ export default function TripDetailScreen({ navigation, route }) {
               ) : (
                 <ChecklistsByCategory
                   checklists={checklists}
+                  categorias={categoriasChecklist}
                   categoriaFiltro={categoriaChecklistFiltro}
                   onCategoriaChange={setCategoriaChecklistFiltro}
                   onEditar={(checklist) => {

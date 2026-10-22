@@ -1,5 +1,12 @@
 import {
+  actualizarCategoria,
+  cambiarEstadoCategoria,
   cerrarSesion,
+  configurarUmbralCostoIA,
+  crearCategoria,
+  eliminarCategoria,
+  listarCategorias,
+  obtenerMonitoreoIA,
   iniciarSesion,
   listarUsuarios,
   obtenerAdminActual,
@@ -21,10 +28,11 @@ function crearAlmacenamiento() {
   };
 }
 
-function respuestaFetch(status, cuerpo) {
+function respuestaFetch(status, cuerpo, headers = {}) {
   return Promise.resolve({
     ok: status >= 200 && status < 300,
     status,
+    headers: { get: (nombre) => headers[nombre] ?? null },
     json: () => (cuerpo === undefined ? Promise.reject(new Error('sin cuerpo')) : Promise.resolve(cuerpo)),
   });
 }
@@ -123,12 +131,23 @@ describe('sesión del backoffice', () => {
     await expect(obtenerAdminActual()).rejects.toThrow('No se pudo conectar con el servidor.');
   });
 
-  test('un detalle que no es texto se reemplaza por un mensaje genérico', async () => {
-    fetch.mockReturnValue(respuestaFetch(422, { detail: [{ msg: 'campo inválido' }] }));
+  test('un error de validación muestra el mensaje del primer campo', async () => {
+    fetch.mockReturnValue(
+      respuestaFetch(422, { detail: [{ msg: 'Value error, Ingresá el nombre de la categoría.' }] })
+    );
+
+    await expect(obtenerAdminActual()).rejects.toMatchObject({
+      message: 'Ingresá el nombre de la categoría.',
+      status: 422,
+    });
+  });
+
+  test('un detalle con otra forma se reemplaza por un mensaje genérico', async () => {
+    fetch.mockReturnValue(respuestaFetch(500, { detail: { inesperado: true } }));
 
     await expect(obtenerAdminActual()).rejects.toMatchObject({
       message: 'Ocurrió un error inesperado.',
-      status: 422,
+      status: 500,
     });
   });
 });
@@ -201,5 +220,77 @@ describe('métricas', () => {
     await expect(
       obtenerMetricas({ desde: '2025-01-01', hasta: '2026-10-16' })
     ).rejects.toMatchObject({ message: 'El rango no puede superar un año.', status: 422 });
+  });
+});
+
+describe('categorías (US 110)', () => {
+  test('lista las categorías agrupadas', async () => {
+    fetch.mockReturnValue(respuestaFetch(200, { gastos: [], documentos: [], checklist: [] }));
+
+    const datos = await listarCategorias();
+
+    expect(urlLlamada()).toMatch(/\/backoffice\/categorias$/);
+    expect(datos).toEqual({ gastos: [], documentos: [], checklist: [] });
+  });
+
+  test('crea una categoría con tipo, nombre e ícono', async () => {
+    fetch.mockReturnValue(respuestaFetch(201, { id: 9 }));
+
+    await crearCategoria({ tipo: 'gastos', nombre: 'Propinas', icono: 'gift' });
+
+    expect(urlLlamada()).toMatch(/\/backoffice\/categorias$/);
+    expect(opcionesLlamada().method).toBe('POST');
+    expect(JSON.parse(opcionesLlamada().body)).toEqual({ tipo: 'gastos', nombre: 'Propinas', icono: 'gift' });
+  });
+
+  test('edita, cambia el estado y elimina por tipo e id', async () => {
+    fetch
+      .mockReturnValueOnce(respuestaFetch(200, {}))
+      .mockReturnValueOnce(respuestaFetch(200, {}))
+      .mockReturnValueOnce(respuestaFetch(204));
+
+    await actualizarCategoria('documentos', 3, { nombre: 'Visas', icono: 'passport' });
+    await cambiarEstadoCategoria('documentos', 3, false);
+    await eliminarCategoria('documentos', 3);
+
+    expect(urlLlamada(0)).toMatch(/\/backoffice\/categorias\/documentos\/3$/);
+    expect(opcionesLlamada(0).method).toBe('PUT');
+    expect(urlLlamada(1)).toMatch(/\/backoffice\/categorias\/documentos\/3\/estado$/);
+    expect(JSON.parse(opcionesLlamada(1).body)).toEqual({ activa: false });
+    expect(opcionesLlamada(2).method).toBe('DELETE');
+  });
+
+  test('propaga el código de error del backend', async () => {
+    fetch.mockReturnValue(
+      respuestaFetch(409, { detail: 'La categoría está en uso.' }, { 'X-Error-Code': 'CATEGORY_IN_USE' })
+    );
+
+    await expect(eliminarCategoria('gastos', 1)).rejects.toMatchObject({
+      message: 'La categoría está en uso.',
+      status: 409,
+      codigo: 'CATEGORY_IN_USE',
+    });
+  });
+});
+
+describe('monitoreo de IA (US 114)', () => {
+  test('consulta el consumo con el rango de fechas', async () => {
+    fetch.mockReturnValue(respuestaFetch(200, { funcionalidades: [] }));
+
+    await obtenerMonitoreoIA({ desde: '2026-10-01', hasta: '2026-10-20' });
+
+    expect(urlLlamada()).toMatch(/\/backoffice\/monitoreo-ia\?desde=2026-10-01&hasta=2026-10-20$/);
+  });
+
+  test('configura y quita el umbral mensual', async () => {
+    fetch.mockReturnValue(respuestaFetch(200, { nivel: 'normal' }));
+
+    await configurarUmbralCostoIA(50);
+    await configurarUmbralCostoIA(null);
+
+    expect(urlLlamada(0)).toMatch(/\/backoffice\/monitoreo-ia\/umbral$/);
+    expect(opcionesLlamada(0).method).toBe('PUT');
+    expect(JSON.parse(opcionesLlamada(0).body)).toEqual({ umbralMensualUSD: 50 });
+    expect(JSON.parse(opcionesLlamada(1).body)).toEqual({ umbralMensualUSD: null });
   });
 });

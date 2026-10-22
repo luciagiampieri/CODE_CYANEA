@@ -1,0 +1,11 @@
+Umbral de costo de IA superado
+
+El costo estimado de los servicios de inteligencia artificial de Cyanea en {{ periodo }} superó el umbral mensual configurado en el backoffice.
+
+Consumo del mes: {{ costo }} de {{ umbral }} ({{ porcentaje }}%)
+
+Podés ver el detalle en el monitoreo del backoffice: {{ backoffice_url }}
+
+Recibís este aviso porque sos administrador del sistema. Solo se envía una vez por mes para cada umbral configurado.
+
+— Equipo Cyanea

@@ -2,12 +2,17 @@ from sqlalchemy import BigInteger, Boolean, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.session import Base
+from app.models.categorias_gastos import ICONO_POR_DEFECTO
 
 class CategoriasChecklist(Base):
     __tablename__ = "CategoriasChecklist"
 
     IdCategoriaChecklist: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     Nombre: Mapped[str] = mapped_column(String(50), nullable=False, unique=True)
+    # Nombre de un ícono de FontAwesome 6 (US 110).
+    Icono: Mapped[str] = mapped_column(
+        String(50), nullable=False, default=ICONO_POR_DEFECTO, server_default=ICONO_POR_DEFECTO
+    )
     Activo: Mapped[bool] = mapped_column(Boolean, server_default="true", nullable=False, default=True)
 
     Checklists = relationship(

@@ -7,6 +7,7 @@ import re
 import httpx
 
 from app.services.assistant_ai.prompts import SYSTEM_PROMPT, build_user_prompt
+from app.services.registro_ia import SERVICIO_ASISTENTE_VIAJE, medir_solicitud_ia
 
 logger = logging.getLogger(__name__)
 
@@ -82,6 +83,12 @@ class GeminiAssistantClient:
             return await self._call(self.fallback_model, message, context)
 
     async def _call(self, model: str, message: str, context: dict) -> dict:
+        with medir_solicitud_ia(SERVICIO_ASISTENTE_VIAJE, model) as medicion:
+            resultado = await self._call_gemini(model, message, context, medicion)
+            medicion.exitosa = True
+            return resultado
+
+    async def _call_gemini(self, model: str, message: str, context: dict, medicion) -> dict:
         generation_config: dict = {
             "responseMimeType": "application/json",
             "responseJsonSchema": ASSISTANT_RESPONSE_SCHEMA,
@@ -125,8 +132,10 @@ class GeminiAssistantClient:
             )
             raise AssistantAIError("El proveedor de IA no esta disponible.")
 
+        text = ""
         try:
             data = response.json()
+            medicion.usar_respuesta(data)
             parts = data["candidates"][0]["content"]["parts"]
             text = "".join(part.get("text", "") for part in parts if not part.get("thought")).strip()
             parsed = json.loads(_strip_json_fence(text))

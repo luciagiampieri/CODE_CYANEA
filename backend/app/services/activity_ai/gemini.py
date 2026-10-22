@@ -24,7 +24,7 @@ from app.services.receipt_ai.gemini import (
     GEMINI_URL,
     _config_razonamiento,
 )
-from app.services.registro_ia import SERVICIO_SUGERENCIA_ACTIVIDADES, registrar_solicitud_ia
+from app.services.registro_ia import SERVICIO_SUGERENCIA_ACTIVIDADES, medir_solicitud_ia
 
 logger = logging.getLogger(__name__)
 
@@ -92,15 +92,14 @@ class GeminiActivitySuggester:
         return await self._llamar(self.fallback_model, contexto, restante)
 
     async def _llamar(self, model: str, contexto: dict, timeout_seconds: float) -> dict:
-        exitosa = False
-        try:
-            resultado = await self._llamar_gemini(model, contexto, timeout_seconds)
-            exitosa = True
+        with medir_solicitud_ia(SERVICIO_SUGERENCIA_ACTIVIDADES, model) as medicion:
+            resultado = await self._llamar_gemini(model, contexto, timeout_seconds, medicion)
+            medicion.exitosa = True
             return resultado
-        finally:
-            registrar_solicitud_ia(SERVICIO_SUGERENCIA_ACTIVIDADES, model, exitosa)
 
-    async def _llamar_gemini(self, model: str, contexto: dict, timeout_seconds: float) -> dict:
+    async def _llamar_gemini(
+        self, model: str, contexto: dict, timeout_seconds: float, medicion=None
+    ) -> dict:
         url = GEMINI_URL.format(model=model)
         pedido = self._armar_pedido(model, contexto)
 
@@ -133,6 +132,8 @@ class GeminiActivitySuggester:
             data = response.json()
         except ValueError:
             raise SuggestionError(MENSAJE_RESPUESTA_INVALIDA, 502, AI_INVALID_RESPONSE)
+        if medicion is not None:
+            medicion.usar_respuesta(data)
 
         if (data.get("promptFeedback") or {}).get("blockReason"):
             raise SuggestionError(MENSAJE_RESPUESTA_INVALIDA, 502, AI_INVALID_RESPONSE)

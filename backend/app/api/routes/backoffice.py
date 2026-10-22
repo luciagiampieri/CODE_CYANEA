@@ -9,7 +9,20 @@ from app.api.deps_backoffice import require_admin_sistema
 from app.db.session import get_db
 from app.models.usuario import Usuario
 from app.schemas.auth import LoginRequest, TokenResponse
+from app.schemas.backoffice_categoria import (
+    CategoriaBackofficeCreate,
+    CategoriaBackofficeEstado,
+    CategoriaBackofficeRead,
+    CategoriaBackofficeUpdate,
+    CategoriasBackofficeListado,
+    TipoCategoria,
+)
 from app.schemas.backoffice_metricas import MetricasDashboard
+from app.schemas.backoffice_monitoreo_ia import (
+    EstadoUmbralCostoIA,
+    MonitoreoIA,
+    UmbralCostoIAUpdate,
+)
 from app.schemas.backoffice_usuario import (
     EstadoCuenta,
     PlanUsuario,
@@ -17,7 +30,11 @@ from app.schemas.backoffice_usuario import (
     UsuarioBackofficePagina,
 )
 from app.services.backoffice import auth_service as bo
+from app.services.backoffice import categorias_service
 from app.services.backoffice import metricas_service
+from app.services.backoffice import monitoreo_ia_service
+from app.services.mail import get_mail_service
+from app.services.mail.service import MailService
 from app.services.backoffice import usuarios_service
 
 router_publico = APIRouter()
@@ -131,3 +148,98 @@ def metricas_backoffice(
                 detail=str(error),
             )
     return metricas_service.obtener_metricas(db, desde, hasta, historico=historico)
+
+
+def _error_categoria(error: categorias_service.CategoriaError) -> HTTPException:
+    return HTTPException(
+        status_code=error.status_code,
+        detail=error.mensaje,
+        headers={"X-Error-Code": error.codigo},
+    )
+
+
+@router.get("/categorias", response_model=CategoriasBackofficeListado)
+def listar_categorias_backoffice(db: Session = Depends(get_db)) -> CategoriasBackofficeListado:
+    return categorias_service.listar(db)
+
+
+@router.post(
+    "/categorias",
+    response_model=CategoriaBackofficeRead,
+    status_code=status.HTTP_201_CREATED,
+)
+def crear_categoria_backoffice(
+    payload: CategoriaBackofficeCreate,
+    db: Session = Depends(get_db),
+) -> CategoriaBackofficeRead:
+    try:
+        return categorias_service.crear(db, payload.tipo, payload.nombre, payload.icono)
+    except categorias_service.CategoriaError as error:
+        raise _error_categoria(error)
+
+
+@router.put("/categorias/{tipo}/{id_categoria}", response_model=CategoriaBackofficeRead)
+def actualizar_categoria_backoffice(
+    tipo: TipoCategoria,
+    id_categoria: int,
+    payload: CategoriaBackofficeUpdate,
+    db: Session = Depends(get_db),
+) -> CategoriaBackofficeRead:
+    try:
+        return categorias_service.actualizar(db, tipo, id_categoria, payload.nombre, payload.icono)
+    except categorias_service.CategoriaError as error:
+        raise _error_categoria(error)
+
+
+@router.patch("/categorias/{tipo}/{id_categoria}/estado", response_model=CategoriaBackofficeRead)
+def cambiar_estado_categoria_backoffice(
+    tipo: TipoCategoria,
+    id_categoria: int,
+    payload: CategoriaBackofficeEstado,
+    db: Session = Depends(get_db),
+) -> CategoriaBackofficeRead:
+    try:
+        return categorias_service.cambiar_estado(db, tipo, id_categoria, payload.activa)
+    except categorias_service.CategoriaError as error:
+        raise _error_categoria(error)
+
+
+@router.delete("/categorias/{tipo}/{id_categoria}", status_code=status.HTTP_204_NO_CONTENT)
+def eliminar_categoria_backoffice(
+    tipo: TipoCategoria,
+    id_categoria: int,
+    db: Session = Depends(get_db),
+) -> None:
+    try:
+        categorias_service.eliminar(db, tipo, id_categoria)
+    except categorias_service.CategoriaError as error:
+        raise _error_categoria(error)
+
+
+
+@router.get("/monitoreo-ia", response_model=MonitoreoIA)
+def monitoreo_ia_backoffice(
+    desde: date | None = None,
+    hasta: date | None = None,
+    db: Session = Depends(get_db),
+) -> MonitoreoIA:
+    try:
+        desde, hasta = metricas_service.resolver_rango(desde, hasta)
+    except metricas_service.RangoInvalido as error:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(error),
+        )
+    return monitoreo_ia_service.obtener_monitoreo(db, desde, hasta)
+
+
+@router.put("/monitoreo-ia/umbral", response_model=EstadoUmbralCostoIA)
+def configurar_umbral_monitoreo_ia(
+    payload: UmbralCostoIAUpdate,
+    db: Session = Depends(get_db),
+    usuario: Usuario = Depends(require_admin_sistema),
+    mail_service: MailService = Depends(get_mail_service),
+) -> EstadoUmbralCostoIA:
+    return monitoreo_ia_service.configurar_umbral(
+        db, payload.umbralMensualUSD, usuario.IdUsuario, mail_service
+    )
