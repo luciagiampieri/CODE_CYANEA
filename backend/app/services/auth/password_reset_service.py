@@ -65,7 +65,7 @@ def _verificar_limites(db: Session, email_hash: str, ip: str | None) -> None:
         )
     )
     if ultima is not None:
-        transcurrido = (ahora - ultima).total_seconds()
+        transcurrido = (ahora - _utc(ultima)).total_seconds()
         if transcurrido < ESPERA_ENTRE_SOLICITUDES_SEGUNDOS:
             faltan = math.ceil(ESPERA_ENTRE_SOLICITUDES_SEGUNDOS - transcurrido)
             raise HTTPException(
@@ -250,7 +250,7 @@ def _obtener_token_valido(
         token is None
         or token.FechaUso is not None
         or token.FechaInvalidacion is not None
-        or token.FechaExpiracion <= ahora
+        or _utc(token.FechaExpiracion) <= ahora
     ):
         raise error
 
@@ -279,6 +279,8 @@ def validar_reglas_password(password: str) -> list[str]:
         faltantes.append("un carácter especial")
     return faltantes
 
+def _utc(dt: datetime) -> datetime:
+    return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
 
 def restablecer_password(
     db: Session,
@@ -316,6 +318,7 @@ def restablecer_password(
     ahora = datetime.now(timezone.utc)
 
     usuario.HashedPassword = hash_password(password)
+    usuario.FechaCambioPassword = ahora
 
     token.FechaUso = ahora
     _invalidar_tokens_pendientes(db, usuario.IdUsuario, ahora)

@@ -66,8 +66,10 @@
     "preset": "jest-expo",
     "testTimeout": 20000,
     "collectCoverageFrom": [
-      "src/**/*.js",
-      "!src/tests/**"
+      "src/**/*.{js,jsx,ts,tsx}",
+      "!src/tests/**",
+      "!src/**/*.native.js",
+      "!src/theme/**"
     ],
     "coverageThreshold": {
       "global": {

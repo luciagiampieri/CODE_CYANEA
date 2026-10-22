@@ -1,11 +1,12 @@
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import BigInteger, create_engine
+from sqlalchemy.orm.attributes import set_committed_value
+from sqlalchemy import BigInteger, create_engine, DateTime, event, inspect as sa_inspect
 from sqlalchemy.ext.compiler import compiles
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from datetime import date as date_type
+from datetime import date as date_type, timezone
 from app.main import app
 from app.db.session import Base, get_db
 from app.core.security import hash_password, create_access_token
@@ -26,6 +27,26 @@ from app.models.participante_viaje import ParticipanteViaje
 @compiles(BigInteger, "sqlite")
 def _compile_big_integer_as_integer_for_sqlite(type_, compiler, **kw):
     return "INTEGER"
+
+
+def _hacer_fechas_aware(target):
+    for atributo in sa_inspect(target).mapper.column_attrs:
+        columna = atributo.columns[0]
+        if not (isinstance(columna.type, DateTime) and columna.type.timezone):
+            continue
+        valor = target.__dict__.get(atributo.key)
+        if valor is not None and valor.tzinfo is None:
+            set_committed_value(target, atributo.key, valor.replace(tzinfo=timezone.utc))
+
+
+@event.listens_for(Base, "load", propagate=True)
+def _fechas_aware_al_cargar(target, context):
+    _hacer_fechas_aware(target)
+
+
+@event.listens_for(Base, "refresh", propagate=True)
+def _fechas_aware_al_refrescar(target, context, attrs):
+    _hacer_fechas_aware(target)
 
 
 engine = create_engine(

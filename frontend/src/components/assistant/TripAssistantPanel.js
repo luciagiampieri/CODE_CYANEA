@@ -137,7 +137,7 @@ export default function TripAssistantPanel({
       setMessages((prev) =>
         prev
           .map((item) => (item.action?.id === action.id ? { ...item, actionResolved: true } : item))
-          .concat(buildAssistantMessage(response))
+          .concat({ ...buildAssistantMessage(response), actionResolved: true })
       );
       onActionExecuted?.(response);
     } catch (err) {
@@ -241,6 +241,7 @@ export default function TripAssistantPanel({
                 />
                 <Pressable
                   onPress={sendMessage}
+                  accessibilityLabel="Enviar"
                   disabled={loading || !text.trim()}
                   style={({ pressed }) => [
                     styles.sendButton,
