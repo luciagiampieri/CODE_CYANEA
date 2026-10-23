@@ -1,0 +1,9 @@
+Hola {{ nombre }},
+
+El {{ fecha }} suspendimos temporalmente tu cuenta de Cyanea. Mientras esté suspendida no vas a poder iniciar sesión.
+
+Motivo de la suspensión:
+{{ motivo }}
+
+La información que cargaste en tus viajes se conserva y sigue visible para los demás participantes.
+Si creés que se trata de un error, respondé este correo o contactá al soporte de Cyanea.

@@ -5,6 +5,9 @@ import { obtenerUsuario } from '../../services/backofficeApi';
 
 jest.mock('../../services/backofficeApi', () => ({
   obtenerUsuario: jest.fn(),
+  obtenerHistorialSuspensiones: jest.fn(() => Promise.resolve({ historial: [] })),
+  suspenderUsuario: jest.fn(),
+  reactivarUsuario: jest.fn()
 }));
 
 function detalle(cambios = {}) {

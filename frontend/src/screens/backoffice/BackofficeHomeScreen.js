@@ -27,7 +27,7 @@ export default function BackofficeHomeScreen({
 
         <View style={styles.textosBanner}>
           <Text style={styles.saludo}>
-            ¡Hola, <Text style={styles.nombre}>{nombre}</Text>! 👋
+            ¡Hola, <Text style={styles.nombre}>{nombre}</Text>! 
           </Text>
           <Text style={styles.bajada}>
             Este es el pulso de Cyanea. Mirá cómo viene creciendo la plataforma.

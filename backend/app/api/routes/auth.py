@@ -33,11 +33,20 @@ from app.services.auth.google_auth_service import GoogleAuthService
 from app.services.auth.facebook_auth_service import FacebookAuthService
 from app.services.mail import get_mail_service
 from app.services.mail.service import MailService
+from app.services.backoffice import suspension_service
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
 google_auth_service = GoogleAuthService()
 facebook_auth_service = FacebookAuthService()
+
+
+def _error_cuenta_suspendida() -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail=suspension_service.MENSAJE_CUENTA_SUSPENDIDA,
+        headers={"X-Error-Code": suspension_service.ACCOUNT_SUSPENDED},
+    )
 
 
 def _registrar_aceptacion_terminos(usuario: Usuario) -> None:
@@ -179,6 +188,11 @@ def login(payload: LoginRequest, db: Session = Depends(get_db)) -> TokenResponse
     if usuario is None:
         raise credentials_error
 
+    if suspension_service.cuenta_suspendida(usuario):
+        if usuario.HashedPassword and verify_password(payload.password, usuario.HashedPassword):
+            raise _error_cuenta_suspendida()
+        raise credentials_error
+
     if not usuario.Activo:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -218,6 +232,9 @@ def login_with_google(
     usuario = google_auth_service.find_existing_user(db, identity)
 
     if usuario:
+        if suspension_service.cuenta_suspendida(usuario):
+            raise _error_cuenta_suspendida()
+
         if not usuario.Activo:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
@@ -286,6 +303,8 @@ def login_with_facebook(payload: FacebookLoginRequest, db: Session = Depends(get
     )
 
     if usuario:
+        if suspension_service.cuenta_suspendida(usuario):
+            raise _error_cuenta_suspendida()
 
         if not usuario.Activo:
             raise HTTPException(

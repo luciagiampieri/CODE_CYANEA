@@ -1,9 +1,3 @@
-/**
- * US 94 - Confirmar gasto precargado desde un comprobante.
- *
- * El escaneo en sí se prueba en ReceiptScanButton.test.js; acá se simula su
- * resultado y se prueba la revisión y confirmación del formulario.
- */
 import React from "react";
 import { Alert } from "react-native";
 import { act, fireEvent, render, waitFor } from "@testing-library/react-native";

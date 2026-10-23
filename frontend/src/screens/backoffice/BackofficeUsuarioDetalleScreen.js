@@ -9,6 +9,7 @@ import {
   formatearFecha,
   obtenerIniciales,
 } from '../../components/backoffice/UsuarioPresentacion';
+import SuspensionUsuario, { HistorialSuspensiones } from '../../components/backoffice/SuspensionUsuario';
 import { obtenerUsuario } from '../../services/backofficeApi';
 import { backofficeColors as c } from '../../theme/backofficeTokens';
 import { radii, spacing, textStyles } from '../../theme/tokens';
@@ -17,6 +18,7 @@ export default function BackofficeUsuarioDetalleScreen({ idUsuario, onVolver }) 
   const [usuario, setUsuario] = useState(null);
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState('');
+  const [recarga, setRecarga] = useState(0);
 
   useEffect(() => {
     let vigente = true;
@@ -35,7 +37,7 @@ export default function BackofficeUsuarioDetalleScreen({ idUsuario, onVolver }) 
     return () => {
       vigente = false;
     };
-  }, [idUsuario]);
+  }, [idUsuario, recarga]);
 
   let contenido;
   if (cargando) {
@@ -52,7 +54,7 @@ export default function BackofficeUsuarioDetalleScreen({ idUsuario, onVolver }) 
       </View>
     );
   } else {
-    contenido = <Detalle usuario={usuario} />;
+    contenido = <Detalle onCambio={() => setRecarga((n) => n + 1)} usuario={usuario} />;
   }
 
   return (
@@ -69,7 +71,7 @@ export default function BackofficeUsuarioDetalleScreen({ idUsuario, onVolver }) 
   );
 }
 
-function Detalle({ usuario }) {
+function Detalle({ usuario, onCambio }) {
   return (
     <>
       <View style={styles.encabezado}>
@@ -96,6 +98,8 @@ function Detalle({ usuario }) {
           </Text>
         </View>
       ) : null}
+
+      <SuspensionUsuario onCambio={onCambio} usuario={usuario} />
 
       <View style={styles.metricas}>
         <Metrica
@@ -128,6 +132,7 @@ function Detalle({ usuario }) {
           valor={formatearFecha(usuario.fechaRegistro)}
         />
       </View>
+      <HistorialSuspensiones usuario={usuario} />
     </>
   );
 }
@@ -243,8 +248,8 @@ const styles = StyleSheet.create({
   },
   metrica: {
     flexGrow: 1,
-    flexBasis: 200,
-    padding: spacing.lg,
+    flexBasis: 140,
+    padding: spacing.md,
     borderRadius: radii.lg,
     borderWidth: 1,
     borderColor: c.borde,
@@ -259,12 +264,12 @@ const styles = StyleSheet.create({
     backgroundColor: c.acentoSuave,
     borderWidth: 1,
     borderColor: c.acentoBorde,
-    marginBottom: spacing.md,
+    marginBottom: spacing.sm,
   },
   valorMetrica: {
     ...textStyles.brandTitle,
     color: c.texto,
-    fontSize: 26,
+    fontSize: 22,
   },
   etiquetaMetrica: {
     ...textStyles.meta,

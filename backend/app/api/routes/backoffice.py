@@ -23,6 +23,9 @@ from app.schemas.backoffice_monitoreo_ia import (
     MonitoreoIA,
     UmbralCostoIAUpdate,
 )
+# --- INICIO DE MODIFICACION (US 108) ---
+from app.schemas.backoffice_suspension import HistorialSuspensiones, SuspensionRequest
+# --- FIN DE MODIFICACION (US 108) ---
 from app.schemas.backoffice_usuario import (
     EstadoCuenta,
     PlanUsuario,
@@ -36,6 +39,9 @@ from app.services.backoffice import monitoreo_ia_service
 from app.services.mail import get_mail_service
 from app.services.mail.service import MailService
 from app.services.backoffice import usuarios_service
+# --- INICIO DE MODIFICACION (US 108) ---
+from app.services.backoffice import suspension_service
+# --- FIN DE MODIFICACION (US 108) ---
 
 router_publico = APIRouter()
 
@@ -128,6 +134,69 @@ def detalle_usuario_backoffice(
             detail="Usuario no encontrado.",
         )
     return detalle
+
+
+def _error_suspension(error: suspension_service.SuspensionError) -> HTTPException:
+    return HTTPException(
+        status_code=error.status_code,
+        detail=error.mensaje,
+        headers={"X-Error-Code": error.codigo},
+    )
+
+
+@router.post("/usuarios/{id_usuario}/suspender", response_model=UsuarioBackofficeDetalle)
+def suspender_usuario_backoffice(
+    id_usuario: int,
+    payload: SuspensionRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+    admin: Usuario = Depends(require_admin_sistema),
+    mail_service: MailService = Depends(get_mail_service),
+) -> UsuarioBackofficeDetalle:
+    try:
+        suspension_service.suspender(
+            db,
+            id_usuario,
+            admin.IdUsuario,
+            payload.motivo,
+            request.client.host if request.client else None,
+            mail_service,
+        )
+    except suspension_service.SuspensionError as error:
+        raise _error_suspension(error)
+    return usuarios_service.obtener_detalle(db, id_usuario)
+
+
+@router.post("/usuarios/{id_usuario}/reactivar", response_model=UsuarioBackofficeDetalle)
+def reactivar_usuario_backoffice(
+    id_usuario: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    admin: Usuario = Depends(require_admin_sistema),
+    mail_service: MailService = Depends(get_mail_service),
+) -> UsuarioBackofficeDetalle:
+    try:
+        suspension_service.reactivar(
+            db,
+            id_usuario,
+            admin.IdUsuario,
+            request.client.host if request.client else None,
+            mail_service,
+        )
+    except suspension_service.SuspensionError as error:
+        raise _error_suspension(error)
+    return usuarios_service.obtener_detalle(db, id_usuario)
+
+
+@router.get("/usuarios/{id_usuario}/suspensiones", response_model=HistorialSuspensiones)
+def historial_suspensiones_backoffice(
+    id_usuario: int,
+    db: Session = Depends(get_db),
+) -> HistorialSuspensiones:
+    try:
+        return suspension_service.obtener_historial(db, id_usuario)
+    except suspension_service.SuspensionError as error:
+        raise _error_suspension(error)
 
 
 @router.get("/metricas", response_model=MetricasDashboard)

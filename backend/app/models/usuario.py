@@ -33,8 +33,14 @@ class Usuario(Base):
     UltimoAcceso: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True, index=True
     )
-    # US 101: los tokens emitidos antes de esta fecha quedan inválidos.
     FechaCambioPassword: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    MotivoSuspension: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    FechaSuspension: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    FechaCierreSesiones: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
     Activo: Mapped[bool] = mapped_column(

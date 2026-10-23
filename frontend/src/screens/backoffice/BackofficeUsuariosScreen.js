@@ -551,6 +551,10 @@ const styles = StyleSheet.create({
   },
   grupo: {
     gap: spacing.xs,
+    flexGrow: 1,
+    flexShrink: 1,
+    minWidth: 250,
+    maxWidth: '100%',
   },
   etiquetaGrupoFila: {
     flexDirection: 'row',

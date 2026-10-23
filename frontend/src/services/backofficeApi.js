@@ -114,6 +114,18 @@ export function obtenerUsuario(idUsuario) {
   return solicitar(`/usuarios/${idUsuario}`);
 }
 
+export function suspenderUsuario(idUsuario, motivo) {
+  return solicitar(`/usuarios/${idUsuario}/suspender`, { method: 'POST', body: { motivo } });
+}
+
+export function reactivarUsuario(idUsuario) {
+  return solicitar(`/usuarios/${idUsuario}/reactivar`, { method: 'POST' });
+}
+
+export function obtenerHistorialSuspensiones(idUsuario) {
+  return solicitar(`/usuarios/${idUsuario}/suspensiones`);
+}
+
 export function obtenerMetricas({ desde, hasta, historico = false } = {}) {
   const params = new URLSearchParams();
   if (historico) {

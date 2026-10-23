@@ -141,8 +141,7 @@ function setupDefaultMocks() {
   });
   getTripSettlement.mockResolvedValue({});
   onTripFinishedError.mockImplementation(() => jest.fn());
-  // Sin URL el WebSocket del viaje no se conecta (como antes de mockearlo).
-  getItinerarySocketUrl.mockRejectedValue(new Error("sin websocket en tests"));
+  getItinerarySocketUrl.mockReturnValue(new Promise(() => {}));
 }
 
 function makeNavigation() {

@@ -1,0 +1,5 @@
+Hola {{ nombre }},
+
+El {{ fecha }} reactivamos tu cuenta de Cyanea. Ya podés volver a iniciar sesión; vas a tener que ingresar nuevamente en todos tus dispositivos.
+
+Ingresá en: {{ login_url }}
