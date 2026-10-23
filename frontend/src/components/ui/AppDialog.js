@@ -1,44 +1,9 @@
-/**
- * Diálogo estándar de Cyanea: reemplaza al Alert nativo de Android/iOS
- * (el cuadro blanco con "ACEPTAR" en verde) por uno con el estilo de la app.
- *
- * Uso:
- *   1. Montar <DialogHost root /> una sola vez (ya está en App.js) y usar
- *      `Modal` de "components/ui/AppModal" en lugar del de react-native, para
- *      que los diálogos aparezcan encima del modal abierto.
- *   2. Llamar a `appAlert(...)` con la MISMA firma que `Alert.alert`:
- *
- *        appAlert("Éxito", "Documento subido correctamente.");
- *        appAlert("¿Eliminar?", "No se puede deshacer.", [
- *          { text: "Cancelar", style: "cancel" },
- *          { text: "Eliminar", style: "destructive", onPress: borrar },
- *        ]);
- *
- *      Opcionalmente se puede forzar el tipo (ícono y color) con
- *      `appAlert(titulo, mensaje, botones, { tipo: "success" })`.
- *      Tipos: "success" | "error" | "warning" | "info" | "confirm".
- *      Si no se indica, se deduce del título ("Éxito", "Error", "¿...?").
- *
- * Opciones extra (todas opcionales):
- *   - `confirmacion`: franja verde arriba con una acción ya completada.
- *   - `icono`: ícono propio en lugar del del tipo (p. ej. "ticket").
- *   - `etiqueta`: { icono, texto } en una píldora debajo del título (p. ej. el lugar).
- *   - `botonCerrar`: el botón "cancel" se muestra como una cruz arriba a la derecha
- *     (con su texto como etiqueta de accesibilidad) en lugar de un botón más.
- * Cada botón puede llevar `icono` y `variante: "contorno"` (secundario con borde).
- *
- * `appToast(texto)` muestra un aviso breve abajo de la pantalla, sin botones, que
- * desaparece solo (por ejemplo, "Lo agregamos a tu checklist").
- *
- * Si <DialogHost root /> no está montado (por ejemplo en los tests), `appAlert`
- * delega en `Alert.alert` con los mismos argumentos, así que los tests que
- * espían `Alert.alert` siguen funcionando sin cambios.
- */
 import { useEffect, useRef, useState } from "react";
 import { FontAwesome6 } from "@expo/vector-icons";
 import { Alert, Animated, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 
 import { colors, radii, shadows, spacing, textStyles } from "../../theme/tokens";
+import { backofficeColors as b } from "../../theme/backofficeTokens";
 
 const TIPOS = {
   success: { icon: "circle-check", color: colors.success, fondo: colors.successSurface },
@@ -48,20 +13,19 @@ const TIPOS = {
   info: { icon: "circle-info", color: colors.primary, fondo: colors.surfaceAlt },
 };
 
-// Pila de anfitriones montados. El de App.js (`root`) habilita el sistema; los
-// de AppModal se apilan encima mientras su modal está visible. El diálogo se
-// dibuja en el último de la pila: así queda anidado dentro del modal que está
-// arriba de todo y no detrás de él (un Modal hermano abierto desde App.js
-// queda tapado por el modal visible en Android nueva arquitectura y en iOS).
+const TIPOS_BACKOFFICE = {
+  success: { icon: "circle-check", color: b.salvia, fondo: "rgba(159, 220, 184, 0.12)" },
+  error: { icon: "circle-exclamation", color: b.peligro, fondo: b.peligroSuave },
+  warning: { icon: "triangle-exclamation", color: b.manteca, fondo: b.acentoSuave },
+  confirm: { icon: "circle-question", color: b.acento, fondo: b.acentoSuave },
+  info: { icon: "circle-info", color: b.cielo, fondo: "rgba(142, 201, 255, 0.10)" },
+};
+
 const LARGO_MAXIMO_EN_FILA = 14;
 
 let hayRoot = false;
 const pila = [];
 
-// En iOS un Modal no se presenta si se abre mientras otro se está cerrando (y en
-// algunos Android tampoco): el diálogo quedaba invisible. AppModal avisa cuándo
-// empieza a cerrarse un modal y cuándo terminó (en iOS con `onDismiss`); mientras
-// haya alguno cerrándose, el host root no presenta su diálogo.
 let modalesCerrando = 0;
 const suscriptoresCierre = new Set();
 
@@ -69,7 +33,7 @@ function avisarCierre() {
   suscriptoresCierre.forEach((fn) => fn(modalesCerrando));
 }
 
-/** Lo llama AppModal cuando un modal visible se oculta. Devuelve `terminar`. */
+
 export function registrarCierreModal() {
   modalesCerrando += 1;
   avisarCierre();
@@ -84,9 +48,8 @@ export function registrarCierreModal() {
 
 let mostrarToast = null;
 
-/** Aviso breve, sin botones, que desaparece solo. Sin host root no hace nada. */
-export function appToast(texto, { icono = "circle-check", duracion = 2600 } = {}) {
-  if (mostrarToast) mostrarToast({ texto, icono, duracion, id: Date.now() });
+export function appToast(texto, { icono = "circle-check", duracion = 2600, backoffice = false } = {}) {
+  if (mostrarToast) mostrarToast({ texto, icono, duracion, backoffice, id: Date.now() });
 }
 
 function hostActual() {
@@ -102,17 +65,13 @@ export function inferirTipo(titulo = "", botones) {
   return "info";
 }
 
-/** Misma firma que Alert.alert(title, message, buttons, options). */
+
 export function appAlert(...args) {
   const [titulo, mensaje, botones, opciones] = args;
   const host = hostActual();
   if (!hayRoot || !host) {
-    // Sin el host de App.js (tests): se reenvían los argumentos tal cual a Alert.alert.
     return Alert.alert(...args);
   }
-  // `opciones.confirmacion`: texto de una acción que ya se completó ("Actividad
-  // registrada correctamente."), que se muestra en una franja verde propia arriba del
-  // diálogo para que no se mezcle con el contenido principal.
   host.encolar({ titulo, mensaje, botones, opciones: opciones || {} });
 }
 
@@ -121,10 +80,6 @@ export function appAlert(...args) {
  */
 export function DialogHost({ root = false }) {
   const [cola, setCola] = useState([]);
-  // Copia sincrónica de la cola. Se actualiza en el momento de encolar (no al
-  // renderizar) porque un diálogo puede encolarse en el mismo instante en que
-  // este modal se cierra (p. ej. se cierra "Validando horarios" y se abre la
-  // advertencia): ese render nunca ocurre y, sin esta copia, el diálogo se perdía.
   const colaRef = useRef([]);
 
   function actualizarCola(cambio) {
@@ -136,7 +91,7 @@ export function DialogHost({ root = false }) {
     const host = { encolar: (dialogo) => actualizarCola((prev) => [...prev, dialogo]) };
     if (root) {
       hayRoot = true;
-      pila.unshift(host); // el root siempre queda en la base
+      pila.unshift(host);
     } else {
       pila.push(host);
     }
@@ -144,7 +99,6 @@ export function DialogHost({ root = false }) {
       const i = pila.indexOf(host);
       if (i !== -1) pila.splice(i, 1);
       if (root) hayRoot = false;
-      // Si el modal se cierra con diálogos pendientes, pasan al de abajo.
       const pendientes = colaRef.current;
       colaRef.current = [];
       const siguiente = hostActual();
@@ -154,7 +108,6 @@ export function DialogHost({ root = false }) {
 
   const actual = cola[0];
 
-  // Espera a que termine de cerrarse un modal antes de presentar el diálogo.
   const [cerrando, setCerrando] = useState(modalesCerrando);
   useEffect(() => {
     if (!root) return undefined;
@@ -165,8 +118,6 @@ export function DialogHost({ root = false }) {
       suscriptoresCierre.delete(fn);
     };
   }, [root]);
-  // Se lee también el contador del módulo para no presentar el diálogo ni un
-  // instante antes de que llegue el aviso (un intento fallido en iOS lo pierde).
   const esperando = root && Platform.OS !== "web" && (cerrando > 0 || modalesCerrando > 0);
 
   // Toast (solo en el host root).
@@ -197,17 +148,20 @@ export function DialogHost({ root = false }) {
       style={[styles.toastWrap, { opacity: opacidadToast }]}
       accessibilityLiveRegion="polite"
     >
-      <View style={styles.toast} accessibilityRole="alert">
-        <FontAwesome6 name={toast.icono} size={15} color={colors.textInverse} solid />
-        <Text style={styles.toastTexto}>{toast.texto}</Text>
+      <View style={[styles.toast, toast.backoffice && stylesBO.toast]} accessibilityRole="alert">
+        <FontAwesome6
+          name={toast.icono}
+          size={15}
+          color={toast.backoffice ? b.acento : colors.textInverse}
+          solid
+        />
+        <Text style={[styles.toastTexto, toast.backoffice && stylesBO.toastTexto]}>{toast.texto}</Text>
       </View>
     </Animated.View>
   ) : null;
 
   function cerrar(callback) {
     actualizarCola((prev) => prev.slice(1));
-    // Se ejecuta después de cerrar para que, si el callback abre otro
-    // diálogo o navega, no choque con el que se está cerrando.
     if (callback) setTimeout(callback, 0);
   }
 
@@ -220,12 +174,11 @@ export function DialogHost({ root = false }) {
       : [{ text: "Aceptar" }];
 
   const tipo = TIPOS[opciones.tipo] ? opciones.tipo : inferirTipo(titulo, actual.botones);
-  const estilo = TIPOS[tipo];
+  const bo = Boolean(opciones.backoffice);
+  const estilo = (bo ? TIPOS_BACKOFFICE : TIPOS)[tipo];
   const icono = opciones.icono || estilo.icon;
   const botonCancelar = botones.find((b) => b.style === "cancel");
-  // Con `botonCerrar`, "cancel" es la cruz de arriba y no un botón más.
   const cancelarComoCruz = Boolean(opciones.botonCerrar && botonCancelar);
-  // Igual que Alert: en Android tocar afuera solo cierra si cancelable es true.
   const cerrablePorFuera = opciones.cancelable !== false && (botones.length === 1 || botonCancelar);
 
   function alTocarFuera() {
@@ -235,21 +188,22 @@ export function DialogHost({ root = false }) {
     cerrar(opciones.onDismiss);
   }
 
-  // Ordenamos para que el botón principal quede a la derecha / abajo.
   const ordenados = [
     ...(cancelarComoCruz ? [] : botones.filter((b) => b.style === "cancel")),
     ...botones.filter((b) => b.style !== "cancel"),
   ];
-  // Con más de dos botones, o si algún texto no entra en media fila (por ejemplo
-  // "Reservar en OpenTable"), van uno debajo del otro para no cortar el texto.
   const enColumna = ordenados.length > 2 || ordenados.some((b) => String(b.text || "").length > LARGO_MAXIMO_EN_FILA);
 
   return (
     <>
     {vistaToast}
     <Modal visible transparent animationType="fade" statusBarTranslucent onRequestClose={alTocarFuera}>
-      <Pressable style={styles.overlay} onPress={alTocarFuera}>
-        <Pressable style={styles.card} onPress={(e) => e.stopPropagation()} accessibilityRole="alert">
+      <Pressable style={[styles.overlay, bo && stylesBO.overlay]} onPress={alTocarFuera}>
+        <Pressable
+          style={[styles.card, bo && stylesBO.card]}
+          onPress={(e) => e.stopPropagation()}
+          accessibilityRole="alert"
+        >
           {cancelarComoCruz ? (
             <Pressable
               onPress={() => cerrar(botonCancelar.onPress)}
@@ -258,18 +212,27 @@ export function DialogHost({ root = false }) {
               hitSlop={12}
               style={({ pressed }) => [
                 styles.cruz,
-                // Junto a la franja de confirmación, alineada con ella.
                 opciones.confirmacion && styles.cruzConConfirmacion,
+                bo && stylesBO.cruz,
                 pressed && styles.buttonPressed,
               ]}
             >
-              <FontAwesome6 name="xmark" size={16} color={colors.textMuted} />
+              <FontAwesome6 name="xmark" size={16} color={bo ? b.textoSecundario : colors.textMuted} />
             </Pressable>
           ) : null}
           {opciones.confirmacion ? (
-            <View style={[styles.confirmacion, cancelarComoCruz && styles.confirmacionConCruz]} accessibilityRole="text">
-              <FontAwesome6 name="circle-check" size={14} color={colors.success} solid />
-              <Text style={styles.confirmacionTexto}>{opciones.confirmacion}</Text>
+            <View
+              style={[
+                styles.confirmacion,
+                cancelarComoCruz && styles.confirmacionConCruz,
+                bo && stylesBO.confirmacion,
+              ]}
+              accessibilityRole="text"
+            >
+              <FontAwesome6 name="circle-check" size={14} color={bo ? b.salvia : colors.success} solid />
+              <Text style={[styles.confirmacionTexto, bo && stylesBO.confirmacionTexto]}>
+                {opciones.confirmacion}
+              </Text>
             </View>
           ) : null}
 
@@ -277,14 +240,24 @@ export function DialogHost({ root = false }) {
             <FontAwesome6 name={icono} size={26} color={estilo.color} />
           </View>
 
-          {titulo ? <Text style={[styles.title, cancelarComoCruz && styles.titleConCruz]}>{titulo}</Text> : null}
+          {titulo ? (
+            <Text
+              style={[
+                styles.title,
+                cancelarComoCruz && styles.titleConCruz,
+                bo && stylesBO.title,
+              ]}
+            >
+              {titulo}
+            </Text>
+          ) : null}
 
           {opciones.etiqueta?.texto ? (
-            <View style={styles.etiqueta}>
+            <View style={[styles.etiqueta, bo && stylesBO.etiqueta]}>
               {opciones.etiqueta.icono ? (
-                <FontAwesome6 name={opciones.etiqueta.icono} size={12} color={colors.primary} />
+                <FontAwesome6 name={opciones.etiqueta.icono} size={12} color={bo ? b.acento : colors.primary} />
               ) : null}
-              <Text style={styles.etiquetaTexto} numberOfLines={1}>
+              <Text style={[styles.etiquetaTexto, bo && stylesBO.etiquetaTexto]} numberOfLines={1}>
                 {opciones.etiqueta.texto}
               </Text>
             </View>
@@ -292,7 +265,7 @@ export function DialogHost({ root = false }) {
 
           {mensaje ? (
             <ScrollView style={styles.messageScroll} contentContainerStyle={styles.messageContent}>
-              <Text style={styles.message}>{mensaje}</Text>
+              <Text style={[styles.message, bo && stylesBO.message]}>{mensaje}</Text>
             </ScrollView>
           ) : null}
 
@@ -300,10 +273,15 @@ export function DialogHost({ root = false }) {
             {ordenados.map((boton, i) => {
               const esCancelar = boton.style === "cancel";
               const esDestructivo = boton.style === "destructive";
-              // El último botón no-cancelar es el principal (relleno).
               const esPrincipal = !esCancelar && i === ordenados.length - 1;
               const esContorno = !esPrincipal && boton.variante === "contorno";
-              const colorTexto = esPrincipal
+              const colorTexto = bo
+                ? esPrincipal
+                  ? b.sobreAcento
+                  : esDestructivo
+                  ? b.peligro
+                  : b.texto
+                : esPrincipal
                 ? colors.textInverse
                 : esDestructivo
                 ? colors.danger
@@ -318,6 +296,10 @@ export function DialogHost({ root = false }) {
                     !enColumna && styles.buttonFlex,
                     esPrincipal ? styles.buttonPrimary : esContorno ? styles.buttonOutline : styles.buttonSecondary,
                     esPrincipal && esDestructivo && styles.buttonDanger,
+                    bo && esPrincipal && stylesBO.buttonPrimary,
+                    bo && esPrincipal && esDestructivo && stylesBO.buttonDanger,
+                    bo && !esPrincipal && !esContorno && stylesBO.buttonSecondary,
+                    bo && esContorno && stylesBO.buttonOutline,
                     pressed && styles.buttonPressed,
                   ]}
                 >
@@ -328,6 +310,9 @@ export function DialogHost({ root = false }) {
                         styles.buttonText,
                         esPrincipal ? styles.buttonTextPrimary : styles.buttonTextSecondary,
                         !esPrincipal && esDestructivo && styles.buttonTextDanger,
+                        bo && esPrincipal && stylesBO.buttonTextPrimary,
+                        bo && !esPrincipal && stylesBO.buttonTextSecondary,
+                        bo && !esPrincipal && esDestructivo && stylesBO.buttonTextDanger,
                       ]}
                       numberOfLines={1}
                     >
@@ -534,5 +519,73 @@ const styles = StyleSheet.create({
   },
   buttonTextDanger: {
     color: colors.danger,
+  },
+});
+
+
+const stylesBO = StyleSheet.create({
+  overlay: {
+    backgroundColor: "rgba(0, 0, 0, 0.72)",
+  },
+  card: {
+    backgroundColor: b.panel,
+    borderWidth: 1,
+    borderColor: b.bordeFuerte,
+  },
+  confirmacion: {
+    backgroundColor: "rgba(159, 220, 184, 0.12)",
+  },
+  confirmacionTexto: {
+    color: b.salvia,
+  },
+  title: {
+    color: b.texto,
+  },
+  message: {
+    color: b.textoSecundario,
+  },
+  cruz: {
+    backgroundColor: b.superficieElevada,
+  },
+  etiqueta: {
+    backgroundColor: b.acentoSuave,
+    borderWidth: 1,
+    borderColor: b.acentoBorde,
+  },
+  etiquetaTexto: {
+    color: b.acento,
+  },
+  buttonPrimary: {
+    backgroundColor: b.manteca,
+  },
+  buttonDanger: {
+    backgroundColor: b.peligro,
+  },
+  buttonSecondary: {
+    backgroundColor: b.superficieElevada,
+    borderWidth: 1,
+    borderColor: b.bordeFuerte,
+  },
+  buttonOutline: {
+    backgroundColor: "transparent",
+    borderWidth: 1.5,
+    borderColor: b.acento,
+  },
+  buttonTextPrimary: {
+    color: b.sobreAcento,
+  },
+  buttonTextSecondary: {
+    color: b.texto,
+  },
+  buttonTextDanger: {
+    color: b.peligro,
+  },
+  toast: {
+    backgroundColor: b.superficieElevada,
+    borderWidth: 1,
+    borderColor: b.acentoBorde,
+  },
+  toastTexto: {
+    color: b.texto,
   },
 });

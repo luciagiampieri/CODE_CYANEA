@@ -8,6 +8,7 @@ import BackofficeCategoriasScreen from '../screens/backoffice/BackofficeCategori
 import BackofficeHomeScreen from '../screens/backoffice/BackofficeHomeScreen';
 import BackofficeLoginScreen from '../screens/backoffice/BackofficeLoginScreen';
 import BackofficeMonitoreoIAScreen from '../screens/backoffice/BackofficeMonitoreoIAScreen';
+import BackofficeTerminosScreen from '../screens/backoffice/BackofficeTerminosScreen';
 import BackofficeUsuarioDetalleScreen from '../screens/backoffice/BackofficeUsuarioDetalleScreen';
 import BackofficeUsuariosScreen, {
   FILTROS_USUARIOS_INICIALES,
@@ -106,6 +107,8 @@ export default function BackofficeApp() {
     pantalla = <BackofficeCategoriasScreen onVolver={() => setVista(VISTA_INICIO)} />;
   } else if (vista.nombre === 'monitoreoIA') {
     pantalla = <BackofficeMonitoreoIAScreen onVolver={() => setVista(VISTA_INICIO)} />;
+  } else if (vista.nombre === 'terminos') {
+    pantalla = <BackofficeTerminosScreen onVolver={() => setVista(VISTA_INICIO)} />;
   } else if (vista.nombre === 'detalleUsuario') {
     pantalla = (
       <BackofficeUsuarioDetalleScreen
@@ -119,6 +122,7 @@ export default function BackofficeApp() {
         admin={admin}
         onAbrirCategorias={() => setVista({ nombre: 'categorias' })}
         onAbrirMonitoreoIA={() => setVista({ nombre: 'monitoreoIA' })}
+        onAbrirTerminos={() => setVista({ nombre: 'terminos' })}
         onAbrirUsuarios={() => setVista({ nombre: 'usuarios' })}
       />
     );

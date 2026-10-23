@@ -46,7 +46,7 @@ export default function SuspensionUsuario({ usuario, onCambio }) {
   async function confirmarSuspension(motivo) {
     await suspenderUsuario(usuario.id, motivo);
     setFormulario(false);
-    appToast('Cuenta suspendida');
+    appToast('Cuenta suspendida', { backoffice: true });
     onCambio();
   }
 
@@ -56,16 +56,22 @@ export default function SuspensionUsuario({ usuario, onCambio }) {
       mensaje: `La cuenta de ${usuario.nombreCompleto} volverá a estar activa y se le notificará por correo. Deberá iniciar sesión nuevamente.`,
       textoConfirmar: 'Reactivar',
       tipo: 'info',
+      opciones: { backoffice: true },
     });
     if (!acepta) return;
 
     setReactivando(true);
     try {
       await reactivarUsuario(usuario.id);
-      appToast('Cuenta reactivada');
+      appToast('Cuenta reactivada', { backoffice: true });
       onCambio();
     } catch (err) {
-      avisar('No se pudo reactivar la cuenta', err?.message || 'Ocurrió un error inesperado.');
+      avisar(
+        'No se pudo reactivar la cuenta',
+        err?.message || 'Ocurrió un error inesperado.',
+        undefined,
+        { backoffice: true }
+      );
       setReactivando(false);
     }
   }

@@ -26,8 +26,7 @@ export function registrarExpiracionSesion(callback) {
   alExpirarSesion = callback;
 }
 
-// FastAPI devuelve el detalle como texto o, en errores de validación (422),
-// como una lista de errores por campo.
+
 function mensajeDeError(detalle) {
   if (typeof detalle === 'string') return detalle;
   if (Array.isArray(detalle) && detalle.length) {
@@ -174,4 +173,31 @@ export function configurarUmbralCostoIA(umbralMensualUSD) {
     method: 'PUT',
     body: { umbralMensualUSD },
   });
+}
+
+export function listarTerminos() {
+  return solicitar('/terminos');
+}
+
+export function obtenerTermino(idVersion) {
+  return solicitar(`/terminos/${idVersion}`);
+}
+
+export function crearTermino({ numero, titulo, contenido }) {
+  return solicitar('/terminos', { method: 'POST', body: { numero, titulo, contenido } });
+}
+
+export function actualizarTermino(idVersion, { numero, titulo, contenido }) {
+  return solicitar(`/terminos/${idVersion}`, {
+    method: 'PUT',
+    body: { numero, titulo, contenido },
+  });
+}
+
+export function eliminarTermino(idVersion) {
+  return solicitar(`/terminos/${idVersion}`, { method: 'DELETE' });
+}
+
+export function publicarTermino(idVersion) {
+  return solicitar(`/terminos/${idVersion}/publicar`, { method: 'POST' });
 }

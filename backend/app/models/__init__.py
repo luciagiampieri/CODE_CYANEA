@@ -47,6 +47,8 @@ from app.models.solicitud_ia import SolicitudIA
 from app.models.configuracion_monitoreo_ia import ConfiguracionMonitoreoIA
 from app.models.sugerencia_actividad import (EstadoSugerenciaActividad, SolicitudSugerenciaActividad, SugerenciaActividad,)
 from app.models.auditoria_suspension_usuario import AuditoriaSuspensionUsuario
+from app.models.version_terminos import VersionTerminos
+from app.models.auditoria_terminos import AuditoriaTerminos
 __all__ = [
     "EstadoInvitacion",
     "Plan",
@@ -98,4 +100,6 @@ __all__ = [
     "SolicitudSugerenciaActividad",
     "SugerenciaActividad",
     "AuditoriaSuspensionUsuario",
+    "VersionTerminos",
+    "AuditoriaTerminos",
 ]

@@ -34,6 +34,8 @@ from app.services.auth.facebook_auth_service import FacebookAuthService
 from app.services.mail import get_mail_service
 from app.services.mail.service import MailService
 from app.services.backoffice import suspension_service
+from app.services import terminos_service
+
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -49,10 +51,10 @@ def _error_cuenta_suspendida() -> HTTPException:
     )
 
 
-def _registrar_aceptacion_terminos(usuario: Usuario) -> None:
+def _registrar_aceptacion_terminos(usuario: Usuario, db: Session) -> None:
     usuario.AceptaTerminos = True
     usuario.FechaAceptacionTerminos = datetime.now(timezone.utc)
-    usuario.VersionTerminosAceptada = settings.terms_version
+    usuario.VersionTerminosAceptada = terminos_service.obtener_vigente(db).Numero
 
 
 def _send_template_no_bloqueante(
@@ -103,7 +105,7 @@ def register(
         Activo=True,
         EmailConfirmado=False,
     )
-    _registrar_aceptacion_terminos(nuevo)
+    _registrar_aceptacion_terminos(nuevo, db)
     db.add(nuevo)
     db.commit()
     db.refresh(nuevo)
@@ -270,7 +272,7 @@ def register_with_google(
 
     identity = google_auth_service.verify_id_token(payload.idToken)
     usuario = google_auth_service.create_user_from_google(db, identity)
-    _registrar_aceptacion_terminos(usuario)
+    _registrar_aceptacion_terminos(usuario, db)
     db.commit()
     db.refresh(usuario)
     vincular_invitaciones_externas_seguro(db, usuario)
@@ -366,7 +368,7 @@ def register_with_facebook(
         db,
         identity
     )
-    _registrar_aceptacion_terminos(usuario)
+    _registrar_aceptacion_terminos(usuario, db)
     db.commit()
     db.refresh(usuario)
     vincular_invitaciones_externas_seguro(db, usuario)

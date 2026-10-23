@@ -23,9 +23,12 @@ from app.schemas.backoffice_monitoreo_ia import (
     MonitoreoIA,
     UmbralCostoIAUpdate,
 )
-# --- INICIO DE MODIFICACION (US 108) ---
 from app.schemas.backoffice_suspension import HistorialSuspensiones, SuspensionRequest
-# --- FIN DE MODIFICACION (US 108) ---
+from app.schemas.backoffice_terminos import (
+    ListadoTerminos,
+    VersionTerminosDetalle,
+    VersionTerminosPayload,
+)
 from app.schemas.backoffice_usuario import (
     EstadoCuenta,
     PlanUsuario,
@@ -39,9 +42,8 @@ from app.services.backoffice import monitoreo_ia_service
 from app.services.mail import get_mail_service
 from app.services.mail.service import MailService
 from app.services.backoffice import usuarios_service
-# --- INICIO DE MODIFICACION (US 108) ---
 from app.services.backoffice import suspension_service
-# --- FIN DE MODIFICACION (US 108) ---
+from app.services import terminos_service
 
 router_publico = APIRouter()
 
@@ -197,6 +199,91 @@ def historial_suspensiones_backoffice(
         return suspension_service.obtener_historial(db, id_usuario)
     except suspension_service.SuspensionError as error:
         raise _error_suspension(error)
+
+
+def _error_terminos(error: terminos_service.TerminosError) -> HTTPException:
+    return HTTPException(
+        status_code=error.status_code,
+        detail=error.mensaje,
+        headers={"X-Error-Code": error.codigo},
+    )
+
+
+@router.get("/terminos", response_model=ListadoTerminos)
+def listar_terminos_backoffice(db: Session = Depends(get_db)) -> ListadoTerminos:
+    return terminos_service.listar(db)
+
+
+@router.get("/terminos/{id_version}", response_model=VersionTerminosDetalle)
+def detalle_termino_backoffice(
+    id_version: int,
+    db: Session = Depends(get_db),
+) -> VersionTerminosDetalle:
+    try:
+        return terminos_service.obtener(db, id_version)
+    except terminos_service.TerminosError as error:
+        raise _error_terminos(error)
+
+
+@router.post(
+    "/terminos",
+    response_model=VersionTerminosDetalle,
+    status_code=status.HTTP_201_CREATED,
+)
+def crear_termino_backoffice(
+    payload: VersionTerminosPayload,
+    db: Session = Depends(get_db),
+    admin: Usuario = Depends(require_admin_sistema),
+) -> VersionTerminosDetalle:
+    try:
+        return terminos_service.crear(
+            db, payload.numero, payload.titulo, payload.contenido, admin.IdUsuario
+        )
+    except terminos_service.TerminosError as error:
+        raise _error_terminos(error)
+
+
+@router.put("/terminos/{id_version}", response_model=VersionTerminosDetalle)
+def actualizar_termino_backoffice(
+    id_version: int,
+    payload: VersionTerminosPayload,
+    db: Session = Depends(get_db),
+) -> VersionTerminosDetalle:
+    try:
+        return terminos_service.actualizar(
+            db, id_version, payload.numero, payload.titulo, payload.contenido
+        )
+    except terminos_service.TerminosError as error:
+        raise _error_terminos(error)
+
+
+@router.delete("/terminos/{id_version}", status_code=status.HTTP_204_NO_CONTENT)
+def eliminar_termino_backoffice(
+    id_version: int,
+    db: Session = Depends(get_db),
+) -> None:
+    try:
+        terminos_service.eliminar(db, id_version)
+    except terminos_service.TerminosError as error:
+        raise _error_terminos(error)
+
+
+@router.post("/terminos/{id_version}/publicar", response_model=VersionTerminosDetalle)
+def publicar_termino_backoffice(
+    id_version: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    admin: Usuario = Depends(require_admin_sistema),
+) -> VersionTerminosDetalle:
+    try:
+        return terminos_service.publicar(
+            db,
+            id_version,
+            admin.IdUsuario,
+            request.client.host if request.client else None,
+        )
+    except terminos_service.TerminosError as error:
+        raise _error_terminos(error)
 
 
 @router.get("/metricas", response_model=MetricasDashboard)

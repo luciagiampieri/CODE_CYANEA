@@ -11,6 +11,7 @@ export default function BackofficeHomeScreen({
   onAbrirUsuarios,
   onAbrirCategorias,
   onAbrirMonitoreoIA,
+  onAbrirTerminos,
 }) {
   const nombre = admin.nombreCompleto.split(' ').filter(Boolean)[0] || '';
 
@@ -63,6 +64,14 @@ export default function BackofficeHomeScreen({
             icono="microchip"
             onPress={onAbrirMonitoreoIA}
             titulo="Monitoreo de IA"
+          />
+        ) : null}
+        {onAbrirTerminos ? (
+          <Acceso
+            descripcion="Versiones, publicación y aceptaciones"
+            icono="file-contract"
+            onPress={onAbrirTerminos}
+            titulo="Términos y Condiciones"
           />
         ) : null}
       </View>

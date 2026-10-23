@@ -8,7 +8,6 @@ import { fontFamilies, radii, spacing, textStyles } from '../../theme/tokens';
 
 export const LARGO_MAXIMO_MOTIVO = 500;
 
-// Validación previa al envío; el backend aplica las mismas reglas (US 108).
 export function validarMotivo(valor) {
   const motivo = String(valor ?? '').trim();
   if (!motivo) return { motivo, error: 'Ingresá el motivo de la suspensión.' };

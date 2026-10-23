@@ -1,27 +1,26 @@
-/**
- * Diálogos multiplataforma con el estilo de Cyanea (AppDialog), también en web:
- * nunca se usan `window.alert` ni `window.confirm` del navegador.
- */
 import { appAlert } from "../components/ui/AppDialog";
 
-export function avisar(titulo, mensaje, onAceptar) {
-  if (onAceptar) {
-    appAlert(titulo, mensaje, [{ text: "Aceptar", onPress: onAceptar }]);
+
+export function avisar(titulo, mensaje, onAceptar, opciones) {
+  const botones = onAceptar ? [{ text: "Aceptar", onPress: onAceptar }] : undefined;
+  if (opciones) {
+    appAlert(titulo, mensaje, botones, opciones);
+  } else if (botones) {
+    appAlert(titulo, mensaje, botones);
   } else {
     appAlert(titulo, mensaje);
   }
 }
 
-/** Pide confirmación y resuelve true si el usuario acepta. */
+
 export function confirmar({
   titulo,
   mensaje,
   textoConfirmar = "Confirmar",
   textoCancelar = "Cancelar",
   destructivo = false,
-  // Fuerza el ícono y color del diálogo ("warning", "info", ...); si no se
-  // indica, AppDialog lo deduce del título.
   tipo,
+  opciones = {},
 }) {
   return new Promise((resolve) => {
     appAlert(
@@ -35,7 +34,12 @@ export function confirmar({
           onPress: () => resolve(true),
         },
       ],
-      { cancelable: true, onDismiss: () => resolve(false), ...(tipo ? { tipo } : {}) }
+      {
+        cancelable: true,
+        onDismiss: () => resolve(false),
+        ...(tipo ? { tipo } : {}),
+        ...opciones,
+      }
     );
   });
 }
