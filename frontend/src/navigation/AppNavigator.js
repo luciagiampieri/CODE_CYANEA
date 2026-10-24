@@ -33,6 +33,7 @@ import PlanningPreferencesListScreen from "../screens/PlanningPreferencesListScr
 import ForgotPasswordScreen from "../screens/ForgotPasswordScreen";
 import ResendConfirmationScreen from "../screens/ResendConfirmationScreen";
 import ResetPasswordScreen from "../screens/ResetPasswordScreen";
+import TermsAcceptanceGate from "../components/legal/TermsAcceptanceGate";
 
 const Stack = createNativeStackNavigator();
 
@@ -67,6 +68,7 @@ export default function AppNavigator() {
   }
 
   return (
+    <TermsAcceptanceGate>
     <Stack.Navigator
       screenOptions={{
         headerStyle: { backgroundColor: colors.primary },
@@ -280,5 +282,6 @@ export default function AppNavigator() {
       <Stack.Screen name="UnirseViaje" component={JoinTripScreen} options={{ headerShown: false }} />
       <Stack.Screen name="ResendConfirmation" component={ResendConfirmationScreen} options={{ headerShown: false }} />
     </Stack.Navigator>
+    </TermsAcceptanceGate>
   );
 }
