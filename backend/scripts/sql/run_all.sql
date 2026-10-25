@@ -18,3 +18,6 @@
 \i 016_escaneos_y_tamano_documentos.sql
 \i 017_gestion_categorias.sql
 \i 018_monitoreo_consumo_ia.sql
+\i 019_planes_precios_y_limites.sql
+\i 020_precios_base_pro.sql
+\i 021_consulta_suscripciones_pagos.sql

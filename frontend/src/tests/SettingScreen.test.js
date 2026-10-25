@@ -74,23 +74,11 @@ describe("SettingScreen", () => {
     expect(navigation.navigate).toHaveBeenCalledWith("PreferenciasPlanificacion");
   });
 
-  it("al presionar el banner de CYANEA Pro, muestra el aviso de 'muy pronto'", async () => {
-    const alertMock = jest.spyOn(Alert, "alert").mockImplementation(() => {});
+  it("abre planes desde Mi cuenta", async () => {
     const navigation = { goBack: jest.fn(), navigate: jest.fn() };
-
-    const { getByText } = await render(<SettingsScreen navigation={navigation} />);
-
-    await act(async () => {
-
-      fireEvent.press(getByText("✨ Conocer beneficios de CYANEA Pro"));
-
-    });
-    expect(alertMock).toHaveBeenCalledWith(
-      "CYANEA Pro",
-      "La suscripción Pro estará disponible muy pronto con viajes ilimitados y funciones offline avanzadas."
-    );
-
-    alertMock.mockRestore();
+    const { getByTestId } = await render(<SettingsScreen navigation={navigation} />);
+    await fireEvent.press(getByTestId("settings-planes-row"));
+    expect(navigation.navigate).toHaveBeenCalledWith("Planes");
   });
 
   describe("cerrar sesión en Web (modal, en vez de Alert nativo)", () => {

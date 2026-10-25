@@ -519,6 +519,20 @@ export async function getMyLimits() {
   return parseResponse(response, "No se pudieron obtener los límites de tu plan");
 }
 
+export async function getAvailablePlans() {
+  const response = await fetch(`${API_BASE_URL}/users/me/planes`, {
+    headers: await authHeaders(), cache: "no-store",
+  });
+  return parseResponse(response, "No se pudieron obtener los planes vigentes.");
+}
+
+export async function getAccountUsage(pagina = 1) {
+  const response = await fetch(`${API_BASE_URL}/users/me/consumo?pagina=${pagina}`, {
+    headers: await authHeaders(), cache: "no-store",
+  });
+  return parseResponse(response, "No se pudo obtener el consumo de tu cuenta.");
+}
+
 export async function changePassword({ passwordActual, passwordNueva, confirmacion }) {
   const response = await fetch(`${API_BASE_URL}/users/me/password`, {
     method: "PUT",

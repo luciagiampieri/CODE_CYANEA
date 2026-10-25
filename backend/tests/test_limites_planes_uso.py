@@ -43,28 +43,28 @@ def _documento(db, viaje, usuario, nombre, tamano):
     db.commit()
 
 
-def test_la_semana_empieza_el_lunes_a_las_cero():
+def test_el_mes_empieza_el_primero_a_las_cero():
     miercoles = datetime(2026, 10, 21, 15, 30, tzinfo=lp.zona_horaria())
 
-    inicio = lp.inicio_de_la_semana(miercoles)
+    inicio = lp.inicio_del_mes(miercoles)
 
-    assert inicio.weekday() == 0
-    assert inicio.day == 19
+    assert inicio.day == 1
     assert (inicio.hour, inicio.minute) == (0, 0)
 
 
-def test_escaneos_de_semanas_anteriores_no_cuentan(db_session, viaje_con_admin, usuario_activo):
+def test_escaneos_de_meses_anteriores_y_futuros_no_cuentan(db_session, viaje_con_admin, usuario_activo):
     viaje, _ = viaje_con_admin
     ahora = datetime.now(timezone.utc)
     _escaneo(db_session, usuario_activo, viaje, ahora)
-    _escaneo(db_session, usuario_activo, viaje, ahora - timedelta(days=8))
+    _escaneo(db_session, usuario_activo, viaje, lp.inicio_del_mes().astimezone(timezone.utc) - timedelta(seconds=1))
 
-    assert lp.contar_escaneos_semana(db_session, usuario_activo.IdUsuario) == 1
+    _escaneo(db_session, usuario_activo, viaje, lp.inicio_del_mes_siguiente().astimezone(timezone.utc))
+    assert lp.contar_escaneos_mes(db_session, usuario_activo.IdUsuario) == 1
 
 
-def test_escanear_superando_limite_semanal_falla(db_session, viaje_con_admin, usuario_activo):
+def test_escanear_superando_limite_mensual_falla(db_session, viaje_con_admin, usuario_activo):
     viaje, _ = viaje_con_admin
-    _set_limites(db_session, PLAN_GRATUITO, MaxEscaneosSemanales=1)
+    _set_limites(db_session, PLAN_GRATUITO, MaxEscaneosMensuales=1)
     _escaneo(db_session, usuario_activo, viaje, datetime.now(timezone.utc))
 
     with pytest.raises(HTTPException) as error:
@@ -72,17 +72,17 @@ def test_escanear_superando_limite_semanal_falla(db_session, viaje_con_admin, us
 
     assert error.value.status_code == 409
     assert error.value.headers["X-Error-Code"] == "RECEIPT_SCAN_LIMIT_REACHED"
-    assert error.value.detail["tipoLimite"] == "escaneos_semanales"
+    assert error.value.detail["tipoLimite"] == "escaneos_mensuales"
 
 
 def test_escanear_dentro_del_limite_pasa_y_se_registra(db_session, viaje_con_admin, usuario_activo):
     viaje, _ = viaje_con_admin
-    _set_limites(db_session, PLAN_GRATUITO, MaxEscaneosSemanales=2)
+    _set_limites(db_session, PLAN_GRATUITO, MaxEscaneosMensuales=2)
 
     lp.validar_escaneos(db_session, usuario_activo)
     lp.registrar_escaneo(db_session, usuario_activo, viaje.IdViaje)
 
-    assert lp.contar_escaneos_semana(db_session, usuario_activo.IdUsuario) == 1
+    assert lp.contar_escaneos_mes(db_session, usuario_activo.IdUsuario) == 1
 
 
 def test_almacenamiento_suma_los_documentos_del_viaje(db_session, viaje_con_admin, usuario_activo):
@@ -117,7 +117,7 @@ def test_subir_documento_dentro_del_almacenamiento_pasa(db_session, viaje_con_ad
 
 
 def test_limites_del_usuario_por_api(client, db_session, master_data, auth_headers):
-    _set_limites(db_session, PLAN_GRATUITO, MaxViajesActivos=5, MaxEscaneosSemanales=3)
+    _set_limites(db_session, PLAN_GRATUITO, MaxViajesActivos=5, MaxEscaneosMensuales=3)
 
     response = client.get("/api/v1/users/me/limites", headers=auth_headers)
 
@@ -126,11 +126,23 @@ def test_limites_del_usuario_por_api(client, db_session, master_data, auth_heade
     assert body["plan"] == "gratuito"
     assert body["viajesActivos"]["limite"] == 5
     assert body["viajesActivos"]["usoActual"] == 0
-    assert body["escaneosSemanales"]["limite"] == 3
-    assert body["escaneosSemanales"]["renuevaEl"] is not None
+    assert body["escaneosMensuales"]["limite"] == 3
+    assert body["escaneosMensuales"]["renuevaEl"] is not None
+    assert body["escaneosSemanales"] == body["escaneosMensuales"]
 
 
 def test_limites_del_usuario_requiere_autenticacion(client):
     response = client.get("/api/v1/users/me/limites")
 
     assert response.status_code == 401
+
+def test_renovacion_mensual_en_diciembre_y_bisiesto():
+    zona = lp.zona_horaria()
+    assert lp.inicio_del_mes_siguiente(datetime(2026, 12, 31, 23, tzinfo=zona)) == datetime(2027, 1, 1, tzinfo=zona)
+    assert lp.inicio_del_mes_siguiente(datetime(2028, 2, 29, 15, tzinfo=zona)) == datetime(2028, 3, 1, tzinfo=zona)
+
+
+def test_el_corte_mensual_es_argentino_aunque_utc_ya_cambio_de_mes():
+    inicio = lp.inicio_del_mes(datetime(2026, 3, 1, 1, tzinfo=timezone.utc))
+    assert (inicio.year, inicio.month, inicio.day, inicio.hour) == (2026, 2, 1, 0)
+    assert inicio.utcoffset() == timedelta(hours=-3)

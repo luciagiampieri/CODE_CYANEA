@@ -63,9 +63,9 @@ def db_session():
     session = TestingSessionLocal()
     session.add_all([
     Plan(IdPlan=1, Nombre="gratuito", MaxParticipantesViaje=3, MaxViajesActivos=5,
-        MaxSugerenciasDiarias=10, MaxEscaneosSemanales=3, MaxAlmacenamientoMb=100, Activo=True),
+        MaxSugerenciasDiarias=10, MaxEscaneosMensuales=3, MaxAlmacenamientoMb=100, Activo=True),
     Plan(IdPlan=2, Nombre="pro", MaxParticipantesViaje=3, MaxViajesActivos=15,
-        MaxSugerenciasDiarias=20, MaxEscaneosSemanales=50, MaxAlmacenamientoMb=2048, Activo=True),
+        MaxSugerenciasDiarias=20, MaxEscaneosMensuales=50, MaxAlmacenamientoMb=2048, Activo=True),
 ])
     session.commit()
     try:

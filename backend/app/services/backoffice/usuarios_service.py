@@ -6,6 +6,8 @@ from app.models.plan import Plan
 from sqlalchemy.orm import Session
 
 from app.models.estado_participacion import EstadoParticipacion
+from app.models.estado_suscripcion import EstadoSuscripcion
+from app.models.suscripcion_usuario import SuscripcionUsuario
 from app.models.participante_viaje import ParticipanteViaje
 from app.models.rol_sistema import ROL_ADMIN_SISTEMA
 from app.models.usuario import Usuario
@@ -80,9 +82,7 @@ def buscar_usuarios(
     desde: date | None = None,
     hasta: date | None = None,
 ) -> UsuarioBackofficePagina:
-    consulta = select(Usuario).where(
-        Usuario.IdRolSistema.is_distinct_from(ROL_ADMIN_SISTEMA)
-    )
+    consulta = select(Usuario).where(Usuario.IdRolSistema.is_distinct_from(ROL_ADMIN_SISTEMA))
 
     texto = (texto or "").strip()
     if texto:
@@ -103,9 +103,7 @@ def buscar_usuarios(
         consulta = consulta.join(Usuario.Plan).where(Plan.Nombre == plan)
 
     if metodo_registro:
-        consulta = consulta.where(
-            Usuario.ProveedorAutenticacion == metodo_registro.strip().lower()
-        )
+        consulta = consulta.where(Usuario.ProveedorAutenticacion == metodo_registro.strip().lower())
 
     if desde:
         inicio, _ = limites_utc(desde, desde)
@@ -136,19 +134,22 @@ def obtener_detalle(db: Session, id_usuario: int) -> UsuarioBackofficeDetalle | 
     if usuario is None or usuario.IdRolSistema == ROL_ADMIN_SISTEMA:
         return None
 
-    cantidad_viajes = db.scalar(
-        select(func.count())
-        .select_from(ParticipanteViaje)
-        .join(
-            EstadoParticipacion,
-            EstadoParticipacion.IdEstadoParticipacion
-            == ParticipanteViaje.IdEstadoParticipacion,
+    cantidad_viajes = (
+        db.scalar(
+            select(func.count())
+            .select_from(ParticipanteViaje)
+            .join(
+                EstadoParticipacion,
+                EstadoParticipacion.IdEstadoParticipacion
+                == ParticipanteViaje.IdEstadoParticipacion,
+            )
+            .where(
+                ParticipanteViaje.IdUsuario == id_usuario,
+                EstadoParticipacion.Nombre == "aceptado",
+            )
         )
-        .where(
-            ParticipanteViaje.IdUsuario == id_usuario,
-            EstadoParticipacion.Nombre == "aceptado",
-        )
-    ) or 0
+        or 0
+    )
 
     return UsuarioBackofficeDetalle(
         **_a_item(usuario).model_dump(),
@@ -160,5 +161,17 @@ def obtener_detalle(db: Session, id_usuario: int) -> UsuarioBackofficeDetalle | 
         fechaBaja=usuario.FechaBaja,
         anonimizado=usuario.FechaBaja is not None,
         cantidadViajes=cantidad_viajes,
-        estadoSuscripcion=None,
+        estadoSuscripcion=db.scalar(
+            select(EstadoSuscripcion.Nombre)
+            .join(
+                SuscripcionUsuario,
+                SuscripcionUsuario.IdEstadoSuscripcion == EstadoSuscripcion.IdEstadoSuscripcion,
+            )
+            .where(SuscripcionUsuario.IdUsuario == id_usuario)
+            .order_by(
+                SuscripcionUsuario.FechaInicio.desc(),
+                SuscripcionUsuario.IdSuscripcionUsuario.desc(),
+            )
+            .limit(1)
+        ),
     )

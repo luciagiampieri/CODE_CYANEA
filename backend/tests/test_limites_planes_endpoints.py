@@ -29,14 +29,14 @@ def _sin_extractor():
     app.dependency_overrides[get_receipt_extractor] = lambda: object()
 
 
-def test_escanear_superando_limite_semanal_por_api_falla(
+def test_escanear_superando_limite_mensual_por_api_falla(
     client, db_session, viaje_con_admin, usuario_activo, auth_headers
 ):
     _sin_extractor()
     viaje, _ = viaje_con_admin
     usuario_activo.ConsienteProcesamientoIA = True
     db_session.commit()
-    _set_limites(db_session, PLAN_GRATUITO, MaxEscaneosSemanales=1)
+    _set_limites(db_session, PLAN_GRATUITO, MaxEscaneosMensuales=1)
     db_session.add(
         EscaneoComprobante(
             IdUsuario=usuario_activo.IdUsuario,
@@ -54,7 +54,7 @@ def test_escanear_superando_limite_semanal_por_api_falla(
 
     assert response.status_code == 409
     assert response.headers["X-Error-Code"] == "RECEIPT_SCAN_LIMIT_REACHED"
-    assert response.json()["detail"]["tipoLimite"] == "escaneos_semanales"
+    assert response.json()["detail"]["tipoLimite"] == "escaneos_mensuales"
 
 
 def test_subir_documento_superando_almacenamiento_por_api_falla(

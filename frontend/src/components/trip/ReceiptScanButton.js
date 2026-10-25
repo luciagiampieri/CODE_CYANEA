@@ -25,7 +25,7 @@ export const MENSAJE_PERMISO_CAMARA =
 export const MENSAJE_VIAJE_FINALIZADO =
   "El viaje ya finalizó: no se pueden escanear comprobantes. Podés cargar el gasto manualmente.";
 export const MENSAJE_SIN_ESCANEOS =
-  "Usaste todos los escaneos de esta semana. Se renuevan el lunes. Podés completar el gasto manualmente.";
+  "Usaste todos los escaneos de este mes. Se renuevan al comenzar el próximo mes. Podés completar el gasto manualmente.";
 
 class TiempoAgotadoError extends Error {}
 class PermisoError extends Error {}
@@ -95,7 +95,7 @@ export default function ReceiptScanButton({
   const cargarLimites = useCallback(async () => {
     try {
       const limites = await getMyLimits();
-      if (montadoRef.current) setEscaneos(limites?.escaneosSemanales ?? null);
+      if (montadoRef.current) setEscaneos(limites?.escaneosMensuales ?? null);
     } catch {
       if (montadoRef.current) setEscaneos(null);
     }
@@ -237,8 +237,8 @@ export default function ReceiptScanButton({
     restantes == null
       ? "Completá el gasto con una foto del ticket"
       : sinEscaneos
-        ? "No te quedan escaneos esta semana"
-        : `Te ${restantes === 1 ? "queda 1 escaneo" : `quedan ${restantes} escaneos`} esta semana`;
+        ? "No te quedan escaneos este mes"
+        : `Te ${restantes === 1 ? "queda 1 escaneo" : `quedan ${restantes} escaneos`} este mes`;
 
   return (
     <View>

@@ -12,6 +12,8 @@ export default function BackofficeHomeScreen({
   onAbrirCategorias,
   onAbrirMonitoreoIA,
   onAbrirTerminos,
+  onAbrirPlanes,
+  onAbrirSuscripciones,
 }) {
   const nombre = admin.nombreCompleto.split(' ').filter(Boolean)[0] || '';
 
@@ -50,6 +52,12 @@ export default function BackofficeHomeScreen({
       </LinearGradient>
 
       <View style={styles.accesos}>
+        {onAbrirSuscripciones ? (
+          <Acceso descripcion="Estados, historial y seguimiento de ingresos" icono="file-invoice-dollar" onPress={onAbrirSuscripciones} titulo="Suscripciones y pagos" />
+        ) : null}
+        {onAbrirPlanes ? (
+          <Acceso descripcion="Precios de Pro y límites de uso" icono="sliders" onPress={onAbrirPlanes} titulo="Planes y límites" />
+        ) : null}
         {onAbrirCategorias ? (
           <Acceso
             descripcion="Gastos, documentos y tareas del checklist"

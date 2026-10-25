@@ -10,6 +10,7 @@ import {
   obtenerIniciales,
 } from '../../components/backoffice/UsuarioPresentacion';
 import SuspensionUsuario, { HistorialSuspensiones } from '../../components/backoffice/SuspensionUsuario';
+import FinanzasUsuario from '../../components/backoffice/FinanzasUsuario';
 import { obtenerUsuario } from '../../services/backofficeApi';
 import { backofficeColors as c } from '../../theme/backofficeTokens';
 import { radii, spacing, textStyles } from '../../theme/tokens';
@@ -115,6 +116,7 @@ function Detalle({ usuario, onCambio }) {
         />
       </View>
 
+      <FinanzasUsuario key={usuario.id} idUsuario={usuario.id} />
       <Text style={styles.etiquetaSeccion}>DATOS DE LA CUENTA</Text>
       <View style={styles.panelDatos}>
         <FilaDato etiqueta="Nombre" valor={usuario.nombre} />

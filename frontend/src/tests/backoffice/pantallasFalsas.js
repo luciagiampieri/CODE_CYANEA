@@ -21,15 +21,25 @@ export function LoginFalso({ onLogin, aviso }) {
   );
 }
 
-export function HomeFalso({ admin, onAbrirUsuarios, onAbrirCategorias, onAbrirMonitoreoIA }) {
+export function HomeFalso({ admin, onAbrirUsuarios, onAbrirCategorias, onAbrirMonitoreoIA, onAbrirPlanes, onAbrirSuscripciones }) {
   return (
     <View>
       <Text>{`Inicio de ${admin.nombreCompleto}`}</Text>
       <Boton onPress={onAbrirUsuarios} texto="Ir a usuarios" />
       <Boton onPress={onAbrirCategorias} texto="Ir a categorías" />
       <Boton onPress={onAbrirMonitoreoIA} texto="Ir a monitoreo" />
+      <Boton onPress={onAbrirPlanes} texto="Ir a planes" />
+      <Boton onPress={onAbrirSuscripciones} texto="Ir a suscripciones" />
     </View>
   );
+}
+
+export function PlanesFalso({ onVolver }) {
+  return <View><Text>Pantalla de planes</Text><Boton onPress={onVolver} texto="Volver de planes" /></View>;
+}
+
+export function SuscripcionesFalso({ onVolver }) {
+  return <View><Text>Pantalla de suscripciones</Text><Boton onPress={onVolver} texto="Volver de suscripciones" /></View>;
 }
 
 export function CategoriasFalso({ onVolver }) {

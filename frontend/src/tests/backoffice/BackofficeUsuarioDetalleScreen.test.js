@@ -7,7 +7,11 @@ jest.mock('../../services/backofficeApi', () => ({
   obtenerUsuario: jest.fn(),
   obtenerHistorialSuspensiones: jest.fn(() => Promise.resolve({ historial: [] })),
   suspenderUsuario: jest.fn(),
-  reactivarUsuario: jest.fn()
+  reactivarUsuario: jest.fn(),
+  obtenerHistorialComercialUsuario: jest.fn(() => Promise.resolve({
+    planActual: 'gratuito', totalPagadoARS: '0', pagosAprobados: 0, pagosPendientes: 0,
+    pagosRechazados: 0, ultimaSuscripcion: null, items: [], total: 0, pagina: 1, totalPaginas: 0,
+  }))
 }));
 
 function detalle(cambios = {}) {

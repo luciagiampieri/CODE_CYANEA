@@ -1,7 +1,7 @@
 from datetime import date, datetime, timezone
 import secrets
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Response, UploadFile, status
 from pydantic import BaseModel
 from sqlalchemy import func, or_, select, update
 from sqlalchemy.orm import Session, selectinload
@@ -36,6 +36,10 @@ from app.schemas.usuario import (
     CambioPasswordResponse,
 )
 from app.services import limites_planes
+from app.services import planes_disponibles
+from app.schemas.planes import PlanesDisponiblesRead
+from app.schemas.consumo_cuenta import ConsumoCuentaRead
+from app.services import consumo_cuenta
 from app.services.auth import password_change_service
 from app.services.mail import get_mail_service
 from app.services.mail.service import MailService
@@ -81,7 +85,8 @@ class UsoLimiteRead(BaseModel):
 class LimitesUsuarioRead(BaseModel):
     plan: str
     viajesActivos: UsoLimiteRead
-    escaneosSemanales: UsoLimiteRead
+    escaneosMensuales: UsoLimiteRead
+    escaneosSemanales: UsoLimiteRead  # Alias obsoleto; el período real es mensual.
 
 
 def _serializar_usuario_actual(usuario: Usuario) -> UsuarioProfileRead:
@@ -225,6 +230,27 @@ def get_my_limits(
     current_user: Usuario = Depends(get_current_user),
 ) -> LimitesUsuarioRead:
     return LimitesUsuarioRead(**limites_planes.resumen_usuario(db, current_user))
+
+
+@router.get("/me/planes", response_model=PlanesDisponiblesRead)
+def get_available_plans(
+    response: Response,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> PlanesDisponiblesRead:
+    response.headers["Cache-Control"] = "no-store"
+    return PlanesDisponiblesRead(**planes_disponibles.consultar(db, current_user))
+
+
+@router.get("/me/consumo", response_model=ConsumoCuentaRead)
+def get_account_usage(
+    response: Response,
+    pagina: int = Query(default=1, ge=1),
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> ConsumoCuentaRead:
+    response.headers["Cache-Control"] = "no-store"
+    return ConsumoCuentaRead(**consumo_cuenta.consultar(db, current_user, pagina=pagina))
 
 
 @router.put("/me/consentimiento-ia", response_model=ConsentimientoIARead)

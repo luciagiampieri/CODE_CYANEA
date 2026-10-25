@@ -70,7 +70,7 @@ export default function SettingsScreen({ navigation }) {
                 testID="settings-cuenta-row"
                 style={({ pressed }) => [
                   styles.itemRow,
-                  puedeCambiarPassword(user) && styles.itemRowDivider,
+                  styles.itemRowDivider,
                   pressed && styles.itemRowPressed,
                 ]}
               >
@@ -91,6 +91,7 @@ export default function SettingsScreen({ navigation }) {
                   testID="settings-cambiar-password-row"
                   style={({ pressed }) => [
                     styles.itemRow,
+                    styles.itemRowDivider,
                     pressed && styles.itemRowPressed,
                   ]}
                 >
@@ -105,46 +106,19 @@ export default function SettingsScreen({ navigation }) {
                   <FontAwesome6 name="chevron-right" size={14} color={colors.textMuted} />
                 </Pressable>
               ) : null}
-            </View>
-          </View>
-
-          {/* SECCIÓN 2: PLAN Y MEMBRESÍA */}
-          <View style={styles.section}>
-            <Text style={styles.sectionLabel}>Membresía</Text>
-            <View style={[styles.groupContainer, styles.proCardContainer]}>
-              <View style={styles.proHeader}>
+              <Pressable
+                accessibilityRole="button"
+                onPress={() => navigation.navigate("Planes")}
+                testID="settings-planes-row"
+                style={({ pressed }) => [styles.itemRow, pressed && styles.itemRowPressed]}
+              >
                 <View style={styles.itemLeft}>
                   <View style={[styles.iconCircle, { backgroundColor: colors.accent }]}>
-                    <FontAwesome6 name="crown" size={16} color={colors.primaryStrong} />
+                    <FontAwesome6 name="crown" size={16} color={colors.primary} />
                   </View>
-                  <View>
-                    <View style={styles.badgeRow}>
-                      <Text style={styles.itemTitle}>Plan Gratuito</Text>
-                      <View style={styles.freeBadge}>
-                        <Text style={styles.freeBadgeText}>ACTUAL</Text>
-                      </View>
-                    </View>
-                    <Text style={styles.itemSubtitle}>
-                      Hasta 3 viajes activos simultáneos
-                    </Text>
-                  </View>
+                  <View><Text style={styles.itemTitle}>Mi plan y consumo</Text><Text style={styles.itemSubtitle}>Uso de tu cuenta y comparación de planes</Text></View>
                 </View>
-              </View>
-
-              <Pressable
-                onPress={() => {
-                  appAlert(
-                    "CYANEA Pro",
-                    "La suscripción Pro estará disponible muy pronto con viajes ilimitados y funciones offline avanzadas."
-                  );
-                }}
-                style={({ pressed }) => [
-                  styles.upgradeBanner,
-                  pressed && { opacity: 0.85 },
-                ]}
-              >
-                <Text style={styles.upgradeText}>✨ Conocer beneficios de CYANEA Pro</Text>
-                <FontAwesome6 name="arrow-right" size={12} color={colors.primaryStrong} />
+                <FontAwesome6 name="chevron-right" size={14} color={colors.textMuted} />
               </Pressable>
             </View>
           </View>

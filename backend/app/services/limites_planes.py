@@ -21,7 +21,7 @@ LIMITE_VIAJES_ACTIVOS = "viajes_activos"
 LIMITE_VIAJES_ACTIVOS_DESTINATARIO = "viajes_activos_destinatario"
 LIMITE_PARTICIPANTES = "participantes_viaje"
 LIMITE_SUGERENCIAS = "sugerencias_diarias"
-LIMITE_ESCANEOS = "escaneos_semanales"
+LIMITE_ESCANEOS = "escaneos_mensuales"
 LIMITE_ALMACENAMIENTO = "almacenamiento"
 
 CODIGOS_ERROR = {
@@ -49,8 +49,8 @@ MENSAJES = {
         "de su administrador. Podés intentar mañana o crear las actividades manualmente."
     ),
     LIMITE_ESCANEOS: (
-        "Alcanzaste el límite de {limite} escaneos de comprobantes por semana de tu plan. "
-        "Se renueva el lunes. Podés cargar el gasto manualmente."
+        "Alcanzaste el límite de {limite} escaneos de comprobantes por mes de tu plan. "
+        "Se renueva al comenzar el próximo mes. Podés cargar el gasto manualmente."
     ),
     LIMITE_ALMACENAMIENTO: (
         "El viaje alcanzó el límite de {limite} MB de almacenamiento del plan de su administrador."
@@ -90,9 +90,18 @@ def inicio_del_dia(ahora: datetime | None = None) -> datetime:
     return ahora.replace(hour=0, minute=0, second=0, microsecond=0)
 
 
-def inicio_de_la_semana(ahora: datetime | None = None) -> datetime:
-    dia = inicio_del_dia(ahora)
-    return dia - timedelta(days=dia.weekday())
+def inicio_del_mes(ahora: datetime | None = None) -> datetime:
+    try:
+        zona = ZoneInfo("America/Argentina/Buenos_Aires")
+    except ZoneInfoNotFoundError:
+        zona = timezone(timedelta(hours=-3))
+    fecha = datetime.now(zona) if ahora is None else ahora.astimezone(zona)
+    return fecha.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+
+
+def inicio_del_mes_siguiente(ahora: datetime | None = None) -> datetime:
+    inicio = inicio_del_mes(ahora)
+    return inicio.replace(year=inicio.year + 1, month=1) if inicio.month == 12 else inicio.replace(month=inicio.month + 1)
 
 
 def obtener_plan(
@@ -171,14 +180,16 @@ def contar_sugerencias_hoy(db: Session, id_viaje: int) -> int:
     ) or 0
 
 
-def contar_escaneos_semana(db: Session, id_usuario: int) -> int:
-    desde = inicio_de_la_semana().astimezone(timezone.utc)
+def contar_escaneos_mes(db: Session, id_usuario: int) -> int:
+    desde = inicio_del_mes().astimezone(timezone.utc)
+    hasta = inicio_del_mes_siguiente().astimezone(timezone.utc)
     return db.scalar(
         select(func.count())
         .select_from(EscaneoComprobante)
         .where(
             EscaneoComprobante.IdUsuario == id_usuario,
             EscaneoComprobante.FechaEscaneo >= desde,
+            EscaneoComprobante.FechaEscaneo < hasta,
         )
     ) or 0
 
@@ -219,9 +230,9 @@ def uso_sugerencias(db: Session, viaje: Viaje) -> UsoLimite:
 def uso_escaneos(db: Session, usuario: Usuario) -> UsoLimite:
     return UsoLimite(
         tipo=LIMITE_ESCANEOS,
-        limite=plan_de_usuario(db, usuario).MaxEscaneosSemanales,
-        uso=contar_escaneos_semana(db, usuario.IdUsuario),
-        renueva_el=inicio_de_la_semana() + timedelta(days=7),
+        limite=plan_de_usuario(db, usuario).MaxEscaneosMensuales,
+        uso=contar_escaneos_mes(db, usuario.IdUsuario),
+        renueva_el=inicio_del_mes_siguiente(),
     )
 
 
@@ -321,10 +332,12 @@ def validar_almacenamiento(db: Session, viaje: Viaje, bytes_nuevos: int) -> None
 
 
 def resumen_usuario(db: Session, usuario: Usuario) -> dict:
+    escaneos = presentar(uso_escaneos(db, usuario))
     return {
         "plan": plan_de_usuario(db, usuario).Nombre,
         "viajesActivos": presentar(uso_viajes_activos(db, usuario)),
-        "escaneosSemanales": presentar(uso_escaneos(db, usuario)),
+        "escaneosMensuales": escaneos,
+        "escaneosSemanales": escaneos,  # Alias para APKs previas a US 112.
     }
 
 

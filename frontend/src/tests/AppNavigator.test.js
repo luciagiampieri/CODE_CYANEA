@@ -35,6 +35,11 @@ jest.mock("../screens/CreateTripScreen", () => () => null);
 jest.mock("../screens/EditTripScreen", () => () => null);
 jest.mock("../screens/EditProfileScreen", () => () => null);
 jest.mock("../screens/SettingScreen", () => () => null);
+jest.mock("../screens/PlansScreen", () => () => {
+  const { Text } = require("react-native");
+  return <Text>Comparación de planes</Text>;
+});
+jest.mock("../screens/MySubscriptionScreen", () => () => null);
 jest.mock("../screens/TripDetailScreen", () => () => null);
 jest.mock("../screens/DocumentsScreen", () => () => null);
 jest.mock("../screens/ExplorePlacesScreen", () => () => null);
@@ -55,6 +60,13 @@ jest.mock("../screens/JoinTripScreen", () => ({ route }) => {
 describe("US 07 - Cerrar sesión - AppNavigator", () => {
   beforeEach(() => {
     jest.clearAllMocks();
+  });
+
+  it("US 115: registra planes y gestion de suscripcion para usuarios autenticados", async () => {
+    useAuth.mockReturnValue({ token: "auth", isLoading: false });
+    const utils = await render(<NavigationContainer ref={navigationRef} initialState={{ routes: [{ name: "Planes" }] }}><AppNavigator /></NavigationContainer>);
+    expect(await utils.findByText("Comparación de planes")).toBeTruthy();
+    expect(navigationRef.getRootState().routeNames).toContain("MiSuscripcion");
   });
 
   it("redirige al inicio de sesión e impide acceder a funcionalidades autenticadas sin sesión", async () => {

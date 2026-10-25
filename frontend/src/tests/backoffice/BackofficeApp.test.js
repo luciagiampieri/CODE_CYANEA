@@ -216,3 +216,31 @@ describe('BackofficeApp', () => {
     expect(registrarExpiracionSesion).toHaveBeenLastCalledWith(null);
   });
 });
+
+
+jest.mock('../../screens/backoffice/BackofficePlanesScreen', () => ({
+  __esModule: true,
+  default: require('./pantallasFalsas').PlanesFalso,
+}));
+
+test('abre planes desde el inicio y permite volver', async () => {
+  await iniciarConSesion();
+  await presionar('Ir a planes');
+  expect(await screen.findByText('Pantalla de planes')).toBeTruthy();
+  await presionar('Volver de planes');
+  expect(await screen.findByText(INICIO)).toBeTruthy();
+});
+
+
+jest.mock('../../screens/backoffice/BackofficeSuscripcionesScreen', () => ({
+  __esModule: true,
+  default: require('./pantallasFalsas').SuscripcionesFalso,
+}));
+
+test('abre las consultas de suscripciones desde el inicio y vuelve', async () => {
+  await iniciarConSesion();
+  await presionar('Ir a suscripciones');
+  expect(await screen.findByText('Pantalla de suscripciones')).toBeTruthy();
+  await presionar('Volver de suscripciones');
+  expect(await screen.findByText(INICIO)).toBeTruthy();
+});

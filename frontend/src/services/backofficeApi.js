@@ -201,3 +201,50 @@ export function eliminarTermino(idVersion) {
 export function publicarTermino(idVersion) {
   return solicitar(`/terminos/${idVersion}/publicar`, { method: 'POST' });
 }
+
+export function obtenerPlanes() {
+  return solicitar('/planes');
+}
+
+export function guardarPlanes(payload) {
+  return solicitar('/planes', { method: 'PUT', body: payload });
+}
+
+export function obtenerAuditoriaPlanes() {
+  return solicitar('/planes/auditoria');
+}
+
+export function listarSuscripciones({ estado, pagina = 1, q, tipoPlan, soloUltima } = {}) {
+  const params = new URLSearchParams({ pagina: String(pagina) });
+  if (estado) params.set('estado', estado);
+  if (q) params.set('q', q);
+  if (tipoPlan) params.set('tipoPlan', tipoPlan);
+  if (soloUltima != null) params.set('soloUltima', String(soloUltima));
+  return solicitar(`/suscripciones?${params.toString()}`);
+}
+
+export function obtenerSuscripcion(idSuscripcion) {
+  return solicitar(`/suscripciones/${idSuscripcion}`);
+}
+
+export function listarPagos({ estado, desde, hasta, idSuscripcion, idUsuario, pagina = 1, q } = {}) {
+  const params = new URLSearchParams({ pagina: String(pagina) });
+  if (estado) params.set('estado', estado);
+  if (q) params.set('q', q);
+  if (desde) params.set('desde', desde);
+  if (hasta) params.set('hasta', hasta);
+  if (idSuscripcion != null) params.set('idSuscripcion', String(idSuscripcion));
+  if (idUsuario != null) params.set('idUsuario', String(idUsuario));
+  return solicitar(`/pagos?${params.toString()}`);
+}
+
+export function obtenerResumenFinanciero({ desde, hasta } = {}) {
+  const params = new URLSearchParams();
+  if (desde) params.set('desde', desde);
+  if (hasta) params.set('hasta', hasta);
+  return solicitar(`/finanzas/resumen?${params.toString()}`);
+}
+
+export function obtenerHistorialComercialUsuario(idUsuario, pagina = 1) {
+  return solicitar(`/usuarios/${idUsuario}/historial-comercial?pagina=${pagina}`);
+}

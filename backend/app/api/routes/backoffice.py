@@ -17,6 +17,14 @@ from app.schemas.backoffice_categoria import (
     CategoriasBackofficeListado,
     TipoCategoria,
 )
+from app.schemas.backoffice_plan import AuditoriaPlanRead, ConfiguracionPlanesRead, ConfiguracionPlanesUpdate
+from app.schemas.backoffice_suscripcion import (
+    EstadoSuscripcionFiltro, EstadoPagoFiltro, SuscripcionBackofficeRead,
+    SuscripcionesBackofficePagina, PagosBackofficePagina,
+)
+from app.services.backoffice import suscripciones_service, resumen_financiero_service
+from app.schemas.backoffice_suscripcion import ResumenFinancieroRead, HistorialComercialUsuarioRead
+from typing import Literal
 from app.schemas.backoffice_metricas import MetricasDashboard
 from app.schemas.backoffice_monitoreo_ia import (
     EstadoUmbralCostoIA,
@@ -36,6 +44,7 @@ from app.schemas.backoffice_usuario import (
     UsuarioBackofficePagina,
 )
 from app.services.backoffice import auth_service as bo
+from app.services.backoffice import planes_service
 from app.services.backoffice import categorias_service
 from app.services.backoffice import metricas_service
 from app.services.backoffice import monitoreo_ia_service
@@ -399,3 +408,66 @@ def configurar_umbral_monitoreo_ia(
     return monitoreo_ia_service.configurar_umbral(
         db, payload.umbralMensualUSD, usuario.IdUsuario, mail_service
     )
+
+# US 112: estas rutas pertenecen al router protegido del backoffice.
+
+
+@router.get("/planes", response_model=ConfiguracionPlanesRead)
+def obtener_planes(db: Session = Depends(get_db)):
+    return planes_service.obtener(db)
+
+
+@router.put("/planes", response_model=ConfiguracionPlanesRead)
+def actualizar_planes(
+    payload: ConfiguracionPlanesUpdate,
+    request: Request,
+    db: Session = Depends(get_db),
+    admin: Usuario = Depends(require_admin_sistema),
+):
+    return planes_service.actualizar(db, payload, admin.IdUsuario, request.client.host if request.client else None)
+
+
+@router.get("/planes/auditoria", response_model=list[AuditoriaPlanRead])
+def historial_planes(db: Session = Depends(get_db)):
+    return planes_service.historial(db)
+
+
+@router.get("/suscripciones", response_model=SuscripcionesBackofficePagina)
+def listar_suscripciones_backoffice(
+    estado: EstadoSuscripcionFiltro | None = None,
+    q: str | None = Query(default=None, max_length=150),
+    tipo_plan: Literal["mensual", "anual"] | None = Query(default=None, alias="tipoPlan"),
+    solo_ultima: bool = Query(default=False, alias="soloUltima"),
+    pagina: int = Query(default=1, ge=1),
+    db: Session = Depends(get_db),
+):
+    return suscripciones_service.listar(db, estado=estado, pagina=pagina, q=q, tipo_plan=tipo_plan, solo_ultima=solo_ultima)
+
+
+@router.get("/finanzas/resumen", response_model=ResumenFinancieroRead)
+def resumen_financiero_backoffice(desde: date | None = None, hasta: date | None = None, db: Session = Depends(get_db)):
+    return resumen_financiero_service.resumen(db, desde=desde, hasta=hasta)
+
+
+@router.get("/suscripciones/{id_suscripcion}", response_model=SuscripcionBackofficeRead)
+def detalle_suscripcion_backoffice(id_suscripcion: int, db: Session = Depends(get_db)):
+    return suscripciones_service.obtener(db, id_suscripcion)
+
+
+@router.get("/usuarios/{id_usuario}/historial-comercial", response_model=HistorialComercialUsuarioRead)
+def historial_comercial_usuario(id_usuario: int, pagina: int = Query(default=1, ge=1), db: Session = Depends(get_db)):
+    return suscripciones_service.historial_usuario(db, id_usuario, pagina=pagina)
+
+
+@router.get("/pagos", response_model=PagosBackofficePagina)
+def listar_pagos_backoffice(
+    estado: EstadoPagoFiltro | None = None,
+    q: str | None = Query(default=None, max_length=150),
+    desde: date | None = None,
+    hasta: date | None = None,
+    id_suscripcion: int | None = Query(default=None, alias="idSuscripcion", gt=0),
+    id_usuario: int | None = Query(default=None, alias="idUsuario", gt=0),
+    pagina: int = Query(default=1, ge=1),
+    db: Session = Depends(get_db),
+):
+    return suscripciones_service.pagos(db, estado=estado, desde=desde, hasta=hasta, id_suscripcion=id_suscripcion, pagina=pagina, q=q, id_usuario=id_usuario)

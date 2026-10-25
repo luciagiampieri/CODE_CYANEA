@@ -1,5 +1,7 @@
 """SQLAlchemy models."""
 
+from app.models.auditoria_plan import AuditoriaPlan
+from app.models.pago_suscripcion import EstadoPagoSuscripcion, PagoSuscripcion
 from app.models.estado_invitacion import EstadoInvitacion
 from app.models.plan import Plan
 from app.models.estado_suscripcion import EstadoSuscripcion
@@ -50,6 +52,9 @@ from app.models.auditoria_suspension_usuario import AuditoriaSuspensionUsuario
 from app.models.version_terminos import VersionTerminos
 from app.models.auditoria_terminos import AuditoriaTerminos
 __all__ = [
+    "EstadoPagoSuscripcion",
+    "PagoSuscripcion",
+    "AuditoriaPlan",
     "EstadoInvitacion",
     "Plan",
     "EstadoSuscripcion",

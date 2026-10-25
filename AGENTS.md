@@ -335,7 +335,7 @@ Reglas vigentes para la HU de balance y liquidacion:
 - La precision (RNF-35) y los tiempos (RNF-34) se miden con `python -m scripts.evaluar_escaneo_comprobantes <carpeta>` sobre tickets reales y un `esperado.csv`
 - Frontend: `frontend/src/components/trip/ReceiptScanButton.js` concentra el flujo (camara o galeria, consentimiento la primera vez, validacion, compresion, progreso con tiempo maximo de 15 s y banner de error con "Completar manualmente"); `frontend/src/utils/receiptImage.js` valida formato y tamano sobre la imagen original (en mobile acepta tambien HEIC/HEIF, el formato de las fotos de iPhone, porque la compresion siempre genera JPEG; en web los rechaza porque el navegador no los decodifica; el picker pide `preferredAssetRepresentationMode: "compatible"` para que iOS entregue JPEG cuando puede) y comprime con `expo-image-manipulator` (API `ImageManipulator.manipulate`, no `manipulateAsync` que esta deprecada) a 1600 px en el lado mayor, JPEG calidad 0,7
 - `AddGastoScreen` recibe `puedeEscanear` (TripDetail pasa `!lock.isFinished`) y precarga con `aplicarEscaneo`: los campos a revisar se resaltan con `colors.warning`/`warningSurface` hasta que el usuario los edita; sin fecha legible el campo queda vacio y el formulario exige completarla; si no se detecto la moneda se mantiene la del viaje y se pide revisarla, porque el selector no puede quedar vacio
-- Fuera de alcance de esta US: guardar la foto del comprobante en el repositorio del viaje. El limite de escaneos por usuario y semana (RNF-36) se implemento en la US 118 (ver "Planes y limites de uso")
+- Fuera de alcance de esta US: guardar la foto del comprobante en el repositorio del viaje. El limite de escaneos por usuario (RNF-36) se implemento en la US 118 y paso a ser mensual en la US 112 (ver "Planes y limites de uso")
 
 ## Confirmar gasto precargado desde un comprobante (US 94)
 
@@ -353,11 +353,22 @@ Reglas vigentes para la HU de balance y liquidacion:
 - Fecha fuera del viaje (AC8): `AddGastoScreen` recibe `FechaInicioViaje`/`FechaFinViaje` (TripDetail las pasa directo y a `DocumentsScreen` como `tripFechaInicio`/`tripFechaFin`) y muestra una nota informativa, sin dialogo ni bloqueo: pagar antes del viaje (reservas, excursiones, pasajes) es normal, y la nota sirve para detectar una fecha mal leida del comprobante (por ejemplo un ano equivocado). El backend tampoco lo bloquea
 - Tests: `backend/tests/test_confirmar_gasto_comprobante.py` y `frontend/src/tests/ConfirmarGastoComprobante.test.js` (mapean CP1 a CP10); la persistencia offline en `GastosLocal.test.js` y las migraciones SQLite en `DatabaseNative.test.js`
 
-## Planes y limites de uso (US 118)
+## Planes y limites de uso (US 118 y US 112)
+
+### Gestion comercial desde el backoffice (US 112)
+
+- `GET/PUT /backoffice/planes` y `GET /backoffice/planes/auditoria` pertenecen al router protegido por `require_admin_sistema`. La pantalla `BackofficePlanesScreen` se abre desde "Planes y limites" en el inicio del backoffice y usa exclusivamente `backofficeApi.js`.
+- El PUT reemplaza precios mensual/anual de Pro en ARS (`PrecioMensualARS`, `PrecioAnualARS`, Numeric(12,2)) y los cinco limites de ambos planes. Precios > 0 con hasta dos decimales; limites enteros > 0; cada limite de Pro >= gratuito. La configuracion nueva no permite NULL/ilimitado; los valores heredados NULL pueden leerse y deben completarse al guardar.
+- Los cambios se confirman con `confirmar`/`AppDialog` (opciones `backoffice:true`), mostrando valores anteriores y nuevos. El servicio `backoffice/planes_service.py` bloquea ambos planes en orden de id y guarda configuracion y una fila por campo modificado en `AuditoriaPlanes` en la misma transaccion (administrador, fecha UTC, IP, valor anterior y nuevo). Los valores iguales no generan auditoria; la consulta muestra los ultimos 100 cambios.
+- Migracion `f112a1b2c3d4` y script `019_planes_precios_y_limites.sql`: renombra `MaxEscaneosSemanales` a `MaxEscaneosMensuales`, conservando sus valores numericos (3/50 inicialmente). Desde esta US los escaneos se cuentan por usuario y mes calendario en hora Argentina, con renovacion el dia 1. Los registros historicos de escaneos se conservan y participan del conteo del mes en curso.
+- `GET /users/me/limites` devuelve `escaneosMensuales`; mantiene `escaneosSemanales` como alias obsoleto para APKs anteriores, con los mismos datos mensuales. La UI nueva y `tipoLimite=escaneos_mensuales` usan el periodo mensual. No mantener dos cupos distintos.
+- Los limites se consultan en base en cada operacion y se aplican inmediatamente sin borrar contenido ni expulsar participantes. Los precios base aprobados son ARS 4900 mensual y ARS 49000 anual: migracion `f112b2c3d4e5` y script `020_precios_base_pro.sql` completan solo tarifas NULL del plan Pro, sin sobrescribir cambios del administrador ni modificar precios contratados. El downgrade de esa semilla no borra tarifas comerciales.
+- `SuscripcionesUsuarios.PrecioPeriodoARS` y `MesesPeriodo` (1 o 12) congelan la tarifa de cada periodo. `services/precios_suscripciones.crear_periodo` toma el precio vigente al crear cada periodo nuevo o renovacion, sin modificar el anterior. Las suscripciones heredadas conservan NULL si no se conoce su precio; no se recalculan desde la tarifa actual. Esta US no agrega cobros, activacion Pro ni renovaciones automaticas: los futuros flujos de suscripcion deben llamar a ese servicio dentro de su transaccion.
+- Tests: `test_backoffice_planes.py` cubre CP1-CP6, autorizacion y validacion; `test_limites_planes_uso.py` cubre meses, renovacion y conteos. Frontend: `BackofficePlanesScreen.test.js` cubre formulario, confirmacion/cancelacion, errores e historial.
 
 ### Modelo
 
-- Los limites viven en la tabla maestra `Planes` (migracion `c118a1b2c3d4`, script `015_limites_y_suscripciones.sql`): `MaxParticipantesViaje`, `MaxViajesActivos`, `MaxSugerenciasDiarias`, `MaxEscaneosSemanales` y `MaxAlmacenamientoMb`, todos `INTEGER NULL`. `NULL` significa ilimitado. Constantes `PLAN_GRATUITO=1` y `PLAN_PRO=2` en `app/models/plan.py`
+- Los limites viven en la tabla maestra `Planes` (migracion `c118a1b2c3d4`, script `015_limites_y_suscripciones.sql`): `MaxParticipantesViaje`, `MaxViajesActivos`, `MaxSugerenciasDiarias`, `MaxEscaneosMensuales` y `MaxAlmacenamientoMb`, todos `INTEGER NULL`. `NULL` significa ilimitado. Constantes `PLAN_GRATUITO=1` y `PLAN_PRO=2` en `app/models/plan.py`
 - Valores vigentes:
 
 | Campo | Gratuito | Pro |
@@ -365,11 +376,11 @@ Reglas vigentes para la HU de balance y liquidacion:
 | `MaxParticipantesViaje` | 3 | 10 |
 | `MaxViajesActivos` | 5 | 15 |
 | `MaxSugerenciasDiarias` | 10 | 20 |
-| `MaxEscaneosSemanales` | 3 | 50 |
+| `MaxEscaneosMensuales` | 3 | 50 |
 | `MaxAlmacenamientoMb` | 100 | 2048 |
 
-- Los valores se cambian directamente en base (`UPDATE "Planes" ...`) sin reiniciar el backend
-- `EstadosSuscripciones` (`activa`, `cancelada`, `vencida`) y `SuscripcionesUsuarios` (`IdUsuario`, `IdPlan`, `IdEstadoSuscripcion`, `FechaInicio`, `FechaFin`, `FechaCancelacion`, `FechaCreacion`) se crean en la misma migracion como base para "Gestionar suscripcion Pro" y "Volver al plan gratuito"; los limites se calculan siempre desde `Usuarios.IdPlan`
+- Los valores se gestionan desde el backoffice (US 112) sin reiniciar el backend
+- `EstadosSuscripciones` (`activa`, `pendiente_pago`, `cancelada`, `vencida`; pendiente de pago agregado en US 113) y `SuscripcionesUsuarios` (`IdUsuario`, `IdPlan`, `IdEstadoSuscripcion`, `FechaInicio`, `FechaFin`, `FechaCancelacion`, `FechaCreacion`) se crean en la misma migracion como base para "Gestionar suscripcion Pro" y "Volver al plan gratuito"; los limites se calculan siempre desde `Usuarios.IdPlan`
 - Migracion `c118b2c3d4e5` (script `016_escaneos_y_tamano_documentos.sql`): tabla `EscaneosComprobantes` (`IdUsuario`, `IdViaje`, `FechaEscaneo`, indice `IX_EscaneosComprobantes_Usuario_Fecha`) y columna `DocumentosViajes.TamanoBytes BIGINT NULL`. Los documentos anteriores a la migracion quedan con `NULL` y cuentan como 0
 
 ### Reglas de conteo
@@ -378,7 +389,7 @@ Reglas vigentes para la HU de balance y liquidacion:
 - Viajes activos: solo los que el usuario administra en estado `borrador` o `activo`. Se valida al crear un viaje y al recibir una transferencia de administracion (el destinatario no puede superar su limite)
 - Participantes: solo participaciones `aceptado`, incluido el administrador; las invitaciones pendientes no reservan lugar. Se valida al aceptar una invitacion personal y al unirse por enlace (`require_trip_capacity`); generar invitaciones o enlaces no valida
 - Sugerencias: por viaje y por dia (00:00 de `AI_SUGGESTIONS_TIMEZONE`); cuentan las solicitudes de todos los participantes, excepto las fallidas o sin resultados. En "Completar dias libres" cada franja cuenta como una solicitud
-- Escaneos: por usuario y por semana (lunes 00:00 hora Argentina), sumando todos sus viajes. Solo se registra el escaneo si la IA respondio con exito; la deteccion automatica de gastos al subir documentos (US 84) no cuenta
+- Escaneos: por usuario y por mes calendario (dia 1 a las 00:00 hora Argentina), sumando todos sus viajes. Solo se registra el escaneo si la IA respondio con exito; la deteccion automatica de gastos al subir documentos (US 84) no cuenta
 - Almacenamiento: suma de `TamanoBytes` de los documentos del viaje, incluidos los comprobantes guardados desde gastos. Al reemplazar un archivo solo se valida la diferencia si el nuevo es mas grande
 - Superar un limite nunca elimina contenido existente: solo bloquea nuevas acciones (por ejemplo, si al transferir la administracion el viaje queda con mas participantes que el nuevo plan, nadie es expulsado)
 
@@ -387,11 +398,11 @@ Reglas vigentes para la HU de balance y liquidacion:
 - Toda la logica vive en `backend/app/services/limites_planes.py` (contadores, `validar_*`, `registrar_escaneo`, `resumen_usuario`, `resumen_viaje`). Las rutas solo llaman a los validadores; no reimplementar conteos en las rutas
 - Al superar un limite se responde 409 (429 para sugerencias) con header `X-Error-Code` y `detail` objeto: `{ mensaje, tipoLimite, limite, usoActual }`
 - Codigos: `TRIP_ACTIVE_LIMIT_REACHED`, `TRIP_PARTICIPANT_LIMIT_REACHED`, `SUGGESTION_LIMIT_REACHED`, `RECEIPT_SCAN_LIMIT_REACHED`, `STORAGE_LIMIT_REACHED`; plan ausente o inactivo 503 `PLAN_UNAVAILABLE`
-- `tipoLimite`: `viajes_activos`, `viajes_activos_destinatario`, `participantes`, `sugerencias_diarias`, `escaneos_semanales`, `almacenamiento`
+- `tipoLimite`: `viajes_activos`, `viajes_activos_destinatario`, `participantes`, `sugerencias_diarias`, `escaneos_mensuales`, `almacenamiento`
 
 ### Consulta de uso (CA 7)
 
-- `GET /users/me/limites`: uso y limite de viajes activos y escaneos semanales del usuario
+- `GET /users/me/limites`: uso y limite de viajes activos y escaneos mensuales del usuario
 - `GET /trips/{trip_id}/documents/almacenamiento`: espacio usado y limite del viaje, en MB (schema `UsoLimiteRead` de `app/schemas/limite_plan.py`)
 - Las sugerencias informan `LimiteDiario` y `SolicitudesRestantes` en el contexto y en las franjas libres; ambos son `null` cuando el plan es ilimitado
 
@@ -401,7 +412,7 @@ Reglas vigentes para la HU de balance y liquidacion:
 - `api.js` conserva el `detail` objeto en `error.detalle` (tambien en las subidas mobile, via `buildUploadError`) y expone `getMyLimits()` y `getTripStorage()`
 - La pantalla de planes es la ruta `Planes`; mientras no exista, `irAPlanes()` navega a `Configuracion`
 - "Ver planes" se ofrece solo cuando el usuario puede resolverlo cambiando su propio plan: no al unirse a un viaje lleno ni al aceptar una invitacion (el limite es del administrador), ni cuando el destinatario de una transferencia esta en su limite
-- Donde se informa el uso: `CreateTripScreen` (viajes activos, bloquea "Siguiente" si no hay cupo), `ReceiptScanButton` (escaneos restantes de la semana; prop `onVerPlanes` para cerrar `AddGastoScreen`), `DocumentsScreen` (barra de almacenamiento y aviso previo si el archivo no entra), `ActivitySuggestionsScreen` y `CompleteFreeDaysScreen` (solicitudes restantes del dia)
+- Donde se informa el uso: `CreateTripScreen` (viajes activos, bloquea "Siguiente" si no hay cupo), `ReceiptScanButton` (escaneos restantes del mes; prop `onVerPlanes` para cerrar `AddGastoScreen`), `DocumentsScreen` (barra de almacenamiento y aviso previo si el archivo no entra), `ActivitySuggestionsScreen` y `CompleteFreeDaysScreen` (solicitudes restantes del dia)
 - Tests: `backend/tests/test_limites_planes.py` (viajes activos, participantes, transferencias), `test_limites_planes_uso.py` (escaneos y almacenamiento a nivel servicio), `test_limites_planes_endpoints.py` (409 por API de escaneo y documentos), `test_limites_sugerencias.py` (sugerencias y completar dias libres) y `test_almacenamiento_api.py`
 
 ## Integraciones externas
@@ -458,6 +469,9 @@ Orden actual:
 - `016_escaneos_y_tamano_documentos.sql`
 - `017_gestion_categorias.sql`
 - `018_monitoreo_consumo_ia.sql`
+- `019_planes_precios_y_limites.sql`
+- `020_precios_base_pro.sql`
+- `021_consulta_suscripciones_pagos.sql`
 
 ## Convenciones de backend
 
@@ -692,6 +706,64 @@ El flujo minimo actual incluye:
 - el plan informado y los filtros `gratuito`/`pro` se resuelven desde `Usuarios.IdPlan` y la tabla `Planes`; `estadoSuscripcion` sigue en `null` hasta que se implemente "Gestionar suscripcion Pro", aunque la tabla `SuscripcionesUsuarios` ya existe (US 118)
 - los usuarios dados de baja ya estan anonimizados en base (`_anonimizar_usuario`, RN-07); el backoffice no enmascara datos, solo informa `anonimizado` segun `FechaBaja`
 
+### Consulta de suscripciones y pagos (US 113)
+
+- Solo consulta desde el router protegido del backoffice: `GET /backoffice/suscripciones?estado&pagina`, `GET /backoffice/suscripciones/{id}` y `GET /backoffice/pagos?estado&desde&hasta&idSuscripcion&pagina`. Paginacion de 20 filas, orden descendente por fecha e id; filtros invalidos responden 422 y suscripcion inexistente 404 `SUBSCRIPTION_NOT_FOUND`.
+- Los estados de suscripcion se mantienen en `EstadosSuscripciones`: `activa`, `pendiente_pago`, `cancelada`, `vencida`. `MesesPeriodo` define mensual (1) o anual (12); para historicos NULL se informa sin periodicidad registrada, sin inferirla de las fechas. La proxima renovacion es `FechaFin` solo para estado activa; el fin del periodo se expone aparte. Esta consulta no cambia estados ni activa/cancela/vence suscripciones.
+- Migracion `f113a1b2c3d4` y script `021_consulta_suscripciones_pagos.sql`: agregan el estado pendiente de pago y las tablas `EstadosPagosSuscripciones` (aprobado/rechazado/pendiente) y `PagosSuscripciones`. Cada pago contiene suscripcion, estado maestro, fecha, monto ARS positivo Numeric(12,2) e identificador unico de operacion de pasarela (nullable mientras no se haya asignado). No se almacena payload crudo de pasarela, datos de tarjeta, CVV, vencimiento ni tokens de tarjeta. No se agregan cobros reales, webhooks ni registros financieros ficticios.
+- Los pagos se filtran por estado, rango de fechas y opcionalmente suscripcion. Fechas desde/hasta inclusivas por dia calendario de Argentina (UTC-3), convertidas a UTC al consultar; ambos extremos pueden omitirse. Rango invertido responde 422 `PAYMENT_DATE_RANGE_INVALID`. `totalIngresosAprobadosARS` suma con Decimal todos los pagos aprobados que coinciden con esos mismos filtros, antes de paginar; filtrar rechazados/pendientes devuelve total aprobado cero. No se calcula desde los precios vigentes de los planes.
+- La pantalla `BackofficeSuscripcionesScreen` se abre desde el inicio del backoffice y ofrece listado de suscripciones, detalle con historial asociado y listado global de pagos. Conserva el filtro/pagina de suscripciones al volver del detalle. `ConsultaPagos` comparte filtros, total, estados de carga/error/reintento y vacios; `FinanzasPresentacion` concentra etiquetas, importes y fechas. El acceso HTTP pasa por `backofficeApi.js` y no hay acciones mutantes.
+- Pruebas: `backend/tests/test_backoffice_suscripciones.py` cubre CP1-CP6, estados, fechas UTC/Argentina, paginacion, importes exactos, registros historicos y ausencia de datos de tarjeta. `frontend/src/tests/backoffice/BackofficeSuscripcionesScreen.test.js` cubre listas, filtros, detalle, total, vacios y errores; `BackofficeApp.test.js` cubre la navegacion desde el inicio.
+- El regreso automatico al plan gratuito, avisos de vencimiento y cambios diferidos de limites de IA quedan fuera de la US 113; no agregar schedulers para ese flujo en esta historia.
+
+### Resumen ejecutivo de suscripciones y pagos
+
+- La seccion abre en `Resumen ejecutivo`, con indicadores, evolucion mensual, tabla de cobros por mes y accesos al detalle de operaciones. Mantiene la identidad visual del backoffice; `TablaFinanzas` comparte filas compactas, encabezados, estados y desplazamiento horizontal para pantallas pequenas.
+- Contrato protegido de solo lectura: `GET /backoffice/finanzas/resumen?desde&hasta`, implementado en `resumen_financiero_service.py`. Por defecto abarca desde el primer dia de hace once meses hasta hoy, hasta 366 dias inclusivos y sin fechas futuras. Agrupa y suma en SQL sobre todo el periodo, sin depender de la paginacion. Usa dias y meses de Argentina (UTC-3), completa meses vacios con ceros y recorta los meses extremos al filtro.
+- Los ingresos son exclusivamente pagos aprobados por fecha de cobro: el importe anual entra completo en el mes cobrado. Se desglosan mensual/anual/sin periodicidad, preservando historicos NULL; no se calculan devengamientos, ganancias, saldos de deuda ni MRR desde estos totales. Pendientes y rechazos son operaciones/intentos, no deudas unicas ni ingresos.
+- La variacion compara contra el intervalo inmediatamente anterior con igual cantidad de dias. Si ese intervalo tiene ingresos cero, la variacion es NULL y la UI indica que no hay base comparable. La tasa de aprobacion divide aprobados entre todos los intentos del periodo (aprobados, pendientes y rechazados). `suscripcionesActivasHoy` es una instantanea independiente del filtro: usuarios distintos con estado activa y periodo que incluye el instante actual; canceladas no se incluyen en ese indicador.
+- `GET /backoffice/suscripciones` suma `q` (nombre completo/email/usuario, hasta 150 caracteres, comodines escapados), `tipoPlan=mensual|anual` y `soloUltima`. La API conserva por defecto todo el historial; la UI inicia con `soloUltima=true`, usando la ultima fila por usuario ordenada por FechaInicio e id descendentes, seleccionada antes de aplicar estado/periodicidad/busqueda. Esto evita mostrar como vigente un periodo anterior al filtrar. No cambia estados ni fechas persistidos.
+- `GET /backoffice/pagos` suma la misma busqueda `q` por usuario; el total aprobado usa exactamente los filtros de la tabla completa. La UI conserva el periodo del resumen al volver desde las operaciones; seleccionar un mes o indicador abre Pagos con las fechas y estado correspondientes. Los detalles individuales conservan el historial de pagos y los filtros de suscripciones al regresar.
+- Tests backend de US 113 suman agregaciones, limites de mes UTC/Argentina, comparacion, meses vacios, precision decimal, totales de mas de una pagina, periodicidad historica, permisos y filtros combinados. Tests frontend verifican la entrada ejecutiva, navegacion al detalle filtrado, busqueda, historial y errores.
+
+### Visualizar planes disponibles (US 115)
+
+- Acceso autenticado desde Configuracion > Mi cuenta > Mi plan y consumo (`Planes`) y los avisos de limite existentes (`irAPlanes`). `AppNavigator` registra `Planes` y `MiSuscripcion` en el stack autenticado. Se elimina el banner anterior de Configuracion que hardcodeaba plan gratuito, cupos incorrectos y viajes ilimitados.
+- Contrato de solo lectura: `GET /users/me/planes`, con `Cache-Control: no-store`. `planes_disponibles.consultar` reutiliza el lector vigente de configuracion de la US 112; expone los cinco limites de ambos planes, precios ARS, plan actual de Usuarios, ahorro anual y ultimo periodo de suscripcion exclusivamente de la cuenta autenticada. No acepta ids de terceros. No crea suscripciones, inicia cobros ni cambia planes. No requiere migracion.
+- Ahorro anual = max(0, (1 - precioAnual / (12 * precioMensual)) * 100), redondeado a dos decimales con Decimal. Sin ambos precios configurados devuelve NULL y no promete ahorro; un anual mas caro devuelve cero. Un limite NULL se presenta como Sin limite, nunca como cero. La tarjeta distingue plan actual por datos del backend, independiente del estado de la suscripcion.
+- `useAvailablePlans` vuelve a consultar sin cache al enfocar la pantalla y al actualizar manualmente; conserva manejo de carga/error/reintento y descarta respuestas al desenfocar. La comparacion identifica viajes activos como administrador, participantes (incluido administrador), sugerencias diarias por viaje, escaneos mensuales por usuario y almacenamiento MB por viaje.
+- Beneficios compartidos: los limites de participantes/sugerencias/almacenamiento del viaje dependen del administrador; el cupo de escaneos es individual. La UI informa que los participantes gratuitos reciben los beneficios del viaje administrado por Pro.
+- Para gratuito se muestra Suscribirme a Pro, que informa contratacion proxima (pagos reales fuera del alcance actual); se deshabilita si faltan precios. Para Pro se reemplaza por Gestionar mi suscripcion, que abre `MySubscriptionScreen`: consulta plan actual, ultimo periodo, estado, modalidad, fechas, cancelacion y precio historico congelado; informa conservacion de beneficios en canceladas aun vigentes. Cambiar modalidad, cancelar y cobrar siguen pendientes de sus respectivas historias; no simular estas acciones desde la US 115.
+- Pruebas: `test_planes_disponibles.py` verifica CP1/CP2/CP3/CP5, edicion real desde backoffice, ahorro, precios faltantes, plan desactivado y privacidad de suscripcion. `PlanesDisponibles.test.js`, `SettingScreen.test.js` y `AppNavigator.test.js` verifican comparacion, actualizacion, aviso de limite, accesos autenticados y gestion propia.
+
+### Control de consumo de la cuenta
+
+- La ruta `Planes` se presenta como Tu plan y consumo: entra con Comparar planes seleccionado y permite alternar a Mi consumo. Acceso desde Mi cuenta > Mi plan y consumo y desde los avisos de limite. Se elimina el boton Actualizar precios y limites; la comparacion vuelve a consultar al seleccionarla y al enfocar la pantalla. `AccountUsage` consulta tambien al enfocar/remontar; conserva reintento si falla.
+- Contrato autenticado de solo lectura: `GET /users/me/consumo?pagina`, con no-store. No acepta ids de usuario o de viajes. Resume viajes activos administrados (incluidos borradores) y escaneos personales del mes, usando los mismos contadores de `limites_planes`. No requiere migracion ni persiste contadores derivados.
+- Lista viajes en estado activo/borrador administrados por el usuario o donde tiene participacion aceptada. Excluye invitaciones pendientes, rechazadas, viajes ajenos y cerrados; no suma viajes como mero participante al cupo personal. Paginacion estable de seis viajes, primero los administrados, luego FechaCreacion/id descendentes; el resumen personal abarca todas las paginas.
+- Cada viaje muestra rol del usuario, plan vigente de su administrador, participantes aceptados (incluye administrador si esta aceptado), solicitudes de sugerencias del dia y MB almacenados. Consultas SQL agrupadas solo sobre los ids de la pagina evitan una consulta por viaje. Limites de viaje proceden del administrador, no del participante que consulta; cupo de escaneos es personal.
+- Solicitudes de sugerencias usan la zona AI_SUGGESTIONS_TIMEZONE y los estados contables en_proceso/completada, igual que la validacion del dominio. Los escaneos usan mes calendario argentino. Almacenamiento suma TamanoBytes y se presenta con la misma conversion MB del dominio. Porcentaje y marcas alcanzado/excedido se calculan sobre bytes sin redondear; la barra visual se recorta al 100%, sin ocultar el valor consumido. NULL se muestra Sin limite, no cero. No bloquear ni modificar recursos desde esta consulta.
+- `AccountUsage` muestra medidores accesibles y fechas de renovacion, diferencia limites alcanzados/superados y permite paginar; conserva carga/error/vacio y aviso de fecha de consulta. Tests en `test_consumo_cuenta.py` y `AccountUsage.test.js` verifican contadores, cortes diarios UTC/Argentina, privacidad, plan del administrador, exceso, ilimitados, paginacion y errores.
+
+### Historial comercial en el detalle de usuario
+
+- Gestion de usuarios > detalle incorpora `FinanzasUsuario`: total pagado aprobado historico, cantidad de intentos por estado, ultimo periodo, tabla paginada de suscripciones y acceso a pagos de un periodo o de toda la cuenta. El plan actual se obtiene de `Usuarios.IdPlan`, separado del estado del ultimo periodo registrado. `usuarios_service.obtener_detalle` ya devuelve ese ultimo estado en `estadoSuscripcion`, antes siempre NULL.
+- Contrato de solo lectura y exclusivo del administrador: `GET /backoffice/usuarios/{id}/historial-comercial?pagina`. Reutiliza los periodos y pagos existentes; no agrega migraciones ni inventa fechas de cambios. Los usuarios inexistentes y administradores del sistema responden 404, igual que la gestion de usuarios. Admite viajeros activos, suspendidos, pendientes y anonimizados.
+- La evolucion de suscripciones se calcula en SQL con LAG sobre todo el historial de esa cuenta, antes de paginar; orden cronologico por FechaInicio e id. Distingue primer periodo registrado, cambio de plan, cambio de periodicidad conocida, renovacion (fin anterior exactamente igual a inicio nuevo) y nuevo periodo. La tabla muestra fecha de cancelacion solo cuando esta persistida; no atribuye una fecha de vencimiento de estado a FechaFin ni deduce un cambio al gratuito por vencimiento/cancelacion.
+- La UI informa que no existe una auditoria completa de cambios manuales de plan anteriores: las transiciones visibles proceden de periodos efectivamente persistidos. El plan actual y el estado de una suscripcion son conceptos diferentes y pueden diferir.
+- `GET /backoffice/pagos` suma `idUsuario` (entero positivo), que restringe filas y total aprobado por propietario de la suscripcion; si tambien llega `idSuscripcion`, aplica la interseccion. `ConsultaPagos` conserva esa restriccion al cambiar fechas, estado, pagina o limpiar filtros; nunca busca por email para delimitar la cuenta. Se oculta el buscador de otros usuarios en este contexto.
+- El componente se remonta al cambiar de usuario para no conservar filtros o datos de otra cuenta. Las consultas son cancelables logicamente al desmontar; un error comercial tiene reintento propio y no oculta los datos de la cuenta. Tests backend verifican aislamiento, movimientos, total exacto, antecedentes fuera de pagina, permisos y vacios; frontend cubre pagos por cuenta/periodo, filtros y reintento.
+
+### Datos sinteticos para demostracion local
+
+- `backend/scripts/seed_demo_backoffice.py` genera un conjunto sintetico aditivo para probar el backoffice: por defecto 800 usuarios y 300 viajes, con participaciones, itinerarios, gastos y asignaciones exactas, tareas, votaciones, metadatos de consumo IA, periodos de suscripcion y pagos simulados. No son datos reales ni distribuciones calibradas con usuarios observados.
+- Ejecutar desde `backend/`: `.venv\Scripts\python.exe -m scripts.seed_demo_backoffice`; opciones `--usuarios`, `--viajes`, `--semilla` (113 por defecto). Requiere migraciones, categorias activas y precios Pro configurados. Solo admite PostgreSQL en loopback y `APP_ENV=development|local|test`; no hay opcion de omitir esta proteccion.
+- Una unica transaccion y advisory lock serializan la carga. Si existe algun usuario con prefijo literal `demo_cyanea_`, no vuelve a insertar ni modifica datos. Nunca borra ni actualiza usuarios ajenos al conjunto; tampoco reinicia secuencias. Cambiar cantidades despues de cargar no agrega un segundo conjunto.
+- Marcadores: nombres de usuario `demo_cyanea_*`, emails bajo `demo.cyanea.invalid`, titulos de viajes `[DEMO]`, operaciones `DEMO-CYANEA-*`, modelo IA `demo-sintetico`. Password compartida de viajeros demo: `CyaneaDemo2026!`; no se crean administradores demo. No usar estas cuentas fuera del entorno local.
+- Supuestos: 18 meses de altas con crecimiento reciente, actividad desigual mediante pesos lognormales, mezcla de usuarios activos/sin confirmar/suspendidos/de baja, estacionalidad de salidas, grupos mayormente pequenos y conversion Pro minoritaria. Los historiales incluyen mensual/anual, estados de suscripcion y reintentos rechazados; los importes historicos pueden simular una tarifa 15% inferior. No representan facturacion real ni una proyeccion comercial.
+- Inserciones ORM directas: no envia correos/push, no invoca IA ni pasarelas, no genera tarjetas ni archivos/URLs de documentos ficticios. Los metadatos IA son simulados y no contienen identificadores de usuario o viaje. No modifica los indicadores del dashboard que aun esten sin implementar; las finanzas demo se consultan en Suscripciones y pagos.
+- Pruebas en `backend/tests/test_seed_demo_backoffice.py`: no duplicacion, conservacion de cuentas existentes, coherencia de fechas y pagos, reparto exacto de gastos y rechazo de destinos remotos/produccion.
+
 ### Gestion de categorias predefinidas (US 110)
 
 - Las categorias de gastos (`CategoriasGastos`), documentos (`CategoriasDocumentos`) y tareas del checklist (`CategoriasChecklist`) se administran desde el backoffice sin tocar codigo. Migracion `d110a1b2c3d4` (script `017_gestion_categorias.sql`): las tres tablas suman `Icono` (nombre de FontAwesome 6, `NOT NULL DEFAULT 'tags'`) y `CategoriasDocumentos` suma `Activo` y `EsSistema`
@@ -716,7 +788,7 @@ El flujo minimo actual incluye:
 
 ### Frontend del backoffice
 
-- punto de entrada: `BackofficeApp`, con navegacion por estado (`inicio`, `usuarios`, `detalleUsuario`, `categorias`, `monitoreoIA`); no usa React Navigation
+- punto de entrada: `BackofficeApp`, con navegacion por estado (`inicio`, `usuarios`, `detalleUsuario`, `categorias`, `monitoreoIA`, `terminos`, `planes`, `suscripciones`); no usa React Navigation
 - `BackofficeApp` monta su propio `<DialogHost root />` (es una raiz distinta de `App.js`) para que `appAlert`, `confirmar` y `appToast` funcionen en el backoffice
 - `backofficeApi.js` toma el mensaje del primer error de validacion cuando el `detail` es una lista (422) y expone el header `X-Error-Code` en `error.codigo`
 - `BackofficeLayout` (`frontend/src/components/backoffice/`) concentra la barra superior; las pantallas solo renderizan su contenido
