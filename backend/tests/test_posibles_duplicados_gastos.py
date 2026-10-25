@@ -7,11 +7,14 @@ de división ni participantes. Solo advierte: `POST /gastos` nunca se bloquea.
 
 Los comentarios CPn remiten a los casos de prueba de la US.
 """
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
+
+import pytest
 
 from app.core.security import create_access_token, hash_password
 from app.models.estado_participacion import EstadoParticipacion
 from app.models.estado_viaje import EstadoViaje
+from app.models.gasto import Gasto
 from app.models.participante_viaje import ParticipanteViaje
 from app.models.rol_participante import RolParticipante
 from app.models.usuario import Usuario
@@ -105,14 +108,21 @@ def _consultar(client, headers, viaje, **cambios):
 
 
 # CP1: gasto compartido con los mismos datos
+@pytest.mark.parametrize("fecha_creacion", [
+    datetime(2026, 10, 24, 23, 59, 59, tzinfo=timezone.utc),
+    datetime(2026, 10, 25, 1, 17, 10, tzinfo=timezone.utc),
+], ids=["antes-de-medianoche-utc", "dia-distinto-en-argentina"])
 def test_compartido_igual_a_uno_existente_devuelve_el_detalle(
-    client, db_session, auth_headers, viaje_con_admin, categoria_gasto
+    client, db_session, auth_headers, viaje_con_admin, categoria_gasto, fecha_creacion
 ):
     viaje, ana, beto, carla, _ = _grupo(db_session, viaje_con_admin)
     id_gasto = _registrar(
         client, auth_headers, viaje, categoria_gasto,
         **_compartido_igualitario([ana, beto, carla], beto),
     )
+    gasto_guardado = db_session.get(Gasto, id_gasto)
+    gasto_guardado.FechaCreacion = fecha_creacion
+    db_session.commit()
 
     response = _consultar(
         client, auth_headers, viaje,
@@ -144,7 +154,7 @@ def test_compartido_igual_a_uno_existente_devuelve_el_detalle(
     )
     assert {p["Nombre"] for p in gasto["Participantes"]} == {"Ana", "Beto", "Carla"}
     # Cuándo se cargó, para mostrarlo en la advertencia.
-    assert datetime.fromisoformat(gasto["FechaCreacion"]).date() == date.today()
+    assert datetime.fromisoformat(gasto["FechaCreacion"]) == fecha_creacion
 
 
 # CP1: gasto personal con los mismos datos

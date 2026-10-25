@@ -475,6 +475,7 @@ Orden actual:
 
 ## Convenciones de backend
 
+- Las pruebas de timestamps deben comparar instantes con zona horaria y datos controlados, sin comparar su fecha UTC con `date.today()` ni depender del dia capturado al importar el modulo. La regresion de posibles gastos duplicados verifica `FechaCreacion` con instantes fijos alrededor de medianoche UTC, incluido un instante cuyo dia difiere en Argentina.
 - FastAPI expone rutas en `backend/app/api/routes/`
 - Modelos ORM en `backend/app/models/`
 - Schemas pydantic en `backend/app/schemas/`
