@@ -1,5 +1,6 @@
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
 
 import HomeScreen from "../screens/HomeScreen";
@@ -28,6 +29,8 @@ const tabs = [
 ];
 
 export default function MainTabs() {
+  const insets = useSafeAreaInsets();
+
   return (
     <Tab.Navigator
       screenOptions={({ route }) => ({
@@ -35,9 +38,9 @@ export default function MainTabs() {
         tabBarActiveTintColor: colors.primary,
         tabBarInactiveTintColor: colors.textMuted,
         tabBarStyle: {
-          height: 74,
+          height: 74 + insets.bottom,
           paddingTop: 10,
-          paddingBottom: 12,
+          paddingBottom: spacing.sm + insets.bottom,
           backgroundColor: colors.surface,
           borderTopWidth: 1,
           borderTopColor: colors.border,

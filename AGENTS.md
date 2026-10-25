@@ -590,6 +590,7 @@ Para retomar o replicar la configuracion de push Android:
 - Evitar hardcodear colores, radios o espaciados por componente si ya existe token equivalente
 - Los módulos de infraestructura nativa con dependencias exclusivas de dispositivo, como SQLite offline, deben resolverse con archivos por plataforma (`*.native.js` / `*.web.js`) para no romper el bundle web
 - Los contenedores con area segura deben importar `SafeAreaView` desde `react-native-safe-area-context`, no desde `react-native`, para evitar la API deprecada en Expo/React Native
+- La barra inferior de `MainTabs` usa `useSafeAreaInsets`: suma `insets.bottom` tanto a su altura base de 74 como al padding inferior `spacing.sm`, para mantener los botones por encima de la navegacion del sistema (gestos o tres botones) sin reducir el espacio de los tabs. No reemplazar estos valores por medidas fijas ni agregar otro padding inferior global que duplique el area segura.
 - La interfaz activa toma como referencia una app de viajes mobile-first con header azul profundo, superficies marfil y tarjetas con imagen protagonista
 - Usar serif editorial para wordmark de marca, titulos grandes de pantalla, nombres de viajes y valores KPI
 - Usar sans para labels, formularios, navegacion, metadata, tabs y acciones
