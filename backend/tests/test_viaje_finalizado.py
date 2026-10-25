@@ -23,13 +23,26 @@ from app.models.participante_viaje import ParticipanteViaje
 from app.models.rol_participante import RolParticipante
 from app.models.usuario import Usuario
 from app.models.votacion import Votacion
+from app.services import trip_access
 from app.services.trip_access import (
     is_trip_finished,
     resolve_trip_status,
     trip_info_editable_until,
 )
 
-HOY = date.today()
+@pytest.fixture(autouse=True)
+def fecha_de_referencia(monkeypatch):
+    # La suite puede importar este archivo antes de medianoche y ejecutarlo despues.
+    # Datos y validaciones comparten el mismo dia durante toda la prueba.
+    hoy = date.today()
+    monkeypatch.setitem(globals(), "HOY", hoy)
+
+    class FechaFija(date):
+        @classmethod
+        def today(cls):
+            return hoy
+
+    monkeypatch.setattr(trip_access, "date", FechaFija)
 
 
 # ---------------------------------------------------------------------------
