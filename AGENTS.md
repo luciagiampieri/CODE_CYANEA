@@ -758,13 +758,7 @@ El flujo minimo actual incluye:
 
 ### Datos sinteticos para demostracion local
 
-- `backend/scripts/seed_demo_backoffice.py` genera un conjunto sintetico aditivo para probar el backoffice: por defecto 800 usuarios y 300 viajes, con participaciones, itinerarios, gastos y asignaciones exactas, tareas, votaciones, metadatos de consumo IA, periodos de suscripcion y pagos simulados. No son datos reales ni distribuciones calibradas con usuarios observados.
-- Ejecutar desde `backend/`: `.venv\Scripts\python.exe -m scripts.seed_demo_backoffice`; opciones `--usuarios`, `--viajes`, `--semilla` (113 por defecto). Requiere migraciones, categorias activas y precios Pro configurados. Solo admite PostgreSQL en loopback y `APP_ENV=development|local|test`; no hay opcion de omitir esta proteccion.
-- Una unica transaccion y advisory lock serializan la carga. Si existe algun usuario con prefijo literal `demo_cyanea_`, no vuelve a insertar ni modifica datos. Nunca borra ni actualiza usuarios ajenos al conjunto; tampoco reinicia secuencias. Cambiar cantidades despues de cargar no agrega un segundo conjunto.
-- Marcadores: nombres de usuario `demo_cyanea_*`, emails bajo `demo.cyanea.invalid`, titulos de viajes `[DEMO]`, operaciones `DEMO-CYANEA-*`, modelo IA `demo-sintetico`. Password compartida de viajeros demo: `CyaneaDemo2026!`; no se crean administradores demo. No usar estas cuentas fuera del entorno local.
-- Supuestos: 18 meses de altas con crecimiento reciente, actividad desigual mediante pesos lognormales, mezcla de usuarios activos/sin confirmar/suspendidos/de baja, estacionalidad de salidas, grupos mayormente pequenos y conversion Pro minoritaria. Los historiales incluyen mensual/anual, estados de suscripcion y reintentos rechazados; los importes historicos pueden simular una tarifa 15% inferior. No representan facturacion real ni una proyeccion comercial.
-- Inserciones ORM directas: no envia correos/push, no invoca IA ni pasarelas, no genera tarjetas ni archivos/URLs de documentos ficticios. Los metadatos IA son simulados y no contienen identificadores de usuario o viaje. No modifica los indicadores del dashboard que aun esten sin implementar; las finanzas demo se consultan en Suscripciones y pagos.
-- Pruebas en `backend/tests/test_seed_demo_backoffice.py`: no duplicacion, conservacion de cuentas existentes, coherencia de fechas y pagos, reparto exacto de gastos y rechazo de destinos remotos/produccion.
+- No distribuir en el repositorio generadores de datos demo del backoffice ni ejecutarlos desde migraciones Alembic, despliegues o inicializaciones de otros entornos. Los datos sinteticos cargados para pruebas locales se conservan unicamente en la base local; esta restriccion no afecta los datos maestros necesarios para el funcionamiento de la aplicacion ni las fixtures de tests.
 
 ### Gestion de categorias predefinidas (US 110)
 
