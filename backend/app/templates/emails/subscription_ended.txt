@@ -1,0 +1,14 @@
+Hola {{ nombre }},
+
+Tu suscripción Pro terminó y tu cuenta volvió al plan gratuito. Tus viajes, gastos, documentos, actividades y sugerencias se conservan y podés seguir consultándolos.
+{% if excesos %}
+Límites del plan gratuito que quedaron excedidos:
+{% for exceso in excesos %}- {{ exceso }}
+{% endfor %}{% else %}
+Tu uso actual está dentro de los límites del plan gratuito.
+{% endif %}
+{{ aviso_sugerencias }}
+
+Podés volver a Pro cuando quieras desde Mi plan y consumo.
+
+{{ app_url }}

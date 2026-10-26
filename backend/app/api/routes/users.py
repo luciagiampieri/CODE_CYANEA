@@ -1,15 +1,14 @@
-from datetime import date, datetime, timezone
+from datetime import datetime, timezone
 import secrets
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Response, UploadFile, status
 from pydantic import BaseModel
 from sqlalchemy import func, or_, select, update
-from sqlalchemy.orm import Session, selectinload
+from sqlalchemy.orm import Session
 
 from app.core.security import verify_password, hash_password
 from app.api.deps import get_current_user
 from app.db.session import get_db
-from app.models.destino_viaje import DestinoViaje
 from app.models.estado_participacion import EstadoParticipacion
 from app.models.estado_viaje import EstadoViaje
 from app.models.participante_viaje import ParticipanteViaje
@@ -18,6 +17,7 @@ from app.models.usuario import Usuario
 from app.models.viaje import Viaje
 from app.models.rol_participante import RolParticipante
 from app.schemas.limite_plan import UsoLimiteRead
+from app.schemas.logros import LogrosRead
 from app.schemas.usuario import (
     UsuarioPhotoUploadResponse,
     UsuarioProfileRead,
@@ -38,6 +38,7 @@ from app.schemas.usuario import (
 )
 from app.services import limites_planes
 from app.services import planes_disponibles
+from app.services import logros
 from app.schemas.planes import PlanesDisponiblesRead
 from app.schemas.consumo_cuenta import ConsumoCuentaRead
 from app.services import consumo_cuenta
@@ -247,6 +248,16 @@ def get_account_usage(
 ) -> ConsumoCuentaRead:
     response.headers["Cache-Control"] = "no-store"
     return ConsumoCuentaRead(**consumo_cuenta.consultar(db, current_user, pagina=pagina))
+
+
+@router.get("/me/logros", response_model=LogrosRead)
+def get_my_achievements(
+    response: Response,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> LogrosRead:
+    response.headers["Cache-Control"] = "no-store"
+    return LogrosRead(**logros.consultar(db, current_user))
 
 
 @router.put("/me/consentimiento-ia", response_model=ConsentimientoIARead)
@@ -478,42 +489,11 @@ def get_paises_visitados(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
 ) -> PaisesVisitadosRead:
-    hoy = date.today()
-
-    viajes = (
-        db.scalars(
-            select(Viaje)
-            .options(selectinload(Viaje.Destinos).selectinload(DestinoViaje.Destino))
-            .join(ParticipanteViaje, ParticipanteViaje.IdViaje == Viaje.IdViaje)
-            .join(EstadoViaje, EstadoViaje.IdEstadoViaje == Viaje.IdEstadoViaje)
-            .join(
-                EstadoParticipacion,
-                EstadoParticipacion.IdEstadoParticipacion == ParticipanteViaje.IdEstadoParticipacion,
-            )
-            .where(
-                ParticipanteViaje.IdUsuario == current_user.IdUsuario,
-                EstadoViaje.Nombre.in_(["activo", "finalizado"]),
-                EstadoParticipacion.Nombre == "aceptado",
-                Viaje.FechaFin < hoy,
-            )
-        )
-        .unique()
-        .all()
-    )
-
-    paises = sorted(
-        {
-            rel.Destino.Pais
-            for viaje in viajes
-            for rel in viaje.Destinos
-            if rel.Destino and rel.Destino.Pais
-        }
-    )
-
+    paises, total_viajes = logros.paises_visitados(db, current_user.IdUsuario)
     return PaisesVisitadosRead(
         paises=paises,
         totalPaises=len(paises),
-        totalViajes=len(viajes),
+        totalViajes=total_viajes,
     )
 
 

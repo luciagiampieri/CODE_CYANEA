@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="es">
+<body style="margin:0;padding:0;background:#f4f6f8;font-family:Arial,Helvetica,sans-serif;color:#1f2933;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f4f6f8;padding:24px 0;">
+    <tr>
+      <td align="center">
+        <table role="presentation" width="560" cellpadding="0" cellspacing="0" style="max-width:560px;width:100%;background:#ffffff;border-radius:12px;overflow:hidden;">
+          <tr>
+            <td align="center" style="background:#0b1f33;padding:20px;">
+              {% if cyanea_icon_data_uri %}<img src="{{ cyanea_icon_data_uri }}" alt="Cyanea" width="40" height="40" style="vertical-align:middle;">{% endif %}
+              <span style="color:#ffec80;font-size:22px;font-weight:bold;margin-left:8px;vertical-align:middle;">Cyanea</span>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:28px 32px;">
+              <h1 style="font-size:20px;margin:0 0 16px;">Tu cuenta volvió al plan gratuito</h1>
+              <p style="font-size:15px;line-height:1.5;">Hola {{ nombre }},</p>
+              <p style="font-size:15px;line-height:1.5;">Tu suscripción Pro terminó. Tus viajes, gastos, documentos, actividades y sugerencias se conservan y podés seguir consultándolos.</p>
+              {% if excesos %}
+              <p style="font-size:15px;line-height:1.5;margin-bottom:4px;"><strong>Límites del plan gratuito que quedaron excedidos:</strong></p>
+              <ul style="font-size:15px;line-height:1.6;padding-left:20px;margin-top:4px;">
+                {% for exceso in excesos %}<li style="margin-bottom:6px;">{{ exceso }}</li>{% endfor %}
+              </ul>
+              {% else %}
+              <p style="font-size:15px;line-height:1.5;">Tu uso actual está dentro de los límites del plan gratuito.</p>
+              {% endif %}
+              <p style="font-size:15px;line-height:1.5;">{{ aviso_sugerencias }}</p>
+              <p style="font-size:15px;line-height:1.5;">Podés volver a Pro cuando quieras desde Mi plan y consumo.</p>
+              <p style="font-size:15px;line-height:1.5;"><a href="{{ app_url }}" style="color:#0b1f33;font-weight:bold;">Abrir Cyanea</a></p>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>

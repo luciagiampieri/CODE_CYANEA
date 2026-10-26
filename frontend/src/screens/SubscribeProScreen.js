@@ -8,7 +8,7 @@ import IconCircleButton from '../components/ui/IconCircleButton';
 import PrimaryButton from '../components/ui/PrimaryButton';
 import { getSubscriptionSummary, startSubscription } from '../services/api';
 import { colors, radii, spacing } from '../theme/tokens';
-import { p, precioPlan } from './PlansScreen';
+import { p, precioPlan } from '../components/plans/planStyles';
 
 export const MODALIDADES = [
   { clave: 'mensual', nombre: 'Mensual', periodo: 'mes' },
@@ -21,7 +21,6 @@ export const fechaCorta = (valor) => new Date(valor).toLocaleDateString('es-AR',
 
 async function abrirPago(urlPago, urlRetorno) {
   try {
-    // En el celular se cierra solo al volver a la app por el deep link de retorno.
     await WebBrowser.openAuthSessionAsync(urlPago, urlRetorno);
   } catch {
     await Linking.openURL(urlPago);
@@ -55,7 +54,6 @@ export default function SubscribeProScreen({ navigation, route }) {
     try {
       const inicio = await startSubscription({ modalidad, aceptaRenovacionAutomatica: acepta });
       await abrirPago(inicio.urlPago, inicio.urlRetorno);
-      // Se reemplaza esta pantalla: al volver atrás desde el estado se llega a Planes.
       navigation.replace('SuscripcionEstado');
     } catch (err) {
       setErrorEnvio(err.message || 'No se pudo iniciar la suscripción.');

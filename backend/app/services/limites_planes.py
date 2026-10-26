@@ -12,8 +12,9 @@ from app.models.escaneo_comprobante import EscaneoComprobante
 from app.models.estado_participacion import EstadoParticipacion
 from app.models.estado_viaje import EstadoViaje
 from app.models.participante_viaje import ParticipanteViaje
-from app.models.plan import Plan
+from app.models.plan import PLAN_GRATUITO, PLAN_PRO, Plan
 from app.models.sugerencia_actividad import SolicitudSugerenciaActividad
+from app.models.suscripcion_usuario import SuscripcionUsuario
 from app.models.usuario import Usuario
 from app.models.viaje import Viaje
 
@@ -142,6 +143,30 @@ def plan_de_viaje(db: Session, viaje: Viaje, *, bloquear: bool = False) -> Plan:
     )
 
 
+def _volvio_a_gratuito_hoy(db: Session, id_usuario: int) -> bool:
+    desde = inicio_del_dia().astimezone(timezone.utc)
+    return (
+        db.scalar(
+            select(SuscripcionUsuario.IdSuscripcionUsuario)
+            .where(
+                SuscripcionUsuario.IdUsuario == id_usuario,
+                SuscripcionUsuario.FechaFinalizacion >= desde,
+            )
+            .limit(1)
+        )
+        is not None
+    )
+
+
+def _plan_para_sugerencias(db: Session, viaje: Viaje) -> Plan:
+    """US 121: el límite gratuito de IA se aplica desde el día siguiente al cambio de plan."""
+    plan = plan_de_viaje(db, viaje)
+    if plan.IdPlan != PLAN_GRATUITO or not _volvio_a_gratuito_hoy(db, viaje.IdAdministrador):
+        return plan
+    pro = db.get(Plan, PLAN_PRO)
+    return pro if pro is not None and pro.Activo else plan
+
+
 def contar_viajes_activos(db: Session, id_usuario: int) -> int:
     return db.scalar(
         select(func.count(Viaje.IdViaje))
@@ -221,7 +246,7 @@ def uso_participantes(db: Session, viaje: Viaje, *, bloquear: bool = False) -> U
 def uso_sugerencias(db: Session, viaje: Viaje) -> UsoLimite:
     return UsoLimite(
         tipo=LIMITE_SUGERENCIAS,
-        limite=plan_de_viaje(db, viaje).MaxSugerenciasDiarias,
+        limite=_plan_para_sugerencias(db, viaje).MaxSugerenciasDiarias,
         uso=contar_sugerencias_hoy(db, viaje.IdViaje),
         renueva_el=inicio_del_dia() + timedelta(days=1),
     )

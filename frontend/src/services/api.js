@@ -664,6 +664,10 @@ export async function getPaisesVisitados() {
   return parseResponse(response, "No se pudieron obtener los países visitados");
 }
 
+export async function getAchievements() {
+  return request("/users/me/logros");
+}
+
 export async function updateCurrentUser(payload) {
   const response = await fetch(`${API_BASE_URL}/users/me`, {
     method: "PUT",

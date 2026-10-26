@@ -35,11 +35,12 @@ jest.mock("../screens/CreateTripScreen", () => () => null);
 jest.mock("../screens/EditTripScreen", () => () => null);
 jest.mock("../screens/EditProfileScreen", () => () => null);
 jest.mock("../screens/SettingScreen", () => () => null);
-jest.mock("../screens/PlansScreen", () => () => {
+// "Planes" y "MiSuscripcion" usan la misma pantalla: el mock muestra con qué
+// pestaña se abrió para verificar cada ruta.
+jest.mock("../screens/PlanSubscriptionScreen", () => ({ route }) => {
   const { Text } = require("react-native");
-  return <Text>Comparación de planes</Text>;
+  return <Text>{`Plan y suscripción: ${route?.params?.tab}`}</Text>;
 });
-jest.mock("../screens/MySubscriptionScreen", () => () => null);
 jest.mock("../screens/TripDetailScreen", () => () => null);
 jest.mock("../screens/DocumentsScreen", () => () => null);
 jest.mock("../screens/ExplorePlacesScreen", () => () => null);
@@ -65,12 +66,18 @@ describe("US 07 - Cerrar sesión - AppNavigator", () => {
   it("US 115: registra planes y gestion de suscripcion para usuarios autenticados", async () => {
     useAuth.mockReturnValue({ token: "auth", isLoading: false });
     const utils = await render(<NavigationContainer ref={navigationRef} initialState={{ routes: [{ name: "Planes" }] }}><AppNavigator /></NavigationContainer>);
-    expect(await utils.findByText("Comparación de planes")).toBeTruthy();
+    expect(await utils.findByText("Plan y suscripción: planes")).toBeTruthy();
     expect(navigationRef.getRootState().routeNames).toContain("MiSuscripcion");
     // US 116: flujo de suscripción y retorno desde Mercado Pago.
     expect(navigationRef.getRootState().routeNames).toEqual(
       expect.arrayContaining(["SuscribirsePro", "SuscripcionEstado"])
     );
+  });
+
+  it("Mi suscripción abre la misma pantalla en la pestaña Mi plan", async () => {
+    useAuth.mockReturnValue({ token: "auth", isLoading: false });
+    const utils = await render(<NavigationContainer initialState={{ routes: [{ name: "MiSuscripcion" }] }}><AppNavigator /></NavigationContainer>);
+    expect(await utils.findByText("Plan y suscripción: mi_plan")).toBeTruthy();
   });
 
   it("redirige al inicio de sesión e impide acceder a funcionalidades autenticadas sin sesión", async () => {

@@ -1,22 +1,16 @@
-import { useState} from "react";
-import {
-  Platform,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
-} from "react-native";
-import Modal from "../components/ui/AppModal";
+import { useState } from "react";
+import { Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { FontAwesome6 } from "@expo/vector-icons";
 
+import Modal from "../components/ui/AppModal";
 import ScreenContainer from "../components/layout/ScreenContainer";
-import IconCircleButton from "../components/ui/IconCircleButton";
+import ListRow from "../components/ui/ListRow";
 import PrimaryButton from "../components/ui/PrimaryButton";
+import ScreenHeader from "../components/ui/ScreenHeader";
+import SectionCard from "../components/ui/SectionCard";
 import { useAuth } from "../context/AuthContext";
 import useResponsive from "../hooks/useResponsive";
 import { colors, radii, spacing, surfaces, textStyles } from "../theme/tokens";
-
 import { appAlert } from "../components/ui/AppDialog";
 import { puedeCambiarPassword } from "../utils/passwordRules";
 
@@ -24,213 +18,97 @@ export default function SettingsScreen({ navigation }) {
   const { logout, user } = useAuth();
   const { isDesktop } = useResponsive();
   const [showLogoutModal, setShowLogoutModal] = useState(false);
+  const tienePassword = puedeCambiarPassword(user);
 
-  // Diálogo / confirmación de logout compatible con Web y Mobile
   const handleLogoutPress = () => {
     if (Platform.OS === "web") {
       setShowLogoutModal(true);
-    } else {
-      appAlert(
-        "Cerrar sesión",
-        "¿Estás seguro de que deseás cerrar sesión en CYANEA?",
-        [
-          { text: "Cancelar", style: "cancel" },
-          {
-            text: "Cerrar sesión",
-            style: "destructive",
-            onPress: () => logout(),
-          },
-        ]
-      );
+      return;
     }
+    appAlert("Cerrar sesión", "¿Estás seguro de que deseás cerrar sesión en CYANEA?", [
+      { text: "Cancelar", style: "cancel" },
+      { text: "Cerrar sesión", style: "destructive", onPress: () => logout() },
+    ]);
   };
-
-  const cardStyle = [styles.card, isDesktop && styles.cardDesktop];
 
   return (
     <ScreenContainer fullWidth padded={false}>
-      <ScrollView
-        contentContainerStyle={styles.scrollContent}
-        showsVerticalScrollIndicator={false}
-      >
-        <View style={styles.hero}>
-          <View style={styles.heroTopRow}>
-            <IconCircleButton icon="arrow-left" onPress={() => navigation.goBack()} tone="light" testID="settings-back-button" />
-          </View>
-          <Text style={styles.title}>Configuración</Text>
-        </View>
+      <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+        <ScreenHeader
+          title="Configuración"
+          onBack={() => navigation.goBack()}
+          backTestID="settings-back-button"
+        />
 
-        <View style={cardStyle}>
-          {/* SECCIÓN 1: CUENTA Y PERFIL */}
-          <View style={styles.section}>
-            <Text style={styles.sectionLabel}>Mi cuenta</Text>
-            <View style={styles.groupContainer}>
-              <Pressable
-                onPress={() => navigation.navigate("EditarPerfil")}
-                testID="settings-cuenta-row"
-                style={({ pressed }) => [
-                  styles.itemRow,
-                  styles.itemRowDivider,
-                  pressed && styles.itemRowPressed,
-                ]}
-              >
-                <View style={styles.itemLeft}>
-                  <View style={[styles.iconCircle, { backgroundColor: colors.surfaceAlt }]}>
-                    <FontAwesome6 name="user-pen" size={16} color={colors.primary} />
-                  </View>
-                  <View>
-                    <Text style={styles.itemTitle}>Cuenta</Text>
-                  </View>
-                </View>
-                <FontAwesome6 name="chevron-right" size={14} color={colors.textMuted} />
-              </Pressable>
-              {/* US 101: solo cuentas registradas con correo tienen contraseña propia */}
-              {puedeCambiarPassword(user) ? (
-                <Pressable
-                  onPress={() => navigation.navigate("CambiarPassword")}
-                  testID="settings-cambiar-password-row"
-                  style={({ pressed }) => [
-                    styles.itemRow,
-                    styles.itemRowDivider,
-                    pressed && styles.itemRowPressed,
-                  ]}
-                >
-                  <View style={styles.itemLeft}>
-                    <View style={[styles.iconCircle, { backgroundColor: colors.surfaceAlt }]}>
-                      <FontAwesome6 name="key" size={16} color={colors.primary} />
-                    </View>
-                    <View>
-                      <Text style={styles.itemTitle}>Cambiar contraseña</Text>
-                    </View>
-                  </View>
-                  <FontAwesome6 name="chevron-right" size={14} color={colors.textMuted} />
-                </Pressable>
-              ) : null}
-              <Pressable
-                accessibilityRole="button"
-                onPress={() => navigation.navigate("Planes")}
-                testID="settings-planes-row"
-                style={({ pressed }) => [
-                  styles.itemRow,
-                  styles.itemRowDivider,
-                  pressed && styles.itemRowPressed,
-                ]}
-              >
-                <View style={styles.itemLeft}>
-                  <View style={[styles.iconCircle, { backgroundColor: colors.accent }]}>
-                    <FontAwesome6 name="crown" size={16} color={colors.primary} />
-                  </View>
-                  <View><Text style={styles.itemTitle}>Mi plan y consumo</Text><Text style={styles.itemSubtitle}>Uso de tu cuenta y comparación de planes</Text></View>
-                </View>
-                <FontAwesome6 name="chevron-right" size={14} color={colors.textMuted} />
-              </Pressable>
-              <Pressable
-                accessibilityRole="button"
-                onPress={() => navigation.navigate("MiSuscripcion")}
-                testID="settings-suscripcion-row"
-                style={({ pressed }) => [styles.itemRow, pressed && styles.itemRowPressed]}
-              >
-                <View style={styles.itemLeft}>
-                  <View style={[styles.iconCircle, { backgroundColor: colors.surfaceAlt }]}>
-                    <FontAwesome6 name="credit-card" size={16} color={colors.primary} />
-                  </View>
-                  <View><Text style={styles.itemTitle}>Mi suscripción</Text><Text style={styles.itemSubtitle}>Estado, renovación y cancelación de Pro</Text></View>
-                </View>
-                <FontAwesome6 name="chevron-right" size={14} color={colors.textMuted} />
-              </Pressable>
+        <View style={[styles.body, isDesktop && styles.bodyDesktop]}>
+          <SectionCard label="Mi cuenta">
+            <ListRow
+              icon="user-pen"
+              title="Cuenta"
+              onPress={() => navigation.navigate("EditarPerfil")}
+              testID="settings-cuenta-row"
+              divider
+            />
+            {/* US 101: solo cuentas registradas con correo tienen contraseña propia */}
+            {tienePassword ? (
+              <ListRow
+                icon="key"
+                title="Cambiar contraseña"
+                onPress={() => navigation.navigate("CambiarPassword")}
+                testID="settings-cambiar-password-row"
+                divider
+              />
+            ) : null}
+            <ListRow
+              icon="crown"
+              iconBackground={colors.accent}
+              title="Plan y suscripción"
+              subtitle="Tu plan, consumo y planes disponibles"
+              onPress={() => navigation.navigate("MiSuscripcion")}
+              testID="settings-planes-row"
+            />
+          </SectionCard>
+
+          <SectionCard label="Preferencias">
+            <ListRow
+              icon="bell"
+              title="Notificaciones"
+              subtitle="Emails de votos, itinerarios y deudas"
+              onPress={() => navigation.navigate("PreferenciasNotificaciones")}
+              divider
+            />
+            <ListRow
+              icon="user-shield"
+              title="Privacidad"
+              subtitle="Qué datos ven los demás viajeros"
+              onPress={() => navigation.navigate("PreferenciasPrivacidad")}
+              testID="settings-privacidad-row"
+              divider
+            />
+            <ListRow
+              icon="wand-magic-sparkles"
+              title="Planificación de viajes"
+              subtitle="Intereses, ritmo y presupuesto por viaje"
+              onPress={() => navigation.navigate("PreferenciasPlanificacion")}
+              testID="settings-planificacion-row"
+            />
+          </SectionCard>
+
+          <SectionCard label="Acerca de">
+            <View style={styles.infoRow}>
+              <Text style={styles.infoLabel}>Versión de la aplicación</Text>
+              <Text style={styles.infoValue}>1.0.0 (UTN FRC)</Text>
             </View>
-          </View>
+          </SectionCard>
 
-          {/* SECCIÓN 3: PREFERENCIAS */}
-          <View style={styles.section}>
-            <Text style={styles.sectionLabel}>Preferencias</Text>
-            <View style={styles.groupContainer}>
-              <Pressable
-                onPress={() => navigation.navigate("PreferenciasNotificaciones")}
-                style={({ pressed }) => [
-                  styles.itemRow,
-                  styles.itemRowDivider,
-                  pressed && styles.itemRowPressed,
-                ]}
-              >
-                <View style={styles.itemLeft}>
-                  <View style={[styles.iconCircle, { backgroundColor: colors.surfaceAlt }]}>
-                    <FontAwesome6 name="bell" size={16} color={colors.primary} />
-                  </View>
-                  <View>
-                    <Text style={styles.itemTitle}>Notificaciones</Text>
-                    <Text style={styles.itemSubtitle}>Emails de votos, itinerarios y deudas</Text>
-                  </View>
-                </View>
-                <FontAwesome6 name="chevron-right" size={14} color={colors.textMuted} />
-              </Pressable>
-              <Pressable
-                onPress={() => navigation.navigate("PreferenciasPrivacidad")}
-                testID="settings-privacidad-row"
-                style={({ pressed }) => [
-                  styles.itemRow,
-                  styles.itemRowDivider,
-                  pressed && styles.itemRowPressed,
-                ]}
-              >
-                <View style={styles.itemLeft}>
-                  <View style={[styles.iconCircle, { backgroundColor: colors.surfaceAlt }]}>
-                    <FontAwesome6 name="user-shield" size={16} color={colors.primary} />
-                  </View>
-                  <View>
-                    <Text style={styles.itemTitle}>Privacidad</Text>
-                    <Text style={styles.itemSubtitle}>Qué datos ven los demás viajeros</Text>
-                  </View>
-                </View>
-                <FontAwesome6 name="chevron-right" size={14} color={colors.textMuted} />
-              </Pressable>
-              <Pressable
-                onPress={() => navigation.navigate("PreferenciasPlanificacion")}
-                testID="settings-planificacion-row"
-                style={({ pressed }) => [
-                  styles.itemRow,
-                  pressed && styles.itemRowPressed,
-                ]}
-              >
-                <View style={styles.itemLeft}>
-                  <View style={[styles.iconCircle, { backgroundColor: colors.surfaceAlt }]}>
-                    <FontAwesome6 name="wand-magic-sparkles" size={16} color={colors.primary} />
-                  </View>
-                  <View>
-                    <Text style={styles.itemTitle}>Planificación de viajes</Text>
-                    <Text style={styles.itemSubtitle}>Intereses, ritmo y presupuesto por viaje</Text>
-                  </View>
-                </View>
-                <FontAwesome6 name="chevron-right" size={14} color={colors.textMuted} />
-              </Pressable>
-            </View>
-          </View>
-
-          {/* SECCIÓN 4: INFORMACIÓN */}
-          <View style={styles.section}>
-            <Text style={styles.sectionLabel}>Acerca de</Text>
-            <View style={styles.groupContainer}>
-              <View style={styles.infoRow}>
-                <Text style={styles.infoLabel}>Versión de la aplicación</Text>
-                <Text style={styles.infoValue}>1.0.0 (UTN FRC)</Text>
-              </View>
-            </View>
-          </View>
-
-          {/* SECCIÓN 5: CERRAR SESIÓN */}
-          <View style={[styles.section, { marginTop: spacing.md }]}>
-            <Pressable
-                testID="logout-button"
-                onPress={handleLogoutPress}
-                style={({ pressed }) => [
-                    styles.logoutButton,
-                    pressed && styles.logoutButtonPressed,
-                ]}
-            >
-              <FontAwesome6 name="arrow-right-from-bracket" size={16} color={colors.danger} />
-              <Text style={styles.logoutText}>Cerrar sesión</Text>
-            </Pressable>
-          </View>
+          <Pressable
+            testID="logout-button"
+            onPress={handleLogoutPress}
+            style={({ pressed }) => [styles.logoutButton, pressed && styles.logoutButtonPressed]}
+          >
+            <FontAwesome6 name="arrow-right-from-bracket" size={16} color={colors.danger} />
+            <Text style={styles.logoutText}>Cerrar sesión</Text>
+          </Pressable>
         </View>
       </ScrollView>
 
@@ -239,9 +117,7 @@ export default function SettingsScreen({ navigation }) {
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
             <Text style={styles.modalTitle}>Cerrar sesión</Text>
-            <Text style={styles.modalBody}>
-              ¿Estás seguro de que deseás cerrar tu sesión en CYANEA?
-            </Text>
+            <Text style={styles.modalBody}>¿Estás seguro de que deseás cerrar tu sesión en CYANEA?</Text>
             <View style={styles.modalActions}>
               <PrimaryButton
                 label="Cancelar"
@@ -271,130 +147,15 @@ const styles = StyleSheet.create({
   scrollContent: {
     paddingBottom: spacing.xxxl,
   },
-  hero: {
-    backgroundColor: colors.primary,
-    paddingHorizontal: spacing.lg,
-    paddingTop: spacing.sm,
-    paddingBottom: spacing.xl,
-    borderBottomLeftRadius: 32,
-    borderBottomRightRadius: 32,
-    alignItems: "center",
-  },
-  heroTopRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    alignSelf: "flex-start",
-  },
-  card: {
+  body: {
     paddingHorizontal: spacing.lg,
     paddingTop: spacing.lg,
     gap: spacing.lg,
   },
-  cardDesktop: {
+  bodyDesktop: {
     maxWidth: 520,
     alignSelf: "center",
     width: "100%",
-  },
-  title: {
-    ...textStyles.tripTitle,
-    color: colors.textInverse,
-    fontSize: 26,
-    marginTop: spacing.xs,
-    textAlign: "center",
-  },
-  section: {
-    gap: spacing.xs,
-  },
-  sectionLabel: {
-    ...textStyles.sectionLabel,
-    color: colors.textMuted,
-    fontSize: 11,
-    letterSpacing: 0.8,
-    marginLeft: 4,
-  },
-  groupContainer: {
-    backgroundColor: colors.surface,
-    borderRadius: radii.md,
-    borderWidth: 1,
-    borderColor: colors.border,
-    overflow: "hidden",
-  },
-  itemRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    padding: spacing.md,
-  },
-  itemRowDivider: {
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
-  },
-  itemRowPressed: {
-    backgroundColor: colors.surfaceAlt,
-  },
-  itemLeft: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing.md,
-    flex: 1,
-  },
-  iconCircle: {
-    width: 38,
-    height: 38,
-    borderRadius: radii.sm,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  itemTitle: {
-    ...textStyles.bodyStrong,
-    color: colors.textPrimary,
-    fontSize: 15,
-  },
-  itemSubtitle: {
-    ...textStyles.meta,
-    color: colors.textSecondary,
-    fontSize: 13,
-  },
-  proCardContainer: {
-    padding: spacing.md,
-    gap: spacing.sm,
-  },
-  proHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-  },
-  badgeRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing.xs,
-  },
-  freeBadge: {
-    backgroundColor: colors.surfaceAlt,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: radii.pill,
-  },
-  freeBadgeText: {
-    ...textStyles.label,
-    fontSize: 9,
-    color: colors.textSecondary,
-  },
-  upgradeBanner: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    backgroundColor: colors.accentMuted,
-    paddingVertical: spacing.xs,
-    paddingHorizontal: spacing.sm,
-    borderRadius: radii.sm,
-    marginTop: 4,
-  },
-  upgradeText: {
-    ...textStyles.meta,
-    color: colors.primaryStrong,
-    fontWeight: "700",
-    fontSize: 12,
   },
   infoRow: {
     flexDirection: "row",
@@ -418,6 +179,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     gap: spacing.sm,
     padding: spacing.md,
+    marginTop: spacing.md,
     borderRadius: radii.md,
     backgroundColor: colors.background,
     borderWidth: 1,
@@ -459,5 +221,5 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: spacing.sm,
     marginTop: spacing.xs,
-  }
+  },
 });

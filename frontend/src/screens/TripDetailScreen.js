@@ -4980,7 +4980,7 @@ const styles = StyleSheet.create({
   },
   checklistProgressBarFill: {
     height: "100%",
-    backgroundColor: "#facc15",
+    backgroundColor: colors.accent,
     borderRadius: 4,
   },
   checklistProgressSub: {

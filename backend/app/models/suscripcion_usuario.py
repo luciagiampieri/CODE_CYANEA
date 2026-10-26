@@ -55,8 +55,6 @@ class SuscripcionUsuario(Base):
     )
     PrecioPeriodoARS: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
     MesesPeriodo: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    # US 116: suscripción (preapproval) creada en Mercado Pago, último estado
-    # conocido allí y momento en que el viajero aceptó la renovación automática.
     IdSuscripcionPasarela: Mapped[str | None] = mapped_column(
         String(150), nullable=True, unique=True
     )
@@ -66,6 +64,12 @@ class SuscripcionUsuario(Base):
     )
     FechaCreacion: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    FechaAvisoFinalizacion: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    FechaFinalizacion: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
     )
 
     Usuario = relationship("Usuario", foreign_keys=[IdUsuario])

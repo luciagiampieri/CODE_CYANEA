@@ -74,11 +74,11 @@ describe("SettingScreen", () => {
     expect(navigation.navigate).toHaveBeenCalledWith("PreferenciasPlanificacion");
   });
 
-  it("abre planes desde Mi cuenta", async () => {
-    const navigation = { goBack: jest.fn(), navigate: jest.fn() };
+  it("abre plan y suscripción desde Mi cuenta", async () => {
+    const navigation = { navigate: jest.fn(), goBack: jest.fn() };
     const { getByTestId } = await render(<SettingsScreen navigation={navigation} />);
     await fireEvent.press(getByTestId("settings-planes-row"));
-    expect(navigation.navigate).toHaveBeenCalledWith("Planes");
+    expect(navigation.navigate).toHaveBeenCalledWith("MiSuscripcion");
   });
 
   describe("cerrar sesión en Web (modal, en vez de Alert nativo)", () => {

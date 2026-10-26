@@ -7,11 +7,11 @@ import IconCircleButton from '../components/ui/IconCircleButton';
 import PrimaryButton from '../components/ui/PrimaryButton';
 import { getSubscriptionStatus } from '../services/api';
 import { colors } from '../theme/tokens';
-import { p, precioPlan } from './PlansScreen';
+import { p, precioPlan } from '../components/plans/planStyles';
 import { fechaCorta } from './SubscribeProScreen';
 
 export const INTERVALO_CONSULTA_MS = 4000;
-export const MAX_CONSULTAS = 30; // unos dos minutos esperando la confirmación
+export const MAX_CONSULTAS = 30; 
 const ESPERANDO = new Set(['sin_pago', 'pago_en_proceso']);
 
 const CONTENIDO = {
@@ -53,7 +53,6 @@ export default function SubscriptionStatusScreen({ navigation }) {
     return () => { enFoco.current = false; };
   }, [consultar]));
 
-  // Mientras se espera la confirmación de Mercado Pago se vuelve a consultar.
   useEffect(() => {
     if (!estado || !ESPERANDO.has(estado.estado) || consultas >= MAX_CONSULTAS) return undefined;
     const temporizador = setTimeout(() => { setConsultas((n) => n + 1); consultar(); }, INTERVALO_CONSULTA_MS);
@@ -61,8 +60,6 @@ export default function SubscriptionStatusScreen({ navigation }) {
   }, [estado, consultas, consultar]);
 
   const actualizar = () => { setCargando(true); setConsultas(0); consultar(); };
-  // En React Navigation 7, `navigate` hacia una pantalla anterior agrega otra copia
-  // al stack: se usa popTo/replace para no dejar pantallas repetidas al volver atrás.
   const volverAPlanes = () => (typeof navigation.popTo === 'function'
     ? navigation.popTo('Planes') : navigation.navigate('Planes'));
   const reintentar = () => navigation.replace('SuscribirsePro', { modalidad: estado?.modalidad });

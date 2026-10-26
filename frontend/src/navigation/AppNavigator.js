@@ -6,8 +6,7 @@ import { ActivityIndicator, View } from "react-native";
 
 import { useAuth } from "../context/AuthContext";
 import MainTabs from "./MainTabs";
-import PlansScreen from "../screens/PlansScreen";
-import MySubscriptionScreen from "../screens/MySubscriptionScreen";
+import PlanSubscriptionScreen from "../screens/PlanSubscriptionScreen";
 import SubscribeProScreen from "../screens/SubscribeProScreen";
 import SubscriptionStatusScreen from "../screens/SubscriptionStatusScreen";
 import CreateTripScreen from "../screens/CreateTripScreen";
@@ -172,8 +171,8 @@ export default function AppNavigator() {
               animation: "slide_from_right",
             }}
           />
-          <Stack.Screen name="Planes" component={PlansScreen} options={{ headerShown: false }} />
-          <Stack.Screen name="MiSuscripcion" component={MySubscriptionScreen} options={{ headerShown: false }} />
+          <Stack.Screen name="Planes" component={PlanSubscriptionScreen} initialParams={{ tab: "planes" }} options={{ headerShown: false }} />
+          <Stack.Screen name="MiSuscripcion" component={PlanSubscriptionScreen} initialParams={{ tab: "mi_plan" }} options={{ headerShown: false }} />
           <Stack.Screen name="SuscribirsePro" component={SubscribeProScreen} options={{ headerShown: false }} />
           <Stack.Screen name="SuscripcionEstado" component={SubscriptionStatusScreen} options={{ headerShown: false }} />
           <Stack.Screen

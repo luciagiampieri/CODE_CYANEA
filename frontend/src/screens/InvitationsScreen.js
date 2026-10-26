@@ -36,8 +36,10 @@ const DESTINO_SUSCRIPCION = {
   suscripcion_renovada: "MiSuscripcion",
   suscripcion_cancelada: "MiSuscripcion",
   suscripcion_reactivada: "MiSuscripcion",
+  suscripcion_por_finalizar: "MiSuscripcion",
   renovacion_suscripcion_rechazada: "MiSuscripcion",
   pago_suscripcion_rechazado: "Planes",
+  plan_gratuito: "Planes",
 };
 
 const TIPOS_ALERTA = new Set(["renovacion_suscripcion_rechazada", "pago_suscripcion_rechazado"]);

@@ -2,15 +2,18 @@ import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import * as WebBrowser from 'expo-web-browser';
 import SubscribeProScreen from '../screens/SubscribeProScreen';
 import SubscriptionStatusScreen, { INTERVALO_CONSULTA_MS } from '../screens/SubscriptionStatusScreen';
-import MySubscriptionScreen from '../screens/MySubscriptionScreen';
-import { getAvailablePlans, getSubscriptionStatus, getSubscriptionSummary, startSubscription } from '../services/api';
+import PlanSubscriptionScreen from '../screens/PlanSubscriptionScreen';
+import {
+  getAvailablePlans, getSubscriptionManagement, getSubscriptionStatus, getSubscriptionSummary, startSubscription,
+} from '../services/api';
 
 jest.mock('@react-navigation/native', () => ({ useFocusEffect: (callback) => require('react').useEffect(callback, [callback]) }));
 jest.mock('@expo/vector-icons', () => ({ FontAwesome6: () => null }));
 jest.mock('expo-web-browser', () => ({ openAuthSessionAsync: jest.fn(() => Promise.resolve({ type: 'success' })) }));
 jest.mock('../services/api', () => ({
   getAvailablePlans: jest.fn(), getAccountUsage: jest.fn(), getSubscriptionSummary: jest.fn(),
-  startSubscription: jest.fn(), getSubscriptionStatus: jest.fn(),
+  startSubscription: jest.fn(), getSubscriptionStatus: jest.fn(), getSubscriptionManagement: jest.fn(),
+  cancelSubscription: jest.fn(), reactivateSubscription: jest.fn(),
 }));
 
 const navigation = { navigate: jest.fn(), goBack: jest.fn(), replace: jest.fn(), popTo: jest.fn() };
@@ -27,6 +30,7 @@ const estadoBase = { id: 7, modalidad: 'mensual', precioARS: '4900.00', fechaIni
 beforeEach(() => {
   jest.clearAllMocks();
   getSubscriptionSummary.mockResolvedValue(resumen);
+  getSubscriptionManagement.mockResolvedValue({ planActual: 'gratuito', suscripcion: null });
 });
 
 async function abrirSuscripcion(params) {
@@ -141,11 +145,11 @@ test('mientras espera la confirmación vuelve a consultar hasta que se activa', 
   }
 });
 
-test('Mi suscripción ofrece ver el estado de un pago pendiente', async () => {
+test('Mi plan ofrece ver el estado de un pago pendiente', async () => {
   getAvailablePlans.mockResolvedValue({ planActual: 'gratuito', precioMensualARS: '4900', precioAnualARS: '49000',
     ultimaSuscripcion: { id: 7, tipoPlan: 'mensual', estado: 'pendiente_pago', fechaInicio: '2026-10-25T15:00:00Z',
       fechaFin: '2026-11-25T15:00:00Z', fechaCancelacion: null, precioPeriodoARS: '4900' } });
-  await render(<MySubscriptionScreen navigation={navigation} />);
+  await render(<PlanSubscriptionScreen navigation={navigation} route={{ params: { tab: 'mi_plan' } }} />);
   await fireEvent.press(await screen.findByTestId('mi-suscripcion-estado-pago'));
   expect(navigation.navigate).toHaveBeenCalledWith('SuscripcionEstado');
   expect(screen.queryByTestId('mi-suscripcion-suscribirme')).toBeNull();

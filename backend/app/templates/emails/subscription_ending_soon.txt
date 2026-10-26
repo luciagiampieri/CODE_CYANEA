@@ -1,0 +1,9 @@
+Hola {{ nombre }},
+
+Como cancelaste la renovación de tu suscripción Pro {{ modalidad }}, el {{ fecha_fin }} tu cuenta vuelve al plan gratuito.
+
+Tus viajes, gastos, documentos y actividades se conservan. Si algún viaje supera los límites del plan gratuito, vas a poder seguir consultándolo, pero no sumar cosas nuevas que excedan el límite.
+
+Si querés seguir con Pro, reactivá la renovación desde Mi suscripción antes de esa fecha.
+
+{{ app_url }}
