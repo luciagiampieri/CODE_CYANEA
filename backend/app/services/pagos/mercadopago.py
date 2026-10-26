@@ -12,10 +12,11 @@ from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
-# Estado de cada cobro en Cyanea (tabla EstadosPagosSuscripciones).
 PAGO_APROBADO = "aprobado"
 PAGO_RECHAZADO = "rechazado"
 PAGO_PENDIENTE = "pendiente"
+
+URL_GESTION_SUSCRIPCIONES = "https://www.mercadopago.com.ar/subscriptions"
 
 _ESTADOS_PAGO_RECHAZADO = {"rejected", "cancelled", "refunded", "charged_back"}
 
@@ -40,7 +41,7 @@ class SuscripcionPasarela:
 class CobroPasarela:
     id: str
     id_suscripcion: str | None
-    estado: str  # aprobado | rechazado | pendiente
+    estado: str 
     monto: Decimal | None
     fecha: datetime | None
 
@@ -51,6 +52,10 @@ class ClientePasarela(Protocol):
     async def obtener_suscripcion(self, id_suscripcion: str) -> SuscripcionPasarela: ...
 
     async def cancelar_suscripcion(self, id_suscripcion: str) -> None: ...
+
+    async def pausar_suscripcion(self, id_suscripcion: str) -> None: ...
+
+    async def reactivar_suscripcion(self, id_suscripcion: str) -> None: ...
 
     async def obtener_cobro(self, id_cobro: str) -> CobroPasarela: ...
 
@@ -129,7 +134,6 @@ class MercadoPagoClient:
         except httpx.HTTPError as error:
             raise ErrorPasarela(f"No se pudo contactar a Mercado Pago: {error}") from error
         if respuesta.status_code >= 400:
-            # No se registra el cuerpo completo: puede incluir datos del pagador.
             logger.warning(
                 "Mercado Pago respondió con error",
                 extra={"status": respuesta.status_code, "ruta": ruta},
@@ -171,6 +175,12 @@ class MercadoPagoClient:
 
     async def cancelar_suscripcion(self, id_suscripcion: str) -> None:
         await self._request("PUT", f"/preapproval/{id_suscripcion}", json={"status": "cancelled"})
+
+    async def pausar_suscripcion(self, id_suscripcion: str) -> None:
+        await self._request("PUT", f"/preapproval/{id_suscripcion}", json={"status": "paused"})
+
+    async def reactivar_suscripcion(self, id_suscripcion: str) -> None:
+        await self._request("PUT", f"/preapproval/{id_suscripcion}", json={"status": "authorized"})
 
     async def obtener_cobro(self, id_cobro: str) -> CobroPasarela:
         return cobro_desde_api(await self._request("GET", f"/authorized_payments/{id_cobro}"))

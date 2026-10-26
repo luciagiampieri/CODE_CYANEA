@@ -10,7 +10,9 @@ from app.core.config import settings
 from app.db.session import get_db
 from app.models.usuario import Usuario
 from app.schemas.suscripcion_pro import (
+    AccionSuscripcionRead,
     EstadoSuscripcionRead,
+    GestionSuscripcionRead,
     IniciarSuscripcionRequest,
     IniciarSuscripcionResponse,
     ResumenSuscripcionRead,
@@ -33,6 +35,41 @@ router_pagos = APIRouter()
 
 def _http(error: suscripcion_pro.SuscripcionError) -> HTTPException:
     return HTTPException(error.status, error.mensaje, headers={"X-Error-Code": error.codigo})
+
+
+@router.get("/me/suscripcion", response_model=GestionSuscripcionRead)
+def gestion_suscripcion(
+    response: Response,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+):
+    response.headers["Cache-Control"] = "no-store"
+    return suscripcion_pro.gestion(db, current_user)
+
+
+@router.post("/me/suscripcion/cancelar", response_model=AccionSuscripcionRead)
+async def cancelar_suscripcion(
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+    cliente=Depends(get_cliente_pasarela),
+    mail_service: MailService = Depends(get_mail_service),
+):
+    try:
+        return await suscripcion_pro.cancelar(db, current_user, cliente, mail_service)
+    except suscripcion_pro.SuscripcionError as error:
+        raise _http(error)
+
+
+@router.post("/me/suscripcion/reactivar", response_model=AccionSuscripcionRead)
+async def reactivar_suscripcion(
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+    cliente=Depends(get_cliente_pasarela),
+):
+    try:
+        return await suscripcion_pro.reactivar(db, current_user, cliente)
+    except suscripcion_pro.SuscripcionError as error:
+        raise _http(error)
 
 
 @router.get("/me/suscripcion/resumen", response_model=ResumenSuscripcionRead)
@@ -116,7 +153,6 @@ async def webhook_mercadopago(
     try:
         await suscripcion_pro.procesar_notificacion(db, tipo, data_id, cliente, mail_service)
     except (PasarelaNoConfigurada, ErrorPasarela):
-        # Mercado Pago reintenta la notificación si no recibe 200/201.
         logger.warning("No se pudo procesar el webhook de Mercado Pago", exc_info=True)
         raise HTTPException(503, "No se pudo consultar Mercado Pago.")
     return {"recibido": True}

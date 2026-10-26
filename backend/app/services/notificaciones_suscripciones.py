@@ -16,11 +16,13 @@ logger = logging.getLogger(__name__)
 
 TIPO_SUSCRIPCION_ACTIVADA = "suscripcion_activada"
 TIPO_PAGO_SUSCRIPCION_RECHAZADO = "pago_suscripcion_rechazado"
+TIPO_SUSCRIPCION_CANCELADA = "suscripcion_cancelada"
+TIPO_SUSCRIPCION_REACTIVADA = "suscripcion_reactivada"
 
 _ZONA_AR = ZoneInfo("America/Argentina/Buenos_Aires")
 
 
-def _fecha(valor: datetime) -> str:
+def fecha_corta(valor: datetime) -> str:
     return valor.astimezone(_ZONA_AR).strftime("%d/%m/%Y")
 
 
@@ -83,7 +85,7 @@ async def notificar_activacion(
     db: Session, usuario: Usuario, suscripcion: SuscripcionUsuario, mail_service
 ) -> None:
     modalidad = _modalidad(suscripcion)
-    renovacion = _fecha(suscripcion.FechaFin)
+    renovacion = fecha_corta(suscripcion.FechaFin)
     await _registrar_en_app(
         db,
         usuario,
@@ -101,7 +103,7 @@ async def notificar_activacion(
             "nombre": usuario.Nombre,
             "modalidad": modalidad,
             "precio": _monto(suscripcion.PrecioPeriodoARS),
-            "fecha_inicio": _fecha(suscripcion.FechaInicio),
+            "fecha_inicio": fecha_corta(suscripcion.FechaInicio),
             "fecha_renovacion": renovacion,
             "app_url": settings.mail_frontend_base_url.rstrip("/"),
         },
@@ -132,4 +134,45 @@ async def notificar_pago_rechazado(
             "precio": _monto(suscripcion.PrecioPeriodoARS),
             "app_url": settings.mail_frontend_base_url.rstrip("/"),
         },
+    )
+
+
+async def notificar_cancelacion(
+    db: Session, usuario: Usuario, suscripcion: SuscripcionUsuario, mail_service
+) -> None:
+    modalidad = _modalidad(suscripcion)
+    fin = fecha_corta(suscripcion.FechaFin)
+    await _registrar_en_app(
+        db,
+        usuario,
+        TIPO_SUSCRIPCION_CANCELADA,
+        "Cancelaste la renovación de Pro",
+        f"Tu suscripción Pro {modalidad} no se va a renovar. Conservás los beneficios Pro "
+        f"hasta el {fin} y no se realizarán nuevos cobros.",
+    )
+    await _enviar_correo(
+        mail_service,
+        usuario,
+        subject="Cyanea: cancelaste la renovación de tu suscripción Pro",
+        template_name="subscription_cancelled.html",
+        text_template_name="subscription_cancelled.txt",
+        context={
+            "nombre": usuario.Nombre,
+            "modalidad": modalidad,
+            "fecha_fin": fin,
+            "app_url": settings.mail_frontend_base_url.rstrip("/"),
+        },
+    )
+
+
+async def notificar_reactivacion(
+    db: Session, usuario: Usuario, suscripcion: SuscripcionUsuario
+) -> None:
+    await _registrar_en_app(
+        db,
+        usuario,
+        TIPO_SUSCRIPCION_REACTIVADA,
+        "Reactivaste tu suscripción Pro",
+        f"Tu suscripción Pro {_modalidad(suscripcion)} se renovará automáticamente el "
+        f"{fecha_corta(suscripcion.FechaFin)}.",
     )

@@ -6,6 +6,7 @@ from pydantic import BaseModel
 
 Modalidad = Literal["mensual", "anual"]
 EstadoIntento = Literal["activa", "pago_en_proceso", "pago_rechazado", "sin_pago", "descartada"]
+EstadoGestion = Literal["activa", "cancelada", "pendiente_pago", "vencida"]
 
 
 class ModalidadResumenRead(BaseModel):
@@ -43,3 +44,27 @@ class EstadoSuscripcionRead(BaseModel):
     fechaFin: datetime
     fechaProximaRenovacion: datetime | None
     planActual: Literal["gratuito", "pro"]
+
+
+class SuscripcionGestionRead(BaseModel):
+    id: int
+    modalidad: Modalidad | None
+    estado: EstadoGestion
+    precioARS: Decimal | None
+    fechaInicio: datetime
+    fechaFin: datetime
+    fechaProximaRenovacion: datetime | None
+    fechaCancelacion: datetime | None
+    renovacionAutomatica: bool
+    puedeCancelar: bool
+    puedeReactivar: bool
+    urlMedioPago: str | None
+
+
+class GestionSuscripcionRead(BaseModel):
+    planActual: Literal["gratuito", "pro"]
+    suscripcion: SuscripcionGestionRead | None
+
+
+class AccionSuscripcionRead(GestionSuscripcionRead):
+    message: str

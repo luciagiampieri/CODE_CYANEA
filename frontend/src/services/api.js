@@ -550,6 +550,29 @@ export async function getSubscriptionStatus() {
   return parseResponse(response, "No se pudo consultar el estado de tu suscripción.");
 }
 
+export async function getSubscriptionManagement() {
+  const response = await fetch(`${API_BASE_URL}/users/me/suscripcion`, {
+    headers: await authHeaders(), cache: "no-store",
+  });
+  return parseResponse(response, "No se pudo obtener tu suscripción.");
+}
+
+export async function cancelSubscription() {
+  const response = await fetch(`${API_BASE_URL}/users/me/suscripcion/cancelar`, {
+    method: "POST",
+    headers: await authHeaders(),
+  });
+  return parseResponse(response, "No se pudo cancelar la renovación de tu suscripción.");
+}
+
+export async function reactivateSubscription() {
+  const response = await fetch(`${API_BASE_URL}/users/me/suscripcion/reactivar`, {
+    method: "POST",
+    headers: await authHeaders(),
+  });
+  return parseResponse(response, "No se pudo reactivar la renovación de tu suscripción.");
+}
+
 export async function getAccountUsage(pagina = 1) {
   const response = await fetch(`${API_BASE_URL}/users/me/consumo?pagina=${pagina}`, {
     headers: await authHeaders(), cache: "no-store",

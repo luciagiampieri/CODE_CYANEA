@@ -110,13 +110,31 @@ export default function SettingsScreen({ navigation }) {
                 accessibilityRole="button"
                 onPress={() => navigation.navigate("Planes")}
                 testID="settings-planes-row"
-                style={({ pressed }) => [styles.itemRow, pressed && styles.itemRowPressed]}
+                style={({ pressed }) => [
+                  styles.itemRow,
+                  styles.itemRowDivider,
+                  pressed && styles.itemRowPressed,
+                ]}
               >
                 <View style={styles.itemLeft}>
                   <View style={[styles.iconCircle, { backgroundColor: colors.accent }]}>
                     <FontAwesome6 name="crown" size={16} color={colors.primary} />
                   </View>
                   <View><Text style={styles.itemTitle}>Mi plan y consumo</Text><Text style={styles.itemSubtitle}>Uso de tu cuenta y comparación de planes</Text></View>
+                </View>
+                <FontAwesome6 name="chevron-right" size={14} color={colors.textMuted} />
+              </Pressable>
+              <Pressable
+                accessibilityRole="button"
+                onPress={() => navigation.navigate("MiSuscripcion")}
+                testID="settings-suscripcion-row"
+                style={({ pressed }) => [styles.itemRow, pressed && styles.itemRowPressed]}
+              >
+                <View style={styles.itemLeft}>
+                  <View style={[styles.iconCircle, { backgroundColor: colors.surfaceAlt }]}>
+                    <FontAwesome6 name="credit-card" size={16} color={colors.primary} />
+                  </View>
+                  <View><Text style={styles.itemTitle}>Mi suscripción</Text><Text style={styles.itemSubtitle}>Estado, renovación y cancelación de Pro</Text></View>
                 </View>
                 <FontAwesome6 name="chevron-right" size={14} color={colors.textMuted} />
               </Pressable>

@@ -1,0 +1,11 @@
+Hola {{ nombre }},
+
+Registramos la cancelación de la renovación automática de tu suscripción Pro {{ modalidad }}.
+Avisamos a Mercado Pago para que no realice nuevos cobros.
+
+Conservás los beneficios Pro hasta: {{ fecha_fin }}
+
+Si cambiás de idea, podés reactivar la renovación desde Mi suscripción antes de esa fecha, sin un nuevo cobro inmediato.
+Después de esa fecha tu cuenta vuelve al plan gratuito y tus viajes se conservan.
+
+{{ app_url }}
