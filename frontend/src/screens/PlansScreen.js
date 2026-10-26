@@ -5,7 +5,6 @@ import ScreenContainer from '../components/layout/ScreenContainer';
 import IconCircleButton from '../components/ui/IconCircleButton';
 import PrimaryButton from '../components/ui/PrimaryButton';
 import AccountUsage from '../components/plans/AccountUsage';
-import { appAlert } from '../components/ui/AppDialog';
 import useAvailablePlans from '../hooks/useAvailablePlans';
 import { colors, radii, spacing, textStyles } from '../theme/tokens';
 
@@ -54,8 +53,9 @@ export default function PlansScreen({ navigation }) {
               <Text style={p.subtitulo}>Comparado con 12 pagos mensuales a la tarifa vigente.</Text>
               {datos.planActual === 'pro' ? <PrimaryButton label="Gestionar mi suscripción" testID="planes-gestionar" onPress={() => navigation.navigate('MiSuscripcion')} /> :
                 <PrimaryButton label="Suscribirme a Pro" testID="planes-suscribirme" disabled={datos.precioMensualARS == null || datos.precioAnualARS == null}
-                  onPress={() => appAlert('Suscripciones Pro', 'La contratación de Pro estará disponible próximamente. Podés consultar aquí los precios y beneficios vigentes.')} />}
-              {datos.planActual !== 'pro' ? <Text style={p.subtitulo}>Contratación disponible próximamente.</Text> : null}
+                  onPress={() => navigation.navigate('SuscribirsePro')} />}
+              {datos.planActual !== 'pro' && datos.ultimaSuscripcion?.estado === 'pendiente_pago' ? <Pressable accessibilityRole="link" testID="planes-estado-pago"
+                onPress={() => navigation.navigate('SuscripcionEstado')}><Text style={[p.subtitulo, { textDecorationLine: 'underline' }]}>Ver el estado de tu último pago</Text></Pressable> : null}
             </View>
           </View>
           <View style={p.panel}>

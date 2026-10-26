@@ -2,7 +2,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { backofficeColors as c } from '../../theme/backofficeTokens';
 import { radii, spacing, textStyles } from '../../theme/tokens';
 
-export const ESTADOS_SUSCRIPCIONES = { activa: 'Activa', pendiente_pago: 'Pendiente de pago', cancelada: 'Cancelada', vencida: 'Vencida' };
+export const ESTADOS_SUSCRIPCIONES = { activa: 'Activa', pendiente_pago: 'Pendiente de pago', cancelada: 'Cancelada', vencida: 'Vencida', descartada: 'Descartada' };
 export const ESTADOS_PAGOS = { aprobado: 'Aprobado', rechazado: 'Rechazado', pendiente: 'Pendiente' };
 
 export function monedaARS(valor) {

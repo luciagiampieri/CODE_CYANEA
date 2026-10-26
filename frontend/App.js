@@ -46,6 +46,8 @@ const linkingConfig = {
       Invitaciones: "invitaciones/:token",
       ForgotPassword: "olvide-contrasena",
       ResetPassword: "restablecer-contrasena",
+      // US 116: vuelta desde el checkout de Mercado Pago.
+      SuscripcionEstado: "suscripcion/retorno",
     },
   },
 };

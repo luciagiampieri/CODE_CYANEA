@@ -8,6 +8,8 @@ import { useAuth } from "../context/AuthContext";
 import MainTabs from "./MainTabs";
 import PlansScreen from "../screens/PlansScreen";
 import MySubscriptionScreen from "../screens/MySubscriptionScreen";
+import SubscribeProScreen from "../screens/SubscribeProScreen";
+import SubscriptionStatusScreen from "../screens/SubscriptionStatusScreen";
 import CreateTripScreen from "../screens/CreateTripScreen";
 import EditTripScreen from "../screens/EditTripScreen";
 import LoginScreen from "../screens/LoginScreen";
@@ -172,6 +174,8 @@ export default function AppNavigator() {
           />
           <Stack.Screen name="Planes" component={PlansScreen} options={{ headerShown: false }} />
           <Stack.Screen name="MiSuscripcion" component={MySubscriptionScreen} options={{ headerShown: false }} />
+          <Stack.Screen name="SuscribirsePro" component={SubscribeProScreen} options={{ headerShown: false }} />
+          <Stack.Screen name="SuscripcionEstado" component={SubscriptionStatusScreen} options={{ headerShown: false }} />
           <Stack.Screen
             name="TripDetail"
             component={TripDetailScreen}

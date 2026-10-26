@@ -21,3 +21,4 @@
 \i 019_planes_precios_y_limites.sql
 \i 020_precios_base_pro.sql
 \i 021_consulta_suscripciones_pagos.sql
+\i 022_suscripcion_pro_mercado_pago.sql

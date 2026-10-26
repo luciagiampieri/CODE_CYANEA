@@ -124,6 +124,23 @@ class Settings(BaseSettings):
 
     expense_edit_lock_ttl_seconds: int = 120
 
+    # Suscripción al plan Pro con Mercado Pago (US 116). Sin access token la
+    # contratación responde 503 PAYMENT_GATEWAY_UNAVAILABLE.
+    mercadopago_access_token: str | None = None
+    # Clave secreta de Webhooks ("Tus integraciones" > Webhooks). Si está vacía no
+    # se valida la firma; el estado igual se vuelve a consultar en la API.
+    mercadopago_webhook_secret: str | None = None
+    mercadopago_api_url: str = "https://api.mercadopago.com"
+    mercadopago_timeout_seconds: float = 15.0
+    # URL https pública a la que Mercado Pago devuelve al usuario. Vacía: se usa
+    # {API_BASE_URL}/pagos/mercadopago/retorno, que redirige a la app.
+    mercadopago_back_url: str | None = None
+    # Destino final del retorno: deep link de la app (o la URL web del frontend).
+    mercadopago_app_return_url: str = "cyanea://suscripcion/retorno"
+    # Usuario de prueba comprador para el sandbox: si se informa, se usa como
+    # payer_email en lugar del correo del viajero. Dejar vacío en producción.
+    mercadopago_test_payer_email: str | None = None
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",

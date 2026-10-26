@@ -23,6 +23,8 @@ import {
   getTripDetail,
 } from "../services/api";
 import { resolveNotificationTarget } from "../utils/notificationTarget";
+
+const TIPOS_SUSCRIPCION = new Set(["suscripcion_activada", "pago_suscripcion_rechazado"]);
 import { esErrorDeLimite, mostrarLimiteAlcanzado } from "../utils/limitesPlan";
 import { colors, spacing, surfaces, textStyles, radii } from "../theme/tokens";
 
@@ -199,6 +201,12 @@ export default function InvitationsScreen({ navigation }) {
       markNotificationAsRead(item.id).catch(() => {});
     }
 
+    // US 116: los avisos de la suscripción Pro abren "Mi suscripción".
+    if (TIPOS_SUSCRIPCION.has(item.tipo)) {
+      navigation.navigate("MiSuscripcion");
+      return;
+    }
+
     const target = resolveNotificationTarget(item);
     if (!target) return;
 
@@ -310,13 +318,20 @@ export default function InvitationsScreen({ navigation }) {
     const leida = item.leida ?? true;
     const mensajeNotificacion = item.mensaje || item.Mensaje || "";
     const abreViaje = resolveNotificationTarget(item) !== null;
+    const abreSuscripcion = TIPOS_SUSCRIPCION.has(item.tipo);
 
     return (
       <Pressable
         key={item.idUnico}
         onPress={() => handleOpenNotification(item)}
         accessibilityRole="button"
-        accessibilityHint={abreViaje ? "Abre el viaje de esta notificación" : undefined}
+        accessibilityHint={
+          abreSuscripcion
+            ? "Abre tu suscripción"
+            : abreViaje
+              ? "Abre el viaje de esta notificación"
+              : undefined
+        }
         testID={`notification-${item.id}`}
         style={({ pressed }) => [
           styles.noteCard,

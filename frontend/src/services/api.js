@@ -526,6 +526,30 @@ export async function getAvailablePlans() {
   return parseResponse(response, "No se pudieron obtener los planes vigentes.");
 }
 
+// US 116: suscripción al plan Pro con Mercado Pago.
+export async function getSubscriptionSummary() {
+  const response = await fetch(`${API_BASE_URL}/users/me/suscripcion/resumen`, {
+    headers: await authHeaders(), cache: "no-store",
+  });
+  return parseResponse(response, "No se pudo obtener el resumen de la suscripción.");
+}
+
+export async function startSubscription({ modalidad, aceptaRenovacionAutomatica }) {
+  const response = await fetch(`${API_BASE_URL}/users/me/suscripcion`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...(await authHeaders()) },
+    body: JSON.stringify({ modalidad, aceptaRenovacionAutomatica }),
+  });
+  return parseResponse(response, "No se pudo iniciar la suscripción.");
+}
+
+export async function getSubscriptionStatus() {
+  const response = await fetch(`${API_BASE_URL}/users/me/suscripcion/estado`, {
+    headers: await authHeaders(), cache: "no-store",
+  });
+  return parseResponse(response, "No se pudo consultar el estado de tu suscripción.");
+}
+
 export async function getAccountUsage(pagina = 1) {
   const response = await fetch(`${API_BASE_URL}/users/me/consumo?pagina=${pagina}`, {
     headers: await authHeaders(), cache: "no-store",

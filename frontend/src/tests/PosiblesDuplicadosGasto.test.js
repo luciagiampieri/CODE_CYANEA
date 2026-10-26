@@ -1,11 +1,3 @@
-/**
- * US 95 - Detectar posibles gastos duplicados.
- *
- * Los criterios se aplican en el backend (test_posibles_duplicados_gastos.py);
- * acá se prueba que el formulario consulte antes de registrar, muestre el
- * gasto existente como el detalle de un gasto y respete la decisión del
- * usuario, tanto en la carga manual como desde un comprobante.
- */
 import React from "react";
 import { Alert } from "react-native";
 import { act, fireEvent, render, waitFor, within } from "@testing-library/react-native";

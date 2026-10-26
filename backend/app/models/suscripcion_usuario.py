@@ -1,7 +1,16 @@
 from datetime import datetime
 from decimal import Decimal
 
-from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Index, Integer, Numeric, func
+from sqlalchemy import (
+    CheckConstraint,
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    Numeric,
+    String,
+    func,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.session import Base
@@ -46,6 +55,15 @@ class SuscripcionUsuario(Base):
     )
     PrecioPeriodoARS: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
     MesesPeriodo: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # US 116: suscripción (preapproval) creada en Mercado Pago, último estado
+    # conocido allí y momento en que el viajero aceptó la renovación automática.
+    IdSuscripcionPasarela: Mapped[str | None] = mapped_column(
+        String(150), nullable=True, unique=True
+    )
+    EstadoPasarela: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    FechaAceptacionRenovacion: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     FechaCreacion: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

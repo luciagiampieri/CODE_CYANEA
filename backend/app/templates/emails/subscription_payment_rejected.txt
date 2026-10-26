@@ -1,0 +1,8 @@
+Hola {{ nombre }},
+
+Mercado Pago rechazó el pago de tu suscripción Pro {{ modalidad }} ({{ precio }}).
+Tu plan no cambió y no se realizó ningún cobro.
+
+Podés volver a intentarlo desde Configuración > Mi plan y consumo, con la misma tarjeta o con otro medio de pago.
+
+{{ app_url }}

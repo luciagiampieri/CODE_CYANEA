@@ -4,7 +4,9 @@ from typing import Literal
 
 from pydantic import BaseModel
 
-EstadoSuscripcionFiltro = Literal["activa", "pendiente_pago", "cancelada", "vencida"]
+EstadoSuscripcionFiltro = Literal[
+    "activa", "pendiente_pago", "cancelada", "vencida", "descartada"
+]
 EstadoPagoFiltro = Literal["aprobado", "rechazado", "pendiente"]
 
 

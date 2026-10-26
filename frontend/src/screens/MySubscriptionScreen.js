@@ -6,7 +6,7 @@ import useAvailablePlans from '../hooks/useAvailablePlans';
 import { colors } from '../theme/tokens';
 import { p, precioPlan } from './PlansScreen';
 
-const estados = { activa: 'Activa', cancelada: 'Cancelada', vencida: 'Vencida', pendiente_pago: 'Pendiente de pago' };
+const estados = { activa: 'Activa', cancelada: 'Cancelada', vencida: 'Vencida', pendiente_pago: 'Pendiente de pago', descartada: 'No concretada' };
 const fecha = (valor) => new Date(valor).toLocaleDateString('es-AR', { timeZone: 'America/Argentina/Buenos_Aires' });
 
 export default function MySubscriptionScreen({ navigation }) {
@@ -28,6 +28,8 @@ export default function MySubscriptionScreen({ navigation }) {
         {sub.fechaCancelacion ? <Text style={p.texto}>Cancelación registrada: {fecha(sub.fechaCancelacion)}</Text> : null}
         {conservaPeriodo ? <Text style={p.ahorro}>Conservás los beneficios Pro hasta el {fecha(sub.fechaFin)}. La suscripción no se renovará.</Text> : null}
       </> : <Text style={p.texto}>No hay períodos de suscripción registrados para tu cuenta.</Text>}
+      {sub?.estado === 'pendiente_pago' ? <PrimaryButton label="Ver el estado del pago" testID="mi-suscripcion-estado-pago" onPress={() => navigation.navigate('SuscripcionEstado')} /> : null}
+      {datos.planActual !== 'pro' && sub?.estado !== 'pendiente_pago' ? <PrimaryButton label="Suscribirme a Pro" testID="mi-suscripcion-suscribirme" onPress={() => navigation.navigate('SuscribirsePro')} /> : null}
       <Text style={p.subtitulo}>Los cambios de modalidad y de renovación estarán disponibles próximamente.</Text>
       <PrimaryButton label="Actualizar información" variant="secondary" onPress={actualizar} />
     </View> : null}

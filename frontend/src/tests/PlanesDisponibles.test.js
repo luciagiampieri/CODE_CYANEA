@@ -38,7 +38,9 @@ test('CP1 y CP2: compara limites vigentes e identifica el plan gratuito', async 
   expect(screen.getByTestId('planes-suscribirme')).toBeTruthy();
   expect(screen.queryByTestId('planes-gestionar')).toBeNull();
   await fireEvent.press(screen.getByTestId('planes-suscribirme'));
-  expect(appAlert).toHaveBeenCalledWith('Suscripciones Pro', expect.stringContaining('próximamente'));
+  // US 116: la contratación abre el flujo de suscripción.
+  expect(navigation.navigate).toHaveBeenCalledWith('SuscribirsePro');
+  expect(screen.queryByText(/próximamente/)).toBeNull();
 });
 
 test('CP3: actualiza precios y limites sin conservar valores anteriores', async () => {

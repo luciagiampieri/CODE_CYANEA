@@ -1,0 +1,13 @@
+Hola {{ nombre }},
+
+Mercado Pago confirmó tu pago y tu suscripción Pro {{ modalidad }} ya está activa.
+
+Modalidad: {{ modalidad|capitalize }}
+Importe del período: {{ precio }}
+Inicio: {{ fecha_inicio }}
+Próxima renovación: {{ fecha_renovacion }}
+
+La suscripción se renueva automáticamente y Mercado Pago realiza el cobro en cada renovación.
+Cyanea no guarda los datos de tu tarjeta.
+
+{{ app_url }}

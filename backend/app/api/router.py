@@ -19,6 +19,7 @@ from app.api.routes import (
     checklists,
     planificacion,
     sugerencias,
+    suscripciones,
 )
 
 api_router = APIRouter()
@@ -34,6 +35,8 @@ api_router.include_router(
     planificacion.router_usuario, prefix="/users", tags=["planificacion"]
 )
 api_router.include_router(users.router, prefix="/users", tags=["users"])
+api_router.include_router(suscripciones.router, prefix="/users", tags=["suscripciones"])
+api_router.include_router(suscripciones.router_pagos, prefix="/pagos", tags=["pagos"])
 api_router.include_router(gastos.router, prefix="/gastos", tags=["gastos"])
 api_router.include_router(liquidaciones.router, prefix="/trips", tags=["liquidaciones"])
 api_router.include_router(monedas.router, prefix="/monedas", tags=["monedas"])

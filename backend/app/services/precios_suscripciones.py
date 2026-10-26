@@ -11,6 +11,17 @@ from app.models.plan import PLAN_PRO, Plan
 from app.models.suscripcion_usuario import SuscripcionUsuario
 
 
+def sumar_meses(inicio: datetime, meses: int) -> datetime:
+    """Mismo día del mes siguiente (o del año siguiente); si no existe, el último día."""
+    mes = inicio.year * 12 + inicio.month - 1 + meses
+    anio, indice_mes = divmod(mes, 12)
+    return inicio.replace(
+        year=anio,
+        month=indice_mes + 1,
+        day=min(inicio.day, calendar.monthrange(anio, indice_mes + 1)[1]),
+    )
+
+
 def crear_periodo(db: Session, *, id_usuario: int, id_estado: int, meses: int, inicio: datetime):
     if type(meses) is not int or meses not in (1, 12):
         raise ValueError("El período debe ser mensual o anual.")
@@ -29,19 +40,12 @@ def crear_periodo(db: Session, *, id_usuario: int, id_estado: int, meses: int, i
             "El precio de Pro todavía no está configurado.",
             headers={"X-Error-Code": "PLAN_PRICE_UNAVAILABLE"},
         )
-    mes = inicio.year * 12 + inicio.month - 1 + meses
-    anio, indice_mes = divmod(mes, 12)
-    fin = inicio.replace(
-        year=anio,
-        month=indice_mes + 1,
-        day=min(inicio.day, calendar.monthrange(anio, indice_mes + 1)[1]),
-    )
     periodo = SuscripcionUsuario(
         IdUsuario=id_usuario,
         IdPlan=PLAN_PRO,
         IdEstadoSuscripcion=id_estado,
         FechaInicio=inicio,
-        FechaFin=fin,
+        FechaFin=sumar_meses(inicio, meses),
         PrecioPeriodoARS=precio,
         MesesPeriodo=meses,
     )

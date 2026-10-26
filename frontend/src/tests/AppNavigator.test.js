@@ -67,6 +67,10 @@ describe("US 07 - Cerrar sesión - AppNavigator", () => {
     const utils = await render(<NavigationContainer ref={navigationRef} initialState={{ routes: [{ name: "Planes" }] }}><AppNavigator /></NavigationContainer>);
     expect(await utils.findByText("Comparación de planes")).toBeTruthy();
     expect(navigationRef.getRootState().routeNames).toContain("MiSuscripcion");
+    // US 116: flujo de suscripción y retorno desde Mercado Pago.
+    expect(navigationRef.getRootState().routeNames).toEqual(
+      expect.arrayContaining(["SuscribirsePro", "SuscripcionEstado"])
+    );
   });
 
   it("redirige al inicio de sesión e impide acceder a funcionalidades autenticadas sin sesión", async () => {
