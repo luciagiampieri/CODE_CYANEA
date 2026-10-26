@@ -39,6 +39,7 @@ INTENTO_DESCARTADO = "descartada"
 
 MODALIDADES = {"mensual": 1, "anual": 12}
 
+# Estados de la suscripción en Mercado Pago.
 PASARELA_AUTORIZADA = "authorized"
 PASARELA_CANCELADA = "cancelled"
 PASARELA_PAUSADA = "paused"
@@ -128,6 +129,25 @@ def _tiene_pago_aprobado():
     )
 
 
+def _tuvo_pago_aprobado(db: Session, suscripcion: SuscripcionUsuario) -> bool:
+    return (
+        db.scalar(
+            select(PagoSuscripcion.IdPagoSuscripcion)
+            .join(
+                EstadoPagoSuscripcion,
+                EstadoPagoSuscripcion.IdEstadoPagoSuscripcion
+                == PagoSuscripcion.IdEstadoPagoSuscripcion,
+            )
+            .where(
+                PagoSuscripcion.IdSuscripcionUsuario == suscripcion.IdSuscripcionUsuario,
+                EstadoPagoSuscripcion.Nombre == PAGO_APROBADO,
+            )
+            .limit(1)
+        )
+        is not None
+    )
+
+
 def estado_intento(db: Session, suscripcion: SuscripcionUsuario) -> str:
     """Estado del intento para la app (activa, en proceso, rechazado, sin pago...)."""
     nombre = _nombre_estado(db, suscripcion)
@@ -135,11 +155,14 @@ def estado_intento(db: Session, suscripcion: SuscripcionUsuario) -> str:
         return INTENTO_ACTIVA
     if nombre != ESTADO_PENDIENTE_PAGO:
         return INTENTO_DESCARTADO
+    if _tuvo_pago_aprobado(db, suscripcion):
+        return INTENTO_ACTIVA
     ultimo = _ultimo_pago(db, suscripcion)
     if ultimo == PAGO_PENDIENTE:
         return INTENTO_EN_PROCESO
     if ultimo == PAGO_RECHAZADO:
         return INTENTO_RECHAZADO
+    # Tarjeta autorizada en Mercado Pago: el primer cobro llega en menos de una hora.
     if suscripcion.EstadoPasarela == PASARELA_AUTORIZADA:
         return INTENTO_EN_PROCESO
     return INTENTO_SIN_PAGO
@@ -198,6 +221,11 @@ def url_retorno() -> str:
     )
 
 
+# ---------------------------------------------------------------------------
+# Cobros y sincronización con Mercado Pago
+# ---------------------------------------------------------------------------
+
+
 @dataclass(slots=True)
 class _Aviso:
     tipo: str
@@ -209,9 +237,57 @@ def _activar(db: Session, suscripcion: SuscripcionUsuario, fecha_aprobacion: dat
     suscripcion.IdEstadoSuscripcion = _id_estado_suscripcion(db, ESTADO_ACTIVA)
     suscripcion.FechaInicio = fecha_aprobacion
     suscripcion.FechaFin = sumar_meses(fecha_aprobacion, suscripcion.MesesPeriodo or 1)
+    # Un cobro aprobado implica que Mercado Pago ya autorizó la suscripción.
     suscripcion.EstadoPasarela = PASARELA_AUTORIZADA
     usuario = db.get(Usuario, suscripcion.IdUsuario)
     usuario.IdPlan = PLAN_PRO
+
+
+def _renovar(db: Session, suscripcion: SuscripcionUsuario) -> None:
+    inicio = _aware(suscripcion.FechaFin)
+    suscripcion.FechaInicio = inicio
+    suscripcion.FechaFin = sumar_meses(inicio, suscripcion.MesesPeriodo or 1)
+    suscripcion.IdEstadoSuscripcion = _id_estado_suscripcion(db, ESTADO_ACTIVA)
+    suscripcion.EstadoPasarela = PASARELA_AUTORIZADA
+    usuario = db.get(Usuario, suscripcion.IdUsuario)
+    usuario.IdPlan = PLAN_PRO
+
+
+def _guardar_pago(
+    db: Session,
+    suscripcion: SuscripcionUsuario,
+    cobro: CobroPasarela,
+    pago: PagoSuscripcion | None,
+    fecha: datetime,
+) -> None:
+    id_estado_pago = _id_estado_pago(db, cobro.estado)
+    if pago is None:
+        db.add(
+            PagoSuscripcion(
+                IdSuscripcionUsuario=suscripcion.IdSuscripcionUsuario,
+                IdEstadoPagoSuscripcion=id_estado_pago,
+                FechaPago=fecha,
+                MontoARS=cobro.monto or suscripcion.PrecioPeriodoARS,
+                IdOperacionPasarela=cobro.id,
+            )
+        )
+        return
+    pago.IdEstadoPagoSuscripcion = id_estado_pago
+    pago.FechaPago = fecha
+    if cobro.monto:
+        pago.MontoARS = cobro.monto
+
+
+def _aplicar_renovacion(
+    db: Session, suscripcion: SuscripcionUsuario, cobro: CobroPasarela
+) -> _Aviso | None:
+    if cobro.estado == PAGO_APROBADO:
+        _renovar(db, suscripcion)
+        return _Aviso(notificaciones_suscripciones.TIPO_SUSCRIPCION_RENOVADA, suscripcion)
+    if cobro.estado == PAGO_RECHAZADO and _nombre_estado(db, suscripcion) == ESTADO_ACTIVA:
+        suscripcion.IdEstadoSuscripcion = _id_estado_suscripcion(db, ESTADO_PENDIENTE_PAGO)
+        return _Aviso(notificaciones_suscripciones.TIPO_RENOVACION_RECHAZADA, suscripcion)
+    return None
 
 
 def _registrar_cobro(db: Session, cobro: CobroPasarela) -> _Aviso | None:
@@ -226,7 +302,11 @@ def _registrar_cobro(db: Session, cobro: CobroPasarela) -> _Aviso | None:
     if suscripcion is None:
         logger.info("Cobro de una suscripción desconocida", extra={"cobro": cobro.id})
         return None
-    if _nombre_estado(db, suscripcion) != ESTADO_PENDIENTE_PAGO:
+    estado = _nombre_estado(db, suscripcion)
+    es_renovacion = estado == ESTADO_ACTIVA or (
+        estado == ESTADO_PENDIENTE_PAGO and _tuvo_pago_aprobado(db, suscripcion)
+    )
+    if estado != ESTADO_PENDIENTE_PAGO and not es_renovacion:
         return None
 
     pago = db.scalar(select(PagoSuscripcion).where(PagoSuscripcion.IdOperacionPasarela == cobro.id))
@@ -238,29 +318,16 @@ def _registrar_cobro(db: Session, cobro: CobroPasarela) -> _Aviso | None:
             )
         )
         if anterior == cobro.estado or anterior == PAGO_APROBADO:
-            return None 
+            return None  # Notificación repetida: no se registra ni activa dos veces.
 
     estaba_en_proceso = anterior == PAGO_PENDIENTE or (
         anterior is None and suscripcion.EstadoPasarela == PASARELA_AUTORIZADA
     )
     fecha = _aware(cobro.fecha) or _ahora()
-    id_estado_pago = _id_estado_pago(db, cobro.estado)
-    if pago is None:
-        db.add(
-            PagoSuscripcion(
-                IdSuscripcionUsuario=suscripcion.IdSuscripcionUsuario,
-                IdEstadoPagoSuscripcion=id_estado_pago,
-                FechaPago=fecha,
-                MontoARS=cobro.monto or suscripcion.PrecioPeriodoARS,
-                IdOperacionPasarela=cobro.id,
-            )
-        )
-    else:
-        pago.IdEstadoPagoSuscripcion = id_estado_pago
-        pago.FechaPago = fecha
-        if cobro.monto:
-            pago.MontoARS = cobro.monto
+    _guardar_pago(db, suscripcion, cobro, pago, fecha)
 
+    if es_renovacion:
+        return _aplicar_renovacion(db, suscripcion, cobro)
     if cobro.estado == PAGO_APROBADO:
         _activar(db, suscripcion, fecha)
         return _Aviso(notificaciones_suscripciones.TIPO_SUSCRIPCION_ACTIVADA, suscripcion)
@@ -273,14 +340,21 @@ async def _avisar(db: Session, aviso: _Aviso | None, mail_service) -> None:
     if aviso is None:
         return
     usuario = db.get(Usuario, aviso.suscripcion.IdUsuario)
-    if aviso.tipo == notificaciones_suscripciones.TIPO_SUSCRIPCION_ACTIVADA:
-        await notificaciones_suscripciones.notificar_activacion(
-            db, usuario, aviso.suscripcion, mail_service
-        )
-    else:
-        await notificaciones_suscripciones.notificar_pago_rechazado(
-            db, usuario, aviso.suscripcion, mail_service
-        )
+    acciones = {
+        notificaciones_suscripciones.TIPO_SUSCRIPCION_ACTIVADA: (
+            notificaciones_suscripciones.notificar_activacion
+        ),
+        notificaciones_suscripciones.TIPO_PAGO_SUSCRIPCION_RECHAZADO: (
+            notificaciones_suscripciones.notificar_pago_rechazado
+        ),
+        notificaciones_suscripciones.TIPO_SUSCRIPCION_RENOVADA: (
+            notificaciones_suscripciones.notificar_renovacion
+        ),
+        notificaciones_suscripciones.TIPO_RENOVACION_RECHAZADA: (
+            notificaciones_suscripciones.notificar_renovacion_rechazada
+        ),
+    }
+    await acciones[aviso.tipo](db, usuario, aviso.suscripcion, mail_service)
 
 
 async def procesar_cobro(db: Session, cobro: CobroPasarela, mail_service) -> None:
@@ -289,26 +363,37 @@ async def procesar_cobro(db: Session, cobro: CobroPasarela, mail_service) -> Non
     await _avisar(db, aviso, mail_service)
 
 
+def _aplicar_baja_en_pasarela(db: Session, suscripcion: SuscripcionUsuario) -> None:
+    estado = _nombre_estado(db, suscripcion)
+    if estado == ESTADO_ACTIVA:
+        suscripcion.IdEstadoSuscripcion = _id_estado_suscripcion(db, ESTADO_CANCELADA)
+        suscripcion.FechaCancelacion = suscripcion.FechaCancelacion or _ahora()
+    elif estado == ESTADO_PENDIENTE_PAGO:
+        destino = ESTADO_VENCIDA if _tuvo_pago_aprobado(db, suscripcion) else ESTADO_DESCARTADA
+        suscripcion.IdEstadoSuscripcion = _id_estado_suscripcion(db, destino)
+    else:
+        return
+    db.commit()
+
+
 async def sincronizar(db: Session, suscripcion: SuscripcionUsuario, cliente, mail_service) -> None:
-    """Trae de Mercado Pago el estado del intento y sus cobros."""
+    """Trae de Mercado Pago el estado de la suscripción y sus cobros."""
     if not suscripcion.IdSuscripcionPasarela:
         return
-    if _nombre_estado(db, suscripcion) != ESTADO_PENDIENTE_PAGO:
+    if _nombre_estado(db, suscripcion) not in (ESTADO_PENDIENTE_PAGO, ESTADO_ACTIVA):
         return
     remota = await cliente.obtener_suscripcion(suscripcion.IdSuscripcionPasarela)
     cobros = await cliente.listar_cobros(suscripcion.IdSuscripcionPasarela)
+    # Primero los cobros, con el estado que se conocía hasta ahora: así un rechazo
+    # solo se notifica si el pago ya figuraba en proceso.
     for cobro in sorted(cobros, key=lambda c: _aware(c.fecha) or _ahora()):
         await procesar_cobro(db, cobro, mail_service)
     db.refresh(suscripcion)
     if remota.estado:
         suscripcion.EstadoPasarela = remota.estado
         db.commit()
-    if (
-        remota.estado == PASARELA_CANCELADA
-        and _nombre_estado(db, suscripcion) == ESTADO_PENDIENTE_PAGO
-    ):
-        suscripcion.IdEstadoSuscripcion = _id_estado_suscripcion(db, ESTADO_DESCARTADA)
-        db.commit()
+    if remota.estado == PASARELA_CANCELADA:
+        _aplicar_baja_en_pasarela(db, suscripcion)
 
 
 async def procesar_notificacion(db: Session, tipo: str, data_id: str, cliente, mail_service):
@@ -326,6 +411,10 @@ async def procesar_notificacion(db: Session, tipo: str, data_id: str, cliente, m
         return
     logger.info("Notificación de Mercado Pago ignorada", extra={"tipo": tipo})
 
+
+# ---------------------------------------------------------------------------
+# Casos de uso del viajero
+# ---------------------------------------------------------------------------
 
 
 async def _validar_elegibilidad(
@@ -424,6 +513,9 @@ async def iniciar(
     meses = MODALIDADES[modalidad]
     ahora = _ahora()
     anterior = await _validar_elegibilidad(db, usuario, cliente, mail_service, ahora)
+    # La validación puede haber confirmado cambios: se bloquea al viajero recién
+    # ahora y se verifica que nadie haya iniciado otro intento en el medio (por
+    # ejemplo, dos toques seguidos en "Confirmar").
     db.execute(select(Usuario).where(Usuario.IdUsuario == usuario.IdUsuario).with_for_update())
     actual = _intento_pendiente(db, usuario)
     if (actual.IdSuscripcionUsuario if actual else None) != (
@@ -439,6 +531,7 @@ async def iniciar(
     try:
         if anterior is not None:
             if anterior.IdSuscripcionPasarela:
+                # Se cancela en Mercado Pago para que no cobre un intento abandonado.
                 await cliente.cancelar_suscripcion(anterior.IdSuscripcionPasarela)
             anterior.IdEstadoSuscripcion = _id_estado_suscripcion(db, ESTADO_DESCARTADA)
             anterior.EstadoPasarela = PASARELA_CANCELADA
@@ -504,6 +597,7 @@ async def estado_ultima(db: Session, usuario: Usuario, cliente, mail_service) ->
     try:
         await sincronizar(db, suscripcion, cliente, mail_service)
     except (PasarelaNoConfigurada, ErrorPasarela):
+        # Se informa el último estado conocido; el webhook lo actualizará.
         logger.warning("No se pudo sincronizar la suscripción", exc_info=True)
     db.refresh(suscripcion)
     db.refresh(usuario)
@@ -519,6 +613,10 @@ async def estado_ultima(db: Session, usuario: Usuario, cliente, mail_service) ->
         "planActual": "pro" if usuario.IdPlan == PLAN_PRO else "gratuito",
     }
 
+
+# ---------------------------------------------------------------------------
+# Gestión de la suscripción (US 119)
+# ---------------------------------------------------------------------------
 
 
 def _suscripcion_actual(

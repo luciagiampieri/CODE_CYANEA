@@ -23,14 +23,30 @@ import {
   getTripDetail,
 } from "../services/api";
 import { resolveNotificationTarget } from "../utils/notificationTarget";
-
-const TIPOS_SUSCRIPCION = new Set(["suscripcion_activada", "pago_suscripcion_rechazado"]);
 import { esErrorDeLimite, mostrarLimiteAlcanzado } from "../utils/limitesPlan";
 import { colors, spacing, surfaces, textStyles, radii } from "../theme/tokens";
 
 import { appAlert } from "../components/ui/AppDialog";
 
 const COLOR_SOFT = colors.primarySoft ? `${colors.primarySoft}33` : "#eef2ff";
+
+
+const DESTINO_SUSCRIPCION = {
+  suscripcion_activada: "MiSuscripcion",
+  suscripcion_renovada: "MiSuscripcion",
+  suscripcion_cancelada: "MiSuscripcion",
+  suscripcion_reactivada: "MiSuscripcion",
+  renovacion_suscripcion_rechazada: "MiSuscripcion",
+  pago_suscripcion_rechazado: "Planes",
+};
+
+const TIPOS_ALERTA = new Set(["renovacion_suscripcion_rechazada", "pago_suscripcion_rechazado"]);
+
+function iconoNotificacion(tipo) {
+  if (TIPOS_ALERTA.has(tipo)) return "triangle-exclamation";
+  if (DESTINO_SUSCRIPCION[tipo]) return "crown";
+  return "bell";
+}
 
 function formatDate(dateString) {
   if (!dateString) return "";
@@ -201,9 +217,9 @@ export default function InvitationsScreen({ navigation }) {
       markNotificationAsRead(item.id).catch(() => {});
     }
 
-    // US 116: los avisos de la suscripción Pro abren "Mi suscripción".
-    if (TIPOS_SUSCRIPCION.has(item.tipo)) {
-      navigation.navigate("MiSuscripcion");
+    const destinoSuscripcion = DESTINO_SUSCRIPCION[item.tipo];
+    if (destinoSuscripcion) {
+      navigation.navigate(destinoSuscripcion);
       return;
     }
 
@@ -317,21 +333,21 @@ export default function InvitationsScreen({ navigation }) {
     const fecha = formatDate(item.fechaCreacion || item.FechaCreacion);
     const leida = item.leida ?? true;
     const mensajeNotificacion = item.mensaje || item.Mensaje || "";
-    const abreViaje = resolveNotificationTarget(item) !== null;
-    const abreSuscripcion = TIPOS_SUSCRIPCION.has(item.tipo);
+    const destinoSuscripcion = DESTINO_SUSCRIPCION[item.tipo];
+    const abreViaje = !destinoSuscripcion && resolveNotificationTarget(item) !== null;
+    const abrePantalla = Boolean(destinoSuscripcion) || abreViaje;
+
+    let accessibilityHint;
+    if (destinoSuscripcion === "MiSuscripcion") accessibilityHint = "Abre tu suscripción";
+    else if (destinoSuscripcion) accessibilityHint = "Abre los planes";
+    else if (abreViaje) accessibilityHint = "Abre el viaje de esta notificación";
 
     return (
       <Pressable
         key={item.idUnico}
         onPress={() => handleOpenNotification(item)}
         accessibilityRole="button"
-        accessibilityHint={
-          abreSuscripcion
-            ? "Abre tu suscripción"
-            : abreViaje
-              ? "Abre el viaje de esta notificación"
-              : undefined
-        }
+        accessibilityHint={accessibilityHint}
         testID={`notification-${item.id}`}
         style={({ pressed }) => [
           styles.noteCard,
@@ -340,7 +356,11 @@ export default function InvitationsScreen({ navigation }) {
         ]}
       >
         <View style={[styles.noteIcon, !leida ? styles.noteIconUnread : styles.noteIconRead]}>
-          <FontAwesome6 name="bell" size={13} color={!leida ? colors.textInverse : colors.primary} />
+          <FontAwesome6
+            name={iconoNotificacion(item.tipo)}
+            size={13}
+            color={!leida ? colors.textInverse : colors.primary}
+          />
         </View>
 
         <View style={styles.flex}>
@@ -370,7 +390,7 @@ export default function InvitationsScreen({ navigation }) {
           </View>
         </View>
 
-        {abreViaje ? (
+        {abrePantalla ? (
           <FontAwesome6
             name="chevron-right"
             size={12}

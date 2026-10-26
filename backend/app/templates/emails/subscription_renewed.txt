@@ -1,0 +1,11 @@
+Hola {{ nombre }},
+
+Mercado Pago confirmó el cobro de la renovación de tu suscripción Pro {{ modalidad }}.
+
+Modalidad: {{ modalidad|capitalize }}
+Importe cobrado: {{ precio }}
+Próxima renovación: {{ fecha_renovacion }}
+
+Podés consultar tu suscripción o cancelar la renovación automática desde Mi suscripción.
+
+{{ app_url }}

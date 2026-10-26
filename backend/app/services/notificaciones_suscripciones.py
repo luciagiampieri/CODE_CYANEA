@@ -18,6 +18,8 @@ TIPO_SUSCRIPCION_ACTIVADA = "suscripcion_activada"
 TIPO_PAGO_SUSCRIPCION_RECHAZADO = "pago_suscripcion_rechazado"
 TIPO_SUSCRIPCION_CANCELADA = "suscripcion_cancelada"
 TIPO_SUSCRIPCION_REACTIVADA = "suscripcion_reactivada"
+TIPO_SUSCRIPCION_RENOVADA = "suscripcion_renovada"
+TIPO_RENOVACION_RECHAZADA = "renovacion_suscripcion_rechazada"
 
 _ZONA_AR = ZoneInfo("America/Argentina/Buenos_Aires")
 
@@ -35,6 +37,10 @@ def _monto(valor: Decimal | None) -> str:
 
 def _modalidad(suscripcion: SuscripcionUsuario) -> str:
     return "anual" if suscripcion.MesesPeriodo == 12 else "mensual"
+
+
+def _app_url() -> str:
+    return settings.mail_frontend_base_url.rstrip("/")
 
 
 async def _registrar_en_app(db: Session, usuario: Usuario, tipo: str, titulo: str, mensaje: str):
@@ -105,7 +111,7 @@ async def notificar_activacion(
             "precio": _monto(suscripcion.PrecioPeriodoARS),
             "fecha_inicio": fecha_corta(suscripcion.FechaInicio),
             "fecha_renovacion": renovacion,
-            "app_url": settings.mail_frontend_base_url.rstrip("/"),
+            "app_url": _app_url(),
         },
     )
 
@@ -132,7 +138,63 @@ async def notificar_pago_rechazado(
             "nombre": usuario.Nombre,
             "modalidad": modalidad,
             "precio": _monto(suscripcion.PrecioPeriodoARS),
-            "app_url": settings.mail_frontend_base_url.rstrip("/"),
+            "app_url": _app_url(),
+        },
+    )
+
+
+async def notificar_renovacion(
+    db: Session, usuario: Usuario, suscripcion: SuscripcionUsuario, mail_service
+) -> None:
+    modalidad = _modalidad(suscripcion)
+    renovacion = fecha_corta(suscripcion.FechaFin)
+    await _registrar_en_app(
+        db,
+        usuario,
+        TIPO_SUSCRIPCION_RENOVADA,
+        "Renovamos tu suscripción Pro",
+        f"Tu suscripción Pro {modalidad} se renovó. La próxima renovación es el {renovacion}.",
+    )
+    await _enviar_correo(
+        mail_service,
+        usuario,
+        subject="Cyanea: renovamos tu suscripción Pro",
+        template_name="subscription_renewed.html",
+        text_template_name="subscription_renewed.txt",
+        context={
+            "nombre": usuario.Nombre,
+            "modalidad": modalidad,
+            "precio": _monto(suscripcion.PrecioPeriodoARS),
+            "fecha_renovacion": renovacion,
+            "app_url": _app_url(),
+        },
+    )
+
+
+async def notificar_renovacion_rechazada(
+    db: Session, usuario: Usuario, suscripcion: SuscripcionUsuario, mail_service
+) -> None:
+    modalidad = _modalidad(suscripcion)
+    await _registrar_en_app(
+        db,
+        usuario,
+        TIPO_RENOVACION_RECHAZADA,
+        "No pudimos renovar tu suscripción Pro",
+        f"Mercado Pago rechazó el cobro de la renovación de tu suscripción Pro {modalidad} "
+        "y va a volver a intentarlo. Actualizá tu medio de pago desde Mi suscripción para "
+        "no perder los beneficios Pro.",
+    )
+    await _enviar_correo(
+        mail_service,
+        usuario,
+        subject="Cyanea: no pudimos renovar tu suscripción Pro",
+        template_name="subscription_renewal_rejected.html",
+        text_template_name="subscription_renewal_rejected.txt",
+        context={
+            "nombre": usuario.Nombre,
+            "modalidad": modalidad,
+            "precio": _monto(suscripcion.PrecioPeriodoARS),
+            "app_url": _app_url(),
         },
     )
 
@@ -160,7 +222,7 @@ async def notificar_cancelacion(
             "nombre": usuario.Nombre,
             "modalidad": modalidad,
             "fecha_fin": fin,
-            "app_url": settings.mail_frontend_base_url.rstrip("/"),
+            "app_url": _app_url(),
         },
     )
 
