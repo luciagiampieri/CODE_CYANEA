@@ -1,30 +1,3 @@
-"""Actualización automática del estado de los viajes (US 103).
-
-Un viaje "activo" cuya FechaFin ya pasó se guarda como "finalizado". Antes de
-esta US el estado nunca cambiaba en la base: `trip_access.is_trip_finished`
-lo calculaba al vuelo. Ese cálculo se mantiene (cubre el rato entre la
-medianoche y la corrida del proceso), pero ahora el estado guardado es el real.
-
-Al finalizar un viaje:
-- las invitaciones pendientes vencen: participaciones 'invitado' -> 'vencida'
-  e invitaciones por mail 'pendiente' -> 'vencida';
-- las sugerencias de actividades 'pendiente' pasan a 'descartada';
-- las votaciones abiertas se muestran cerradas (no se toca nada: lo deriva
-  `votaciones._estado` a partir del viaje finalizado);
-- se avisa a los participantes que revisen la liquidación.
-
-Cada cosa que cambia la finalización queda marcada (VencidaPorFinViaje /
-DescartadaPorFinViaje). Si el administrador extiende las fechas y el viaje
-vuelve a "activo", solo se restaura lo marcado; una invitación por mail cuyo
-propio plazo ya venció sigue vencida.
-
-Idempotencia: el cambio de estado es un UPDATE condicionado al estado
-anterior. Si el proceso corre dos veces (o en dos workers a la vez), la
-segunda vez el UPDATE no afecta filas y no se repiten cambios ni avisos.
-
-Los viajes "cancelado", "eliminado" y "borrador" nunca se tocan.
-"""
-
 import asyncio
 import contextlib
 import logging
@@ -44,7 +17,9 @@ from app.models.estado_viaje import EstadoViaje
 from app.models.invitacion_viaje import InvitacionViaje
 from app.models.participante_viaje import ParticipanteViaje
 from app.models.sugerencia_actividad import EstadoSugerenciaActividad, SugerenciaActividad
+from app.models.usuario import Usuario
 from app.models.viaje import Viaje
+from app.services.limites_planes import validar_viajes_activos
 from app.services.notifications.dispatcher import TripNotificationEvent, dispatch_trip_notification
 from app.services.notifications.service import NotificationType
 from app.services.websocket_manager import manager
@@ -58,8 +33,6 @@ ESTADO_FINALIZADO = "finalizado"
 CAMBIO_FINALIZADO = "finalizado"
 CAMBIO_REACTIVADO = "reactivado"
 
-# Espera antes de la primera corrida al levantar el servidor: si estuvo caído
-# a la medianoche, los viajes de ese día se finalizan apenas arranca.
 DEMORA_INICIAL_SEGUNDOS = 10
 
 
@@ -91,15 +64,10 @@ class ResultadoReactivacion:
     sugerencias_restauradas: int = 0
 
 
-# ---------------------------------------------------------------------------
-# Fecha de referencia
-# ---------------------------------------------------------------------------
-
 def _zona() -> timezone | ZoneInfo:
     try:
         return ZoneInfo(settings.trip_status_timezone)
     except ZoneInfoNotFoundError:
-        # En Windows sin el paquete tzdata: Argentina no tiene horario de verano.
         logger.warning("Zona horaria %s no disponible; se usa UTC-3", settings.trip_status_timezone)
         return timezone(timedelta(hours=-3))
 
@@ -115,13 +83,8 @@ def hoy_local() -> date:
 def segundos_hasta_proxima_medianoche(ahora: datetime | None = None) -> float:
     ahora = ahora or ahora_local()
     manana = datetime.combine(ahora.date() + timedelta(days=1), time.min, tzinfo=ahora.tzinfo)
-    # Un segundo de margen para no despertar a las 23:59:59.
     return max(1.0, (manana - ahora).total_seconds() + 1)
 
-
-# ---------------------------------------------------------------------------
-# Datos maestros
-# ---------------------------------------------------------------------------
 
 def _id_por_nombre(db: Session, modelo, columna_id, nombre: str) -> int | None:
     return db.scalar(select(columna_id).where(func.lower(modelo.Nombre) == nombre))
@@ -173,10 +136,6 @@ def _cargar_estados(db: Session) -> _Estados | None:
     return estados
 
 
-# ---------------------------------------------------------------------------
-# Finalizar y reactivar (sin commit)
-# ---------------------------------------------------------------------------
-
 def _actualizar(db: Session, sentencia) -> int:
     return db.execute(sentencia.execution_options(synchronize_session=False)).rowcount or 0
 
@@ -193,7 +152,6 @@ def _finalizar(db: Session, id_viaje: int, hoy: date, estados: _Estados) -> Resu
         .values(IdEstadoViaje=estados.viaje_finalizado, FechaActualizacion=func.now()),
     )
     if cambio != 1:
-        # Ya no está activo o todavía no terminó: otra corrida se encargó.
         return None
 
     resultado = ResultadoFinalizacion(id_viaje=id_viaje)
@@ -236,9 +194,23 @@ def _invitacion_mail_vencida_por_plazo(invitacion: InvitacionViaje) -> bool:
     vencimiento = invitacion.FechaVencimiento
     if vencimiento is None:
         return False
-    # Postgres devuelve fechas con zona horaria; SQLite (tests) sin zona.
     ahora = datetime.now(timezone.utc) if vencimiento.tzinfo else datetime.now()
     return vencimiento <= ahora
+
+
+def _validar_reactivacion(db: Session, id_viaje: int, hoy: date, estados: _Estados) -> None:
+    fila = db.execute(
+        select(Viaje.IdEstadoViaje, Viaje.FechaFin, Viaje.IdAdministrador).where(
+            Viaje.IdViaje == id_viaje
+        )
+    ).first()
+    if fila is None or fila.IdEstadoViaje != estados.viaje_finalizado:
+        return
+    if fila.FechaFin is None or fila.FechaFin < hoy:
+        return
+    administrador = db.get(Usuario, fila.IdAdministrador)
+    if administrador is not None:
+        validar_viajes_activos(db, administrador)
 
 
 def _reactivar(db: Session, id_viaje: int, hoy: date, estados: _Estados) -> ResultadoReactivacion | None:
@@ -315,23 +287,18 @@ def recalcular_estado_viaje(db: Session, id_viaje: int, hoy: date | None = None)
         return None
     hoy = hoy or hoy_local()
 
-    # Las fechas nuevas tienen que estar en la base antes de los UPDATE.
     db.flush()
+    _validar_reactivacion(db, id_viaje, hoy, estados)
     cambio = None
     if _finalizar(db, id_viaje, hoy, estados) is not None:
         cambio = CAMBIO_FINALIZADO
     elif _reactivar(db, id_viaje, hoy, estados) is not None:
         cambio = CAMBIO_REACTIVADO
     if cambio is not None:
-        # Los UPDATE masivos no actualizan los objetos ya cargados en la sesión.
         db.expire_all()
         logger.info("Estado del viaje %s recalculado: %s", id_viaje, cambio)
     return cambio
 
-
-# ---------------------------------------------------------------------------
-# Notificación
-# ---------------------------------------------------------------------------
 
 async def notificar_viaje_finalizado(db: Session, id_viaje: int) -> None:
     """Avisa a los participantes que el viaje terminó y que revisen la liquidación."""
@@ -366,10 +333,6 @@ async def notificar_viaje_finalizado(db: Session, id_viaje: int) -> None:
     )
 
 
-# ---------------------------------------------------------------------------
-# Proceso diario
-# ---------------------------------------------------------------------------
-
 async def actualizar_estados_viajes(db: Session, hoy: date | None = None) -> list[int]:
     """Finaliza los viajes activos cuya fecha de fin ya pasó y avisa a sus
     participantes. Devuelve los ids de los viajes que finalizó en esta corrida.
@@ -387,7 +350,6 @@ async def actualizar_estados_viajes(db: Session, hoy: date | None = None) -> lis
 
     finalizados: list[int] = []
     for id_viaje in candidatos:
-        # Cada viaje en su propia transacción: un error en uno no frena al resto.
         try:
             resultado = _finalizar(db, id_viaje, hoy, estados)
             if resultado is None:

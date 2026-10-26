@@ -14,7 +14,6 @@ from app.services.trip_access import require_trip_not_finished
 
 
 def bloquear_viaje(db: Session, id_viaje: int) -> Viaje:
-    """Transferir, abandonar y expulsar serializan sus cambios sobre el viaje."""
     viaje = db.scalar(
         select(Viaje)
         .where(Viaje.IdViaje == id_viaje)
@@ -29,7 +28,10 @@ def bloquear_viaje(db: Session, id_viaje: int) -> Viaje:
 def cambiar_administrador(
     db: Session, viaje: Viaje, anterior: ParticipanteViaje, nuevo: ParticipanteViaje
 ) -> None:
-    """Actualiza ambas fuentes del rol; el llamador controla la transacción y la salida."""
+    destinatario = db.get(Usuario, nuevo.IdUsuario)
+    if destinatario is None:
+        raise HTTPException(400, "El destinatario debe tener una cuenta activa.")
+    validar_viajes_activos_destinatario(db, destinatario)
     roles = {
         rol.Nombre: rol.IdRolParticipante
         for rol in db.scalars(
@@ -87,7 +89,6 @@ def transferir_administracion(
     )
     if destinatario is None or not destinatario.Activo or destinatario.FechaBaja is not None:
         raise HTTPException(400, "El destinatario debe tener una cuenta activa.")
-    validar_viajes_activos_destinatario(db, destinatario)
     cambiar_administrador(db, viaje, anterior, nuevo)
     db.commit()
     return viaje, destinatario

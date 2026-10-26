@@ -38,6 +38,7 @@ import {
     generateTripCoverAI, 
     acceptTripCoverAI 
 } from "../services/api.js";
+import { esErrorDeLimite, mostrarLimiteAlcanzado } from "../utils/limitesPlan";
 import { colors, radii, spacing, surfaces, textStyles } from "../theme/tokens";
 
 import * as ImagePicker from "expo-image-picker";
@@ -85,7 +86,7 @@ function isValidISODate(value) {
 }
 
 function normalizeText(value) {
-    return String(value || "").normalize("NFD").replace(/[̀-ͯ]/g, "").trim().toLowerCase();
+    return String(value || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim().toLowerCase();
 }
 
 // El backend puede devolver la foto de un destino bajo distintos nombres: se toma la primera URL usable.
@@ -943,6 +944,12 @@ export default function EditTripScreen({ navigation, route }) {
           navigation.goBack();
         }, 900);
       } catch (error) {
+        if (esErrorDeLimite(error)) {
+          setSubmitStatus("idle");
+          setSubmitMessage("");
+          mostrarLimiteAlcanzado(error, { titulo: "No se pueden extender las fechas del viaje" });
+          return;
+        }
         setSubmitStatus("error");
         setSubmitMessage(error.message);
       }

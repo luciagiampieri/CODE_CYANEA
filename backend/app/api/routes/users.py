@@ -17,6 +17,7 @@ from app.models.token_push_usuario import TokenPushUsuario
 from app.models.usuario import Usuario
 from app.models.viaje import Viaje
 from app.models.rol_participante import RolParticipante
+from app.schemas.limite_plan import UsoLimiteRead
 from app.schemas.usuario import (
     UsuarioPhotoUploadResponse,
     UsuarioProfileRead,
@@ -74,19 +75,11 @@ class PaisesVisitadosRead(BaseModel):
     totalViajes: int
 
 
-class UsoLimiteRead(BaseModel):
-    tipoLimite: str
-    limite: float | None
-    usoActual: float
-    ilimitado: bool
-    renuevaEl: datetime | None = None
-
-
 class LimitesUsuarioRead(BaseModel):
     plan: str
     viajesActivos: UsoLimiteRead
     escaneosMensuales: UsoLimiteRead
-    escaneosSemanales: UsoLimiteRead  # Alias obsoleto; el período real es mensual.
+    escaneosSemanales: UsoLimiteRead
 
 
 def _serializar_usuario_actual(usuario: Usuario) -> UsuarioProfileRead:
@@ -161,7 +154,6 @@ def _anonimizar_usuario(usuario: Usuario) -> None:
     usuario.RecibePushRecordatoriosActividad = False
     usuario.RecibePushRecordatoriosReserva = False
 
-
     usuario.VisibilidadNombre = VISIBILIDAD_PRIVADO
     usuario.VisibilidadEmail = VISIBILIDAD_PRIVADO
     usuario.VisibilidadFotoPerfil = VISIBILIDAD_PRIVADO
@@ -175,18 +167,23 @@ def _reasignar_administracion_viajes(
     db: Session,
     usuario: Usuario,
 ) -> None:
+    rol_administrador = db.scalar(
+        select(RolParticipante).where(
+            RolParticipante.Nombre == "administrador"
+        )
+    )
+
     viajes = db.scalars(
-        select(Viaje).where(
+        select(Viaje)
+        .join(EstadoViaje, EstadoViaje.IdEstadoViaje == Viaje.IdEstadoViaje)
+        .where(
             Viaje.IdAdministrador == usuario.IdUsuario,
+            EstadoViaje.Nombre == "activo",
         )
     ).all()
 
     for viaje in viajes:
-        
-        if viaje.EstadoViaje.Nombre != "activo":
-            continue
-
-        nuevo_administrador = db.scalar(
+        candidatos = db.scalars(
             select(ParticipanteViaje)
             .join(
                 Usuario,
@@ -206,17 +203,16 @@ def _reasignar_administracion_viajes(
             .order_by(
                 ParticipanteViaje.FechaIncorporacion.asc()
             )
-        )
+        ).all()
 
-        rol_administrador = db.scalar(
-            select(RolParticipante).where(
-                RolParticipante.Nombre == "administrador"
-            )
-        )
-
-        if nuevo_administrador is not None:
-            viaje.IdAdministrador = nuevo_administrador.IdUsuario
-            nuevo_administrador.IdRolParticipante = rol_administrador.IdRolParticipante
+        for candidato in candidatos:
+            destinatario = db.get(Usuario, candidato.IdUsuario)
+            if not limites_planes.puede_recibir_administracion(db, destinatario):
+                continue
+            viaje.IdAdministrador = candidato.IdUsuario
+            candidato.IdRolParticipante = rol_administrador.IdRolParticipante
+            db.flush()
+            break
 
 
 @router.get("/me", response_model=UsuarioProfileRead)

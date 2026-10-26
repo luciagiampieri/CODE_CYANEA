@@ -293,6 +293,14 @@ def _bloquear_usuario(db: Session, id_usuario: int) -> None:
     )
 
 
+def _bloquear_viaje(db: Session, id_viaje: int) -> None:
+    db.execute(
+        select(Viaje.IdViaje)
+        .where(Viaje.IdViaje == id_viaje)
+        .with_for_update()
+    )
+
+
 def validar_viajes_activos(db: Session, usuario: Usuario) -> None:
     _bloquear_usuario(db, usuario.IdUsuario)
     validar(uso_viajes_activos(db, usuario, bloquear=True))
@@ -304,15 +312,23 @@ def validar_viajes_activos_destinatario(db: Session, destinatario: Usuario) -> N
     validar(UsoLimite(tipo=LIMITE_VIAJES_ACTIVOS_DESTINATARIO, limite=uso.limite, uso=uso.uso))
 
 
+def puede_recibir_administracion(db: Session, destinatario: Usuario) -> bool:
+    _bloquear_usuario(db, destinatario.IdUsuario)
+    return uso_viajes_activos(db, destinatario, bloquear=True).permite()
+
+
 def validar_participantes(db: Session, viaje: Viaje) -> None:
+    _bloquear_viaje(db, viaje.IdViaje)
     validar(uso_participantes(db, viaje, bloquear=True))
 
 
 def validar_sugerencias(db: Session, viaje: Viaje, solicitudes: int = 1) -> None:
+    _bloquear_viaje(db, viaje.IdViaje)
     validar(uso_sugerencias(db, viaje), solicitudes)
 
 
 def validar_escaneos(db: Session, usuario: Usuario) -> None:
+    _bloquear_usuario(db, usuario.IdUsuario)
     validar(uso_escaneos(db, usuario))
 
 
@@ -328,6 +344,7 @@ def registrar_escaneo(db: Session, usuario: Usuario, id_viaje: int) -> None:
 
 
 def validar_almacenamiento(db: Session, viaje: Viaje, bytes_nuevos: int) -> None:
+    _bloquear_viaje(db, viaje.IdViaje)
     validar(uso_almacenamiento(db, viaje), bytes_nuevos)
 
 
@@ -337,7 +354,7 @@ def resumen_usuario(db: Session, usuario: Usuario) -> dict:
         "plan": plan_de_usuario(db, usuario).Nombre,
         "viajesActivos": presentar(uso_viajes_activos(db, usuario)),
         "escaneosMensuales": escaneos,
-        "escaneosSemanales": escaneos,  # Alias para APKs previas a US 112.
+        "escaneosSemanales": escaneos,
     }
 
 
