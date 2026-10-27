@@ -128,7 +128,16 @@ function useKeyboardVisible() {
     if (Platform.OS === "web") {
       const vv = typeof window !== "undefined" ? window.visualViewport : null;
       if (!vv) return undefined;
-      const check = () => setVisible(window.innerHeight - vv.height > 150);
+      let abierto = false;
+      const check = () => {
+        const ahora = window.innerHeight - vv.height > 150;
+        // Safari del iPhone corre la página para mostrar el campo encima del
+        // teclado y, al cerrarlo, a veces no la devuelve a su lugar: la pantalla
+        // queda desplazada con un espacio en blanco arriba.
+        if (abierto && !ahora && (window.scrollY || vv.offsetTop)) window.scrollTo(0, 0);
+        abierto = ahora;
+        setVisible(ahora);
+      };
       check();
       vv.addEventListener("resize", check);
       return () => vv.removeEventListener("resize", check);
@@ -910,6 +919,10 @@ export default function CreateTripScreen({ navigation }) {
 
   function handleAiPromptBlur() {
     escribiendoIndicacionIaRef.current = false;
+    // Web en el iPhone: la página queda corrida después de cerrar el teclado.
+    if (Platform.OS === "web" && typeof window !== "undefined" && window.scrollY) {
+      setTimeout(() => window.scrollTo(0, 0), 50);
+    }
   }
 
   useEffect(() => {
