@@ -21,7 +21,7 @@
                   Para no perder los beneficios, actualizá tu medio de pago desde <strong>Mi suscripción</strong> en Cyanea.
                 </td></tr>
               </table>
-              <p style="font-size:15px;line-height:1.5;">Si Mercado Pago no logra cobrar la renovación, la suscripción vence y tu cuenta vuelve al plan gratuito. Tus viajes se conservan.</p>
+              <p style="font-size:15px;line-height:1.5;">Si el pago no se acredita {% if fecha_limite %}antes del <strong>{{ fecha_limite }}</strong>{% else %}en los próximos días{% endif %}, la suscripción vence y tu cuenta vuelve al plan gratuito. Tus viajes se conservan.</p>
               <p style="font-size:15px;line-height:1.5;"><a href="{{ app_url }}" style="color:#0b1f33;font-weight:bold;">Abrir Cyanea</a></p>
             </td>
           </tr>

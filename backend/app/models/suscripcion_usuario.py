@@ -71,6 +71,11 @@ class SuscripcionUsuario(Base):
     FechaFinalizacion: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    # Momento en que un cobro de renovación rechazado la pasó a "pendiente_pago"
+    # (US 117): desde ahí corre el plazo para que venza.
+    FechaPendientePago: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
     Usuario = relationship("Usuario", foreign_keys=[IdUsuario])
     Plan = relationship("Plan", foreign_keys=[IdPlan])

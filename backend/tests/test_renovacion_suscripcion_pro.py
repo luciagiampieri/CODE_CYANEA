@@ -83,6 +83,7 @@ class MailFalso:
 @pytest.fixture
 def pasarela(client, db_session, usuario_activo, monkeypatch):
     monkeypatch.setattr(settings, "mercadopago_webhook_secret", None)
+    monkeypatch.setattr(settings, "mercadopago_webhook_allow_unsigned", True)
     monkeypatch.setattr(settings, "mercadopago_test_payer_email", None)
     monkeypatch.setattr(settings, "mercadopago_back_url", None)
     monkeypatch.setattr(settings, "mercadopago_app_return_url", "cyanea://suscripcion/retorno")

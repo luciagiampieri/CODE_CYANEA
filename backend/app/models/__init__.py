@@ -2,6 +2,7 @@
 
 from app.models.auditoria_plan import AuditoriaPlan
 from app.models.pago_suscripcion import EstadoPagoSuscripcion, PagoSuscripcion
+from app.models.notificacion_pasarela import EstadoNotificacionPasarela, NotificacionPasarela
 from app.models.estado_invitacion import EstadoInvitacion
 from app.models.plan import Plan
 from app.models.estado_suscripcion import EstadoSuscripcion
@@ -53,6 +54,8 @@ from app.models.version_terminos import VersionTerminos
 from app.models.auditoria_terminos import AuditoriaTerminos
 __all__ = [
     "EstadoPagoSuscripcion",
+    "EstadoNotificacionPasarela",
+    "NotificacionPasarela",
     "PagoSuscripcion",
     "AuditoriaPlan",
     "EstadoInvitacion",

@@ -128,9 +128,11 @@ class Settings(BaseSettings):
     # Suscripción al plan Pro con Mercado Pago (US 116). Sin access token la
     # contratación responde 503 PAYMENT_GATEWAY_UNAVAILABLE.
     mercadopago_access_token: str | None = None
-    # Clave secreta de Webhooks ("Tus integraciones" > Webhooks). Si está vacía no
-    # se valida la firma; el estado igual se vuelve a consultar en la API.
+    # Clave secreta de Webhooks ("Tus integraciones" > Webhooks). Sin clave las
+    # notificaciones no se pueden verificar y se rechazan (US 117), salvo que se
+    # habilite MERCADOPAGO_WEBHOOK_ALLOW_UNSIGNED, pensado solo para desarrollo local.
     mercadopago_webhook_secret: str | None = None
+    mercadopago_webhook_allow_unsigned: bool = False
     mercadopago_api_url: str = "https://api.mercadopago.com"
     mercadopago_timeout_seconds: float = 15.0
     # URL https pública a la que Mercado Pago devuelve al usuario. Vacía: se usa
@@ -141,6 +143,8 @@ class Settings(BaseSettings):
     # Usuario de prueba comprador para el sandbox: si se informa, se usa como
     # payer_email en lugar del correo del viajero. Dejar vacío en producción.
     mercadopago_test_payer_email: str | None = None
+    # Días que una renovación puede quedar en "pendiente_pago" antes de vencer (US 117).
+    subscription_pending_payment_days: int = Field(default=3, ge=1)
 
     model_config = SettingsConfigDict(
         env_file=".env",

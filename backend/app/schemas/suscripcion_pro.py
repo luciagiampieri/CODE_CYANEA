@@ -55,6 +55,7 @@ class SuscripcionGestionRead(BaseModel):
     fechaFin: datetime
     fechaProximaRenovacion: datetime | None
     fechaCancelacion: datetime | None
+    fechaLimitePago: datetime | None = None
     renovacionAutomatica: bool
     puedeCancelar: bool
     puedeReactivar: bool

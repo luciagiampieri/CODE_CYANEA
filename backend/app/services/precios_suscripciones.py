@@ -1,12 +1,13 @@
 """Crea períodos con tarifa congelada; no procesa pagos ni renueva automáticamente."""
 
 import calendar
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 
 from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.models.plan import PLAN_PRO, Plan
 from app.models.suscripcion_usuario import SuscripcionUsuario
 
@@ -20,6 +21,16 @@ def sumar_meses(inicio: datetime, meses: int) -> datetime:
         month=indice_mes + 1,
         day=min(inicio.day, calendar.monthrange(anio, indice_mes + 1)[1]),
     )
+
+
+def fecha_limite_pago(suscripcion: SuscripcionUsuario) -> datetime | None:
+    """Hasta cuándo una renovación rechazada puede seguir en "pendiente_pago" (US 117)."""
+    inicio = suscripcion.FechaPendientePago
+    if inicio is None:
+        return None
+    if inicio.tzinfo is None:
+        inicio = inicio.replace(tzinfo=timezone.utc)
+    return inicio + timedelta(days=settings.subscription_pending_payment_days)
 
 
 def crear_periodo(db: Session, *, id_usuario: int, id_estado: int, meses: int, inicio: datetime):

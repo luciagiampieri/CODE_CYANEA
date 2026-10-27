@@ -21,8 +21,11 @@ from app.schemas.backoffice_plan import AuditoriaPlanRead, ConfiguracionPlanesRe
 from app.schemas.backoffice_suscripcion import (
     EstadoSuscripcionFiltro, EstadoPagoFiltro, SuscripcionBackofficeRead,
     SuscripcionesBackofficePagina, PagosBackofficePagina,
+    EstadoNotificacionPasarelaFiltro, NotificacionesPasarelaPagina,
 )
-from app.services.backoffice import suscripciones_service, resumen_financiero_service
+from app.services.backoffice import (
+    notificaciones_pasarela_service, suscripciones_service, resumen_financiero_service,
+)
 from app.schemas.backoffice_suscripcion import ResumenFinancieroRead, HistorialComercialUsuarioRead
 from typing import Literal
 from app.schemas.backoffice_metricas import MetricasDashboard
@@ -457,6 +460,15 @@ def detalle_suscripcion_backoffice(id_suscripcion: int, db: Session = Depends(ge
 @router.get("/usuarios/{id_usuario}/historial-comercial", response_model=HistorialComercialUsuarioRead)
 def historial_comercial_usuario(id_usuario: int, pagina: int = Query(default=1, ge=1), db: Session = Depends(get_db)):
     return suscripciones_service.historial_usuario(db, id_usuario, pagina=pagina)
+
+
+@router.get("/pagos/notificaciones", response_model=NotificacionesPasarelaPagina)
+def listar_notificaciones_pasarela_backoffice(
+    estado: EstadoNotificacionPasarelaFiltro | None = None,
+    pagina: int = Query(default=1, ge=1),
+    db: Session = Depends(get_db),
+):
+    return notificaciones_pasarela_service.listar(db, estado=estado, pagina=pagina)
 
 
 @router.get("/pagos", response_model=PagosBackofficePagina)

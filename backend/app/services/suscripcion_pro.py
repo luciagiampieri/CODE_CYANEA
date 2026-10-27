@@ -21,7 +21,7 @@ from app.services.pagos.mercadopago import (
     ErrorPasarela,
     PasarelaNoConfigurada,
 )
-from app.services.precios_suscripciones import crear_periodo, sumar_meses
+from app.services.precios_suscripciones import crear_periodo, fecha_limite_pago, sumar_meses
 
 logger = logging.getLogger(__name__)
 
@@ -239,6 +239,7 @@ def _activar(db: Session, suscripcion: SuscripcionUsuario, fecha_aprobacion: dat
     suscripcion.FechaFin = sumar_meses(fecha_aprobacion, suscripcion.MesesPeriodo or 1)
     # Un cobro aprobado implica que Mercado Pago ya autorizó la suscripción.
     suscripcion.EstadoPasarela = PASARELA_AUTORIZADA
+    suscripcion.FechaPendientePago = None
     usuario = db.get(Usuario, suscripcion.IdUsuario)
     usuario.IdPlan = PLAN_PRO
 
@@ -249,6 +250,7 @@ def _renovar(db: Session, suscripcion: SuscripcionUsuario) -> None:
     suscripcion.FechaFin = sumar_meses(inicio, suscripcion.MesesPeriodo or 1)
     suscripcion.IdEstadoSuscripcion = _id_estado_suscripcion(db, ESTADO_ACTIVA)
     suscripcion.EstadoPasarela = PASARELA_AUTORIZADA
+    suscripcion.FechaPendientePago = None
     usuario = db.get(Usuario, suscripcion.IdUsuario)
     usuario.IdPlan = PLAN_PRO
 
@@ -286,6 +288,7 @@ def _aplicar_renovacion(
         return _Aviso(notificaciones_suscripciones.TIPO_SUSCRIPCION_RENOVADA, suscripcion)
     if cobro.estado == PAGO_RECHAZADO and _nombre_estado(db, suscripcion) == ESTADO_ACTIVA:
         suscripcion.IdEstadoSuscripcion = _id_estado_suscripcion(db, ESTADO_PENDIENTE_PAGO)
+        suscripcion.FechaPendientePago = _ahora()
         return _Aviso(notificaciones_suscripciones.TIPO_RENOVACION_RECHAZADA, suscripcion)
     return None
 
@@ -396,20 +399,27 @@ async def sincronizar(db: Session, suscripcion: SuscripcionUsuario, cliente, mai
         _aplicar_baja_en_pasarela(db, suscripcion)
 
 
-async def procesar_notificacion(db: Session, tipo: str, data_id: str, cliente, mail_service):
-    """Webhook de Mercado Pago: el contenido se vuelve a consultar en su API."""
+async def procesar_notificacion(
+    db: Session, tipo: str, data_id: str, cliente, mail_service
+) -> bool:
+    """Webhook de Mercado Pago: el contenido se vuelve a consultar en su API.
+
+    Devuelve False si la notificación no corresponde a Cyanea y se ignora.
+    """
     if tipo in TIPOS_NOTIFICACION_COBRO:
         cobro = await cliente.obtener_cobro(data_id)
         await procesar_cobro(db, cobro, mail_service)
-        return
+        return True
     if tipo in TIPOS_NOTIFICACION_SUSCRIPCION:
         suscripcion = db.scalar(
             select(SuscripcionUsuario).where(SuscripcionUsuario.IdSuscripcionPasarela == data_id)
         )
-        if suscripcion is not None:
-            await sincronizar(db, suscripcion, cliente, mail_service)
-        return
+        if suscripcion is None:
+            return False
+        await sincronizar(db, suscripcion, cliente, mail_service)
+        return True
     logger.info("Notificación de Mercado Pago ignorada", extra={"tipo": tipo})
+    return False
 
 
 # ---------------------------------------------------------------------------
@@ -664,6 +674,9 @@ def _presentar_suscripcion(
         "fechaFin": suscripcion.FechaFin,
         "fechaProximaRenovacion": suscripcion.FechaFin if activa else None,
         "fechaCancelacion": suscripcion.FechaCancelacion,
+        "fechaLimitePago": (
+            fecha_limite_pago(suscripcion) if estado == ESTADO_PENDIENTE_PAGO else None
+        ),
         "renovacionAutomatica": activa or estado == ESTADO_PENDIENTE_PAGO,
         "puedeCancelar": activa and vigente,
         "puedeReactivar": estado == ESTADO_CANCELADA and vigente,

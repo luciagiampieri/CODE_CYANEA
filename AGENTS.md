@@ -261,6 +261,7 @@ Respetar el modelo de dominio en espanol. No introducir nombres tipo `trip_id`, 
 - `EstadosTransferenciasLiquidaciones`
 - `Planes`
 - `EstadosSuscripciones`
+- `EstadosNotificacionesPasarela`
 
 Datos maestros y seed:
 
@@ -415,6 +416,21 @@ Reglas vigentes para la HU de balance y liquidacion:
 - Donde se informa el uso: `CreateTripScreen` (viajes activos, bloquea "Siguiente" si no hay cupo), `ReceiptScanButton` (escaneos restantes del mes; prop `onVerPlanes` para cerrar `AddGastoScreen`), `DocumentsScreen` (barra de almacenamiento y aviso previo si el archivo no entra), `ActivitySuggestionsScreen` y `CompleteFreeDaysScreen` (solicitudes restantes del dia)
 - Tests: `backend/tests/test_limites_planes.py` (viajes activos, participantes, transferencias), `test_limites_planes_uso.py` (escaneos y almacenamiento a nivel servicio), `test_limites_planes_endpoints.py` (409 por API de escaneo y documentos), `test_limites_sugerencias.py` (sugerencias y completar dias libres) y `test_almacenamiento_api.py`
 
+## Notificaciones de la pasarela de pagos (US 117)
+
+- El webhook es `POST /pagos/mercadopago/webhook` (`router_pagos` en `app/api/routes/suscripciones.py`). El cuerpo nunca se usa como fuente de verdad: `suscripcion_pro.procesar_notificacion` vuelve a consultar el cobro (`obtener_cobro`) o la suscripcion (`obtener_suscripcion` + `listar_cobros`) en la API de Mercado Pago (CA3)
+- Autenticidad (CA2): se valida `x-signature` con HMAC-SHA256 de `id:{data.id};request-id:{x-request-id};ts:{ts};` usando `MERCADOPAGO_WEBHOOK_SECRET` (`firma_valida`; los `data.id` alfanumericos se firman en minuscula). Firma ausente, incompleta o invalida responde 401 `INVALID_SIGNATURE` sin procesar ni registrar nada. Sin clave configurada responde 503 `WEBHOOK_SIGNATURE_NOT_CONFIGURED` para que Mercado Pago reintente cuando se configure; `MERCADOPAGO_WEBHOOK_ALLOW_UNSIGNED=true` solo para desarrollo local y en los tests que no prueban la firma
+- Activacion y renovacion (CA4) siguen en `_registrar_cobro`: el primer cobro aprobado activa desde la fecha de aprobacion y cada renovacion aprobada extiende `FechaFin` segun `MesesPeriodo`. Cada cobro se guarda en `PagosSuscripciones` con fecha, monto, estado e `IdOperacionPasarela` (CA7). Los cobros de suscripciones canceladas, vencidas o descartadas no se registran ni cambian el estado (decision de la US 119)
+- Idempotencia (CA8): `IdOperacionPasarela` es unico y un cobro ya registrado con el mismo estado o ya aprobado no vuelve a extender ni a notificar; la fila de la suscripcion se bloquea con `SELECT FOR UPDATE` para serializar notificaciones concurrentes
+- Renovacion rechazada (CA5): la suscripcion pasa a `pendiente_pago`, se guarda `SuscripcionesUsuarios.FechaPendientePago` y se avisa por la app y por correo (`subscription_renewal_rejected`) con la fecha limite. Los reintentos rechazados no reinician el plazo ni repiten el aviso; un cobro aprobado dentro del plazo renueva y limpia `FechaPendientePago`. El usuario conserva Pro durante el plazo
+- Vencimiento (CA6): `fin_suscripciones.vencer_pendientes_de_pago` corre primero en el scheduler horario y pasa a `vencida` las renovaciones con `FechaPendientePago` de hace `SUBSCRIPTION_PENDING_PAYMENT_DAYS` dias o mas (3 por defecto, configurable). Cancela la suscripcion en Mercado Pago para que no siga reintentando (si la pasarela falla, vence igual y se registra warning); luego `finalizar_suscripciones` devuelve al plan gratuito cuando termina el periodo pagado. Los intentos iniciales sin pago no vencen por este proceso. `fecha_limite_pago` vive en `precios_suscripciones.py` y `GET /users/me/suscripcion` la expone como `fechaLimitePago`
+- Errores (CA9): un error de la pasarela responde 503 `PAYMENT_GATEWAY_UNAVAILABLE` y cualquier otro 500 `WEBHOOK_PROCESSING_ERROR`, previo rollback; Mercado Pago reintenta y la idempotencia evita duplicados. Fallos de correo o push posteriores al commit no provocan reintentos
+- Registro: cada notificacion con firma valida y `data.id` queda en `NotificacionesPasarela` (`Tipo`, `IdRecurso`, `IdSolicitudPasarela` = `x-request-id`, `Error` hasta 500 caracteres, `FechaRecepcion`) con estado maestro `procesada`, `ignorada` (tipo ajeno o suscripcion desconocida) o `error`. Una fila por recepcion; nunca se guarda el cuerpo crudo ni datos del pagador. Logica en `app/services/pagos/notificaciones_pasarela.py`; un fallo al registrar no cambia la respuesta
+- Migracion `f117a1b2c3d4` y script `023_notificaciones_pasarela_pagos.sql`: columna `FechaPendientePago` (las renovaciones que ya estaban pendientes toman `FechaFin`), tablas `EstadosNotificacionesPasarela` y `NotificacionesPasarela`
+- Backoffice: `GET /backoffice/pagos/notificaciones?estado&pagina` (router protegido, 20 por pagina, orden descendente, `totalesPorEstado` sobre todo el historial). La vista "Notificaciones de la pasarela" de `BackofficeSuscripcionesScreen` usa `components/backoffice/NotificacionesPasarela.js` y `listarNotificacionesPasarela` de `backofficeApi.js`
+- App: `SubscriptionPanel` informa en `pendiente_pago` la fecha limite antes de que la suscripcion venza
+- Tests: `backend/tests/test_notificaciones_pasarela.py` (CP1 a CP7, consulta a la pasarela, plazo configurable y backoffice); frontend `ProcesarNotificacionesPasarela.test.js`, `backoffice/NotificacionesPasarela.test.js` y `backoffice/backofficeApi.test.js`
+
 ## Integraciones externas
 
 - Ninguna integracion externa no esencial debe impedir los flujos base del dominio
@@ -472,6 +488,8 @@ Orden actual:
 - `019_planes_precios_y_limites.sql`
 - `020_precios_base_pro.sql`
 - `021_consulta_suscripciones_pagos.sql`
+- `022_suscripcion_pro_mercado_pago.sql`
+- `023_notificaciones_pasarela_pagos.sql`
 
 ## Convenciones de backend
 

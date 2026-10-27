@@ -7,6 +7,7 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy import and_, or_, select
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.db.session import SessionLocal
 from app.models.estado_participacion import EstadoParticipacion
 from app.models.estado_suscripcion import EstadoSuscripcion
@@ -26,6 +27,7 @@ from app.services.suscripcion_pro import (
     ESTADO_VENCIDA,
     PASARELA_CANCELADA,
     PASARELA_PAUSADA,
+    _id_estado_suscripcion,
     _tiene_pago_aprobado,
 )
 
@@ -281,11 +283,63 @@ async def cancelar_en_pasarela(db: Session, cliente, ahora: datetime | None = No
     return canceladas
 
 
+async def vencer_pendientes_de_pago(db: Session, cliente, ahora: datetime | None = None) -> int:
+    """US 117: una renovación que sigue sin cobrarse pasado el plazo queda vencida.
+
+    Se cancela también en Mercado Pago para que no siga reintentando el cobro; si
+    la pasarela no responde, la suscripción vence igual y queda registrado.
+    """
+    ahora = ahora or _ahora()
+    limite = ahora - timedelta(days=settings.subscription_pending_payment_days)
+    condiciones = (
+        SuscripcionUsuario.FechaPendientePago.is_not(None),
+        SuscripcionUsuario.FechaPendientePago <= limite,
+    )
+    ids = db.scalars(
+        _con_estado(ESTADO_PENDIENTE_PAGO)
+        .where(*condiciones)
+        .with_only_columns(SuscripcionUsuario.IdSuscripcionUsuario)
+        .order_by(SuscripcionUsuario.FechaPendientePago)
+    ).all()
+
+    vencidas = 0
+    for id_suscripcion in ids:
+        suscripcion = db.scalar(
+            _con_estado(ESTADO_PENDIENTE_PAGO)
+            .where(SuscripcionUsuario.IdSuscripcionUsuario == id_suscripcion, *condiciones)
+            .with_for_update(of=SuscripcionUsuario)
+            .execution_options(populate_existing=True)
+        )
+        if suscripcion is None:
+            db.rollback()
+            continue
+        suscripcion.IdEstadoSuscripcion = _id_estado_suscripcion(db, ESTADO_VENCIDA)
+        db.commit()
+        vencidas += 1
+
+        if not suscripcion.IdSuscripcionPasarela:
+            continue
+        try:
+            await cliente.cancelar_suscripcion(suscripcion.IdSuscripcionPasarela)
+        except (PasarelaNoConfigurada, ErrorPasarela):
+            logger.warning(
+                "No se pudo cancelar en Mercado Pago una suscripción vencida",
+                exc_info=True,
+                extra={"suscripcion": suscripcion.IdSuscripcionUsuario},
+            )
+            continue
+        suscripcion.EstadoPasarela = PASARELA_CANCELADA
+        db.commit()
+    return vencidas
+
+
 async def procesar_fin_suscripciones(
     db: Session, cliente, mail_service, ahora: datetime | None = None
 ) -> dict[str, int]:
     ahora = ahora or _ahora()
     return {
+        # Primero vencen las impagas, así en la misma pasada vuelven al plan gratuito.
+        "vencidasPorFaltaDePago": await vencer_pendientes_de_pago(db, cliente, ahora),
         "cambiosDePlan": await finalizar_suscripciones(db, mail_service, ahora),
         "canceladasEnPasarela": await cancelar_en_pasarela(db, cliente, ahora),
         "avisosPrevios": await avisar_finalizaciones_proximas(db, mail_service, ahora),

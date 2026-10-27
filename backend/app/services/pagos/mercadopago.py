@@ -219,7 +219,8 @@ def firma_valida(
         return False
     partes = []
     if data_id:
-        partes.append(f"id:{data_id}")
+        # Mercado Pago firma los ids alfanuméricos en minúscula.
+        partes.append(f"id:{data_id.lower() if data_id.isalnum() else data_id}")
     if x_request_id:
         partes.append(f"request-id:{x_request_id}")
     partes.append(f"ts:{ts}")

@@ -4,6 +4,7 @@ import { radii, spacing, textStyles } from '../../theme/tokens';
 
 export const ESTADOS_SUSCRIPCIONES = { activa: 'Activa', pendiente_pago: 'Pendiente de pago', cancelada: 'Cancelada', vencida: 'Vencida', descartada: 'Descartada' };
 export const ESTADOS_PAGOS = { aprobado: 'Aprobado', rechazado: 'Rechazado', pendiente: 'Pendiente' };
+export const ESTADOS_NOTIFICACIONES = { procesada: 'Procesada', ignorada: 'Ignorada', error: 'Con error' };
 
 export function monedaARS(valor) {
   return valor == null ? 'No registrado' : `ARS ${Number(valor).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;

@@ -238,6 +238,12 @@ export function listarPagos({ estado, desde, hasta, idSuscripcion, idUsuario, pa
   return solicitar(`/pagos?${params.toString()}`);
 }
 
+export function listarNotificacionesPasarela({ estado, pagina = 1 } = {}) {
+  const params = new URLSearchParams({ pagina: String(pagina) });
+  if (estado) params.set('estado', estado);
+  return solicitar(`/pagos/notificaciones?${params.toString()}`);
+}
+
 export function obtenerResumenFinanciero({ desde, hasta } = {}) {
   const params = new URLSearchParams();
   if (desde) params.set('desde', desde);

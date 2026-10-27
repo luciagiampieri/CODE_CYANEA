@@ -8,7 +8,8 @@ export function fechaCorta(valor) {
 
 export function EstadoFinanciero({ estado, etiqueta }) {
   const color = { activa: c.salvia, aprobado: c.salvia, pendiente_pago: c.manteca,
-    pendiente: c.manteca, rechazado: c.peligro, cancelada: c.lavanda, vencida: c.textoSecundario, descartada: c.textoSecundario }[estado] || c.texto;
+    pendiente: c.manteca, rechazado: c.peligro, cancelada: c.lavanda, vencida: c.textoSecundario, descartada: c.textoSecundario,
+    procesada: c.salvia, ignorada: c.textoSecundario, error: c.peligro }[estado] || c.texto;
   return <View style={[t.estado, { borderColor: color }]}><Text style={[s.texto, { color, fontWeight: '600' }]}>{etiqueta}</Text></View>;
 }
 

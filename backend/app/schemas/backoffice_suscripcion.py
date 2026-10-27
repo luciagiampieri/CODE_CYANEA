@@ -8,6 +8,7 @@ EstadoSuscripcionFiltro = Literal[
     "activa", "pendiente_pago", "cancelada", "vencida", "descartada"
 ]
 EstadoPagoFiltro = Literal["aprobado", "rechazado", "pendiente"]
+EstadoNotificacionPasarelaFiltro = Literal["procesada", "ignorada", "error"]
 
 
 class UsuarioSuscripcionRead(BaseModel):
@@ -54,6 +55,25 @@ class PagosBackofficePagina(BaseModel):
     tamanioPagina: int
     totalPaginas: int
     totalIngresosAprobadosARS: Decimal
+
+
+class NotificacionPasarelaRead(BaseModel):
+    id: int
+    tipo: str
+    idRecurso: str
+    idSolicitud: str | None
+    estado: EstadoNotificacionPasarelaFiltro
+    error: str | None
+    fechaRecepcion: datetime
+
+
+class NotificacionesPasarelaPagina(BaseModel):
+    items: list[NotificacionPasarelaRead]
+    total: int
+    pagina: int
+    tamanioPagina: int
+    totalPaginas: int
+    totalesPorEstado: dict[EstadoNotificacionPasarelaFiltro, int]
 
 
 class PeriodoIngresosRead(BaseModel):

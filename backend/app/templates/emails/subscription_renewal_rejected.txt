@@ -5,7 +5,7 @@ Por ahora conservás los beneficios Pro mientras Mercado Pago vuelve a intentar 
 
 Para no perder los beneficios, actualizá tu medio de pago desde Mi suscripción en Cyanea.
 
-Si Mercado Pago no logra cobrar la renovación, la suscripción vence y tu cuenta vuelve al plan gratuito.
+Si el pago no se acredita {% if fecha_limite %}antes del {{ fecha_limite }}{% else %}en los próximos días{% endif %}, la suscripción vence y tu cuenta vuelve al plan gratuito.
 Tus viajes se conservan.
 
 {{ app_url }}

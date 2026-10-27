@@ -38,7 +38,10 @@ function textoFecha(sub) {
   if (sub.estado === 'activa') return `Próxima renovación: ${fechaCorta(sub.fechaProximaRenovacion)}`;
   if (sub.estado === 'cancelada' && sub.puedeReactivar) return `Conservás los beneficios Pro hasta el ${fechaCorta(sub.fechaFin)}. La suscripción no se renovará.`;
   if (sub.estado === 'cancelada') return `Tu suscripción finalizó el ${fechaCorta(sub.fechaFin)}.`;
-  if (sub.estado === 'pendiente_pago') return 'No pudimos cobrar la renovación. Mercado Pago va a reintentar el cobro: actualizá tu medio de pago para no perder los beneficios Pro.';
+  if (sub.estado === 'pendiente_pago') {
+    const plazo = sub.fechaLimitePago ? `antes del ${fechaCorta(sub.fechaLimitePago)}` : 'en los próximos días';
+    return `No pudimos cobrar la renovación. Mercado Pago va a reintentar el cobro: actualizá tu medio de pago. Si el pago no se acredita ${plazo}, la suscripción vence y tu cuenta vuelve al plan gratuito.`;
+  }
   return `Tu suscripción venció el ${fechaCorta(sub.fechaFin)}.`;
 }
 

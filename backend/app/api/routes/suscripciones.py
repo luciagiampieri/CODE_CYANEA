@@ -8,6 +8,11 @@ from sqlalchemy.orm import Session
 from app.api.deps import get_current_user
 from app.core.config import settings
 from app.db.session import get_db
+from app.models.notificacion_pasarela import (
+    ESTADO_NOTIFICACION_ERROR,
+    ESTADO_NOTIFICACION_IGNORADA,
+    ESTADO_NOTIFICACION_PROCESADA,
+)
 from app.models.usuario import Usuario
 from app.schemas.suscripcion_pro import (
     AccionSuscripcionRead,
@@ -20,6 +25,7 @@ from app.schemas.suscripcion_pro import (
 from app.services import suscripcion_pro
 from app.services.mail import get_mail_service
 from app.services.mail.service import MailService
+from app.services.pagos import notificaciones_pasarela
 from app.services.pagos.mercadopago import (
     ErrorPasarela,
     PasarelaNoConfigurada,
@@ -120,6 +126,30 @@ async def estado_suscripcion(
         raise _http(error)
 
 
+def _firma_verificada(request: Request, tipo: str) -> None:
+    """US 117: solo se procesan notificaciones cuya firma se pudo verificar."""
+    secreto = settings.mercadopago_webhook_secret
+    if not secreto:
+        if settings.mercadopago_webhook_allow_unsigned:
+            return
+        # Sin clave no hay forma de verificar: se rechaza con 503 para que Mercado
+        # Pago reintente cuando la clave esté configurada.
+        logger.error("Webhook de Mercado Pago recibido sin MERCADOPAGO_WEBHOOK_SECRET configurada")
+        raise HTTPException(
+            503,
+            "No se pueden verificar las notificaciones de la pasarela.",
+            headers={"X-Error-Code": "WEBHOOK_SIGNATURE_NOT_CONFIGURED"},
+        )
+    if not firma_valida(
+        x_signature=request.headers.get("x-signature"),
+        x_request_id=request.headers.get("x-request-id"),
+        data_id=request.query_params.get("data.id"),
+        secreto=secreto,
+    ):
+        logger.warning("Webhook de Mercado Pago con firma inválida", extra={"tipo": tipo})
+        raise HTTPException(401, "Firma inválida.", headers={"X-Error-Code": "INVALID_SIGNATURE"})
+
+
 @router_pagos.post("/mercadopago/webhook")
 async def webhook_mercadopago(
     request: Request,
@@ -138,23 +168,54 @@ async def webhook_mercadopago(
     data_id = params.get("data.id") or params.get("id") or (cuerpo.get("data") or {}).get("id")
     data_id = str(data_id) if data_id is not None else None
 
-    secreto = settings.mercadopago_webhook_secret
-    if secreto and not firma_valida(
-        x_signature=request.headers.get("x-signature"),
-        x_request_id=request.headers.get("x-request-id"),
-        data_id=params.get("data.id"),
-        secreto=secreto,
-    ):
-        logger.warning("Webhook de Mercado Pago con firma inválida", extra={"tipo": tipo})
-        raise HTTPException(401, "Firma inválida.")
+    _firma_verificada(request, tipo)
 
     if not data_id:
         return {"recibido": True}
+    registro = {
+        "tipo": tipo,
+        "id_recurso": data_id,
+        "id_solicitud": request.headers.get("x-request-id"),
+    }
+    # Cualquier error responde 5xx: Mercado Pago reintenta el envío y, como el
+    # procesamiento es idempotente por id de operación, no se duplican pagos.
     try:
-        await suscripcion_pro.procesar_notificacion(db, tipo, data_id, cliente, mail_service)
-    except (PasarelaNoConfigurada, ErrorPasarela):
+        procesada = await suscripcion_pro.procesar_notificacion(
+            db, tipo, data_id, cliente, mail_service
+        )
+    except (PasarelaNoConfigurada, ErrorPasarela) as error:
+        db.rollback()
         logger.warning("No se pudo procesar el webhook de Mercado Pago", exc_info=True)
-        raise HTTPException(503, "No se pudo consultar Mercado Pago.")
+        notificaciones_pasarela.registrar(
+            db,
+            **registro,
+            estado=ESTADO_NOTIFICACION_ERROR,
+            error=notificaciones_pasarela.describir_error(error),
+        )
+        raise HTTPException(
+            503,
+            "No se pudo consultar Mercado Pago.",
+            headers={"X-Error-Code": "PAYMENT_GATEWAY_UNAVAILABLE"},
+        )
+    except Exception as error:
+        db.rollback()
+        logger.exception("Error al procesar el webhook de Mercado Pago", extra={"tipo": tipo})
+        notificaciones_pasarela.registrar(
+            db,
+            **registro,
+            estado=ESTADO_NOTIFICACION_ERROR,
+            error=notificaciones_pasarela.describir_error(error),
+        )
+        raise HTTPException(
+            500,
+            "No se pudo procesar la notificación.",
+            headers={"X-Error-Code": "WEBHOOK_PROCESSING_ERROR"},
+        )
+    notificaciones_pasarela.registrar(
+        db,
+        **registro,
+        estado=ESTADO_NOTIFICACION_PROCESADA if procesada else ESTADO_NOTIFICACION_IGNORADA,
+    )
     return {"recibido": True}
 
 

@@ -6,6 +6,7 @@ import {
   crearCategoria,
   eliminarCategoria,
   listarCategorias,
+  listarNotificacionesPasarela,
   obtenerMonitoreoIA,
   iniciarSesion,
   listarUsuarios,
@@ -292,5 +293,17 @@ describe('monitoreo de IA (US 114)', () => {
     expect(opcionesLlamada(0).method).toBe('PUT');
     expect(JSON.parse(opcionesLlamada(0).body)).toEqual({ umbralMensualUSD: 50 });
     expect(JSON.parse(opcionesLlamada(1).body)).toEqual({ umbralMensualUSD: null });
+  });
+});
+
+describe('notificaciones de la pasarela (US 117)', () => {
+  test('consulta la página y el filtro por resultado', async () => {
+    fetch.mockReturnValue(respuestaFetch(200, { items: [], total: 0 }));
+
+    await listarNotificacionesPasarela();
+    await listarNotificacionesPasarela({ estado: 'error', pagina: 2 });
+
+    expect(urlLlamada(0)).toMatch(/\/backoffice\/pagos\/notificaciones\?pagina=1$/);
+    expect(urlLlamada(1)).toMatch(/\/backoffice\/pagos\/notificaciones\?pagina=2&estado=error$/);
   });
 });

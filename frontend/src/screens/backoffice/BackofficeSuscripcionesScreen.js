@@ -3,6 +3,7 @@ import { ActivityIndicator, Text, TextInput, View } from 'react-native';
 import ResumenFinanciero from '../../components/backoffice/ResumenFinanciero';
 import TablaFinanzas, { EstadoFinanciero, fechaCorta } from '../../components/backoffice/TablaFinanzas';
 import ConsultaPagos from '../../components/backoffice/ConsultaPagos';
+import NotificacionesPasarela from '../../components/backoffice/NotificacionesPasarela';
 import { BotonFinanzas, ESTADOS_SUSCRIPCIONES, FiltroEstado, PaginacionFinanzas, fechaFinanciera, monedaARS, s } from '../../components/backoffice/FinanzasPresentacion';
 import { listarSuscripciones, obtenerSuscripcion } from '../../services/backofficeApi';
 import { backofficeColors as c } from '../../theme/backofficeTokens';
@@ -72,8 +73,9 @@ export default function BackofficeSuscripcionesScreen({ onVolver }) {
       <BotonFinanzas seleccionado={vista === 'resumen'} onPress={() => setVista('resumen')}>Resumen ejecutivo</BotonFinanzas>
       <BotonFinanzas seleccionado={vista === 'suscripciones'} onPress={() => setVista('suscripciones')}>Suscripciones</BotonFinanzas>
       <BotonFinanzas seleccionado={vista === 'pagos'} onPress={() => setVista('pagos')}>Pagos</BotonFinanzas>
+      <BotonFinanzas seleccionado={vista === 'notificaciones'} onPress={() => setVista('notificaciones')}>Notificaciones de la pasarela</BotonFinanzas>
     </View>
-    {vista === 'resumen' ? <ResumenFinanciero periodoInicial={periodoResumen} onPeriodoAplicado={setPeriodoResumen} onVerPagos={(periodo) => { setPeriodoPagos(periodo); setVista('pagos'); }} /> : vista === 'pagos' ? <ConsultaPagos key={JSON.stringify(periodoPagos)} filtrosIniciales={periodoPagos} /> : <>
+    {vista === 'resumen' ? <ResumenFinanciero periodoInicial={periodoResumen} onPeriodoAplicado={setPeriodoResumen} onVerPagos={(periodo) => { setPeriodoPagos(periodo); setVista('pagos'); }} /> : vista === 'pagos' ? <ConsultaPagos key={JSON.stringify(periodoPagos)} filtrosIniciales={periodoPagos} /> : vista === 'notificaciones' ? <NotificacionesPasarela /> : <>
       <View style={s.tarjeta}>
         <Text style={s.subtitulo}>Cartera de suscripciones</Text>
         <Text style={s.texto}>Última por usuario muestra su período más reciente. Historial completo incluye las renovaciones anteriores.</Text>

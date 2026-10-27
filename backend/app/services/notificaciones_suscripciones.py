@@ -11,6 +11,7 @@ from app.models.notificacion import Notificacion
 from app.models.suscripcion_usuario import SuscripcionUsuario
 from app.models.usuario import Usuario
 from app.models.viaje import Viaje
+from app.services.precios_suscripciones import fecha_limite_pago
 from app.services.websocket_manager import manager
 
 logger = logging.getLogger(__name__)
@@ -193,14 +194,17 @@ async def notificar_renovacion_rechazada(
     db: Session, usuario: Usuario, suscripcion: SuscripcionUsuario, mail_service
 ) -> None:
     modalidad = _modalidad(suscripcion)
+    limite = fecha_limite_pago(suscripcion)
+    fecha_limite = fecha_corta(limite) if limite else None
+    plazo = f"antes del {fecha_limite}" if fecha_limite else "en los próximos días"
     await _registrar_en_app(
         db,
         usuario.IdUsuario,
         TIPO_RENOVACION_RECHAZADA,
         "No pudimos renovar tu suscripción Pro",
         f"Mercado Pago rechazó el cobro de la renovación de tu suscripción Pro {modalidad} "
-        "y va a volver a intentarlo. Actualizá tu medio de pago desde Mi suscripción para "
-        "no perder los beneficios Pro.",
+        "y va a volver a intentarlo. Actualizá tu medio de pago desde Mi suscripción: si el "
+        f"pago no se acredita {plazo}, la suscripción vence y tu cuenta vuelve al plan gratuito.",
     )
     await _enviar_correo(
         mail_service,
@@ -212,6 +216,7 @@ async def notificar_renovacion_rechazada(
             "nombre": usuario.Nombre,
             "modalidad": modalidad,
             "precio": _monto(suscripcion.PrecioPeriodoARS),
+            "fecha_limite": fecha_limite,
             "app_url": _app_url(),
         },
     )
