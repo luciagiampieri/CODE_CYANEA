@@ -229,6 +229,9 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.sm,
     backgroundColor: colors.surface,
     color: colors.textPrimary,
+    // Con menos de 16 px, Safari del iPhone hace zoom al tocar el campo y la
+    // pantalla queda corrida y agrandada aunque se cierre el teclado.
+    fontSize: 16,
   },
   loading: {
     alignItems: "center",

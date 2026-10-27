@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from pathlib import Path
+import re
 import textwrap
 import unicodedata
 
@@ -11,13 +12,24 @@ from app.core.config import settings
 from app.services.supabase.client import supabase
 
 
+# Supabase Storage solo acepta algunos caracteres ASCII en las rutas: un guion
+# largo («Entradas – Disney's...»), comillas tipográficas o un emoji en el nombre
+# del documento hacían fallar la subida con "Invalid key". En la ruta se dejan
+# letras sin tilde, números, "-", "_", "." y paréntesis; el nombre que ve el usuario
+# (NombreArchivo) se guarda tal cual en la base.
+_GUIONES = str.maketrans({"–": "-", "—": "-", "‒": "-", "―": "-", "−": "-"})
+_CARACTER_NO_PERMITIDO = re.compile(r"[^A-Za-z0-9._()\-]")
+
+
 def limpiar_nombre_ruta(texto: str) -> str:
     if not texto:
         return ""
 
-    nfkd_form = unicodedata.normalize("NFKD", texto)
-    solo_ascii = "".join([char for char in nfkd_form if not unicodedata.combining(char)])
-    return solo_ascii.replace(" ", "_")
+    nfkd_form = unicodedata.normalize("NFKD", texto.translate(_GUIONES))
+    sin_tildes = "".join([char for char in nfkd_form if not unicodedata.combining(char)])
+    limpio = _CARACTER_NO_PERMITIDO.sub("_", sin_tildes)
+    limpio = re.sub(r"_+", "_", limpio).strip("_")
+    return limpio or "archivo"
 
 
 def _normalizar_ruta(ruta_archivo: str) -> str:

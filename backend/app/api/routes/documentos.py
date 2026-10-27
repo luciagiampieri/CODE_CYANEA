@@ -72,6 +72,19 @@ def _serializar_documento(
     )
 
 
+def _subir_al_almacenamiento(archivo: UploadFile, ruta_archivo: str) -> str:
+    """Sube el archivo al bucket; si el almacenamiento lo rechaza se informa un
+    error claro en lugar de un 500."""
+    try:
+        return subir_documento(archivo, ruta_archivo)
+    except Exception:
+        logger.exception("No se pudo subir el documento al almacenamiento (%s)", ruta_archivo)
+        raise HTTPException(
+            status_code=502,
+            detail="No se pudo subir el archivo. Intentá nuevamente en unos minutos.",
+        )
+
+
 def _obtener_documento_del_viaje(
     db: Session, trip_id: int, document_id: int, current_user: Usuario
 ) -> DocumentoViaje:
@@ -206,10 +219,7 @@ async def subir_documento_viaje(
 
     await archivo.seek(0)
 
-    url_archivo = subir_documento(
-        archivo,
-        ruta_archivo
-    )
+    url_archivo = _subir_al_almacenamiento(archivo, ruta_archivo)
 
     documento = DocumentoViaje(
         IdViaje=trip_id,
@@ -439,7 +449,7 @@ async def editar_o_reemplazar_documento_viaje(
             except Exception as e:
                     print("ERROR CRÍTICO AL ELIMINAR EN SUPABASE:", e)
                     
-        url_archivo = subir_documento(archivo, ruta_archivo)
+        url_archivo = _subir_al_almacenamiento(archivo, ruta_archivo)
         documento.UrlArchivo = url_archivo
         documento.TamanoBytes = tamano_nuevo
 

@@ -557,3 +557,58 @@ def test_las_entradas_se_ven_desde_la_actividad(
     )
     assert [d["nombreArchivo"] for d in actividad["DocumentosReserva"]] == ["Entradas Prado.pdf"]
     assert actividad["DocumentosReserva"][0]["idChecklist"] == tarea["IdChecklist"]
+
+
+# ---------------------------------------------------------------------------
+# Nombres con caracteres que Supabase no acepta en la ruta
+# ---------------------------------------------------------------------------
+
+from app.services.supabase.storage import _normalizar_ruta  # noqa: E402
+
+
+def test_la_ruta_del_almacenamiento_no_tiene_caracteres_invalidos():
+    assert (
+        _normalizar_ruta("viajes/24/Reservas y entradas/Entradas – Disney's Animal Kingdom.pdf")
+        == "viajes/24/Reservas_y_entradas/Entradas_-_Disney_s_Animal_Kingdom.pdf"
+    )
+    assert _normalizar_ruta("viajes/3/Documentación/Pasaje Córdoba 🎉 (ida).png") == (
+        "viajes/3/Documentacion/Pasaje_Cordoba_(ida).png"
+    )
+
+
+def test_subir_con_guion_largo_guarda_el_nombre_original(
+    client, monkeypatch, grupo, categorias, mock_checklist_broadcast
+):
+    rutas = []
+
+    def subir(archivo, ruta):
+        rutas.append(_normalizar_ruta(ruta))
+        return rutas[-1]
+
+    monkeypatch.setattr("app.api.routes.documentos.subir_documento", subir)
+    viaje, ana, _, _ = grupo
+    _, documentos = categorias
+
+    response = _subir(client, viaje, ana, documentos["Reservas y entradas"], nombre="Entradas – Disney's Animal Kingdom")
+
+    assert response.status_code == 200, response.text
+    assert rutas == [f"viajes/{viaje.IdViaje}/Reservas_y_entradas/Entradas_-_Disney_s_Animal_Kingdom.pdf"]
+    lista = client.get(f"/api/v1/trips/{viaje.IdViaje}/documents", headers=_headers(ana)).json()
+    assert lista[0]["NombreArchivo"] == "Entradas – Disney's Animal Kingdom.pdf"
+
+
+def test_si_el_almacenamiento_rechaza_el_archivo_se_informa_sin_500(
+    client, db_session, monkeypatch, grupo, categorias, mock_checklist_broadcast
+):
+    def falla(archivo, ruta):
+        raise RuntimeError("Invalid key")
+
+    monkeypatch.setattr("app.api.routes.documentos.subir_documento", falla)
+    viaje, ana, _, _ = grupo
+    _, documentos = categorias
+
+    response = _subir(client, viaje, ana, documentos["Reservas y entradas"])
+
+    assert response.status_code == 502
+    assert response.json()["detail"] == "No se pudo subir el archivo. Intentá nuevamente en unos minutos."
+    assert db_session.query(DocumentoViaje).count() == 0
