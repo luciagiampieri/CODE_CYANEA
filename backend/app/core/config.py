@@ -116,11 +116,12 @@ class Settings(BaseSettings):
 
     # Monitoreo de consumo de IA (US 114): precios de referencia en USD para estimar
     # el costo de cada solicitud. Los modelos "lite" usan sus propios precios.
-    ai_cost_input_usd_per_million_tokens: float = 0.30
-    ai_cost_output_usd_per_million_tokens: float = 2.50
-    ai_cost_lite_input_usd_per_million_tokens: float = 0.10
-    ai_cost_lite_output_usd_per_million_tokens: float = 0.40
-    ai_cost_image_usd: float = 0.0011
+    # Gemini 3.8 Flash sube a 1.50 / 7.50 desde el 1/1/2027 (ver .env.example).
+    ai_cost_input_usd_per_million_tokens: float = 0.75
+    ai_cost_output_usd_per_million_tokens: float = 3.75
+    ai_cost_lite_input_usd_per_million_tokens: float = 0.30
+    ai_cost_lite_output_usd_per_million_tokens: float = 2.50
+    ai_cost_image_usd: float = 0.00063
 
     expense_edit_lock_ttl_seconds: int = 120
 

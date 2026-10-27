@@ -200,8 +200,8 @@ def test_cp2_solicitudes_de_escaneo_coinciden_con_las_registradas(client, db_ses
     assert solicitud.TokensEntrada == 1000
     assert solicitud.TokensSalida == 250
     assert solicitud.DuracionMs is not None
-    # 1000 * 0.30 / 1M + 250 * 2.50 / 1M
-    assert solicitud.CostoEstimadoUSD == Decimal("0.000925")
+    # 1000 * 0.75 / 1M + 250 * 3.75 / 1M = 0.0016875, redondeado a 6 decimales
+    assert solicitud.CostoEstimadoUSD == Decimal("0.001688")
 
 
 def test_registra_solicitud_fallida_de_escaneo(db_session):
@@ -215,8 +215,8 @@ def test_registra_solicitud_fallida_de_escaneo(db_session):
 
 
 def test_estimar_costo_usa_precios_lite_e_imagenes():
-    assert registro_ia.estimar_costo_usd("gemini-3.5-flash-lite", 1_000_000, 1_000_000) == Decimal("0.500000")
-    assert registro_ia.estimar_costo_usd("@cf/flux", imagenes=2) == Decimal("0.002200")
+    assert registro_ia.estimar_costo_usd("gemini-3.5-flash-lite", 1_000_000, 1_000_000) == Decimal("2.800000")
+    assert registro_ia.estimar_costo_usd("@cf/flux", imagenes=2) == Decimal("0.001260")
     assert registro_ia.estimar_costo_usd("gemini-x") == Decimal("0")
 
 
