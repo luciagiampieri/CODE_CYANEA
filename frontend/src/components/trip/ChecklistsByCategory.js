@@ -758,37 +758,84 @@ function EnlaceTarea({ url, idChecklist }) {
     );
 }
 
+const primerNombre = (nombre) => String(nombre || "").trim().split(" ")[0];
+
+function enumerar(nombres) {
+    if (nombres.length <= 1) return nombres.join("");
+    return `${nombres.slice(0, -1).join(", ")} y ${nombres[nombres.length - 1]}`;
+}
+
+// Texto debajo del título: quién la hizo, a quién está asignada o que es privada.
+export function detalleTarea(tarea) {
+    if (tarea.Completada && tarea.NombreUsuarioCompletada) {
+        return { icono: "circle-check", texto: `Hecha por ${primerNombre(tarea.NombreUsuarioCompletada)}` };
+    }
+    if (tarea.EsPrivada) return { icono: "user", texto: "Solo para vos" };
+    const responsables = (tarea.Responsables || []).map((r) => primerNombre(r.NombreCompleto));
+    if (responsables.length > 0) return { icono: "user", texto: `Asignada a ${enumerar(responsables)}` };
+    return null;
+}
+
 function ChecklistCard({ tarea, onEditar, onEliminar, onToggle, puedeCompletar, eliminando, tripHasLeft }) {
     const esCompletada = !!tarea.Completada;
-    
+    // Si tiene responsables, solo ellos la marcan; el backend informa si el usuario puede.
+    const esResponsable = tarea.PuedeCompletar !== false;
+    const habilitada = !!onToggle && puedeCompletar && esResponsable;
+    const detalle = detalleTarea(tarea);
+
     return (
         <View style={[styles.card, { paddingVertical: spacing.sm, flexDirection: "row", alignItems: "center" }, esCompletada && styles.cardCompletada]}>
             <Pressable
                 testID={`toggle-checklist-${tarea.IdChecklist}`}
                 onPress={() => onToggle?.(tarea)}
-                disabled={!onToggle || !puedeCompletar}
+                disabled={!habilitada}
                 accessibilityRole="checkbox"
-                accessibilityState={{ checked: esCompletada, disabled: !puedeCompletar }}
+                accessibilityState={{ checked: esCompletada, disabled: !habilitada }}
+                accessibilityHint={!esResponsable && detalle ? `${detalle.texto}. Solo sus responsables pueden marcarla.` : undefined}
                 style={{ flexDirection: "row", alignItems: "center", gap: 10, flex: 1 }}
             >
-                <FontAwesome6
-                    name={esCompletada ? "circle-check" : "circle"}
-                    size={22}
-                    color={esCompletada ? colors.success : colors.border}
-                />
+                <View style={!esResponsable && !esCompletada ? styles.casillaAjena : null}>
+                    <FontAwesome6
+                        name={esCompletada ? "circle-check" : "circle"}
+                        size={22}
+                        color={esCompletada ? colors.success : colors.border}
+                        solid={esCompletada}
+                    />
+                </View>
                 <View style={{ flex: 1 }}>
-                    <Text
-                        style={[styles.cardNombre, { fontSize: 16 }, esCompletada && styles.cardNombreCompletada]}
-                        numberOfLines={2}
-                    >
-                        {tarea.Nombre}
-                    </Text>
-                    <EnlaceTarea url={tarea.Enlace} idChecklist={tarea.IdChecklist} />
-                    {tarea.Responsables?.length > 0 && (
-                        <Text style={[styles.cardMeta, { fontSize: 12, marginTop: 2 }]} numberOfLines={1}>
-                            Asignada a: {tarea.Responsables.map((r) => r.NombreCompleto.split(" ")[0]).join(", ")}
+                    <View style={styles.cardTituloFila}>
+                        {tarea.EsPrivada ? (
+                            <FontAwesome6
+                                testID={`privada-checklist-${tarea.IdChecklist}`}
+                                name="lock"
+                                size={12}
+                                color={colors.textSecondary}
+                                accessibilityLabel="Tarea privada"
+                            />
+                        ) : null}
+                        <Text
+                            style={[styles.cardNombre, { fontSize: 16, flexShrink: 1 }, esCompletada && styles.cardNombreCompletada]}
+                            numberOfLines={2}
+                        >
+                            {tarea.Nombre}
                         </Text>
-                    )}
+                    </View>
+                    <EnlaceTarea url={tarea.Enlace} idChecklist={tarea.IdChecklist} />
+                    {detalle ? (
+                        <View style={styles.detalleTarea}>
+                            <FontAwesome6
+                                name={detalle.icono}
+                                size={10}
+                                color={esCompletada ? colors.success : colors.textSecondary}
+                            />
+                            <Text
+                                style={[styles.cardMeta, { fontSize: 12, marginTop: 0 }, esCompletada && styles.detalleHecha]}
+                                numberOfLines={1}
+                            >
+                                {detalle.texto}
+                            </Text>
+                        </View>
+                    ) : null}
                 </View>
             </Pressable>
 
@@ -1189,6 +1236,24 @@ const styles = StyleSheet.create({
         ...textStyles.meta,
         color: colors.textSecondary,
         marginTop: 2,
+    },
+    cardTituloFila: {
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 6,
+    },
+    detalleTarea: {
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 5,
+        marginTop: 3,
+    },
+    detalleHecha: {
+        color: colors.success,
+        fontWeight: "600",
+    },
+    casillaAjena: {
+        opacity: 0.45,
     },
     enlaceTarea: {
         flexDirection: "row",

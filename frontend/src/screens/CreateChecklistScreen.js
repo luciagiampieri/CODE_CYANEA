@@ -71,33 +71,102 @@ function SheetOverlay({ visible, onClose, children }) {
   );
 }
 
-function ResponsablesSelector({ participantes, seleccionados, onToggle }) {
-  if (!participantes || participantes.length === 0) {
-    return (
-      <Text style={{ fontSize: 12, color: colors.textMuted, marginTop: 6 }}>
-        No hay participantes para asignar como responsables.
-      </Text>
-    );
-  }
+// Selección de responsables con el mismo estilo que la división de un gasto: una fila
+// con los avatares elegidos que abre una hoja con casillas. No hay "Seleccionar todos":
+// una tarea de todos es una tarea sin responsable (cualquiera la toma al marcarla).
+function idDe(participante) {
+  return participante.id ?? participante.IdUsuario;
+}
 
+function nombreDe(participante) {
+  return participante.nombreCompleto || participante.NombreCompleto || "Usuario";
+}
+
+function getIniciales(participante) {
+  const partes = nombreDe(participante).trim().split(/\s+/);
+  return ((partes[0]?.[0] || "") + (partes[1]?.[0] || "")).toUpperCase() || "?";
+}
+
+function textoResponsables(seleccionados, participantes) {
+  if (seleccionados.length === 0) return "Sin asignar";
+  if (seleccionados.length === 1) return nombreDe(seleccionados[0]);
+  return `${seleccionados.length} responsables`;
+}
+
+function FilaResponsables({ participantes, seleccionados, onPress }) {
+  const elegidos = participantes.filter((p) => seleccionados.includes(idDe(p)));
   return (
-    <View style={styles.chipsWrap}>
+    <TouchableOpacity
+      style={styles.summaryRow}
+      onPress={onPress}
+      activeOpacity={0.7}
+      testID="abrir-responsables"
+    >
+      {elegidos.length > 0 ? (
+        <View style={styles.avatarStack}>
+          {elegidos.slice(0, 3).map((p, i) => (
+            <View key={idDe(p)} style={[styles.avatarStackItem, { marginLeft: i === 0 ? 0 : -10, zIndex: 10 - i }]}>
+              <Text style={styles.avatarStackText}>{getIniciales(p)}</Text>
+            </View>
+          ))}
+          {elegidos.length > 3 ? (
+            <View style={[styles.avatarStackItem, styles.avatarStackMore, { marginLeft: -10 }]}>
+              <Text style={styles.avatarStackText}>+{elegidos.length - 3}</Text>
+            </View>
+          ) : null}
+        </View>
+      ) : (
+        <View style={styles.avatarVacio}>
+          <FontAwesome6 name="users" size={12} color={colors.overlay} />
+        </View>
+      )}
+      <View style={styles.summaryTextWrap}>
+        <Text numberOfLines={1} style={elegidos.length > 0 ? styles.dropdownText : styles.dropdownPlaceholder}>
+          {textoResponsables(elegidos, participantes)}
+        </Text>
+      </View>
+      <FontAwesome6 name="chevron-right" size={13} color={colors.textMuted} />
+    </TouchableOpacity>
+  );
+}
+
+function ListaResponsables({ participantes, seleccionados, onToggle }) {
+  if (!participantes || participantes.length === 0) {
+    return <Text style={styles.sinCategorias}>No hay participantes para asignar como responsables.</Text>;
+  }
+  return (
+    <>
+      <Text style={styles.responsablesAyuda}>
+        Elegí quién se encarga. Si es algo del grupo, dejala sin asignar: quien la marque como hecha queda como responsable.
+      </Text>
       {participantes.map((participante) => {
-        const id = participante.id ?? participante.IdUsuario;
+        const id = idDe(participante);
         const activo = seleccionados.includes(id);
+        const usuario = participante.nombreUsuario || participante.NombreUsuario;
         return (
           <Pressable
             key={id}
             onPress={() => onToggle(id)}
-            style={[styles.chip, activo && styles.chipActive]}
+            style={[styles.divisionRow, activo && styles.divisionRowActiva]}
+            accessibilityRole="checkbox"
+            accessibilityState={{ checked: activo }}
           >
-            <Text style={[styles.chipText, activo && styles.chipTextActive]}>
-              {participante.nombreCompleto || participante.NombreCompleto}
-            </Text>
+            <View style={[styles.customCheckbox, activo && styles.customCheckboxChecked]}>
+              {activo ? <FontAwesome6 name="check" size={10} color="#fff" /> : null}
+            </View>
+            <View style={[styles.avatarStackItem, { marginLeft: 12 }]}>
+              <Text style={styles.avatarStackText}>{getIniciales(participante)}</Text>
+            </View>
+            <View style={{ flex: 1, marginLeft: 10 }}>
+              <Text numberOfLines={1} style={[styles.modalItemText, activo && styles.modalItemTextActive]}>
+                {nombreDe(participante)}
+              </Text>
+              {usuario ? <Text style={styles.divisionSub}>@{usuario}</Text> : null}
+            </View>
           </Pressable>
         );
       })}
-    </View>
+    </>
   );
 }
 
@@ -108,6 +177,7 @@ export default function CrearChecklistScreen({
   onChecklistGuardado,
   checklistToEdit,
   participantes,
+  currentUserId,
 }) {
   const [nombre, setNombre] = useState("");
   const [categoria, setCategoria] = useState(null);
@@ -117,7 +187,16 @@ export default function CrearChecklistScreen({
   const [saving, setSaving] = useState(false);
   const [errores, setErrores] = useState({});
   const [responsablesSeleccionados, setResponsablesSeleccionados] = useState([]);
+  const [esPrivada, setEsPrivada] = useState(false);
+  const [modalResponsablesVisible, setModalResponsablesVisible] = useState(false);
   const esEdicion = !!checklistToEdit;
+  // Las tareas de "Recordármelo" son siempre del grupo.
+  const puedeSerPrivada = !esEdicion || checklistToEdit?.PuedeSerPrivada !== false;
+  // Una tarea asignada a otros integrantes no se puede hacer privada hasta quitarlos.
+  const tieneOtrosResponsables = responsablesSeleccionados.some(
+    (id) => currentUserId == null || String(id) !== String(currentUserId)
+  );
+  const privadaHabilitada = puedeSerPrivada && (esPrivada || !tieneOtrosResponsables);
 
   useEffect(() => {
     if (visible) {
@@ -127,10 +206,12 @@ export default function CrearChecklistScreen({
         setResponsablesSeleccionados(
           (checklistToEdit.Responsables || []).map((r) => r.IdUsuario)
         );
+        setEsPrivada(!!checklistToEdit.EsPrivada);
       } else {
         setNombre("");
         setCategoria(null);
         setResponsablesSeleccionados([]);
+        setEsPrivada(false);
       }
       setErrores({});
 
@@ -191,13 +272,16 @@ export default function CrearChecklistScreen({
         resultado = await updateChecklist(tripId, checklistToEdit.IdChecklist, {
           Nombre: nombreLimpio,
           IdCategoriaChecklist: categoria,
-          IdsResponsables: responsablesSeleccionados,
+          // Privada: el backend la asigna a quien la creó.
+          IdsResponsables: esPrivada ? [] : responsablesSeleccionados,
+          ...(puedeSerPrivada ? { EsPrivada: esPrivada } : {}),
         });
       } else {
         resultado = await createChecklist(tripId, {
           Nombre: nombreLimpio,
           IdCategoriaChecklist: categoria,
-          IdsResponsables: responsablesSeleccionados,
+          IdsResponsables: esPrivada ? [] : responsablesSeleccionados,
+          EsPrivada: esPrivada,
         });
       }
 
@@ -235,6 +319,7 @@ export default function CrearChecklistScreen({
   function cerrarFormulario() {
     Keyboard.dismiss();
     setModalCategoriaVisible(false);
+    setModalResponsablesVisible(false);
     onClose();
   }
 
@@ -306,15 +391,69 @@ export default function CrearChecklistScreen({
                 </TouchableOpacity>
                 {errores.categoria ? <Text style={styles.error}>{errores.categoria}</Text> : null}
 
-                <Text style={styles.label}>Responsables (opcional)</Text>
-                <ResponsablesSelector
-                  participantes={participantes}
-                  seleccionados={responsablesSeleccionados}
-                  onToggle={(id) => {
-                    Keyboard.dismiss();
-                    toggleResponsable(id);
-                  }}
-                />
+                {/* Visibilidad: mismo selector que al subir un documento. */}
+                <Text style={styles.label}>Visibilidad</Text>
+                <View style={styles.selectorContainer}>
+                  <TouchableOpacity
+                    testID="visibilidad-publica"
+                    style={[styles.selectorOption, !esPrivada && styles.selectorOptionActive]}
+                    onPress={() => {
+                      Keyboard.dismiss();
+                      setEsPrivada(false);
+                    }}
+                    accessibilityRole="radio"
+                    accessibilityState={{ selected: !esPrivada }}
+                  >
+                    <FontAwesome6 name="users" size={14} color={!esPrivada ? colors.textInverse : colors.primary} />
+                    <Text style={[styles.selectorOptionText, !esPrivada && styles.selectorOptionTextActive]}>
+                      Pública
+                    </Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    testID="visibilidad-privada"
+                    style={[
+                      styles.selectorOption,
+                      esPrivada && styles.selectorOptionActive,
+                      !privadaHabilitada && styles.selectorOptionDisabled,
+                    ]}
+                    onPress={() => {
+                      if (!privadaHabilitada) return;
+                      Keyboard.dismiss();
+                      setEsPrivada(true);
+                    }}
+                    disabled={!privadaHabilitada}
+                    accessibilityRole="radio"
+                    accessibilityState={{ selected: esPrivada, disabled: !privadaHabilitada }}
+                  >
+                    <FontAwesome6 name="lock" size={14} color={esPrivada ? colors.textInverse : colors.primary} />
+                    <Text style={[styles.selectorOptionText, esPrivada && styles.selectorOptionTextActive]}>
+                      Privada
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+                <Text style={styles.visibilidadTexto}>
+                  {!puedeSerPrivada
+                    ? "Las tareas creadas con «Recordármelo» son del grupo."
+                    : esPrivada
+                    ? "Solo vos vas a poder verla. Queda asignada a vos."
+                    : privadaHabilitada
+                    ? "Visible para todos los participantes del viaje."
+                    : "Visible para todos. Para hacerla privada, primero quitá a los otros responsables."}
+                </Text>
+
+                {esPrivada ? null : (
+                  <>
+                    <Text style={styles.label}>Responsables (opcional)</Text>
+                    <FilaResponsables
+                      participantes={participantes || []}
+                      seleccionados={responsablesSeleccionados}
+                      onPress={() => {
+                        Keyboard.dismiss();
+                        setModalResponsablesVisible(true);
+                      }}
+                    />
+                  </>
+                )}
 
                 <PrimaryButton
                   label={
@@ -336,6 +475,25 @@ export default function CrearChecklistScreen({
             </ScrollView>
           </View>
         </KeyboardAvoidingView>
+
+        <SheetOverlay visible={modalResponsablesVisible} onClose={() => setModalResponsablesVisible(false)}>
+          <View style={styles.modalHeader}>
+            <Text style={styles.modalTitle}>Responsables</Text>
+            <TouchableOpacity onPress={() => setModalResponsablesVisible(false)} hitSlop={10}>
+              <FontAwesome6 name="xmark" size={20} color={colors.textMuted} />
+            </TouchableOpacity>
+          </View>
+          <ScrollView style={styles.listaResponsables} keyboardShouldPersistTaps="handled">
+            <ListaResponsables
+              participantes={participantes || []}
+              seleccionados={responsablesSeleccionados}
+              onToggle={toggleResponsable}
+            />
+          </ScrollView>
+          <View style={styles.responsablesFooter}>
+            <PrimaryButton label="Listo" onPress={() => setModalResponsablesVisible(false)} />
+          </View>
+        </SheetOverlay>
 
         <SheetOverlay visible={modalCategoriaVisible} onClose={() => setModalCategoriaVisible(false)}>
           <View style={styles.modalHeader}>
@@ -468,30 +626,135 @@ const styles = StyleSheet.create({
     marginTop: spacing.xs,
     fontWeight: "600",
   },
-  chipsWrap: {
+  selectorContainer: {
     flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 8,
-  },
-  chip: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: radii.pill ?? 999,
+    backgroundColor: colors.surface,
+    borderRadius: radii.md,
     borderWidth: 1,
     borderColor: colors.border,
-    backgroundColor: colors.surface,
+    padding: 4,
+    gap: 5,
   },
-  chipActive: {
+  selectorOption: {
+    flex: 1,
+    flexDirection: "row",
+    height: 42,
+    borderRadius: 8,
+    justifyContent: "center",
+    alignItems: "center",
+    gap: 8,
+  },
+  selectorOptionActive: {
     backgroundColor: colors.primary,
-    borderColor: colors.primary,
   },
-  chipText: {
-    fontSize: 12,
+  selectorOptionDisabled: {
+    opacity: 0.4,
+  },
+  selectorOptionText: {
+    ...textStyles.body,
     color: colors.primary,
     fontWeight: "600",
   },
-  chipTextActive: {
+  selectorOptionTextActive: {
     color: colors.textInverse,
+    fontWeight: "700",
+  },
+  visibilidadTexto: {
+    fontSize: 12,
+    color: colors.textMuted,
+    marginTop: 6,
+  },
+  summaryRow: {
+    minHeight: 54,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radii.md,
+    backgroundColor: colors.surface,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 8,
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  summaryTextWrap: {
+    flex: 1,
+    marginLeft: 10,
+    marginRight: 6,
+  },
+  avatarStack: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  avatarStackItem: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: colors.primary,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 2,
+    borderColor: colors.surface,
+  },
+  avatarStackMore: {
+    backgroundColor: "#9ca3af",
+  },
+  avatarStackText: {
+    color: "#fff",
+    fontSize: 10,
+    fontWeight: "700",
+  },
+  avatarVacio: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderStyle: "dashed",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  listaResponsables: {
+    flexShrink: 1,
+    minHeight: 0,
+  },
+  responsablesFooter: {
+    paddingTop: spacing.sm,
+    paddingBottom: spacing.lg,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+  },
+  divisionRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 10,
+    paddingHorizontal: 8,
+    borderRadius: radii.md,
+    marginBottom: 4,
+    minHeight: 56,
+  },
+  responsablesAyuda: {
+    ...textStyles.meta,
+    color: colors.textSecondary,
+    marginBottom: spacing.sm,
+  },
+  divisionRowActiva: {
+    backgroundColor: "#f0f4f8",
+  },
+  customCheckbox: {
+    width: 22,
+    height: 22,
+    borderRadius: 6,
+    borderWidth: 2,
+    borderColor: colors.textMuted,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  customCheckboxChecked: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
+  },
+  divisionSub: {
+    ...textStyles.meta,
+    color: colors.textMuted,
   },
   submitButton: {
     marginTop: spacing.xl,

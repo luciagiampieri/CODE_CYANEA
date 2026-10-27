@@ -69,6 +69,25 @@ class Checklist(Base):
         server_default="false"
     )
 
+    # Quién la marcó como hecha ("Hecha por Lucía"). Se limpia al desmarcarla.
+    IdUsuarioCompletada: Mapped[int | None] = mapped_column(
+        ForeignKey(
+            "Usuarios.IdUsuario",
+            name="FK_Checklists_Usuarios_IdUsuarioCompletada",
+            ondelete="SET NULL",
+        ),
+        nullable=True,
+    )
+
+    # Tarea privada ("Solo para mí"): la ve solo quien la creó, que es su único
+    # responsable; no cuenta en el progreso del grupo ni genera avisos.
+    EsPrivada: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default="false",
+    )
+
     # Tarea creada con "Recordármelo" desde una recomendación de entradas o reservas:
     # enlace oficial para comprar o reservar, actividad vinculada y lugar de Google
     # Places para el que se creó (si la actividad cambia de lugar, la tarea pendiente
@@ -96,5 +115,6 @@ class Checklist(Base):
     CategoriaChecklist = relationship("CategoriasChecklist", foreign_keys=[IdCategoriaChecklist])
     Viaje = relationship("Viaje", foreign_keys=[IdViaje])
     UsuarioCreador = relationship("Usuario", foreign_keys=[IdUsuarioCreador])
+    UsuarioCompletada = relationship("Usuario", foreign_keys=[IdUsuarioCompletada])
     Actividad = relationship("ActividadItinerario", foreign_keys=[IdActividad])
     Responsables = relationship("Usuario", secondary=responsables_checklist)

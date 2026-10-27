@@ -112,7 +112,14 @@ describe("US - Gestionar checklist (CreateChecklistScreen)", () => {
 
     await escribir(utils, "Comprar vuelos de ida y vuelta", "Comprar pasajes");
     await seleccionarCategoria(utils, "Transporte");
+    // Responsables: misma hoja que la división de un gasto.
+    expect(utils.getByText("Sin asignar")).toBeTruthy();
+    await act(async () => {
+      fireEvent.press(utils.getByTestId("abrir-responsables"));
+    });
     await press(utils, "Ana Gómez");
+    await press(utils, "Listo");
+    expect(utils.getAllByText("Ana Gómez").length).toBeGreaterThan(0);
     await press(utils, "Crear tarea");
 
     await waitFor(() => expect(createChecklist).toHaveBeenCalledTimes(1));
@@ -120,6 +127,7 @@ describe("US - Gestionar checklist (CreateChecklistScreen)", () => {
       Nombre: "Comprar pasajes",
       IdCategoriaChecklist: 2,
       IdsResponsables: [11],
+      EsPrivada: false,
     });
     expect(alertMock).toHaveBeenCalledWith(
       "¡Listo!",
@@ -168,6 +176,7 @@ describe("US - Gestionar checklist (CreateChecklistScreen)", () => {
       Nombre: "Reservar alojamiento",
       IdCategoriaChecklist: 1,
       IdsResponsables: [12],
+      EsPrivada: false,
     });
     expect(mockOnChecklistGuardado).toHaveBeenCalledWith(tareaActualizada, true);
     expect(mockOnClose).toHaveBeenCalledTimes(1);
@@ -217,5 +226,20 @@ describe("US - Gestionar checklist (CreateChecklistScreen)", () => {
     });
     expect(dismiss).toHaveBeenCalled();
     dismiss.mockRestore();
+  });
+
+  it("no ofrece 'Seleccionar todos': una tarea de todos se deja sin asignar", async () => {
+    const utils = await renderPantallaCargada();
+
+    await act(async () => {
+      fireEvent.press(utils.getByTestId("abrir-responsables"));
+    });
+
+    expect(utils.queryByText("Seleccionar todos")).toBeNull();
+    expect(utils.getByText(/dejala sin asignar/)).toBeTruthy();
+    await press(utils, "Ana Gómez");
+    await press(utils, "Juan Pérez");
+    await press(utils, "Listo");
+    expect(utils.getByText("2 responsables")).toBeTruthy();
   });
 });

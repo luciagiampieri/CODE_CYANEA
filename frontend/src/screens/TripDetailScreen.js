@@ -976,32 +976,27 @@ export default function TripDetailScreen({ navigation, route }) {
 
   async function handleToggleChecklist(checklist) {
     if (!lock.canEdit("checklist")) return;
+    // Si tiene responsables, solo ellos la marcan (el backend también lo valida).
+    if (checklist.PuedeCompletar === false) return;
 
-    const estadoOriginal = checklist.Completada;
-    const nuevoEstado = !estadoOriginal;
+    const original = checklist;
+    const nuevoEstado = !checklist.Completada;
+    const reemplazar = (item) =>
+      setChecklists((prev) => prev.map((c) => (c.IdChecklist === item.IdChecklist ? item : c)));
 
-    setChecklists((prev) =>
-      prev.map((c) =>
-        c.IdChecklist === checklist.IdChecklist
-          ? { ...c, Completada: nuevoEstado }
-          : c
-      )
-    );
+    reemplazar({ ...checklist, Completada: nuevoEstado });
 
     try {
-      await toggleChecklistCompletada(trip.id, checklist.IdChecklist, nuevoEstado);
+      const respuesta = await toggleChecklistCompletada(trip.id, checklist.IdChecklist, nuevoEstado);
+      // La respuesta trae quién la hizo y, si no tenía responsables, quién quedó asignado.
+      if (respuesta?.item) reemplazar(respuesta.item);
     } catch (error) {
-      setChecklists((prev) =>
-        prev.map((c) =>
-          c.IdChecklist === checklist.IdChecklist
-            ? { ...c, Completada: estadoOriginal }
-            : c
-        )
-      );
+      reemplazar(original);
       avisar(
-        "Error de conexión",
+        error?.status === 403 ? "No podés marcar esta tarea" : "Error de conexión",
         error?.message || "No se pudo actualizar el estado de la tarea. Se restauró su estado original."
       );
+      if (error?.status === 403 || error?.status === 404) loadChecklists();
     }
   }
 
@@ -1664,8 +1659,10 @@ export default function TripDetailScreen({ navigation, route }) {
   ]);
 
   const checklistStats = useMemo(() => {
-    const total = checklists.length;
-    const completadas = checklists.filter((c) => c.Completada).length;
+    // El progreso es del grupo: las tareas privadas ("Solo para mí") no cuentan.
+    const delGrupo = checklists.filter((c) => !c.EsPrivada);
+    const total = delGrupo.length;
+    const completadas = delGrupo.filter((c) => c.Completada).length;
     const porcentaje = total > 0 ? Math.round((completadas / total) * 100) : 0;
     return { total, completadas, porcentaje };
   }, [checklists]);
@@ -3819,6 +3816,7 @@ export default function TripDetailScreen({ navigation, route }) {
         tripId={trip?.id}
         checklistToEdit={checklistAEditar}
         participantes={participantesActivos}
+        currentUserId={currentUser?.id}
         onChecklistGuardado={(checklistGuardado, esEdicion) => {
           if (!checklistGuardado) {
             loadChecklists();

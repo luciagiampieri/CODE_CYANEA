@@ -14,7 +14,7 @@ from app.schemas.checklist import (
     ResponsableRead,
     TareaEntradasCreate,
 )
-from app.services import tareas_entradas
+from app.services import checklist_permisos, tareas_entradas
 from app.services.websocket_manager import manager
 from app.services.trip_access import (
     get_trip_with_relations,
@@ -56,7 +56,30 @@ def _serializar_checklist(checklist: Checklist, current_user_id: int) -> Checkli
         ],
         Enlace=checklist.Enlace,
         IdActividad=checklist.IdActividad,
+        EsPrivada=checklist.EsPrivada,
+        IdUsuarioCompletada=checklist.IdUsuarioCompletada if checklist.Completada else None,
+        NombreUsuarioCompletada=(
+            checklist_permisos.nombre_completo(checklist.UsuarioCompletada) if checklist.Completada else None
+        ),
+        PuedeCompletar=checklist_permisos.puede_completar(checklist, current_user_id),
+        PuedeSerPrivada=checklist_permisos.puede_ser_privada(checklist),
     )
+
+
+def _obtener_tarea_visible(db: Session, trip_id: int, checklist_id: int, current_user: Usuario) -> Checklist:
+    """La tarea del viaje, si el usuario puede verla. Una tarea privada de otro
+    integrante no existe para él (404, no 403, para no revelar que existe)."""
+    checklist = db.get(Checklist, checklist_id)
+    if (
+        not checklist
+        or checklist.IdViaje != trip_id
+        or not checklist_permisos.puede_ver(checklist, current_user.IdUsuario)
+    ):
+        raise HTTPException(
+            status_code=404,
+            detail="La tarea no existe.",
+        )
+    return checklist
 
 
 def _resolver_responsables(db: Session, trip_id: int, ids_usuarios: list[int]) -> list[Usuario]:
@@ -92,11 +115,14 @@ def _validar_nombre_unico(
     db: Session,
     trip_id: int,
     nombre: str,
+    id_usuario: int,
     checklist_id: int | None = None,
 ) -> None:
+    # Las tareas privadas de otros integrantes no cuentan: el usuario no las ve.
     query = db.query(Checklist).filter(
         Checklist.IdViaje == trip_id,
         Checklist.Nombre == nombre,
+        (Checklist.EsPrivada.is_(False)) | (Checklist.IdUsuarioCreador == id_usuario),
     )
     if checklist_id is not None:
         query = query.filter(Checklist.IdChecklist != checklist_id)
@@ -139,7 +165,7 @@ async def crear_checklist(
             detail="El nombre de la tarea es obligatorio.",
         )
 
-    _validar_nombre_unico(db, trip_id, nombre_limpio)
+    _validar_nombre_unico(db, trip_id, nombre_limpio, current_user.IdUsuario)
     categoria = _obtener_categoria_activa(db, payload.IdCategoriaChecklist)
 
     checklist = Checklist(
@@ -147,8 +173,14 @@ async def crear_checklist(
         IdUsuarioCreador=current_user.IdUsuario,
         Nombre=nombre_limpio,
         IdCategoriaChecklist=payload.IdCategoriaChecklist,
+        EsPrivada=payload.EsPrivada,
     )
-    checklist.Responsables = _resolver_responsables(db, trip_id, payload.IdsResponsables)
+    if payload.EsPrivada:
+        # "Solo para mí": queda asignada a quien la crea y a nadie más.
+        checklist_permisos.validar_privada(False, set(payload.IdsResponsables), current_user.IdUsuario)
+        checklist.Responsables = [current_user]
+    else:
+        checklist.Responsables = _resolver_responsables(db, trip_id, payload.IdsResponsables)
 
     db.add(checklist)
     db.commit()
@@ -178,13 +210,11 @@ def listar_checklists(
         current_user,
     )
 
-    query = db.query(Checklist).filter(Checklist.IdViaje == trip_id)
-
-    if hasattr(Checklist, "EsPublico"):
-        query = query.filter(
-            (getattr(Checklist, "EsPublico") == True)
-            | (Checklist.IdUsuarioCreador == current_user.IdUsuario)
-        )
+    # Las tareas privadas solo las ve quien las creó.
+    query = db.query(Checklist).filter(
+        Checklist.IdViaje == trip_id,
+        (Checklist.EsPrivada.is_(False)) | (Checklist.IdUsuarioCreador == current_user.IdUsuario),
+    )
 
     checklists = query.order_by(Checklist.FechaCreacion.desc()).all()
 
@@ -205,22 +235,11 @@ async def toggle_checklist_completada(
     )
     require_trip_not_finished(viaje, "la checklist")
 
-    checklist = db.get(Checklist, checklist_id)
+    checklist = _obtener_tarea_visible(db, trip_id, checklist_id, current_user)
 
-    if not checklist or checklist.IdViaje != trip_id:
-        raise HTTPException(
-            status_code=404,
-            detail="La tarea no existe.",
-        )
-
-    if hasattr(checklist, "EsPublico") and not checklist.EsPublico:
-        if checklist.IdUsuarioCreador != current_user.IdUsuario:
-            raise HTTPException(
-                status_code=403,
-                detail="Solo el creador puede modificar una tarea privada.",
-            )
-
-    checklist.Completada = payload.Completada
+    # Solo sus responsables (o cualquiera si no tiene; quien la marca queda asignado).
+    checklist_permisos.exigir_puede_completar(checklist, current_user)
+    checklist_permisos.aplicar_completada(checklist, payload.Completada, current_user)
     db.commit()
     db.refresh(checklist)
 
@@ -249,13 +268,7 @@ async def actualizar_checklist(
     )
     require_trip_not_finished(viaje, "la checklist")
 
-    checklist = db.get(Checklist, checklist_id)
-
-    if not checklist or checklist.IdViaje != trip_id:
-        raise HTTPException(
-            status_code=404,
-            detail="La tarea no existe.",
-        )
+    checklist = _obtener_tarea_visible(db, trip_id, checklist_id, current_user)
 
     if checklist.IdUsuarioCreador != current_user.IdUsuario:
         raise HTTPException(
@@ -270,7 +283,7 @@ async def actualizar_checklist(
                 status_code=400,
                 detail="El nombre de la tarea no puede estar vacío.",
             )
-        _validar_nombre_unico(db, trip_id, nombre_limpio, checklist_id)
+        _validar_nombre_unico(db, trip_id, nombre_limpio, current_user.IdUsuario, checklist_id)
         checklist.Nombre = nombre_limpio
 
     # Una tarea conserva su categoría aunque se haya desactivado (US 110); solo
@@ -283,13 +296,28 @@ async def actualizar_checklist(
         checklist.IdCategoriaChecklist = payload.IdCategoriaChecklist
         checklist.CategoriaChecklist = categoria
 
-    if payload.Completada is not None:
-        checklist.Completada = payload.Completada
-
     responsables_antes = {u.IdUsuario for u in checklist.Responsables}
-    if payload.IdsResponsables is not None:
-        checklist.Responsables = _resolver_responsables(db, trip_id, payload.IdsResponsables)
+    es_privada = checklist.EsPrivada if payload.EsPrivada is None else payload.EsPrivada
+    if es_privada:
+        # Privada: solo puede tener como responsable a quien la creó.
+        ids_finales = (
+            set(payload.IdsResponsables) if payload.IdsResponsables is not None else responsables_antes
+        )
+        checklist_permisos.validar_privada(
+            tareas_entradas.es_tarea_de_recomendacion(checklist), ids_finales, checklist.IdUsuarioCreador
+        )
+        checklist.EsPrivada = True
+        checklist.Responsables = [current_user]
+    else:
+        checklist.EsPrivada = False
+        if payload.IdsResponsables is not None:
+            checklist.Responsables = _resolver_responsables(db, trip_id, payload.IdsResponsables)
     responsables_nuevos = {u.IdUsuario for u in checklist.Responsables} - responsables_antes
+
+    # Marcarla como hecha al editar sigue las mismas reglas que la casilla.
+    if payload.Completada is not None and payload.Completada != checklist.Completada:
+        checklist_permisos.exigir_puede_completar(checklist, current_user)
+        checklist_permisos.aplicar_completada(checklist, payload.Completada, current_user)
 
     db.commit()
     db.refresh(checklist)
@@ -301,7 +329,11 @@ async def actualizar_checklist(
 
     # Tarea de "Recordármelo": se creó sin responsable y se avisó a todos; cuando
     # alguien queda asignado se le avisa solo a esa persona.
-    if responsables_nuevos and tareas_entradas.es_tarea_de_recomendacion(checklist):
+    if (
+        responsables_nuevos
+        and not checklist.EsPrivada
+        and tareas_entradas.es_tarea_de_recomendacion(checklist)
+    ):
         await tareas_entradas.notificar_responsables_asignados(
             db, viaje, checklist, responsables_nuevos, current_user
         )
@@ -325,13 +357,7 @@ async def eliminar_checklist(
     )
     require_trip_not_finished(viaje, "la checklist")
 
-    checklist = db.get(Checklist, checklist_id)
-
-    if not checklist or checklist.IdViaje != trip_id:
-        raise HTTPException(
-            status_code=404,
-            detail="La tarea no existe.",
-        )
+    checklist = _obtener_tarea_visible(db, trip_id, checklist_id, current_user)
 
     if checklist.IdUsuarioCreador != current_user.IdUsuario:
         raise HTTPException(
