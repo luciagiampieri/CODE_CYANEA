@@ -29,4 +29,15 @@ describe("AICoverGenerator", () => {
 
     expect(StyleSheet.flatten(utils.getByTestId("ai-cover-prompt").props.style).fontSize).toBe(16);
   });
+
+  it("la indicación escrita se envía al generar", async () => {
+    const generate = jest.fn().mockResolvedValue({ imageBase64: "abc", mimeType: "image/png" });
+    const utils = await render(<AICoverGenerator generate={generate} onAccept={jest.fn()} />);
+    await act(async () => fireEvent.press(utils.getByText("Generar portada con IA")));
+
+    await act(async () => fireEvent.changeText(utils.getByTestId("ai-cover-prompt"), "colores cálidos"));
+    await act(async () => fireEvent.press(utils.getByText("Generar")));
+
+    expect(generate).toHaveBeenCalledWith("colores cálidos");
+  });
 });

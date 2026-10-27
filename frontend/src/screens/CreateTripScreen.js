@@ -48,6 +48,7 @@ import {
 import { esErrorDeLimite, irAPlanes, mostrarLimiteAlcanzado } from "../utils/limitesPlan";
 import { colors, radii, spacing, surfaces, textStyles } from "../theme/tokens";
 import * as ImagePicker from "expo-image-picker";
+import { MODO_CIERRE_TECLADO } from "../utils/teclado";
 
 const MONTH_NAMES_ES = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
 
@@ -745,7 +746,7 @@ function DestinationPickerModal({
                         data={options}
                         keyExtractor={(item, index) => `${item.name}-${item.country}-${index}`}
                         keyboardShouldPersistTaps="handled"
-                        keyboardDismissMode="on-drag"
+                        keyboardDismissMode={MODO_CIERRE_TECLADO}
                         showsVerticalScrollIndicator={false}
                         contentContainerStyle={styles.dpListContent}
                         ListHeaderComponent={keyboardVisible ? null : <Text style={styles.dpResultsLabel}>Resultados · tocá para agregar</Text>}
@@ -1553,7 +1554,7 @@ export default function CreateTripScreen({ navigation }) {
             }
           }}
           keyboardShouldPersistTaps="handled"
-          keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
+          keyboardDismissMode={Platform.OS === "ios" ? "interactive" : MODO_CIERRE_TECLADO}
         >
           {renderLimiteViajes()}
 

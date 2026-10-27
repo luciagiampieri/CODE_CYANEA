@@ -3,6 +3,7 @@ import { FontAwesome6 } from "@expo/vector-icons";
 import {
   ActivityIndicator,
   ImageBackground,
+  Keyboard,
   Pressable,
   StyleSheet,
   Text,
@@ -11,6 +12,8 @@ import {
 } from "react-native";
 
 import { colors, radii, spacing, textStyles } from "../../theme/tokens";
+
+const MAX_INDICACION = 300;
 
 /**
  * Generador de portada con IA (US 57), compartido por la creación y la edición del viaje.
@@ -47,6 +50,8 @@ export default function AICoverGenerator({ generate, onAccept, onInputFocus, onI
   }
 
   async function handleGenerate() {
+    // Se cierra el teclado para que se vea la imagen que se está generando.
+    Keyboard.dismiss();
     setError("");
     setSuccess("");
     setStatus("generating");
@@ -93,22 +98,30 @@ export default function AICoverGenerator({ generate, onAccept, onInputFocus, onI
         <View style={styles.panel}>
           <Text style={styles.title}>Generar portada con IA</Text>
           <Text style={styles.hint}>
-            Se usará el nombre y los destinos del viaje. Puedes agregar una indicación opcional.
+            Usamos el nombre y los destinos del viaje. Si querés, contanos cómo te la imaginás.
           </Text>
 
-          <TextInput
-            style={styles.input}
-            value={prompt}
-            onChangeText={setPrompt}
-            placeholder="Indicación adicional (opcional). Ej: atardecer, playa, montañas"
-            placeholderTextColor={colors.textMuted}
-            maxLength={300}
-            editable={!busy}
-            onFocus={onInputFocus}
-            onBlur={onInputBlur}
-            returnKeyType="done"
-            testID="ai-cover-prompt"
-          />
+          <View style={[styles.inputBox, busy && styles.disabled]}>
+            <TextInput
+              style={styles.input}
+              value={prompt}
+              onChangeText={setPrompt}
+              placeholder="Ej: atardecer en la playa, colores cálidos"
+              placeholderTextColor={colors.textMuted}
+              maxLength={MAX_INDICACION}
+              editable={!busy}
+              multiline
+              blurOnSubmit
+              returnKeyType="done"
+              onSubmitEditing={() => Keyboard.dismiss()}
+              onFocus={onInputFocus}
+              onBlur={onInputBlur}
+              textAlignVertical="top"
+              accessibilityLabel="Indicación para la portada (opcional)"
+              testID="ai-cover-prompt"
+            />
+            <Text style={styles.counter}>{`${prompt.length}/${MAX_INDICACION}`}</Text>
+          </View>
 
           {status === "generating" ? (
             <View style={styles.loading}>
@@ -221,13 +234,25 @@ const styles = StyleSheet.create({
     ...textStyles.meta,
     color: colors.textSecondary,
   },
-  input: {
+  inputBox: {
     borderWidth: 1,
     borderColor: colors.border,
     borderRadius: radii.md,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
     backgroundColor: colors.surface,
+    paddingHorizontal: spacing.md,
+    paddingTop: spacing.sm,
+    paddingBottom: spacing.xs,
+  },
+  counter: {
+    ...textStyles.meta,
+    fontSize: 11,
+    color: colors.textMuted,
+    alignSelf: "flex-end",
+  },
+  input: {
+    minHeight: 64,
+    maxHeight: 120,
+    padding: 0,
     color: colors.textPrimary,
     // Con menos de 16 px, Safari del iPhone hace zoom al tocar el campo y la
     // pantalla queda corrida y agrandada aunque se cierre el teclado.
