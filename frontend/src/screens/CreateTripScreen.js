@@ -31,6 +31,7 @@ import IconCircleButton from "../components/ui/IconCircleButton";
 import SearchPickerHeader, { SEARCH_PICKER_EDGES } from "../components/ui/SearchPickerHeader";
 import PrimaryButton from "../components/ui/PrimaryButton";
 import AICoverGenerator from "../components/trip/AICoverGenerator";
+import { tecladoAbierto } from "../utils/viewportWeb";
 import useResponsive from "../hooks/useResponsive";
 import {
   createTrip,
@@ -128,16 +129,8 @@ function useKeyboardVisible() {
     if (Platform.OS === "web") {
       const vv = typeof window !== "undefined" ? window.visualViewport : null;
       if (!vv) return undefined;
-      let abierto = false;
-      const check = () => {
-        const ahora = window.innerHeight - vv.height > 150;
-        // Safari del iPhone corre la página para mostrar el campo encima del
-        // teclado y, al cerrarlo, a veces no la devuelve a su lugar: la pantalla
-        // queda desplazada con un espacio en blanco arriba.
-        if (abierto && !ahora && (window.scrollY || vv.offsetTop)) window.scrollTo(0, 0);
-        abierto = ahora;
-        setVisible(ahora);
-      };
+      // Mismo criterio que el ajuste de App.js (un zoom no cuenta como teclado).
+      const check = () => setVisible(tecladoAbierto(window));
       check();
       vv.addEventListener("resize", check);
       return () => vv.removeEventListener("resize", check);
@@ -919,10 +912,6 @@ export default function CreateTripScreen({ navigation }) {
 
   function handleAiPromptBlur() {
     escribiendoIndicacionIaRef.current = false;
-    // Web en el iPhone: la página queda corrida después de cerrar el teclado.
-    if (Platform.OS === "web" && typeof window !== "undefined" && window.scrollY) {
-      setTimeout(() => window.scrollTo(0, 0), 50);
-    }
   }
 
   useEffect(() => {
