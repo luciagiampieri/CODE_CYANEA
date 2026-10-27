@@ -16,6 +16,21 @@ class CategoriaChecklistRead(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class DocumentoTareaRead(BaseModel):
+    """Documento subido desde la tarea (las entradas, el pasaje, la reserva...).
+    Solo se informan los que el usuario puede ver: públicos o subidos por él."""
+
+    IdDocumento: int
+    NombreArchivo: str
+    UrlArchivo: str
+    IdCategoriaDocumento: int
+    NombreCategoria: str
+    IconoCategoria: str | None = None
+    EsPublico: bool
+    EsPropio: bool
+    NombreUsuarioSubida: str
+
+
 class ChecklistCreate(BaseModel):
     Nombre: str = Field(..., min_length=1, max_length=150)
     IdCategoriaChecklist: int 
@@ -59,6 +74,8 @@ class ChecklistRead(BaseModel):
     PuedeCompletar: bool = True
     # Las tareas de "Recordármelo" son siempre del grupo.
     PuedeSerPrivada: bool = True
+    # Documentos subidos desde la tarea que el usuario puede ver.
+    Documentos: list[DocumentoTareaRead] = Field(default_factory=list)
 
     model_config = {"from_attributes": True}
 
@@ -71,3 +88,17 @@ class TareaEntradasCreate(BaseModel):
     tipo: Literal["RESERVA", "RESERVA_DISPONIBLE", "ENTRADAS_ANTICIPADAS"]
     enlace: str | None = Field(default=None, max_length=500)
     nombreLugar: str | None = Field(default=None, max_length=150)
+
+
+class SugerenciaDocumentoRead(BaseModel):
+    """Sugerencia de subir las entradas o la reserva al marcar la tarea como hecha."""
+
+    sugerir: bool
+    tipo: str | None = None
+    documento: str | None = None
+    titulo: str | None = None
+    mensaje: str | None = None
+    IdCategoriaDocumento: int | None = None
+    NombreCategoriaDocumento: str | None = None
+    EsPublico: bool | None = None
+    NombreSugerido: str | None = None

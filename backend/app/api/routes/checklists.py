@@ -11,10 +11,13 @@ from app.schemas.checklist import (
     ChecklistCreate,
     ChecklistUpdate,
     ChecklistRead,
+    DocumentoTareaRead,
     ResponsableRead,
+    SugerenciaDocumentoRead,
     TareaEntradasCreate,
 )
-from app.services import checklist_permisos, tareas_entradas
+from app.services import checklist_permisos, documentos_tareas, tareas_entradas
+from app.services.supabase import storage
 from app.services.websocket_manager import manager
 from app.services.trip_access import (
     get_trip_with_relations,
@@ -34,6 +37,25 @@ class ChecklistCompletadaPayload(BaseModel):
 def listar_categorias_checklist(db: Session = Depends(get_db)):
     categorias = db.query(CategoriasChecklist).filter(CategoriasChecklist.Activo == True).order_by(CategoriasChecklist.Nombre).all()
     return categorias
+
+
+def documentos_visibles(checklist: Checklist, current_user_id: int) -> list[DocumentoTareaRead]:
+    """Documentos de la tarea que el usuario puede ver: públicos o subidos por él."""
+    return [
+        DocumentoTareaRead(
+            IdDocumento=documento.IdDocumento,
+            NombreArchivo=documento.NombreArchivo,
+            UrlArchivo=storage.obtener_url_publica(documento.UrlArchivo),
+            IdCategoriaDocumento=documento.IdCategoriaDocumento,
+            NombreCategoria=documento.CategoriaDocumentoRelacion.Nombre,
+            IconoCategoria=documento.CategoriaDocumentoRelacion.Icono,
+            EsPublico=documento.EsPublico,
+            EsPropio=documento.IdUsuarioSubida == current_user_id,
+            NombreUsuarioSubida=checklist_permisos.nombre_completo(documento.UsuarioSubida) or "",
+        )
+        for documento in (checklist.Documentos or [])
+        if documento.EsPublico or documento.IdUsuarioSubida == current_user_id
+    ]
 
 
 def _serializar_checklist(checklist: Checklist, current_user_id: int) -> ChecklistRead:
@@ -63,6 +85,7 @@ def _serializar_checklist(checklist: Checklist, current_user_id: int) -> Checkli
         ),
         PuedeCompletar=checklist_permisos.puede_completar(checklist, current_user_id),
         PuedeSerPrivada=checklist_permisos.puede_ser_privada(checklist),
+        Documentos=documentos_visibles(checklist, current_user_id),
     )
 
 
@@ -252,6 +275,45 @@ async def toggle_checklist_completada(
         "message": "Estado de la tarea actualizado correctamente.",
         "item": _serializar_checklist(checklist, current_user.IdUsuario),
     }
+
+
+@router.post(
+    "/{trip_id}/checklists/{checklist_id}/sugerencia-documento",
+    response_model=SugerenciaDocumentoRead,
+    response_model_exclude_none=True,
+)
+async def sugerir_documento_tarea(
+    trip_id: int,
+    checklist_id: int,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+    clasificador: documentos_tareas.ClasificadorTareas = Depends(documentos_tareas.get_clasificador_tareas),
+):
+    """Después de marcar una tarea como hecha: si es de compra o reserva, sugiere
+    subir las entradas o la reserva (una sola vez por tarea, a quien la marcó y
+    solo si todavía no tiene documentos). Se pide aparte para no demorar la casilla."""
+    viaje = require_trip_edit_access(
+        get_trip_with_relations(db, trip_id),
+        current_user,
+    )
+    require_trip_not_finished(viaje, "la documentación")
+
+    checklist = _obtener_tarea_visible(db, trip_id, checklist_id, current_user)
+    if not documentos_tareas.puede_sugerirse(checklist, current_user.IdUsuario):
+        return documentos_tareas.SIN_SUGERENCIA
+
+    tipo = await documentos_tareas.tipo_de_tarea(
+        checklist, bool(current_user.ConsienteProcesamientoIA), clasificador
+    )
+    # Mientras se analizaba pudo haberse desmarcado o mostrado a otro integrante.
+    db.refresh(checklist)
+    if tipo is None or not documentos_tareas.puede_sugerirse(checklist, current_user.IdUsuario):
+        return documentos_tareas.SIN_SUGERENCIA
+
+    sugerencia = documentos_tareas.armar_sugerencia(db, checklist, tipo)
+    checklist.SugerenciaDocumentoMostrada = True
+    db.commit()
+    return sugerencia
 
 
 @router.put("/{trip_id}/checklists/{checklist_id}")

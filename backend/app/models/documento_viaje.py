@@ -82,3 +82,10 @@ class DocumentoViaje(Base):
         "Usuario",
         back_populates="DocumentosSubidos"
     )
+
+    # Tareas del checklist desde las que se subió (US: subir las entradas o la reserva).
+    Checklists = relationship(
+        "Checklist",
+        secondary="DocumentosChecklists",
+        back_populates="Documentos",
+    )

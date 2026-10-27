@@ -46,6 +46,26 @@ export function registrarCierreModal() {
   };
 }
 
+// En iOS no se puede presentar un Modal mientras otro (un diálogo o una hoja) se
+// está cerrando. Para abrir uno desde el botón de un diálogo o al cerrar otra
+// hoja, `despuesDeCerrarModales(() => setVisible(true))` espera a que terminen.
+const ESPERA_CIERRE_DIALOGO_MS = Platform.OS === "ios" ? 450 : 0;
+
+export function despuesDeCerrarModales(fn, espera = ESPERA_CIERRE_DIALOGO_MS) {
+  setTimeout(() => {
+    if (modalesCerrando === 0) {
+      fn();
+      return;
+    }
+    const alTerminar = (cantidad) => {
+      if (cantidad > 0) return;
+      suscriptoresCierre.delete(alTerminar);
+      fn();
+    };
+    suscriptoresCierre.add(alTerminar);
+  }, espera);
+}
+
 let mostrarToast = null;
 
 export function appToast(texto, { icono = "circle-check", duracion = 2600, backoffice = false } = {}) {

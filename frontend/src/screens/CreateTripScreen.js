@@ -893,8 +893,35 @@ export default function CreateTripScreen({ navigation }) {
     descriptionInputRef.current?.blur();
   }
 
+  // Indicación de la portada con IA: es lo último del paso 2, así que al escribir
+  // se lleva el final del formulario por encima del teclado. Si no, el campo queda
+  // tapado y, al arrastrar para verlo, el teclado se cierra.
+  const escribiendoIndicacionIaRef = useRef(false);
+
+  function mostrarIndicacionIa() {
+    formScroll.ref.current?.scrollToEnd?.({ animated: true });
+  }
+
+  function handleAiPromptFocus() {
+    escribiendoIndicacionIaRef.current = true;
+    setTimeout(mostrarIndicacionIa, 120);
+    setTimeout(mostrarIndicacionIa, 380);
+  }
+
+  function handleAiPromptBlur() {
+    escribiendoIndicacionIaRef.current = false;
+  }
+
   useEffect(() => {
-    if (!tecladoVisible) formScroll.limpiar();
+    if (!tecladoVisible) {
+      formScroll.limpiar();
+      return;
+    }
+    // El teclado terminó de abrirse (y se ocultaron el stepper y la barra de acciones).
+    if (escribiendoIndicacionIaRef.current) {
+      setTimeout(mostrarIndicacionIa, 50);
+      setTimeout(mostrarIndicacionIa, 320);
+    }
   }, [tecladoVisible]);
 
   useEffect(() => {
@@ -1524,7 +1551,7 @@ export default function CreateTripScreen({ navigation }) {
             }
           }}
           keyboardShouldPersistTaps="handled"
-          keyboardDismissMode="on-drag"
+          keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
         >
           {renderLimiteViajes()}
 
@@ -1786,6 +1813,8 @@ export default function CreateTripScreen({ navigation }) {
                   <AICoverGenerator
                     generate={handleGenerateAiCover}
                     onAccept={handleAcceptAiCover}
+                    onInputFocus={handleAiPromptFocus}
+                    onInputBlur={handleAiPromptBlur}
                   />
                 </View>
               </View>

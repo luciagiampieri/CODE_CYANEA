@@ -1,11 +1,3 @@
-"""Registro del consumo de los servicios de IA (US 106 y US 114).
-
-Cada llamada a un proveedor deja una fila en `SolicitudesIA` con la
-funcionalidad, el modelo, si fue exitosa, la duración, los tokens consumidos y
-el costo estimado. Nunca se guarda el contenido de la solicitud ni datos del
-usuario o del viaje (RNF-33). Un fallo al registrar no interrumpe el flujo.
-"""
-
 import logging
 import time
 from contextlib import contextmanager
@@ -25,6 +17,7 @@ SERVICIO_DETECCION_GASTOS_DOCUMENTOS = "deteccion_gastos_documentos"
 SERVICIO_GENERACION_PORTADAS = "generacion_portadas"
 SERVICIO_RECOMENDACION_ENTRADAS = "recomendacion_entradas"
 SERVICIO_ASISTENTE_VIAJE = "asistente_viaje"
+SERVICIO_DOCUMENTOS_TAREAS = "documentos_tareas"
 
 UN_MILLON = Decimal(1_000_000)
 

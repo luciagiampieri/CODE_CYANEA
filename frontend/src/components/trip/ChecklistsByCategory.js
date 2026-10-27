@@ -11,6 +11,8 @@ import {
     Linking,
 } from "react-native";
 import Modal from "../ui/AppModal";
+import { despuesDeCerrarModales } from "../ui/AppDialog";
+import PrimaryButton from "../ui/PrimaryButton";
 import { FontAwesome6 } from "@expo/vector-icons";
 
 import { colors, radii, spacing, surfaces, textStyles } from "../../theme/tokens";
@@ -78,8 +80,24 @@ export default function ChecklistsByCategory({
     currentUserId,
     scrollRef,
     cardRef,
+    // Documentos subidos desde las tareas (las entradas, el pasaje, la reserva).
+    onAbrirDocumento,
+    onAgregarDocumento,
 }) {
     const [abiertas, setAbiertas] = useState({});
+    const [idTareaDocumentos, setIdTareaDocumentos] = useState(null);
+    const tareaDocumentos = checklists.find((t) => t.IdChecklist === idTareaDocumentos) ?? null;
+
+    function agregarDocumento(tarea) {
+        if (!onAgregarDocumento) return;
+        if (idTareaDocumentos == null) {
+            onAgregarDocumento(tarea);
+            return;
+        }
+        // Se cierra la hoja de documentos antes de abrir el formulario de subida.
+        setIdTareaDocumentos(null);
+        despuesDeCerrarModales(() => onAgregarDocumento(tarea));
+    }
     const sectionRefs = useRef({});
     const pendingScrollId = useRef(null);
 
@@ -491,9 +509,18 @@ export default function ChecklistsByCategory({
                         puedeCompletar={puedeCompletar}
                         eliminandoChecklistId={eliminandoChecklistId}
                         tripHasLeft={tripHasLeft}
+                        onVerDocumentos={(tarea) => setIdTareaDocumentos(tarea.IdChecklist)}
+                        onAgregarDocumento={onAgregarDocumento && !tripHasLeft ? agregarDocumento : undefined}
                     />
                 </View>
             ))}
+
+            <DocumentosTareaSheet
+                tarea={tareaDocumentos}
+                onCerrar={() => setIdTareaDocumentos(null)}
+                onAbrir={onAbrirDocumento}
+                onAgregar={onAgregarDocumento && !tripHasLeft ? agregarDocumento : undefined}
+            />
 
             {/* MODAL DE FILTROS */}
             <Modal animationType="slide" transparent visible={panelVisible} onRequestClose={cerrarPanel}>
@@ -673,6 +700,8 @@ function SeccionCategoria({
     abierta,
     onToggleSeccion,
     onToggleTarea,
+    onVerDocumentos,
+    onAgregarDocumento,
     onEditar,
     onEliminar,
     puedeCompletar,
@@ -722,6 +751,8 @@ function SeccionCategoria({
                             puedeCompletar={puedeCompletar}
                             eliminando={eliminandoChecklistId === tarea.IdChecklist}
                             tripHasLeft={tripHasLeft}
+                            onVerDocumentos={onVerDocumentos}
+                            onAgregarDocumento={onAgregarDocumento}
                         />
                     ))}
                 </ScrollView>
@@ -776,7 +807,138 @@ export function detalleTarea(tarea) {
     return null;
 }
 
-function ChecklistCard({ tarea, onEditar, onEliminar, onToggle, puedeCompletar, eliminando, tripHasLeft }) {
+function textoDocumentos(cantidad) {
+    return cantidad === 1 ? "1 documento" : `${cantidad} documentos`;
+}
+
+// Documentos de la tarea (las entradas, la reserva, el comprobante): se ven y se
+// agregan desde la tarjeta. Una tarea hecha sin documentos ofrece adjuntarlos.
+function DocumentosTarea({ tarea, onVer, onAgregar }) {
+    const cantidad = tarea.Documentos?.length ?? 0;
+    if (cantidad > 0) {
+        return (
+            <Pressable
+                testID={`documentos-checklist-${tarea.IdChecklist}`}
+                onPress={() => onVer?.(tarea)}
+                accessibilityRole="button"
+                accessibilityLabel={`Ver ${textoDocumentos(cantidad)} de la tarea`}
+                hitSlop={6}
+                style={({ pressed }) => [styles.documentosChip, pressed && { opacity: 0.6 }]}
+            >
+                <FontAwesome6 name="paperclip" size={11} color={colors.primary} />
+                <Text style={styles.documentosChipTexto}>{textoDocumentos(cantidad)}</Text>
+            </Pressable>
+        );
+    }
+    if (!tarea.Completada || !onAgregar) return null;
+    return (
+        <Pressable
+            testID={`adjuntar-checklist-${tarea.IdChecklist}`}
+            onPress={() => onAgregar(tarea)}
+            accessibilityRole="button"
+            accessibilityLabel="Adjuntar un documento a la tarea"
+            hitSlop={6}
+            style={({ pressed }) => [styles.enlaceTarea, pressed && { opacity: 0.6 }]}
+        >
+            <FontAwesome6 name="paperclip" size={11} color={colors.textSecondary} />
+            <Text style={styles.adjuntarTexto}>Adjuntar documento</Text>
+        </Pressable>
+    );
+}
+
+function DocumentosTareaSheet({ tarea, onCerrar, onAbrir, onAgregar }) {
+    const documentos = tarea?.Documentos ?? [];
+    return (
+        <Modal animationType="slide" transparent visible={!!tarea} onRequestClose={onCerrar}>
+            <View style={styles.overlay}>
+                <Pressable style={StyleSheet.absoluteFill} onPress={onCerrar} />
+                <View style={styles.sheet} testID="documentos-tarea-sheet">
+                    <View style={styles.sheetHandle} />
+                    <View style={styles.sheetHeader}>
+                        <View style={{ flex: 1, paddingRight: spacing.sm }}>
+                            <Text style={styles.sheetTitulo}>Documentos</Text>
+                            <Text style={styles.sheetSubtitulo} numberOfLines={2}>
+                                {tarea?.Nombre}
+                            </Text>
+                        </View>
+                        <Pressable onPress={onCerrar} hitSlop={12} testID="documentos-tarea-cerrar">
+                            <FontAwesome6 name="xmark" size={18} color={colors.textMuted} />
+                        </Pressable>
+                    </View>
+
+                    <ScrollView style={styles.sheetScroll} contentContainerStyle={styles.sheetContenido}>
+                        {documentos.map((documento, index) => (
+                            <Pressable
+                                key={documento.IdDocumento}
+                                testID={`documento-tarea-${documento.IdDocumento}`}
+                                onPress={() => onAbrir?.(documento)}
+                                accessibilityRole="button"
+                                accessibilityLabel={`Abrir ${documento.NombreArchivo}`}
+                                style={({ pressed }) => [
+                                    styles.documentoFila,
+                                    index === documentos.length - 1 && { borderBottomWidth: 0 },
+                                    pressed && { opacity: 0.6 },
+                                ]}
+                            >
+                                <View style={styles.documentoIcono}>
+                                    <FontAwesome6
+                                        name={iconoDeCategoria(
+                                            TIPOS_CATEGORIA.DOCUMENTOS,
+                                            documento.NombreCategoria,
+                                            documento.IconoCategoria
+                                        )}
+                                        size={14}
+                                        color={colors.primary}
+                                    />
+                                </View>
+                                <View style={{ flex: 1 }}>
+                                    <Text style={styles.documentoNombre} numberOfLines={1}>
+                                        {documento.NombreArchivo}
+                                    </Text>
+                                    <View style={styles.documentoMetaFila}>
+                                        {!documento.EsPublico ? (
+                                            <FontAwesome6 name="lock" size={10} color={colors.textSecondary} />
+                                        ) : null}
+                                        <Text style={styles.documentoMeta} numberOfLines={1}>
+                                            {documento.EsPublico
+                                                ? `${documento.NombreCategoria} · ${documento.EsPropio ? "Lo subiste vos" : `Subido por ${primerNombre(documento.NombreUsuarioSubida)}`}`
+                                                : `${documento.NombreCategoria} · Privado`}
+                                        </Text>
+                                    </View>
+                                </View>
+                                <FontAwesome6 name="arrow-up-right-from-square" size={12} color={colors.textMuted} />
+                            </Pressable>
+                        ))}
+                    </ScrollView>
+
+                    {onAgregar && tarea ? (
+                        <PrimaryButton
+                            label="Agregar documento"
+                            icon="plus"
+                            iconPosition="left"
+                            variant="secondary"
+                            onPress={() => onAgregar(tarea)}
+                            testID="documentos-tarea-agregar"
+                            style={{ marginTop: spacing.sm }}
+                        />
+                    ) : null}
+                </View>
+            </View>
+        </Modal>
+    );
+}
+
+function ChecklistCard({
+    tarea,
+    onEditar,
+    onEliminar,
+    onToggle,
+    puedeCompletar,
+    eliminando,
+    tripHasLeft,
+    onVerDocumentos,
+    onAgregarDocumento,
+}) {
     const esCompletada = !!tarea.Completada;
     // Si tiene responsables, solo ellos la marcan; el backend informa si el usuario puede.
     const esResponsable = tarea.PuedeCompletar !== false;
@@ -836,6 +998,7 @@ function ChecklistCard({ tarea, onEditar, onEliminar, onToggle, puedeCompletar, 
                             </Text>
                         </View>
                     ) : null}
+                    <DocumentosTarea tarea={tarea} onVer={onVerDocumentos} onAgregar={onAgregarDocumento} />
                 </View>
             </Pressable>
 
@@ -1262,6 +1425,67 @@ const styles = StyleSheet.create({
         gap: 6,
         marginTop: 4,
         paddingVertical: 2,
+    },
+    documentosChip: {
+        flexDirection: "row",
+        alignItems: "center",
+        alignSelf: "flex-start",
+        gap: 6,
+        marginTop: 6,
+        paddingVertical: 3,
+        paddingHorizontal: 10,
+        borderRadius: radii.pill,
+        backgroundColor: TINTE_PRIMARIO,
+    },
+    documentosChipTexto: {
+        ...textStyles.meta,
+        fontSize: 12,
+        color: colors.primary,
+        fontWeight: "700",
+    },
+    adjuntarTexto: {
+        ...textStyles.meta,
+        fontSize: 12,
+        color: colors.textSecondary,
+        fontWeight: "600",
+    },
+    sheetSubtitulo: {
+        ...textStyles.meta,
+        color: colors.textSecondary,
+        marginTop: 2,
+    },
+    documentoFila: {
+        flexDirection: "row",
+        alignItems: "center",
+        gap: spacing.sm,
+        paddingVertical: spacing.sm,
+        borderBottomWidth: 1,
+        borderBottomColor: colors.border,
+    },
+    documentoIcono: {
+        width: 34,
+        height: 34,
+        borderRadius: 17,
+        alignItems: "center",
+        justifyContent: "center",
+        backgroundColor: TINTE_PRIMARIO,
+    },
+    documentoNombre: {
+        ...textStyles.body,
+        color: colors.textPrimary,
+        fontWeight: "600",
+    },
+    documentoMetaFila: {
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 5,
+        marginTop: 2,
+    },
+    documentoMeta: {
+        ...textStyles.meta,
+        fontSize: 12,
+        color: colors.textSecondary,
+        flexShrink: 1,
     },
     enlaceTareaTexto: {
         ...textStyles.meta,

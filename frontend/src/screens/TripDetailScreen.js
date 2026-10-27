@@ -119,6 +119,7 @@ import DaySuggestionsSection from "../components/trip/DaySuggestionsSection"; //
 import TripAssistantButton from "../components/assistant/TripAssistantButton"; // SUGERENCIAS
 
 import { appAlert } from "../components/ui/AppDialog";
+import { datosSubidaDesdeTarea, ofrecerSubirDocumentoTarea } from "../utils/documentosTareas";
 import { avisoTareasAlEliminar } from "../utils/dialogosActividad";
 import { esErrorDeLimite, mostrarLimiteAlcanzado } from "../utils/limitesPlan";
 
@@ -368,6 +369,8 @@ export default function TripDetailScreen({ navigation, route }) {
   const [categoriasDocumentos, setCategoriasDocumentos] = useState([]);
   const [loadingDocumentos, setLoadingDocumentos] = useState(false);
   const [showAddDocumentModal, setShowAddDocumentModal] = useState(false);
+  // Subida desde una tarea del checklist (las entradas, el pasaje, la reserva).
+  const [tareaDocumento, setTareaDocumento] = useState(null);
   const [documentoAEditar, setDocumentoAEditar] = useState(null);
   const [showInfoModal, setShowInfoModal] = useState(false);
   const [infoItemToEdit, setInfoItemToEdit] = useState(null);
@@ -990,6 +993,9 @@ export default function TripDetailScreen({ navigation, route }) {
       const respuesta = await toggleChecklistCompletada(trip.id, checklist.IdChecklist, nuevoEstado);
       // La respuesta trae quién la hizo y, si no tenía responsables, quién quedó asignado.
       if (respuesta?.item) reemplazar(respuesta.item);
+      // Tarea de compra o reserva: se sugiere subir las entradas o la reserva. Se
+      // consulta aparte para no demorar la casilla; si falla no se muestra nada.
+      if (nuevoEstado) ofrecerSubirDocumento(respuesta?.item ?? { ...checklist, Completada: true });
     } catch (error) {
       reemplazar(original);
       avisar(
@@ -997,6 +1003,30 @@ export default function TripDetailScreen({ navigation, route }) {
         error?.message || "No se pudo actualizar el estado de la tarea. Se restauró su estado original."
       );
       if (error?.status === 403 || error?.status === 404) loadChecklists();
+    }
+  }
+
+  function ofrecerSubirDocumento(tarea) {
+    ofrecerSubirDocumentoTarea({
+      tripId: trip.id,
+      tarea,
+      puedeSubir: lock.canEdit("documentos"),
+      onSubir: (sugerencia) => abrirSubidaDesdeTarea(tarea, sugerencia),
+    });
+  }
+
+  function abrirSubidaDesdeTarea(tarea, sugerencia = null) {
+    setTareaDocumento(datosSubidaDesdeTarea(tarea, sugerencia));
+    setShowAddDocumentModal(true);
+  }
+
+  async function refrescarActividades() {
+    // Las entradas subidas desde una tarea de "Recordármelo" se ven en la actividad.
+    try {
+      const detail = await getTripDetail(initialTrip.id);
+      setTrip((current) => ({ ...normalizeTrip(detail), image: detail.image ?? current?.image ?? initialTrip.image }));
+    } catch {
+      // Se verán al recargar el viaje.
     }
   }
 
@@ -1348,6 +1378,8 @@ export default function TripDetailScreen({ navigation, route }) {
           advertenciaHorario: act.advertenciaHorario ?? act.AdvertenciaHorario ?? null,
           // Tareas pendientes de "Recordármelo": se avisa que se eliminan con la actividad.
           tareasEntradasPendientes: act.tareasEntradasPendientes ?? act.TareasEntradasPendientes ?? [],
+          // Entradas o reservas subidas desde esas tareas.
+          documentosReserva: act.documentosReserva ?? act.DocumentosReserva ?? [],
         };
       });
       const actividades = day.items ?? actividadesBackend;
@@ -2654,6 +2686,7 @@ export default function TripDetailScreen({ navigation, route }) {
                               item.tareasEntradasPendientes
                             )
                           }
+                          onAbrirDocumento={(documento) => abrirDocumento(documento.urlArchivo)}
                           onSuggestGap={
                             puedeSugerirEnDia
                               ? (desde, hasta) =>
@@ -3144,6 +3177,10 @@ export default function TripDetailScreen({ navigation, route }) {
                   eliminandoChecklistId={eliminandoChecklistId}
                   tripHasLeft={!lock.canEdit("checklist")}
                   currentUserId={currentUser?.id}
+                  onAbrirDocumento={(documento) => abrirDocumento(documento.UrlArchivo)}
+                  onAgregarDocumento={
+                    lock.canEdit("documentos") ? (tarea) => abrirSubidaDesdeTarea(tarea) : undefined
+                  }
                 />
               )}
             </View>
@@ -3776,12 +3813,22 @@ export default function TripDetailScreen({ navigation, route }) {
       />
       <DocumentsScreen
         visible={showAddDocumentModal}
-        onClose={() => setShowAddDocumentModal(false)}
+        onClose={() => {
+          setShowAddDocumentModal(false);
+          setTareaDocumento(null);
+        }}
         tripId={trip?.id}
         tripMoneda={trip?.currency}
         tripFechaInicio={trip?.startDate}
         tripFechaFin={trip?.endDate}
-        onDocumentoSubido={() => loadDocumentos()}
+        tarea={tareaDocumento}
+        onDocumentoSubido={() => {
+          loadDocumentos();
+          if (tareaDocumento) {
+            loadChecklists();
+            if (tareaDocumento.IdActividad) refrescarActividades();
+          }
+        }}
       />
       <EditDocumentScreen
         visible={!!documentoAEditar}

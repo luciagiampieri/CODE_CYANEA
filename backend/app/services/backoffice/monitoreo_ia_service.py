@@ -1,14 +1,3 @@
-"""Monitoreo del consumo de los servicios de IA desde el backoffice (US 114).
-
-Se calcula siempre desde `SolicitudesIA`, que solo tiene metadatos de consumo
-(funcionalidad, modelo, resultado, duración, tokens y costo estimado), nunca el
-contenido de las solicitudes ni datos de los usuarios (RNF-33).
-
-El umbral de costo es mensual (mes calendario en hora de Argentina): la alerta
-visible se muestra al superar el 80% y, al superar el 100%, se envía un correo a
-los administradores del sistema una sola vez por mes y por valor de umbral.
-"""
-
 from __future__ import annotations
 
 import logging
@@ -41,7 +30,7 @@ logger = logging.getLogger(__name__)
 PORCENTAJE_ADVERTENCIA = Decimal(80)
 
 # Funcionalidades que se muestran siempre (CA 2), en este orden; cualquier otra
-# registrada (asistente, entradas) se agrega al final.
+# registrada (asistente, entradas, documentos de tareas) se agrega al final.
 FUNCIONALIDADES = {
     registro_ia.SERVICIO_SUGERENCIA_ACTIVIDADES: "Sugerencias de actividades",
     registro_ia.SERVICIO_ESCANEO_COMPROBANTES: "Escaneo de comprobantes",
@@ -52,6 +41,7 @@ FUNCIONALIDADES = {
 OTRAS_FUNCIONALIDADES = {
     registro_ia.SERVICIO_RECOMENDACION_ENTRADAS: "Recomendación de entradas",
     registro_ia.SERVICIO_ASISTENTE_VIAJE: "Asistente del viaje",
+    registro_ia.SERVICIO_DOCUMENTOS_TAREAS: "Sugerencia de documentos en tareas",
 }
 
 

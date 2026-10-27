@@ -20,8 +20,10 @@ import { colors, radii, spacing, textStyles } from "../../theme/tokens";
  *   debe lanzar un Error con un mensaje apto para el usuario.
  * - onAccept(preview): Promise<string | void>. Se llama al aceptar la imagen; puede devolver
  *   el mensaje de confirmación a mostrar. Si falla, debe lanzar un Error.
+ * - onInputFocus / onInputBlur (opcionales): avisan cuándo se escribe la indicación,
+ *   para que la pantalla lleve el campo por encima del teclado.
  */
-export default function AICoverGenerator({ generate, onAccept }) {
+export default function AICoverGenerator({ generate, onAccept, onInputFocus, onInputBlur }) {
   const [open, setOpen] = useState(false);
   const [prompt, setPrompt] = useState("");
   const [status, setStatus] = useState("idle"); // idle | generating | accepting
@@ -102,6 +104,10 @@ export default function AICoverGenerator({ generate, onAccept }) {
             placeholderTextColor={colors.textMuted}
             maxLength={300}
             editable={!busy}
+            onFocus={onInputFocus}
+            onBlur={onInputBlur}
+            returnKeyType="done"
+            testID="ai-cover-prompt"
           />
 
           {status === "generating" ? (

@@ -114,6 +114,14 @@ class Settings(BaseSettings):
     ai_entradas_busqueda_google: bool = True
     ai_entradas_busqueda_timeout_seconds: float = 15.0
 
+    # Sugerencia de subir las entradas o la reserva al completar una tarea: Gemini
+    # solo se consulta cuando las palabras clave del título no alcanzan. Vacíos: se
+    # usa primero AI_RECEIPT_FALLBACK_MODEL (más económico) y después AI_RECEIPT_MODEL.
+    ai_documentos_tareas_enabled: bool = True
+    ai_documentos_tareas_model: str | None = None
+    ai_documentos_tareas_fallback_model: str | None = None
+    ai_documentos_tareas_timeout_seconds: float = 8.0
+
     # Monitoreo de consumo de IA (US 114): precios de referencia en USD para estimar
     # el costo de cada solicitud. Los modelos "lite" usan sus propios precios.
     # Gemini 3.8 Flash sube a 1.50 / 7.50 desde el 1/1/2027 (ver .env.example).

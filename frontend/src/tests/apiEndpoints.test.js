@@ -138,6 +138,7 @@ const CASOS = [
   ["createChecklist", "POST", "/trips/7/checklists", [7, DATOS], DATOS],
   ["updateChecklist", "PUT", "/trips/7/checklists/5", [7, 5, DATOS], DATOS],
   ["toggleChecklistCompletada", "PATCH", "/trips/7/checklists/5/completada", [7, 5, true], { Completada: true }],
+  ["getSugerenciaDocumentoTarea", "POST", "/trips/7/checklists/5/sugerencia-documento", [7, 5]],
   ["deleteChecklist", "DELETE", "/trips/7/checklists/5", [7, 5]],
   ["leaveTrip", "POST", "/trips/7/leave", [7, { confirmar: true }], { confirmar: true }],
   ["transferTripAdministration", "POST", "/trips/7/transferir-administracion", [7, 2], { nuevoAdministradorId: 2 }],

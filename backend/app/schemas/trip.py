@@ -45,6 +45,18 @@ class TareaEntradasResumen(BaseModel):
     nombre: str
 
 
+class DocumentoReservaResumen(BaseModel):
+    """Documento subido desde una tarea de "Recordármelo" de la actividad (las
+    entradas o la confirmación de la reserva). Solo los que el usuario puede ver."""
+
+    idDocumento: int
+    idChecklist: int
+    nombreArchivo: str
+    urlArchivo: str
+    iconoCategoria: str | None = None
+    esPublico: bool = True
+
+
 class ActividadRead(BaseModel):
     idActividad: int = Field(..., alias="IdActividad")
     idLugarInteres: int | None = Field(None, alias="IdLugarInteres")
@@ -67,6 +79,10 @@ class ActividadRead(BaseModel):
     # al eliminarla se avisa que también se eliminan.
     tareasEntradasPendientes: list[TareaEntradasResumen] = Field(
         default_factory=list, alias="TareasEntradasPendientes"
+    )
+    # Entradas o reservas subidas desde las tareas de la actividad.
+    documentosReserva: list[DocumentoReservaResumen] = Field(
+        default_factory=list, alias="DocumentosReserva"
     )
 
     class Config:

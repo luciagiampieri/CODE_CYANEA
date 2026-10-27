@@ -38,6 +38,7 @@ from app.schemas.trip import (
     AdvertenciaHorario,
     ConfirmacionTareasEntradas,
     RecomendacionEntradas,
+    DocumentoReservaResumen,
     TareaEntradasResumen,
     TripAdminRead,
     TripCreate,
@@ -319,9 +320,52 @@ def _tareas_entradas_pendientes_por_actividad(viaje: Viaje) -> dict[int, list[Ta
     return por_actividad
 
 
+def _documentos_reserva_por_actividad(
+    viaje: Viaje, id_usuario: int | None
+) -> dict[int, list[DocumentoReservaResumen]]:
+    """Documentos subidos desde las tareas vinculadas a cada actividad del viaje
+    (una consulta), solo los que el usuario puede ver: tareas del grupo o propias,
+    documentos públicos o subidos por él."""
+    db = object_session(viaje)
+    if db is None or id_usuario is None:
+        return {}
+    ids = [
+        actividad.IdActividad
+        for dia in (viaje.Cronograma or [])
+        for actividad in (dia.Actividades or [])
+    ]
+    if not ids:
+        return {}
+    por_actividad: dict[int, list[DocumentoReservaResumen]] = {}
+    for tarea in db.scalars(
+        select(Checklist)
+        .where(
+            Checklist.IdActividad.in_(ids),
+            (Checklist.EsPrivada.is_(False)) | (Checklist.IdUsuarioCreador == id_usuario),
+        )
+        .options(selectinload(Checklist.Documentos))
+        .order_by(Checklist.IdChecklist)
+    ).all():
+        for documento in tarea.Documentos:
+            if not (documento.EsPublico or documento.IdUsuarioSubida == id_usuario):
+                continue
+            por_actividad.setdefault(tarea.IdActividad, []).append(
+                DocumentoReservaResumen(
+                    idDocumento=documento.IdDocumento,
+                    idChecklist=tarea.IdChecklist,
+                    nombreArchivo=documento.NombreArchivo,
+                    urlArchivo=obtener_url_publica(documento.UrlArchivo),
+                    iconoCategoria=documento.CategoriaDocumentoRelacion.Icono,
+                    esPublico=documento.EsPublico,
+                )
+            )
+    return por_actividad
+
+
 def _build_actividad_read(
     actividad: ActividadItinerario,
     tareas_pendientes: list[TareaEntradasResumen] | None = None,
+    documentos_reserva: list[DocumentoReservaResumen] | None = None,
 ) -> ActividadRead:
     lugar = actividad.LugarInteres
 
@@ -340,6 +384,7 @@ def _build_actividad_read(
         TipoAdvertenciaHorario=actividad.TipoAdvertenciaHorario,
         AdvertenciaHorario=actividad.AdvertenciaHorario,
         TareasEntradasPendientes=tareas_pendientes or [],
+        DocumentosReserva=documentos_reserva or [],
     )
 
 async def _notificar_viaje_actualizado(viaje: Viaje, message: str) -> None:
@@ -520,6 +565,7 @@ def _build_trip_detail(
 
     admin_visible = datos_visibles(admin_a_mostrar, id_observador)
     tareas_entradas_pendientes = _tareas_entradas_pendientes_por_actividad(viaje)
+    documentos_reserva = _documentos_reserva_por_actividad(viaje, id_observador)
 
     default_cover_image = (
         build_destination_image_url(viaje.GooglePlaceIdPortada)
@@ -555,6 +601,7 @@ def _build_trip_detail(
                     _build_actividad_read(
                         actividad,
                         tareas_entradas_pendientes.get(actividad.IdActividad),
+                        documentos_reserva.get(actividad.IdActividad),
                     )
                     for actividad in (dia.Actividades or [])
                     if (

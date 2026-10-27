@@ -20,8 +20,10 @@ from app.models import (
     ParticipanteViaje,
     EstadoParticipacion,
     CategoriasGastos,
+    Checklist,
     Moneda,
 )
+from app.services import checklist_permisos
 from app.schemas.documento_viaje import CategoriasDocumentosRead, DocumentoViajeRead
 from app.services.registro_ia import SERVICIO_DETECCION_GASTOS_DOCUMENTOS, servicio_ia
 from app.schemas.limite_plan import UsoLimiteRead
@@ -106,6 +108,8 @@ async def subir_documento_viaje(
     IdCategoriaDocumento: int = Form(...),
     NombreArchivo: str | None = Form(None),
     EsPublico: bool = Form(True),
+    # Tarea del checklist desde la que se sube (las entradas, el pasaje, la reserva).
+    IdChecklist: int | None = Form(None),
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
     extractor: ReceiptExtractor = Depends(get_receipt_extractor),
@@ -115,6 +119,17 @@ async def subir_documento_viaje(
         current_user,
     )
     require_trip_not_finished(viaje, "la documentación")
+
+    tarea = None
+    if IdChecklist is not None:
+        tarea = db.get(Checklist, IdChecklist)
+        # Una tarea privada de otro integrante no existe para él.
+        if (
+            tarea is None
+            or tarea.IdViaje != trip_id
+            or not checklist_permisos.puede_ver(tarea, current_user.IdUsuario)
+        ):
+            raise HTTPException(status_code=404, detail="La tarea no existe.")
 
     categoria = db.get(
         CategoriaDocumento,
@@ -207,6 +222,8 @@ async def subir_documento_viaje(
     )
 
     db.add(documento)
+    if tarea is not None:
+        tarea.Documentos.append(documento)
 
     try:
         db.commit()
@@ -223,6 +240,8 @@ async def subir_documento_viaje(
         trip_id,
         {"tipo": "documento_actualizado"}
     )
+    if tarea is not None:
+        await manager.broadcast_to_trip(trip_id, {"tipo": "checklist_actualizado"})
 
     sugerencia_gasto = None
     try:
@@ -260,6 +279,8 @@ async def subir_documento_viaje(
         "message": "Documento subido correctamente",
         "IdDocumento": documento.IdDocumento,
     }
+    if tarea is not None:
+        response_data["IdChecklist"] = tarea.IdChecklist
     if sugerencia_gasto:
         response_data["sugerencia_gasto"] = sugerencia_gasto
 
@@ -451,6 +472,9 @@ async def editar_o_reemplazar_documento_viaje(
         trip_id,
         {"tipo": "documento_actualizado"}
     )
+    # Las tareas muestran el nombre y la visibilidad de sus documentos.
+    if documento.Checklists:
+        await manager.broadcast_to_trip(trip_id, {"tipo": "checklist_actualizado"})
     
     return {
         "message": "Documento actualizado correctamente.",
@@ -540,6 +564,8 @@ async def eliminar_documento_viaje(
     except Exception:
         pass
 
+    # El vínculo con las tareas se elimina junto con el documento.
+    estaba_en_tareas = bool(documento.Checklists)
     db.delete(documento)
     db.commit()
 
@@ -547,5 +573,7 @@ async def eliminar_documento_viaje(
             trip_id,
             {"tipo": "documento_actualizado"}
         )
+    if estaba_en_tareas:
+        await manager.broadcast_to_trip(trip_id, {"tipo": "checklist_actualizado"})
 
     return {"message": "Documento eliminado correctamente."}

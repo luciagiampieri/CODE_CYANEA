@@ -60,6 +60,10 @@ export default function DocumentsScreen({
     tripFechaInicio = null,
     tripFechaFin = null,
     onDocumentoSubido,
+    // Subida desde una tarea del checklist (las entradas, el pasaje, la reserva):
+    // { IdChecklist, Nombre, IdCategoriaDocumento?, EsPublico?, NombreSugerido? }.
+    // Se preselecciona la categoría y la visibilidad y el documento queda en la tarea.
+    tarea = null,
 }) {
 
     const [loading, setLoading] = useState(true);
@@ -84,6 +88,8 @@ export default function DocumentsScreen({
     const [datosGastoSugerido, setDatosGastoSugerido] = useState(null);
     const gastoRegistradoRef = useRef(false);
     const subiendoRef = useRef(false);
+    // El nombre propuesto por la tarea se usa solo para el primer documento.
+    const usarNombreTareaRef = useRef(true);
 
     const categoriaSeleccionada = categorias.find(
         (c) => c.IdCategoriaDocumento === idCategoria
@@ -138,6 +144,11 @@ export default function DocumentsScreen({
         if (visible) {
             cargarCategorias();
             cargarAlmacenamiento();
+            usarNombreTareaRef.current = true;
+            if (tarea) {
+                setIdCategoria(tarea.IdCategoriaDocumento ?? null);
+                setEsPublico(tarea.EsPublico ?? true);
+            }
         } else {
             setArchivo(null);
             setNombreDocumento("");
@@ -148,7 +159,7 @@ export default function DocumentsScreen({
             setAlmacenamiento(null);
             gastoRegistradoRef.current = false;
         }
-    }, [visible, tripId]);
+    }, [visible, tripId, tarea?.IdChecklist]);
 
     function limpiarError(campo) {
         setErrores((current) => {
@@ -182,7 +193,10 @@ export default function DocumentsScreen({
 
                 setArchivo(documento);
                 setExtensionArchivo(extension);
-                setNombreDocumento(nombreSinExtension);
+                // Desde una tarea se propone su nombre («Entradas – Museo del Prado»).
+                setNombreDocumento(
+                    (usarNombreTareaRef.current && tarea?.NombreSugerido) || nombreSinExtension
+                );
 
                 limpiarError("archivo");
             }
@@ -199,6 +213,16 @@ export default function DocumentsScreen({
         setArchivo(null);
         setNombreDocumento("");
         setExtensionArchivo("");
+    }
+
+    function prepararOtroDocumento() {
+        // Mismo formulario de la tarea, para el comprobante de pago u otro archivo.
+        usarNombreTareaRef.current = false;
+        setArchivo(null);
+        setNombreDocumento("");
+        setExtensionArchivo("");
+        setErrores({});
+        cargarAlmacenamiento();
     }
 
     async function handleSubir() {
@@ -230,7 +254,9 @@ export default function DocumentsScreen({
                 ? `${nombreDocumento}.${extensionArchivo}`
                 : nombreDocumento;
 
-            const respuesta = await uploadTripDocument(tripId, archivo, idCategoria, nombreFinal, esPublico);
+            const respuesta = tarea
+                ? await uploadTripDocument(tripId, archivo, idCategoria, nombreFinal, esPublico, tarea.IdChecklist)
+                : await uploadTripDocument(tripId, archivo, idCategoria, nombreFinal, esPublico);
 
             if (onDocumentoSubido) onDocumentoSubido();
 
@@ -270,6 +296,14 @@ export default function DocumentsScreen({
             }
 
             setSaving(false);
+            if (tarea) {
+                // Se puede subir aparte el comprobante de pago (o las demás entradas).
+                appAlert("Documento guardado", `Lo guardamos en la tarea «${tarea.Nombre}».`, [
+                    { text: "Subir otro", onPress: prepararOtroDocumento },
+                    { text: "Listo", onPress: () => onClose() },
+                ]);
+                return;
+            }
             mostrarAlertaConfirmacion("Éxito", "Documento subido correctamente.", () => {
                 onClose();
             });
@@ -330,6 +364,16 @@ export default function DocumentsScreen({
                                 </View>
                             ) : (
                                 <View style={styles.content}>
+
+                                    {tarea ? (
+                                        <View style={styles.tareaBox} testID="documentos-tarea">
+                                            <FontAwesome6 name="paperclip" size={13} color={colors.primary} />
+                                            <Text style={styles.tareaTexto}>
+                                                Se guarda en la tarea{" "}
+                                                <Text style={styles.tareaNombre}>«{tarea.Nombre}»</Text>
+                                            </Text>
+                                        </View>
+                                    ) : null}
 
                                     {almacenamientoLimitado ? (
                                         <View style={styles.storageBox} testID="documentos-almacenamiento">
@@ -562,6 +606,24 @@ export default function DocumentsScreen({
 }
 
 const styles = StyleSheet.create({
+    tareaBox: {
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 8,
+        padding: spacing.sm,
+        borderRadius: radii.md,
+        backgroundColor: colors.surfaceAlt,
+        // Separado del aviso de espacio del viaje que puede venir debajo.
+        marginBottom: spacing.sm,
+    },
+    tareaTexto: {
+        flex: 1,
+        fontSize: 13,
+        color: colors.textPrimary,
+    },
+    tareaNombre: {
+        fontWeight: "600",
+    },
     overlay: {
         flex: 1,
         backgroundColor: colors.overlayStrong || "rgba(9, 19, 45, 0.7)",

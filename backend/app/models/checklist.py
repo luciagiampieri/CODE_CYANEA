@@ -29,6 +29,34 @@ responsables_checklist = Table(
 )
 
 
+# Documentos subidos desde una tarea de compra o reserva (las entradas, el pasaje,
+# la confirmación de la reserva o el comprobante de pago). Si se elimina la tarea
+# los documentos siguen en el viaje; si se elimina un documento se quita el vínculo.
+documentos_checklist = Table(
+    "DocumentosChecklists",
+    Base.metadata,
+    Column(
+        "IdChecklist",
+        ForeignKey(
+            "Checklists.IdChecklist",
+            name="FK_DocumentosChecklists_Checklists",
+            ondelete="CASCADE",
+        ),
+        primary_key=True,
+    ),
+    Column(
+        "IdDocumento",
+        ForeignKey(
+            "DocumentosViajes.IdDocumento",
+            name="FK_DocumentosChecklists_DocumentosViajes",
+            ondelete="CASCADE",
+        ),
+        primary_key=True,
+        index=True,
+    ),
+)
+
+
 class Checklist(Base):
     __tablename__ = "Checklists"
 
@@ -106,6 +134,15 @@ class Checklist(Base):
 
     GooglePlaceIdEntradas: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
+    # Ya se le sugirió subir las entradas o la reserva al marcarla como hecha: la
+    # sugerencia se muestra una sola vez por tarea (para todo el grupo).
+    SugerenciaDocumentoMostrada: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default="false",
+    )
+
     FechaCreacion: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),
@@ -118,3 +155,9 @@ class Checklist(Base):
     UsuarioCompletada = relationship("Usuario", foreign_keys=[IdUsuarioCompletada])
     Actividad = relationship("ActividadItinerario", foreign_keys=[IdActividad])
     Responsables = relationship("Usuario", secondary=responsables_checklist)
+    Documentos = relationship(
+        "DocumentoViaje",
+        secondary=documentos_checklist,
+        back_populates="Checklists",
+        order_by="DocumentoViaje.FechaSubida",
+    )

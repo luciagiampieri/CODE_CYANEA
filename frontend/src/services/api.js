@@ -1238,7 +1238,9 @@ export async function uploadTripDocument(
   archivo,
   idCategoriaDocumento,
   nombreArchivo,
-  esPublico
+  esPublico,
+  // Tarea del checklist desde la que se sube (las entradas, el pasaje, la reserva).
+  idChecklist = null
 ) {
   const token = await getStoredToken();
   const fileType = archivo.mimeType || archivo.type || "application/octet-stream";
@@ -1262,6 +1264,7 @@ export async function uploadTripDocument(
     if (esPublico !== undefined && esPublico !== null) {
       formData.append("EsPublico", String(esPublico));
     }
+    if (idChecklist != null) formData.append("IdChecklist", String(idChecklist));
 
     const response = await fetch(`${API_BASE_URL}/trips/${tripId}/documents`, {
       method: "POST",
@@ -1279,6 +1282,9 @@ export async function uploadTripDocument(
     };
     if (nombreArchivo) {
       parameters.NombreArchivo = nombreArchivo;
+    }
+    if (idChecklist != null) {
+      parameters.IdChecklist = String(idChecklist);
     }
 
     const result = await file.upload(
@@ -1493,6 +1499,19 @@ export async function toggleChecklistCompletada(tripId, checklistId, completada)
     }
   );
   return parseResponse(response, "No se pudo actualizar el estado de la tarea");
+}
+
+// Después de marcar una tarea como hecha: si es de compra o reserva, sugiere subir
+// las entradas o la reserva ({ sugerir, titulo, mensaje, IdCategoriaDocumento, ... }).
+export async function getSugerenciaDocumentoTarea(tripId, checklistId) {
+  const response = await fetch(
+    `${API_BASE_URL}/trips/${tripId}/checklists/${checklistId}/sugerencia-documento`,
+    {
+      method: "POST",
+      headers: await authHeaders(),
+    }
+  );
+  return parseResponse(response, "No se pudo consultar la sugerencia de documento");
 }
 
 export async function deleteChecklist(tripId, checklistId) {

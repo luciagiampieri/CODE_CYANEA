@@ -30,6 +30,8 @@ export default function DayAgenda({
   onEdit,
   onDelete,
   onSuggestGap,
+  // Entradas o reservas subidas desde las tareas de "Recordármelo" de la actividad.
+  onAbrirDocumento,
 }) {
   const [mostrarTodas, setMostrarTodas] = useState(false);
   const [detallesAbiertos, setDetallesAbiertos] = useState({});
@@ -247,6 +249,24 @@ export default function DayAgenda({
                     </Text>
                   </View>
                 ) : null}
+
+                {(item.documentosReserva || []).map((documento) => (
+                  <Pressable
+                    key={documento.idDocumento}
+                    onPress={() => onAbrirDocumento?.(documento)}
+                    disabled={!onAbrirDocumento}
+                    hitSlop={6}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Abrir ${documento.nombreArchivo}`}
+                    testID={`agenda-documento-${documento.idDocumento}`}
+                    style={({ pressed }) => [styles.metaRow, pressed && styles.pressed]}
+                  >
+                    <FontAwesome6 name="paperclip" size={10} color={colors.primary} />
+                    <Text style={[styles.metaText, styles.documentoText]} numberOfLines={1}>
+                      {documento.nombreArchivo}
+                    </Text>
+                  </Pressable>
+                ))}
               </Pressable>
             </View>
           </View>
@@ -302,6 +322,10 @@ const PUNTO = 10;
 const BURBUJA = 24;
 
 const styles = StyleSheet.create({
+  documentoText: {
+    color: colors.primary,
+    fontWeight: "600",
+  },
   row: {
     flexDirection: "row",
   },

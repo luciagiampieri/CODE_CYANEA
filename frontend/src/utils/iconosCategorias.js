@@ -38,6 +38,7 @@ const ICONOS_POR_NOMBRE = {
     seguros: "shield-halved",
     documentacion: "id-card",
     comprobantes: "receipt",
+    "reservas y entradas": "ticket",
     otros: "ellipsis",
   },
   [TIPOS_CATEGORIA.CHECKLIST]: {
@@ -64,6 +65,7 @@ export const NOMBRES_CATEGORIAS_BASE = {
     "Seguros",
     "Documentación",
     "Comprobantes",
+    "Reservas y entradas",
     "Otros",
   ],
   [TIPOS_CATEGORIA.CHECKLIST]: [
