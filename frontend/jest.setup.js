@@ -20,3 +20,16 @@ jest.mock("expo-sqlite", () => ({
     getFirstSync: jest.fn(() => null),
   })),
 }));
+
+// Los tests no necesitan cargar fuentes reales. Sin este mock, los íconos de
+// @expo/vector-icons intentan cargar su fuente al montarse y, desde el SDK 58,
+// fallan con "Module X is missing from the asset registry".
+jest.mock('expo-font', () => {
+  const actual = jest.requireActual('expo-font');
+  return {
+    ...actual,
+    isLoaded: jest.fn(() => true),
+    loadAsync: jest.fn(() => Promise.resolve()),
+    useFonts: jest.fn(() => [true, null]),
+  };
+});
