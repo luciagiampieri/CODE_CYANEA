@@ -1,0 +1,21 @@
+warning: in the working copy of 'frontend/package.json', LF will be replaced by CRLF the next time Git touches it
+[1mdiff --git a/frontend/package.json b/frontend/package.json[m
+[1mindex 530be99..8cd430f 100644[m
+[1m--- a/frontend/package.json[m
+[1m+++ b/frontend/package.json[m
+[36m@@ -10,7 +10,7 @@[m
+     "@react-navigation/bottom-tabs": "^7.17.1",[m
+     "@react-navigation/native": "^7.3.0",[m
+     "@react-navigation/native-stack": "^7.17.1",[m
+[31m-    "expo": "~57.0.26",[m
+[32m+[m[32m    "expo": "^58.0.0",[m
+     "expo-asset": "~57.0.17",[m
+     "expo-auth-session": "~57.0.13",[m
+     "expo-clipboard": "~57.0.2",[m
+[36m@@ -80,4 +80,4 @@[m
+       }[m
+     }[m
+   }[m
+[31m-}[m
+\ No newline at end of file[m
+[32m+[m[32m}[m
