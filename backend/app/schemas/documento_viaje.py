@@ -26,6 +26,8 @@ class DocumentoViajeRead(BaseModel):
     NombreArchivo: str
     UrlArchivo: str
     FechaSubida: datetime
+    FechaActualizacion: datetime | None = None
+    TamanoBytes: int | None = None
 
     NombreCategoria: str
     IconoCategoria: str | None = None

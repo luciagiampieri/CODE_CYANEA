@@ -60,6 +60,12 @@ class DocumentoViaje(Base):
         server_default=func.now(),
         nullable=False
     )
+
+    FechaActualizacion: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False
+    )
     
     EsPublico: Mapped[bool] = mapped_column(
         Boolean,
@@ -83,7 +89,6 @@ class DocumentoViaje(Base):
         back_populates="DocumentosSubidos"
     )
 
-    # Tareas del checklist desde las que se subió (US: subir las entradas o la reserva).
     Checklists = relationship(
         "Checklist",
         secondary="DocumentosChecklists",

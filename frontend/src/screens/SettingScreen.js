@@ -19,6 +19,7 @@ export default function SettingsScreen({ navigation }) {
   const { isDesktop } = useResponsive();
   const [showLogoutModal, setShowLogoutModal] = useState(false);
   const tienePassword = puedeCambiarPassword(user);
+  const mostrarOffline = Platform.OS !== "web";
 
   const handleLogoutPress = () => {
     if (Platform.OS === "web") {
@@ -91,7 +92,17 @@ export default function SettingsScreen({ navigation }) {
               subtitle="Intereses, ritmo y presupuesto por viaje"
               onPress={() => navigation.navigate("PreferenciasPlanificacion")}
               testID="settings-planificacion-row"
+              divider={mostrarOffline}
             />
+            {mostrarOffline ? (
+              <ListRow
+                icon="cloud-arrow-down"
+                title="Documentos sin conexión"
+                subtitle="Archivos guardados en este dispositivo"
+                onPress={() => navigation.navigate("DocumentosSinConexion")}
+                testID="settings-offline-row"
+              />
+            ) : null}
           </SectionCard>
 
           <SectionCard label="Acerca de">

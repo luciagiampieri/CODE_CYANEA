@@ -1,11 +1,11 @@
 import { createContext, useCallback, useContext, useEffect, useState } from "react";
 import { Platform } from "react-native";
 import { getCurrentUser, onSessionExpired } from "../services/api";
+import { eliminarTodoOffline, esErrorDeRed } from "../database/offlineViajes";
 
 const AUTH_TOKEN_KEY = "auth_token";
 const PENDING_INVITATION_KEY = "cyanea_pending_invitation";
 
-// expo-secure-store no funciona en web; usamos localStorage como fallback
 const storage = {
   async getItem(key) {
     if (Platform.OS === "web") {
@@ -32,6 +32,12 @@ const storage = {
   },
 };
 
+function limpiarDatosOffline() {
+  try {
+    eliminarTodoOffline();
+  } catch {}
+}
+
 const AuthContext = createContext(null);
 
 export function AuthProvider({ children }) {
@@ -52,13 +58,17 @@ export function AuthProvider({ children }) {
           return;
         }
 
-        // Lo ponemos temporalmente para que authHeaders() lo use
         setToken(stored);
 
         try {
-          const currentUser = await getCurrentUser(); // valida el token contra backend
+          const currentUser = await getCurrentUser();
           setUser(currentUser);
-        } catch {
+        } catch (error) {
+          if (esErrorDeRed(error)) {
+            setUser(null);
+            return;
+          }
+          limpiarDatosOffline();
           await storage.removeItem(AUTH_TOKEN_KEY);
           setToken(null);
           setUser(null);
@@ -82,13 +92,13 @@ export function AuthProvider({ children }) {
   }, []);
 
   const logout = useCallback(async () => {
+    limpiarDatosOffline();
     await storage.removeItem(AUTH_TOKEN_KEY);
     setToken(null);
     setUser(null);
   }, []);
 
-  // US 101: el token dejó de valer (p. ej. se cambió la contraseña en otro
-  // dispositivo): se cierra la sesión y la app vuelve al login.
+
   useEffect(() => {
     if (!token || typeof onSessionExpired !== "function") return undefined;
     return onSessionExpired(() => {

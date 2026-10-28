@@ -13,6 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.router import api_router
 from app.api.routes.itinerary import router as itinerary_router
+from app.api.routes.offline import router as offline_router
 from app.core.config import settings
 from app.services.notifications.activity_reminders import (
     start_activity_reminders_scheduler,
@@ -74,4 +75,5 @@ def healthcheck() -> dict[str, str]:
 
 
 app.include_router(api_router, prefix=settings.api_v1_prefix)
+app.include_router(offline_router, prefix=settings.api_v1_prefix)
 app.include_router(itinerary_router)

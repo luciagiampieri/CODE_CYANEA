@@ -93,6 +93,15 @@ import {
   guardarParticipantesEnCache,
   guardarCategoriasEnCache,
 } from "../database/gastosLocal";
+import {
+  esErrorDeRed,
+  guardarDocumentoOffline,
+  guardarItinerarioOffline,
+  listarDocumentosOffline,
+  obtenerItinerarioOffline,
+  offlineDisponible,
+  quitarDocumentoOffline,
+} from "../database/offlineViajes";
 
 import AddActivityScreen from "./AddActivityScreen";
 import AddGastoScreen from "./AddGastoScreen";
@@ -104,6 +113,7 @@ import CrearChecklistScreen from "./CreateChecklistScreen";
 import { agregarChecklistSinDuplicar } from "../utils/checklistLista";
 import useItinerarioViewPreference from "../hooks/useItinerarioViewPreference";
 import useResponsive from "../hooks/useResponsive";
+import useConexion from "../hooks/useConexion";
 import ItinerarioViewToggle from "../components/trip/ItinerarioViewToggle";
 import ItinerarioCalendarView from "../components/trip/ItinerarioCalendarView";
 import { buildRouteMarkers } from "../utils/routeMarkers";
@@ -113,10 +123,10 @@ import { getTripLock } from "../utils/tripLock";
 import { getRouteHint } from "../utils/routeMessages";
 import { formatMoney } from "../utils/money";
 import { centerInScroll } from "../utils/scrollHelpers";
-import ActivitySuggestionsScreen from "./ActivitySuggestionsScreen"; // SUGERENCIAS
-import CompleteFreeDaysScreen from "./CompleteFreeDaysScreen"; // US 92
-import DaySuggestionsSection from "../components/trip/DaySuggestionsSection"; // SUGERENCIAS (US 90)
-import TripAssistantButton from "../components/assistant/TripAssistantButton"; // SUGERENCIAS
+import ActivitySuggestionsScreen from "./ActivitySuggestionsScreen";
+import CompleteFreeDaysScreen from "./CompleteFreeDaysScreen";
+import DaySuggestionsSection from "../components/trip/DaySuggestionsSection";
+import TripAssistantButton from "../components/assistant/TripAssistantButton";
 
 import { appAlert } from "../components/ui/AppDialog";
 import { datosSubidaDesdeTarea, ofrecerSubirDocumentoTarea } from "../utils/documentosTareas";
@@ -133,8 +143,11 @@ const tabs = [
   { id: "grupo", label: "Grupo", icon: "users" },
 ];
 
-// Pestaña con la que se abre el viaje (accesos rápidos de "Mis viajes" y
-// notificaciones). Si no es una pestaña válida, se abre el resumen.
+const MENSAJE_SIN_DATOS_OFFLINE =
+  "Este viaje todavía no está disponible sin conexión. Abrilo con conexión al menos una vez.";
+const MENSAJE_SIN_CONEXION = "No hay conexión. Revisá tu internet e intentá de nuevo.";
+
+
 function tabValida(tab) {
   return tabs.some((t) => t.id === tab) ? tab : "resumen";
 }
@@ -243,7 +256,23 @@ function formatFechaHoraCierre(dateString) {
   }).format(date);
 }
 
-// Fecha local de hoy en formato YYYY-MM-DD (sin pasar por UTC).
+function formatearSincronizacion(isoString) {
+  if (!isoString) return "";
+  const fecha = new Date(isoString);
+  if (Number.isNaN(fecha.getTime())) return "";
+
+  return new Intl.DateTimeFormat("es-AR", {
+    day: "2-digit",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(fecha);
+}
+
+function esImagen(nombreArchivo) {
+  return /\.(jpe?g|png)$/i.test(String(nombreArchivo ?? ""));
+}
+
 function hoyLocalISO() {
   const ahora = new Date();
   const mes = String(ahora.getMonth() + 1).padStart(2, "0");
@@ -296,8 +325,7 @@ function computeCenterFromMarkers(markers) {
   };
 }
 
-// Categorías activas para mostrar las secciones vacías de documentos y checklist
-// (US 110). Si no se pueden cargar se usan las categorías base.
+
 async function cargarCategoriasActivas(cargar) {
   try {
     const categorias = await cargar();
@@ -311,16 +339,15 @@ export default function TripDetailScreen({ navigation, route }) {
   const initialTrip = normalizeTrip(route.params?.trip);
   const { width, isTablet } = useResponsive();
   const [trip, setTrip] = useState(initialTrip);
-  const lock = useMemo(() => getTripLock(trip), [trip]);
+  const [sinConexion, setSinConexion] = useState(false);
+  const [sincronizadoEn, setSincronizadoEn] = useState(null);
+  const lock = useMemo(() => getTripLock(trip, new Date(), { sinConexion }), [trip, sinConexion]);
   const [activeTab, setActiveTab] = useState(() => tabValida(route.params?.initialTab));
   const [expandedDayId, setExpandedDayId] = useState(
     initialTrip?.cronograma[0]?.IdDiaCronograma ?? initialTrip?.cronograma[0]?.id ?? null
   );
 
-  // Si la pantalla ya estaba abierta y llega una notificación del mismo viaje,
-  // React Navigation solo actualiza los params: se cambia a la pestaña pedida.
-  // `notificationTarget` es un objeto nuevo en cada notificación, así que
-  // tocar dos veces un aviso de gastos vuelve a llevar a Gastos.
+
   const initialTabParam = route.params?.initialTab;
   const notificationTarget = route.params?.notificationTarget;
   const primerRenderTabRef = useRef(true);
@@ -369,7 +396,6 @@ export default function TripDetailScreen({ navigation, route }) {
   const [categoriasDocumentos, setCategoriasDocumentos] = useState([]);
   const [loadingDocumentos, setLoadingDocumentos] = useState(false);
   const [showAddDocumentModal, setShowAddDocumentModal] = useState(false);
-  // Subida desde una tarea del checklist (las entradas, el pasaje, la reserva).
   const [tareaDocumento, setTareaDocumento] = useState(null);
   const [documentoAEditar, setDocumentoAEditar] = useState(null);
   const [showInfoModal, setShowInfoModal] = useState(false);
@@ -382,6 +408,9 @@ export default function TripDetailScreen({ navigation, route }) {
   const [eliminandoItemId, setEliminandoItemId] = useState(null);
   const [descargandoDocId, setDescargandoDocId] = useState(null);
   const [eliminandoDocId, setEliminandoDocId] = useState(null);
+  const [idsOffline, setIdsOffline] = useState([]);
+  const [guardandoOfflineId, setGuardandoOfflineId] = useState(null);
+  const [visorOffline, setVisorOffline] = useState(null);
   const [updatingTransferId, setUpdatingTransferId] = useState(null);
   const [gastoParaEliminar, setGastoParaEliminar] = useState(null);
   const socketRef = useRef(null);
@@ -400,7 +429,6 @@ export default function TripDetailScreen({ navigation, route }) {
   const [showSugerenciasModal, setShowSugerenciasModal] = useState(false);
   const [showDiasLibresModal, setShowDiasLibresModal] = useState(false);
 
-  // Sugerencias del viaje, agrupadas por día (las ven todos los participantes).
   const cargarSugerencias = useCallback(async () => {
     if (!trip?.id) return;
     try {
@@ -416,15 +444,13 @@ export default function TripDetailScreen({ navigation, route }) {
     }
   }, [trip?.id]);
 
-  // Carga sugerencias de actividades para el día actual
   useEffect(() => {
     if (activeTab === "itinerario") {
       cargarSugerencias();
     }
   }, [activeTab, cargarSugerencias, trip?.cronograma]);
 
-  // Abre el sheet de sugerencias. `franja` ({ inicio, fin }) llega cuando se toca un
-  // hueco libre del día; desde el FAB va sin franja y el sheet propone el primer hueco.
+
   function abrirSugerencias(dayId, franja = null) {
     if (!lock.canEdit("itinerario")) return;
     setSugerenciasDayId(dayId);
@@ -437,8 +463,7 @@ export default function TripDetailScreen({ navigation, route }) {
     setSugerenciasFranja(null);
   }
 
-  // US 90: votación creada a partir de sugerencias. Se suma al listado de
-  // votaciones y se recargan las sugerencias (ahora "En votación").
+
   function handleVotacionDesdeSugerencias(votacion) {
     if (votacion) {
       setVotacionesActivas((prev) => [
@@ -684,8 +709,6 @@ export default function TripDetailScreen({ navigation, route }) {
     () => settlement?.Transferencias?.filter((item) => item.Estado === "pendiente") ?? [],
     [settlement]
   );
-  // Lo que espera una acción del usuario: avisar que transfirió (es deudor de
-  // una pendiente) o confirmar si le llegó (es acreedor de una informada).
   const myTransfersToAct = useMemo(() => {
     if (!currentUser || !settlement?.ResumenParticipantes) return 0;
     const me = settlement.ResumenParticipantes.find(
@@ -712,7 +735,7 @@ export default function TripDetailScreen({ navigation, route }) {
   const [expensesLoading, setExpensesLoading] = useState(false);
   const [expensesError, setExpensesError] = useState("");
   const [deletingExpenseId, setDeletingExpenseId] = useState(null);
-  const [detalleGasto, setDetalleGasto] = useState(null); // { id, gasto, loading, error }
+  const [detalleGasto, setDetalleGasto] = useState(null); 
   const [gastoEnEdicion, setGastoEnEdicion] = useState(null);
   const detalleGastoIdRef = useRef(null);
 
@@ -800,8 +823,7 @@ export default function TripDetailScreen({ navigation, route }) {
     cargarDetalleGasto(gasto.IdGasto);
   }
 
-  // Abre el formulario de edición. Si el usuario no puede editar el gasto,
-  // muestra el motivo que informa el backend (US 79).
+
   async function editarGasto(gastoOdetalle) {
     let detalle = gastoOdetalle;
     if (detalle?.PuedeEditar === undefined) {
@@ -823,7 +845,6 @@ export default function TripDetailScreen({ navigation, route }) {
     setGastoEnEdicion(detalle);
   }
 
-  // Desde el detalle se elimina con el mismo flujo que el tacho de la lista.
   function eliminarGastoDesdeDetalle(detalle) {
     const gastoDeLaLista = expenses.find((item) => item.IdGasto === detalle.IdGasto);
     cerrarDetalleGasto();
@@ -861,12 +882,30 @@ export default function TripDetailScreen({ navigation, route }) {
       setLoading(true);
       setLoadError("");
       const detail = await getTripDetail(initialTrip.id);
+      const sincronizado = guardarItinerarioOffline(detail);
       setTrip((current) => ({
         ...normalizeTrip(detail),
         image: detail.image ?? initialTrip.image,
       }));
+      setSinConexion(false);
+      setSincronizadoEn(sincronizado);
       return true;
     } catch (error) {
+      if (esErrorDeRed(error)) {
+        setSinConexion(true);
+        const guardado = obtenerItinerarioOffline(initialTrip.id);
+        if (guardado?.detalle) {
+          setTrip((current) => ({
+            ...normalizeTrip(guardado.detalle),
+            image: guardado.detalle.image ?? current?.image ?? initialTrip.image,
+          }));
+          setSincronizadoEn(guardado.sincronizadoEn);
+          return false;
+        }
+        setSincronizadoEn(null);
+        setLoadError(offlineDisponible() ? MENSAJE_SIN_DATOS_OFFLINE : MENSAJE_SIN_CONEXION);
+        return false;
+      }
       setLoadError(error.message || "No se pudo cargar el detalle del viaje.");
       return false;
     } finally {
@@ -876,7 +915,12 @@ export default function TripDetailScreen({ navigation, route }) {
 
   useEffect(() => onTripFinishedError(() => loadTripDetail()), [loadTripDetail]);
 
-  // "De dónde sale tu saldo" (punto 6).
+  useConexion(() => {
+    if (!sinConexion) return;
+    loadTripDetail();
+    if (activeTab === "resumen" || activeTab === "docs") loadDocumentos();
+  });
+
   const [miSaldo, setMiSaldo] = useState({ visible: false, data: null, loading: false, error: "" });
   const miSaldoVisibleRef = useRef(false);
 
@@ -906,8 +950,6 @@ export default function TripDetailScreen({ navigation, route }) {
     setMiSaldo({ visible: false, data: null, loading: false, error: "" });
   }
 
-  // `silencioso`: recarga en segundo plano (por WebSocket) sin mostrar el
-  // spinner, para que la tarjeta no parpadee cuando otro hace un cambio.
   const loadSettlement = useCallback(async (opciones) => {
     if (!initialTrip?.id) return;
     const silencioso = opciones?.silencioso === true;
@@ -936,7 +978,15 @@ export default function TripDetailScreen({ navigation, route }) {
       ]);
       setDocumentos(data);
       if (categorias.length) setCategoriasDocumentos(categorias);
+      setIdsOffline(listarDocumentosOffline(initialTrip.id).map((guardado) => guardado.idDocumento));
     } catch (error) {
+      if (esErrorDeRed(error)) {
+        const guardados = listarDocumentosOffline(initialTrip.id);
+        setDocumentos(guardados.map((guardado) => guardado.documento).filter(Boolean));
+        setIdsOffline(guardados.map((guardado) => guardado.idDocumento));
+        setSinConexion(true);
+        return;
+      }
       setDocumentosError(error.message || "No se pudieron cargar los documentos del viaje.");
     } finally {
       setLoadingDocumentos(false);
@@ -979,7 +1029,6 @@ export default function TripDetailScreen({ navigation, route }) {
 
   async function handleToggleChecklist(checklist) {
     if (!lock.canEdit("checklist")) return;
-    // Si tiene responsables, solo ellos la marcan (el backend también lo valida).
     if (checklist.PuedeCompletar === false) return;
 
     const original = checklist;
@@ -991,10 +1040,7 @@ export default function TripDetailScreen({ navigation, route }) {
 
     try {
       const respuesta = await toggleChecklistCompletada(trip.id, checklist.IdChecklist, nuevoEstado);
-      // La respuesta trae quién la hizo y, si no tenía responsables, quién quedó asignado.
       if (respuesta?.item) reemplazar(respuesta.item);
-      // Tarea de compra o reserva: se sugiere subir las entradas o la reserva. Se
-      // consulta aparte para no demorar la casilla; si falla no se muestra nada.
       if (nuevoEstado) ofrecerSubirDocumento(respuesta?.item ?? { ...checklist, Completada: true });
     } catch (error) {
       reemplazar(original);
@@ -1021,12 +1067,10 @@ export default function TripDetailScreen({ navigation, route }) {
   }
 
   async function refrescarActividades() {
-    // Las entradas subidas desde una tarea de "Recordármelo" se ven en la actividad.
     try {
       const detail = await getTripDetail(initialTrip.id);
       setTrip((current) => ({ ...normalizeTrip(detail), image: detail.image ?? current?.image ?? initialTrip.image }));
     } catch {
-      // Se verán al recargar el viaje.
     }
   }
 
@@ -1085,6 +1129,70 @@ export default function TripDetailScreen({ navigation, route }) {
     }
   }
 
+  function abrirDocumentoDelRepositorio(documento) {
+    if (!sinConexion) {
+      abrirDocumento(documento.UrlArchivo);
+      return;
+    }
+
+    const guardado = listarDocumentosOffline(initialTrip?.id).find(
+      (item) => item.idDocumento === documento.IdDocumento
+    );
+
+    if (!guardado) {
+      avisar(
+        "Sin conexión",
+        "Este documento no está guardado en el dispositivo. Vas a poder abrirlo al recuperar la conexión."
+      );
+      return;
+    }
+
+    if (esImagen(documento.NombreArchivo)) {
+      setVisorOffline({ uri: guardado.uri, nombre: documento.NombreArchivo });
+      return;
+    }
+
+    avisar(
+      "Documento guardado",
+      "Este PDF está guardado en el dispositivo, pero para abrirlo necesitás conexión."
+    );
+  }
+
+  async function handleAlternarOffline(documento) {
+    if (idsOffline.includes(documento.IdDocumento)) {
+      quitarDocumentoOffline(documento.IdDocumento);
+      setIdsOffline((prev) => prev.filter((id) => id !== documento.IdDocumento));
+      if (sinConexion) {
+        setDocumentos((prev) => prev.filter((d) => d.IdDocumento !== documento.IdDocumento));
+      }
+      return;
+    }
+
+    try {
+      setGuardandoOfflineId(documento.IdDocumento);
+      await guardarDocumentoOffline(documento);
+      setIdsOffline((prev) => [
+        ...prev.filter((id) => id !== documento.IdDocumento),
+        documento.IdDocumento,
+      ]);
+      avisar(
+        "Disponible sin conexión",
+        `"${documento.NombreArchivo}" quedó guardado en este dispositivo.`
+      );
+    } catch (error) {
+      avisar(
+        "No se pudo guardar",
+        error?.code === "ESPACIO_INSUFICIENTE" || error?.code === "NO_DISPONIBLE"
+          ? error.message
+          : esErrorDeRed(error)
+            ? "Necesitás conexión para guardar el documento en el dispositivo."
+            : error?.message || "No se pudo guardar el documento. Intentá nuevamente."
+      );
+    } finally {
+      setGuardandoOfflineId(null);
+    }
+  }
+
   async function handleDescargarDocumento(documento) {
     try {
       setDescargandoDocId(documento.IdDocumento);
@@ -1107,6 +1215,8 @@ export default function TripDetailScreen({ navigation, route }) {
       try {
         setEliminandoDocId(documento.IdDocumento);
         await deleteTripDocument(trip.id, documento.IdDocumento);
+        quitarDocumentoOffline(documento.IdDocumento);
+        setIdsOffline((prev) => prev.filter((id) => id !== documento.IdDocumento));
 
         setDocumentos((prev) => {
           const nuevosDocs = prev.filter((d) => d.IdDocumento !== documento.IdDocumento);
@@ -1190,8 +1300,7 @@ export default function TripDetailScreen({ navigation, route }) {
               return;
             }
 
-            // US 79: otro participante editó un gasto. Se refrescan la lista y
-            // la liquidación (y el detalle, si está abierto) sin recargar la pantalla.
+
             if (mensaje.tipo === "gasto_actualizado") {
               loadExpenses();
               loadSettlement({ silencioso: true });
@@ -1201,8 +1310,6 @@ export default function TripDetailScreen({ navigation, route }) {
               }
               return;
             }
-            // Otro participante eliminó un gasto: desaparece de la lista, se
-            // actualizan los saldos y, si tenía su detalle abierto, se cierra.
             if (mensaje.tipo === "gasto_eliminado") {
               loadExpenses();
               loadSettlement({ silencioso: true });
@@ -1212,15 +1319,11 @@ export default function TripDetailScreen({ navigation, route }) {
               }
               return;
             }
-            // Cambió la liquidación (alguien avisó "Ya transferí", confirmó,
-            // rechazó, deshizo o recalculó): se refrescan saldos y transferencias.
             if (mensaje.tipo === "liquidacion_actualizada") {
               loadSettlement({ silencioso: true });
               if (miSaldoVisibleRef.current) cargarMiSaldo();
               return;
             }
-            // Alguien empezó o terminó de editar un gasto: si su detalle está
-            // abierto, se actualiza el aviso "X está editando este gasto".
             if (mensaje.tipo === "edicion_gasto_iniciada" || mensaje.tipo === "edicion_gasto_liberada") {
               if (detalleGastoIdRef.current === mensaje.idGasto) {
                 cargarDetalleGasto(mensaje.idGasto, { silencioso: true });
@@ -1246,8 +1349,6 @@ export default function TripDetailScreen({ navigation, route }) {
               }
               return;
             }
-            // US 90: una votación puede venir de sugerencias (al cancelarla vuelven
-            // a "Pendiente"), así que también se recargan las sugerencias.
             if (mensaje.tipo === "votacion_actualizada") {
               loadVotaciones();
               cargarSugerencias();
@@ -1373,12 +1474,9 @@ export default function TripDetailScreen({ navigation, route }) {
           title: act.nombre ?? act.Nombre,
           note: act.descripcion ?? act.Descripcion,
           icon: act.icono ?? act.Icono ?? "location-dot",
-          // Advertencia de horario aceptada al registrar/editar (se marca en el itinerario).
           tipoAdvertenciaHorario: act.tipoAdvertenciaHorario ?? act.TipoAdvertenciaHorario ?? null,
           advertenciaHorario: act.advertenciaHorario ?? act.AdvertenciaHorario ?? null,
-          // Tareas pendientes de "Recordármelo": se avisa que se eliminan con la actividad.
           tareasEntradasPendientes: act.tareasEntradasPendientes ?? act.TareasEntradasPendientes ?? [],
-          // Entradas o reservas subidas desde esas tareas.
           documentosReserva: act.documentosReserva ?? act.DocumentosReserva ?? [],
         };
       });
@@ -1691,7 +1789,6 @@ export default function TripDetailScreen({ navigation, route }) {
   ]);
 
   const checklistStats = useMemo(() => {
-    // El progreso es del grupo: las tareas privadas ("Solo para mí") no cuentan.
     const delGrupo = checklists.filter((c) => !c.EsPrivada);
     const total = delGrupo.length;
     const completadas = delGrupo.filter((c) => c.Completada).length;
@@ -1747,7 +1844,6 @@ export default function TripDetailScreen({ navigation, route }) {
       if (!confirmado) return;
       setTransfiriendoAdministracion(true);
       const resultado = await transferTripAdministration(trip.id, Number(participant.id));
-      // Actualiza los permisos locales incluso si la recarga posterior falla.
       setTrip((prev) => ({
         ...prev,
         admin: { ...participant },
@@ -1833,7 +1929,6 @@ export default function TripDetailScreen({ navigation, route }) {
     let resultado;
     if (payload.id) {
       resultado = await updateActivity(trip.id, activityModalDay.id, payload.id, payload, options);
-      // Advertencia de horario o confirmación de eliminar tareas: todavía no se guardó.
       if (resultado?.advertencia || resultado?.confirmarTareasEntradas) return resultado;
       finalizarEdicionActividad(payload.id);
     } else {
@@ -1872,19 +1967,16 @@ export default function TripDetailScreen({ navigation, route }) {
     }
   }
 
-  // Acreedor: "Me llegó" (realizada = true) o "Deshacer" (false).
   function handleMarkTransferPaid(transferId, realizada) {
     return runTransferAction(transferId, () =>
       markSettlementTransferPaid(trip.id, transferId, realizada)
     );
   }
 
-  // Deudor: "Ya transferí".
   function handleReportTransfer(transferId) {
     return runTransferAction(transferId, () => reportSettlementTransfer(trip.id, transferId));
   }
 
-  // Acreedor: "No me llegó". Se confirma antes porque le avisa al deudor.
   function handleRejectTransfer(transferId) {
     appAlert(
       "¿No te llegó la transferencia?",
@@ -1917,7 +2009,6 @@ export default function TripDetailScreen({ navigation, route }) {
     }
 
     setExpandedDayId(dayId);
-    // Esperamos a que el día anterior se colapse y el nuevo se expanda para medir bien
     setTimeout(() => {
       const scroller = scrollRef.current;
       const card = dayCardRefs.current[dayId];
@@ -2024,8 +2115,6 @@ export default function TripDetailScreen({ navigation, route }) {
     }
   }
 
-  // Si la actividad tiene tareas pendientes de "Recordármelo", el mismo aviso dice
-  // que también se eliminan del checklist (las ya hechas se conservan).
   function handleDeleteActivity(dayId, activityId, activityTitle, tareasPendientes = []) {
     if (!lock.canEdit("itinerario")) return;
     confirmarBorradoActividad(dayId, activityId, activityTitle, tareasPendientes);
@@ -2060,8 +2149,6 @@ export default function TripDetailScreen({ navigation, route }) {
       await loadTripDetail();
       mostrarAlertaConfirmacion("Éxito", `"${title}" se eliminó correctamente.`);
     } catch (error) {
-      // Alguien agregó una tarea de "Recordármelo" después de cargar el itinerario:
-      // se vuelve a preguntar mostrando qué tarea se elimina.
       if (error?.detalle?.codigo === "confirmar_tareas_entradas") {
         confirmarBorradoActividad(dayId, activityId, title, error.detalle.tareas);
         return;
@@ -2081,7 +2168,6 @@ export default function TripDetailScreen({ navigation, route }) {
       });
       await loadTripDetail();
 
-      // Mensaje de éxito unificado con el estilo exacto de documentos
       mostrarAlertaConfirmacion("Éxito", `"${title}" se eliminó correctamente.`);
     } catch (error) {
       mostrarAlertaConfirmacion("Error", error.message || "Ocurrió un problema al intentar eliminar la actividad.");
@@ -2137,6 +2223,8 @@ export default function TripDetailScreen({ navigation, route }) {
 
   const mostrarBannerDiasLibres = lock.canEdit("itinerario") && cantDiasLibres > 0;
   const etiquetaExplorar = lock.canEdit("itinerario") ? "Explorar lugares" : "Ver mapa del viaje";
+  const puedeGuardarOffline =
+    offlineDisponible() && !trip?.hasLeft && String(trip?.status ?? "").toLowerCase() === "activo";
 
 
   return (
@@ -2186,6 +2274,13 @@ export default function TripDetailScreen({ navigation, route }) {
                       appAlert(
                         "Modo consulta",
                         "Estás consultando este viaje desde tu historial. No se puede gestionar."
+                      );
+                      return;
+                    }
+                    if (sinConexion) {
+                      appAlert(
+                        "Sin conexión",
+                        "Necesitás conexión para gestionar el viaje."
                       );
                       return;
                     }
@@ -2276,6 +2371,22 @@ export default function TripDetailScreen({ navigation, route }) {
             );
           })}
         </View>
+
+        {sinConexion ? (
+          <View style={styles.offlineBanner} testID="banner-sin-conexion">
+            <FontAwesome6 name="wifi" size={16} color={colors.warning} />
+            <View style={styles.readOnlyBannerContent}>
+              <Text style={styles.readOnlyBannerTitle}>Sin conexión</Text>
+              <Text style={styles.readOnlyBannerText} testID="banner-sin-conexion-texto">
+                {sincronizadoEn
+                  ? `Estás viendo la información guardada el ${formatearSincronizacion(
+                      sincronizadoEn
+                    )}. Los cambios se habilitan al recuperar la conexión.`
+                  : "Los cambios se habilitan al recuperar la conexión."}
+              </Text>
+            </View>
+          </View>
+        ) : null}
 
         {lock.isFinished && !lock.hasLeft && activeTab === "resumen" ? (
           <View style={styles.finishedBanner}>
@@ -2575,10 +2686,10 @@ export default function TripDetailScreen({ navigation, route }) {
               <View
                 style={[
                   styles.itinerarioHeader,
-                  mostrarBannerDiasLibres && styles.itinerarioHeaderSoloToggle,
+                  (mostrarBannerDiasLibres || sinConexion) && styles.itinerarioHeaderSoloToggle,
                 ]}
               >
-                {!mostrarBannerDiasLibres ? (
+                {!mostrarBannerDiasLibres && !sinConexion ? (
                   <Pressable
                     accessibilityLabel={etiquetaExplorar}
                     accessibilityRole="button"
@@ -3032,7 +3143,7 @@ export default function TripDetailScreen({ navigation, route }) {
                       categorias={categoriasDocumentos}
                       categoriaFiltro={categoriaDocFiltro}
                       onCategoriaChange={setCategoriaDocFiltro}
-                      onAbrir={(documento) => abrirDocumento(documento.UrlArchivo)}
+                      onAbrir={abrirDocumentoDelRepositorio}
                       onDescargar={handleDescargarDocumento}
                       onEditar={
                         lock.canEdit("documentos")
@@ -3044,6 +3155,10 @@ export default function TripDetailScreen({ navigation, route }) {
                       eliminandoDocId={eliminandoDocId}
                       scrollRef={scrollRef}
                       cardRef={gastosCardRef}
+                      idsOffline={idsOffline}
+                      onAlternarOffline={puedeGuardarOffline ? handleAlternarOffline : undefined}
+                      guardandoOfflineId={guardandoOfflineId}
+                      sinConexion={sinConexion}
                     />
                   </View>
                 )}
@@ -3663,7 +3778,7 @@ export default function TripDetailScreen({ navigation, route }) {
                     canManage={isAdmin && lock.canEdit("participantes") && !transfiriendoAdministracion && !mutatingParticipants}
                     members={isAdmin ? participantesActivos : groupMembersForViewer}
                     onRemove={handleRemoveParticipant}
-                    onTransferAdministration={trip.status === "activo" ? handleTransferAdministration : undefined}
+                    onTransferAdministration={trip.status === "activo" && lock.canEdit("participantes") ? handleTransferAdministration : undefined}
                   />
                 )}
                 {transfiriendoAdministracion ? (
@@ -3769,7 +3884,7 @@ export default function TripDetailScreen({ navigation, route }) {
         Moneda={trip?.currency}
         FechaInicioViaje={trip?.startDate}
         FechaFinViaje={trip?.endDate}
-        puedeEscanear={!lock.isFinished}
+        puedeEscanear={!lock.isFinished && !sinConexion}
         onClose={() => {
           setShowAddGastoModal(false);
           setGastoEnEdicion(null);
@@ -4204,6 +4319,39 @@ export default function TripDetailScreen({ navigation, route }) {
               disabled={descargandoComprobanteId === comprobanteViendo?.IdGasto}
               onPress={() => handleDescargarComprobante(comprobanteViendo)}
             />
+          </View>
+        </View>
+      </Modal>
+      <Modal
+        animationType="fade"
+        transparent={true}
+        visible={!!visorOffline}
+        onRequestClose={() => setVisorOffline(null)}
+      >
+        <View style={styles.viewerOverlay}>
+          <View style={styles.viewerHeader}>
+            <Text style={styles.viewerTitle} numberOfLines={1}>
+              {visorOffline?.nombre || "Documento"}
+            </Text>
+            <Pressable
+              hitSlop={10}
+              onPress={() => setVisorOffline(null)}
+              style={styles.viewerCloseButton}
+              testID="visor-offline-cerrar"
+            >
+              <FontAwesome6 name="xmark" size={20} color="#fff" />
+            </Pressable>
+          </View>
+
+          <View style={styles.viewerContent}>
+            {visorOffline ? (
+              <Image
+                source={{ uri: visorOffline.uri }}
+                style={{ width: winW, height: winH * 0.7 }}
+                resizeMode="contain"
+                testID="visor-offline-imagen"
+              />
+            ) : null}
           </View>
         </View>
       </Modal>
@@ -4865,6 +5013,20 @@ const styles = StyleSheet.create({
     backgroundColor: colors.warningSurface,
     borderWidth: 1,
     borderColor: colors.warning,
+  },
+  offlineBanner: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: spacing.sm,
+    marginHorizontal: spacing.lg,
+    marginTop: spacing.md,
+    padding: spacing.md,
+    borderRadius: radii.md,
+    backgroundColor: colors.surfaceAlt,
+    borderWidth: 1,
+    borderColor: colors.borderStrong,
+    borderLeftWidth: 4,
+    borderLeftColor: colors.warning,
   },
   finishedBanner: {
     flexDirection: "row",

@@ -11,10 +11,10 @@
 
 export const TRIP_FINISHED_CODE = "TRIP_FINISHED";
 
-// Secciones que siguen editables cuando el viaje terminó.
 const EDITABLE_WHEN_FINISHED = new Set(["gastos"]);
 
-// Pestañas de TripDetailScreen que quedan bloqueadas al finalizar.
+const EDITABLE_WHEN_OFFLINE = new Set(["gastos"]);
+
 const LOCKED_TABS_WHEN_FINISHED = new Set(["itinerario", "docs", "checklist", "votar", "grupo"]);
 
 const MONTHS = [
@@ -58,21 +58,13 @@ function addOneMonth(date) {
   return new Date(year, month, Math.min(date.getDate(), lastDay));
 }
 
-/**
- * Último día en que el admin puede editar los datos generales del viaje
- * (título, fechas, destinos, portada). Lo calcula el backend
- * (infoEditableUntil = fecha de fin + 1 mes); si no vino, se calcula igual acá.
- */
+
 export function getInfoEditableUntil(trip) {
   if (!trip) return null;
   return toLocalDate(trip.infoEditableUntil) ?? addOneMonth(toLocalDate(trip.endDate));
 }
 
-/**
- * El backend calcula el estado (status "finalizado" desde el día siguiente a
- * la fecha de fin), así que si viene, es la fuente de verdad. La comparación
- * de fechas es solo un respaldo para datos sin estado.
- */
+
 export function isTripFinished(trip, today = new Date()) {
   if (!trip) return false;
   const status = String(trip.status ?? "").trim().toLowerCase();
@@ -85,9 +77,10 @@ export function isTripFinished(trip, today = new Date()) {
   return end < startOfToday;
 }
 
-export function getTripLock(trip, today = new Date()) {
+export function getTripLock(trip, today = new Date(), opciones = {}) {
   const hasLeft = Boolean(trip?.hasLeft);
   const isFinished = isTripFinished(trip, today);
+  const sinConexion = Boolean(opciones?.sinConexion);
 
   const infoEditableUntil = getInfoEditableUntil(trip);
   const canEditInfo =
@@ -97,14 +90,13 @@ export function getTripLock(trip, today = new Date()) {
 
   function canEdit(section) {
     if (!trip || hasLeft) return false;
-    // Los datos generales del viaje tienen su propio plazo (un mes después del fin).
+    if (sinConexion) return EDITABLE_WHEN_OFFLINE.has(section);
     if (section === "viaje") return canEditInfo;
     if (isFinished) return EDITABLE_WHEN_FINISHED.has(section);
     return true;
   }
 
-  // Candado en la pestaña: solo para viajes finalizados. Quien dejó el viaje
-  // ya ve todo en solo lectura y tiene su propio aviso.
+
   function isTabLocked(tabId) {
     if (hasLeft) return false;
     return isFinished && LOCKED_TABS_WHEN_FINISHED.has(tabId);
@@ -113,7 +105,8 @@ export function getTripLock(trip, today = new Date()) {
   return {
     hasLeft,
     isFinished,
-    readOnly: hasLeft || isFinished,
+    sinConexion,
+    readOnly: hasLeft || isFinished || sinConexion,
     endDateLabel: formatLongDate(trip?.endDate),
     infoEditableUntilLabel: infoEditableUntil
       ? `${infoEditableUntil.getDate()} de ${MONTHS[infoEditableUntil.getMonth()]}`
@@ -126,6 +119,5 @@ export function getTripLock(trip, today = new Date()) {
 export function isTripFinishedError(error) {
   if (!error) return false;
   if (error.code === TRIP_FINISHED_CODE) return true;
-  // En web el header puede no ser legible si CORS no lo expone.
   return error.status === 409 && /viaje ya finaliz/i.test(error.message ?? "");
 }

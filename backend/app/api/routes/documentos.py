@@ -4,7 +4,7 @@ import mimetypes
 from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, UploadFile, File, Form, HTTPException, Response
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 from pathlib import Path
 
@@ -64,6 +64,8 @@ def _serializar_documento(
         NombreArchivo=documento.NombreArchivo,
         UrlArchivo=obtener_url_publica(documento.UrlArchivo),
         FechaSubida=documento.FechaSubida,
+        FechaActualizacion=documento.FechaActualizacion,
+        TamanoBytes=documento.TamanoBytes,
         NombreCategoria=documento.CategoriaDocumentoRelacion.Nombre,
         IconoCategoria=documento.CategoriaDocumentoRelacion.Icono,
         NombreUsuarioSubida=f"{documento.UsuarioSubida.Nombre} {documento.UsuarioSubida.Apellido}",
@@ -105,8 +107,6 @@ def _obtener_documento_del_viaje(
 
 @router.get("/documents/categories", response_model=list[CategoriasDocumentosRead])
 def obtener_categorias_documentos(db: Session = Depends(get_db)):
-    # Las categorías desactivadas desde el backoffice no se ofrecen para documentos
-    # nuevos (US 110); los documentos existentes las conservan.
     return (
         db.query(CategoriaDocumento)
         .filter(CategoriaDocumento.Activo.is_(True))
@@ -121,7 +121,6 @@ async def subir_documento_viaje(
     IdCategoriaDocumento: int = Form(...),
     NombreArchivo: str | None = Form(None),
     EsPublico: bool = Form(True),
-    # Tarea del checklist desde la que se sube (las entradas, el pasaje, la reserva).
     IdChecklist: int | None = Form(None),
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
@@ -136,7 +135,6 @@ async def subir_documento_viaje(
     tarea = None
     if IdChecklist is not None:
         tarea = db.get(Checklist, IdChecklist)
-        # Una tarea privada de otro integrante no existe para él.
         if (
             tarea is None
             or tarea.IdViaje != trip_id
@@ -265,7 +263,6 @@ async def subir_documento_viaje(
             }
             monedas = {codigo.upper() for codigo in db.scalars(select(Moneda.Codigo)).all()}
 
-            # El consumo se registra como detección de gastos en documentos (US 114).
             with servicio_ia(SERVICIO_DETECCION_GASTOS_DOCUMENTOS):
                 crudo = await asyncio.wait_for(
                     extractor.extraer(contenido, mime, list(categorias_gastos.keys())),
@@ -452,6 +449,7 @@ async def editar_o_reemplazar_documento_viaje(
         url_archivo = _subir_al_almacenamiento(archivo, ruta_archivo)
         documento.UrlArchivo = url_archivo
         documento.TamanoBytes = tamano_nuevo
+        documento.FechaActualizacion = func.now()
 
     duplicado = db.scalar(
         select(DocumentoViaje).where(
@@ -482,7 +480,6 @@ async def editar_o_reemplazar_documento_viaje(
         trip_id,
         {"tipo": "documento_actualizado"}
     )
-    # Las tareas muestran el nombre y la visibilidad de sus documentos.
     if documento.Checklists:
         await manager.broadcast_to_trip(trip_id, {"tipo": "checklist_actualizado"})
     
@@ -574,7 +571,6 @@ async def eliminar_documento_viaje(
     except Exception:
         pass
 
-    # El vínculo con las tareas se elimina junto con el documento.
     estaba_en_tareas = bool(documento.Checklists)
     db.delete(documento)
     db.commit()

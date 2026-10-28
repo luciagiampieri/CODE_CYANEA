@@ -23,7 +23,27 @@ const CREATE_GASTOS_PENDIENTES = `
   );
 `;
 
-// Columnas que DEBE tener la tabla con el esquema actual
+const CREATE_ITINERARIOS_OFFLINE = `
+  CREATE TABLE IF NOT EXISTS itinerarios_offline (
+    id_viaje INTEGER PRIMARY KEY,
+    titulo TEXT,
+    detalle TEXT NOT NULL,
+    sincronizado_en TEXT NOT NULL
+  );
+`;
+
+const CREATE_DOCUMENTOS_OFFLINE = `
+  CREATE TABLE IF NOT EXISTS documentos_offline (
+    id_documento INTEGER PRIMARY KEY,
+    id_viaje INTEGER NOT NULL,
+    datos TEXT NOT NULL,
+    uri TEXT NOT NULL,
+    tamano_bytes INTEGER NOT NULL DEFAULT 0,
+    version TEXT,
+    guardado_en TEXT NOT NULL
+  );
+`;
+
 const COLUMNAS_ESPERADAS = [
   "id",
   "id_viaje",
@@ -39,7 +59,6 @@ const COLUMNAS_ESPERADAS = [
   "ids_participantes",
   "detalle_montos",
   "creado_en",
-  // US 94: gasto confirmado desde un comprobante y su monto convertido a ARS (RN-39)
   "desde_comprobante",
   "monto_convertido_ars",
 ];
@@ -47,7 +66,6 @@ const COLUMNAS_ESPERADAS = [
 function migrarGastosPendientes() {
   const info = db.getAllSync(`PRAGMA table_info(gastos_pendientes)`);
 
-  // Tabla inexistente: se crea limpia y listo
   if (info.length === 0) {
     db.execSync(CREATE_GASTOS_PENDIENTES);
     return;
@@ -55,8 +73,7 @@ function migrarGastosPendientes() {
 
   const columnas = info.map((c) => c.name);
 
-  // Si hay columnas viejas (como "monto") o faltan columnas nuevas,
-  // se reconstruye la tabla conservando lo que se pueda.
+
   const hayColumnasViejas = columnas.some((c) => !COLUMNAS_ESPERADAS.includes(c));
   const faltanColumnas = COLUMNAS_ESPERADAS.some((c) => !columnas.includes(c));
 
@@ -69,7 +86,6 @@ function migrarGastosPendientes() {
 
     const tiene = (c) => columnas.includes(c);
 
-    // El monto puede venir de "monto_original" (nuevo) o de "monto" (viejo)
     const origenMonto = tiene("monto_original") && tiene("monto")
       ? "COALESCE(monto_original, monto)"
       : tiene("monto_original")
@@ -112,7 +128,6 @@ function migrarGastosPendientes() {
     db.execSync(`COMMIT;`);
   } catch (e) {
     db.execSync(`ROLLBACK;`);
-    // Último recurso: si la migración falla, se descarta la tabla vieja
     console.error("Migración fallida, recreando tabla gastos_pendientes:", e);
     db.execSync(`DROP TABLE IF EXISTS gastos_pendientes_old;`);
     db.execSync(`DROP TABLE IF EXISTS gastos_pendientes;`);
@@ -120,8 +135,7 @@ function migrarGastosPendientes() {
   }
 }
 
-// US 94: marca al usuario actual para precargarlo como pagador sin conexión.
-// CREATE TABLE IF NOT EXISTS no agrega columnas a instalaciones existentes.
+
 function migrarCacheParticipantes() {
   const columnas = db.getAllSync(`PRAGMA table_info(cache_participantes)`).map((c) => c.name);
   if (columnas.length > 0 && !columnas.includes("es_usuario_actual")) {
@@ -153,6 +167,9 @@ export function inicializarBaseDeDatos() {
       );
     `);
     migrarCacheParticipantes();
+
+    db.execSync(CREATE_ITINERARIOS_OFFLINE);
+    db.execSync(CREATE_DOCUMENTOS_OFFLINE);
   } catch (error) {
     console.error("Error SQLite:", error);
   }

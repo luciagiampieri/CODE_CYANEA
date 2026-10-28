@@ -33,6 +33,7 @@ import NotificationPreferencesScreen from "../screens/NotificationPreferencesScr
 import PrivacyPreferencesScreen from "../screens/PrivacyPreferencesScreen";
 import ChangePasswordScreen from "../screens/ChangePasswordScreen";
 import PlanningPreferencesListScreen from "../screens/PlanningPreferencesListScreen";
+import OfflineDocumentsScreen from "../screens/OfflineDocumentsScreen";
 import ForgotPasswordScreen from "../screens/ForgotPasswordScreen";
 import ResendConfirmationScreen from "../screens/ResendConfirmationScreen";
 import ResetPasswordScreen from "../screens/ResetPasswordScreen";
@@ -281,6 +282,16 @@ export default function AppNavigator() {
             options={{
               title: "Planificación de viajes",
               headerShown: false,
+            }}
+          />
+          <Stack.Screen
+            name="DocumentosSinConexion"
+            component={OfflineDocumentsScreen}
+            options={{
+              title: "Documentos sin conexión",
+              headerShown: false,
+              gestureEnabled: true,
+              animation: "slide_from_right",
             }}
           />
         </>

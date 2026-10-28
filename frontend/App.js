@@ -14,6 +14,7 @@ import { instalarAjusteViewport } from "./src/utils/viewportWeb";
 
 import { inicializarBaseDeDatos } from "./src/database/database";
 import { sincronizarGastosOffline } from "./src/database/gastosLocal";
+import { sincronizarOffline } from "./src/database/offlineViajes";
 import {
   flushPendingNotificationNavigation,
   navigationRef,
@@ -47,7 +48,6 @@ const linkingConfig = {
       Invitaciones: "invitaciones/:token",
       ForgotPassword: "olvide-contrasena",
       ResetPassword: "restablecer-contrasena",
-      // US 116: vuelta desde el checkout de Mercado Pago.
       SuscripcionEstado: "suscripcion/retorno",
     },
   },
@@ -57,8 +57,6 @@ export default function App() {
 
   useEffect(() => {
     if (Platform.OS !== "web") return undefined;
-    // El teclado del celular no tapa los campos y, al cerrarse, la app vuelve
-    // a ocupar toda la pantalla (ver utils/viewportWeb).
     return instalarAjusteViewport();
   }, []);
 
@@ -68,18 +66,18 @@ export default function App() {
     }, 1500);
     const notificationSubscription = subscribeNotificationResponses();
 
-    // 1. Inicializar la DB local al abrir la aplicación
     inicializarBaseDeDatos();
 
     sincronizarGastosOffline();
+    sincronizarOffline();
 
-    // 2. Escuchar cambios de red con NetInfo
     const unsubscribe = NetInfo.addEventListener(async (state) => {
       const tieneInternet = state.isConnected && state.isInternetReachable;
       
       if (tieneInternet) {
         console.log("📡 Conexión recuperada. Intentando sincronizar gastos...");
         await sincronizarGastosOffline();
+        await sincronizarOffline();
       }
     });
 
@@ -105,7 +103,6 @@ export default function App() {
           <StatusBar style="light" />
           <AppNavigator />
         </NavigationContainer>
-        {/* Diálogo estándar para appAlert(): va después del navegador para quedar arriba */}
         <DialogHost root />
       </AuthProvider>
     </SafeAreaProvider>

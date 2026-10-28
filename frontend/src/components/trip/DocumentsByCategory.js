@@ -67,7 +67,6 @@ function coincideVisibilidad(documento, filtro) {
 
 export default function DocumentosPorCategoria({
     documentos = [],
-    // Categorías activas (US 110): se muestran aunque todavía no tengan documentos.
     categorias = [],
     onAbrir,
     onDescargar,
@@ -77,6 +76,10 @@ export default function DocumentosPorCategoria({
     eliminandoDocId = null,
     scrollRef,
     cardRef,
+    idsOffline = [],
+    onAlternarOffline,
+    guardandoOfflineId = null,
+    sinConexion = false,
 }) {
     const [abiertas, setAbiertas] = useState({});
     const sectionRefs = useRef({});
@@ -94,6 +97,8 @@ export default function DocumentosPorCategoria({
     const [panelVista, setPanelVista] = useState("main");
     const [borradorCategorias, setBorradorCategorias] = useState([]);
     const [borradorVisibilidad, setBorradorVisibilidad] = useState(FILTRO_VISIBILIDAD.TODOS);
+
+    const conjuntoOffline = useMemo(() => new Set(idsOffline), [idsOffline]);
 
     const documentosBuscados = useMemo(
         () => documentos.filter((d) => coincideBusqueda(d, busquedaNormalizada)),
@@ -160,7 +165,6 @@ export default function DocumentosPorCategoria({
         [categoriasMaestras, filtroVisibilidad, categoriasFiltro]
     );
 
-    // Mantiene las secciones abiertas si hay filtros activos o búsqueda, sin alterar el scroll al escribir
     useEffect(() => {
         if (hayBusqueda || categoriasFiltro.length > 0 || filtroVisibilidad !== FILTRO_VISIBILIDAD.TODOS) {
             const nextOpened = {};
@@ -327,7 +331,9 @@ export default function DocumentosPorCategoria({
             <View style={styles.emptyState}>
                 <FontAwesome6 name="folder-open" size={22} color={colors.textMuted} />
                 <Text style={styles.emptyText}>
-                    Todavía no hay documentos cargados en este viaje.
+                    {sinConexion
+                        ? "No hay documentos guardados para ver sin conexión."
+                        : "Todavía no hay documentos cargados en este viaje."}
                 </Text>
             </View>
         );
@@ -489,6 +495,10 @@ export default function DocumentosPorCategoria({
                         onEliminar={onEliminar}
                         descargandoDocId={descargandoDocId}
                         eliminandoDocId={eliminandoDocId}
+                        conjuntoOffline={conjuntoOffline}
+                        onAlternarOffline={onAlternarOffline}
+                        guardandoOfflineId={guardandoOfflineId}
+                        sinConexion={sinConexion}
                     />
                 </View>
             ))}
@@ -684,6 +694,10 @@ function SeccionCategoria({
     onEliminar,
     descargandoDocId,
     eliminandoDocId,
+    conjuntoOffline,
+    onAlternarOffline,
+    guardandoOfflineId,
+    sinConexion,
 }) {
     return (
         <View style={styles.seccion}>
@@ -730,6 +744,10 @@ function SeccionCategoria({
                             onEliminar={onEliminar}
                             descargando={descargandoDocId === documento.IdDocumento}
                             eliminando={eliminandoDocId === documento.IdDocumento}
+                            guardadoOffline={conjuntoOffline.has(documento.IdDocumento)}
+                            onAlternarOffline={onAlternarOffline}
+                            guardandoOffline={guardandoOfflineId === documento.IdDocumento}
+                            sinConexion={sinConexion}
                         />
                     ))}
                 </ScrollView>
@@ -738,9 +756,24 @@ function SeccionCategoria({
     );
 }
 
-function DocumentoCard({ documento, onAbrir, onDescargar, onEditar, onEliminar, descargando, eliminando }) {
+function DocumentoCard({
+    documento,
+    onAbrir,
+    onDescargar,
+    onEditar,
+    onEliminar,
+    descargando,
+    eliminando,
+    guardadoOffline,
+    onAlternarOffline,
+    guardandoOffline,
+    sinConexion,
+}) {
+    const disponible = !sinConexion || guardadoOffline;
+    const mostrarOffline = Boolean(onAlternarOffline) && (!sinConexion || guardadoOffline);
+
     return (
-        <View style={styles.card}>
+        <View style={[styles.card, !disponible && styles.cardNoDisponible]}>
             <Pressable
                 onPress={() => onAbrir?.(documento)}
                 style={styles.cardHeaderRow}
@@ -771,30 +804,66 @@ function DocumentoCard({ documento, onAbrir, onDescargar, onEditar, onEliminar, 
                     <Text style={styles.cardMeta}>
                         {documento.NombreCategoria} · Subido por {documento.NombreUsuarioSubida}
                     </Text>
+                    {!disponible ? (
+                        <Text style={styles.cardAviso} testID={`documento-no-disponible-${documento.IdDocumento}`}>
+                            Disponible al recuperar la conexión
+                        </Text>
+                    ) : null}
                 </View>
 
                 <FontAwesome6 name="up-right-from-square" size={13} color={colors.textSecondary} />
             </Pressable>
 
             <View style={styles.cardAcciones}>
-                <Pressable
-                    onPress={() => onDescargar?.(documento)}
-                    disabled={descargando}
-                    style={[styles.accionBoton, descargando && styles.accionBotonDisabled]}
-                    hitSlop={8}
-                    testID={`documento-descargar-${documento.IdDocumento}`}
-                >
-                    {descargando ? (
-                        <ActivityIndicator size="small" color={colors.primary} />
-                    ) : (
-                        <FontAwesome6 name="download" size={12} color={colors.primary} />
-                    )}
-                    <Text style={styles.accionTexto}>
-                        {descargando ? "Descargando..." : "Descargar"}
-                    </Text>
-                </Pressable>
+                {!sinConexion ? (
+                    <Pressable
+                        onPress={() => onDescargar?.(documento)}
+                        disabled={descargando}
+                        style={[styles.accionBoton, descargando && styles.accionBotonDisabled]}
+                        hitSlop={8}
+                        testID={`documento-descargar-${documento.IdDocumento}`}
+                    >
+                        {descargando ? (
+                            <ActivityIndicator size="small" color={colors.primary} />
+                        ) : (
+                            <FontAwesome6 name="download" size={12} color={colors.primary} />
+                        )}
+                        <Text style={styles.accionTexto}>
+                            {descargando ? "Descargando..." : "Descargar"}
+                        </Text>
+                    </Pressable>
+                ) : null}
 
-                {documento.EsPropio && (
+                {mostrarOffline ? (
+                    <Pressable
+                        onPress={() => onAlternarOffline(documento)}
+                        disabled={guardandoOffline}
+                        style={[styles.accionBoton, guardandoOffline && styles.accionBotonDisabled]}
+                        hitSlop={8}
+                        accessibilityRole="button"
+                        accessibilityState={{ selected: guardadoOffline, disabled: guardandoOffline }}
+                        testID={`documento-offline-${documento.IdDocumento}`}
+                    >
+                        {guardandoOffline ? (
+                            <ActivityIndicator size="small" color={colors.primary} />
+                        ) : (
+                            <FontAwesome6
+                                name={guardadoOffline ? "circle-check" : "cloud-arrow-down"}
+                                size={12}
+                                color={guardadoOffline ? colors.success : colors.primary}
+                            />
+                        )}
+                        <Text style={[styles.accionTexto, guardadoOffline && styles.accionTextoOk]}>
+                            {guardandoOffline
+                                ? "Guardando..."
+                                : guardadoOffline
+                                ? "Disponible sin conexión"
+                                : "Guardar sin conexión"}
+                        </Text>
+                    </Pressable>
+                ) : null}
+
+                {documento.EsPropio && !sinConexion && (
                     <>
                         <Pressable
                             onPress={() => onEditar?.(documento)}
@@ -1191,6 +1260,9 @@ const styles = StyleSheet.create({
         padding: spacing.md,
         gap: 6,
     },
+    cardNoDisponible: {
+        opacity: 0.6,
+    },
     cardHeaderRow: {
         flexDirection: "row",
         alignItems: "center",
@@ -1208,8 +1280,16 @@ const styles = StyleSheet.create({
         color: colors.textSecondary,
         marginTop: 2,
     },
+    cardAviso: {
+        ...textStyles.meta,
+        color: colors.warning,
+        fontSize: 12,
+        fontWeight: "600",
+        marginTop: 2,
+    },
     cardAcciones: {
         flexDirection: "row",
+        flexWrap: "wrap",
         gap: spacing.md,
         marginTop: 6,
     },
@@ -1226,6 +1306,9 @@ const styles = StyleSheet.create({
         fontSize: 12,
         color: colors.textSecondary,
         fontWeight: "600",
+    },
+    accionTextoOk: {
+        color: colors.success,
     },
     accionTextoDanger: {
         color: colors.danger || "#dc2626",
