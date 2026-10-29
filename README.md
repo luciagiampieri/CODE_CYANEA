@@ -8,16 +8,32 @@ Proyecto Final de la carrera **Ingeniería en Sistemas de Información** — **U
 
 ---
 
+## 🔗 Demo
+
+- **Web:** https://code-cyanea.fafafacultad.workers.dev/
+- **Android (APK)**
+- **API docs:**: https://cyanea-production.up.railway.app/docs
+
+> El modo offline (SQLite) y los mapas nativos están disponibles solo en la app Android.
+
 ## Stack
 
 | Capa | Tecnología |
-|------|------------|
-| Frontend (mobile + web) | Expo (React Native + react-native-web), React Navigation |
-| Backend | FastAPI, SQLAlchemy, Alembic |
-| Base de datos | PostgreSQL 16 |
-| Servicios externos | Google Places/Maps, Gemini, Supabase Storage, Expo Push (FCM), SMTP |
+|---|---|
+| Frontend | Expo (SDK 58) + React Native + React Navigation + Expo Web |
+| Backend | FastAPI + SQLAlchemy + Alembic |
+| Base de datos | PostgreSQL |
+| Offline (mobile) | SQLite |
+| Storage | Supabase Storage (fotos de perfil) |
+| Integraciones | Google Places / Google Maps |
 
 Requisitos locales: **Python 3.12**, **Node.js >= 20.19.4** (lo exige Expo) y **PostgreSQL 16** o compatible.
+
+## Despliegue
+
+- Frontend web → Cloudflare Workers
+- Backend + PostgreSQL → Railway
+- APK Android → <EAS Build / GitHub Releases>
 
 ## Estructura
 
@@ -36,7 +52,7 @@ CODE_CYANEA/
 └─ AGENTS.md                convenciones técnicas y decisiones de arquitectura
 ```
 
-## Puesta en marcha
+## Arranque local
 
 ### Backend
 
