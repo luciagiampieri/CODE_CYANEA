@@ -4367,8 +4367,8 @@ const styles = StyleSheet.create({
     minHeight: 300,
   },
   heroImage: {
-    borderBottomLeftRadius: radii.xl,
-    borderBottomRightRadius: radii.xl,
+    borderBottomLeftRadius: 24,
+    borderBottomRightRadius: 24,
   },
   heroGradient: {
     minHeight: 300,

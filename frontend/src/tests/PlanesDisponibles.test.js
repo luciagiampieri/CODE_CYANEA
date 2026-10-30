@@ -1,4 +1,5 @@
-import { fireEvent, render, screen } from '@testing-library/react-native';
+import { act, fireEvent, render, screen } from '@testing-library/react-native';
+import { controlDeRefresco } from './helpers/refrescoSimulado';
 import PlanSubscriptionScreen from '../screens/PlanSubscriptionScreen';
 import { getAvailablePlans, getAccountUsage, getSubscriptionManagement } from '../services/api';
 import { appAlert } from '../components/ui/AppDialog';
@@ -86,7 +87,9 @@ test('consulta la suscripcion propia y conserva el precio historico', async () =
     puedeCancelar: false, puedeReactivar: true, urlMedioPago: null,
   } });
   await abrir('mi_plan');
-  expect(await screen.findByText('ARS 3.900,00 por mes')).toBeTruthy();
+  expect(await screen.findByText('ARS 3.900')).toBeTruthy();
+  expect(screen.getByText('/mes')).toBeTruthy();
+  expect(screen.getByTestId('mi-suscripcion-fecha').props.children).toBe('Pro hasta el 01/10/2027 · no se renueva');
   expect(screen.getByTestId('mi-suscripcion-estado').props.children).toBe('Cancelada');
   expect(screen.getByTestId('mi-suscripcion-reactivar')).toBeTruthy();
 });
@@ -120,4 +123,31 @@ test('la pestaña Consumo muestra el consumo de la cuenta', async () => {
   await fireEvent.press(screen.getByTestId('plan-tab-consumo'));
   expect(await screen.findByText('El consumo de tu cuenta')).toBeTruthy();
   expect(getAccountUsage).toHaveBeenCalled();
+});
+test('Pro activa: precio y renovación arriba, acciones secundarias como filas', async () => {
+  getSubscriptionManagement.mockResolvedValue({ planActual: 'pro', suscripcion: {
+    id: 1, modalidad: 'anual', estado: 'activa', precioARS: '49000.00',
+    fechaInicio: '2026-10-01T12:00:00Z', fechaFin: '2027-10-01T12:00:00Z', fechaProximaRenovacion: '2027-10-01T12:00:00Z',
+    fechaCancelacion: null, renovacionAutomatica: true, puedeCancelar: true, puedeReactivar: false, urlMedioPago: null,
+  } });
+  await abrir('mi_plan');
+  expect(await screen.findByText('ARS 49.000')).toBeTruthy();
+  expect(screen.getByText('/año')).toBeTruthy();
+  expect(screen.getByText('Anual')).toBeTruthy();
+  expect(screen.getByTestId('mi-suscripcion-fecha').props.children).toBe('Se renueva el 01/10/2027');
+  expect(screen.getByTestId('mi-suscripcion-historial')).toBeTruthy();
+  expect(screen.getByTestId('mi-suscripcion-cancelar')).toBeTruthy();
+  expect(screen.queryByTestId('mi-suscripcion-reactivar')).toBeNull();
+  expect(screen.queryByTestId('mi-suscripcion-suscribirme')).toBeNull();
+  expect(screen.queryByText('Actualizar información')).toBeNull();
+});
+
+test('pull-to-refresh vuelve a consultar Mi plan sin el botón de actualizar', async () => {
+  await abrir('mi_plan');
+  await screen.findByTestId('mi-suscripcion');
+  expect(getSubscriptionManagement).toHaveBeenCalledTimes(1);
+
+  await act(async () => { controlDeRefresco(screen.toJSON()).props.onRefresh(); });
+  expect(getSubscriptionManagement).toHaveBeenCalledTimes(2);
+  expect(controlDeRefresco(screen.toJSON()).props.refreshing).toBe(false);
 });

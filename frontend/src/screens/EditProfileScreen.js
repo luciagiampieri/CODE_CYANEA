@@ -18,7 +18,7 @@ import { FontAwesome6 } from "@expo/vector-icons";
 
 import ScreenContainer from "../components/layout/ScreenContainer";
 import Avatar from "../components/ui/Avatar";
-import IconCircleButton from "../components/ui/IconCircleButton";
+import ScreenHeader from "../components/ui/ScreenHeader";
 import PrimaryButton from "../components/ui/PrimaryButton";
 import useResponsive from "../hooks/useResponsive";
 import { useAuth } from "../context/AuthContext";
@@ -282,12 +282,10 @@ export default function EditProfileScreen({ navigation }) {
         style={styles.flex}
       >
         <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-          <View style={styles.hero}>
-            <View style={styles.heroTopRow}>
-              <IconCircleButton icon="arrow-left" onPress={() => navigation.goBack()} tone="light" />
-            </View>
-            <Text style={styles.title}>Editar perfil</Text>
-          </View>
+          <ScreenHeader
+            title="Editar perfil"
+            onBack={() => navigation.goBack()}
+          />
 
           <View style={fieldShellStyle}>
             <View style={styles.avatarSection}>
@@ -508,20 +506,6 @@ const styles = StyleSheet.create({
   scrollContent: {
     paddingBottom: spacing.xxxl,
   },
-  hero: {
-    backgroundColor: colors.primary,
-    paddingHorizontal: spacing.lg,
-    paddingTop: spacing.sm,
-    paddingBottom: spacing.xl,
-    borderBottomLeftRadius: 32,
-    borderBottomRightRadius: 32,
-    alignItems: "center",
-  },
-  heroTopRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    alignSelf: "flex-start",
-  },
   formShell: {
     paddingHorizontal: spacing.lg,
     paddingTop: spacing.lg,
@@ -531,13 +515,6 @@ const styles = StyleSheet.create({
     maxWidth: 720,
     alignSelf: "center",
     width: "100%",
-  },
-  title: {
-    ...textStyles.tripTitle,
-    color: colors.textInverse,
-    fontSize: 26,
-    marginTop: spacing.xs,
-    textAlign: "center",
   },
   copy: {
     ...textStyles.body,

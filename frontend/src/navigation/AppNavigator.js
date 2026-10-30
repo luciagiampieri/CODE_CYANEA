@@ -9,6 +9,7 @@ import MainTabs from "./MainTabs";
 import PlanSubscriptionScreen from "../screens/PlanSubscriptionScreen";
 import SubscribeProScreen from "../screens/SubscribeProScreen";
 import SubscriptionStatusScreen from "../screens/SubscriptionStatusScreen";
+import PaymentHistoryScreen from "../screens/PaymentHistoryScreen";
 import CreateTripScreen from "../screens/CreateTripScreen";
 import EditTripScreen from "../screens/EditTripScreen";
 import LoginScreen from "../screens/LoginScreen";
@@ -176,6 +177,7 @@ export default function AppNavigator() {
           <Stack.Screen name="MiSuscripcion" component={PlanSubscriptionScreen} initialParams={{ tab: "mi_plan" }} options={{ headerShown: false }} />
           <Stack.Screen name="SuscribirsePro" component={SubscribeProScreen} options={{ headerShown: false }} />
           <Stack.Screen name="SuscripcionEstado" component={SubscriptionStatusScreen} options={{ headerShown: false }} />
+          <Stack.Screen name="HistorialPagos" component={PaymentHistoryScreen} options={{ headerShown: false }} />
           <Stack.Screen
             name="TripDetail"
             component={TripDetailScreen}

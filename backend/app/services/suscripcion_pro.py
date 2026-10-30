@@ -261,8 +261,10 @@ def _guardar_pago(
     cobro: CobroPasarela,
     pago: PagoSuscripcion | None,
     fecha: datetime,
+    periodo: tuple[datetime, datetime],
 ) -> None:
     id_estado_pago = _id_estado_pago(db, cobro.estado)
+    desde, hasta = periodo
     if pago is None:
         db.add(
             PagoSuscripcion(
@@ -271,11 +273,15 @@ def _guardar_pago(
                 FechaPago=fecha,
                 MontoARS=cobro.monto or suscripcion.PrecioPeriodoARS,
                 IdOperacionPasarela=cobro.id,
+                PeriodoDesde=desde,
+                PeriodoHasta=hasta,
             )
         )
         return
+    # Un reintento actualiza la misma fila: el historial lo muestra una sola vez.
     pago.IdEstadoPagoSuscripcion = id_estado_pago
     pago.FechaPago = fecha
+    pago.PeriodoDesde, pago.PeriodoHasta = desde, hasta
     if cobro.monto:
         pago.MontoARS = cobro.monto
 
@@ -327,7 +333,12 @@ def _registrar_cobro(db: Session, cobro: CobroPasarela) -> _Aviso | None:
         anterior is None and suscripcion.EstadoPasarela == PASARELA_AUTORIZADA
     )
     fecha = _aware(cobro.fecha) or _ahora()
-    _guardar_pago(db, suscripcion, cobro, pago, fecha)
+    # US 120: el período se calcula antes de que _activar o _renovar muevan las
+    # fechas. Una renovación paga el período siguiente al vigente; el primer pago,
+    # desde su fecha (al aprobarse tras un rechazo se recalcula, como en _activar).
+    desde = _aware(suscripcion.FechaFin) if es_renovacion else fecha
+    periodo = (desde, sumar_meses(desde, suscripcion.MesesPeriodo or 1))
+    _guardar_pago(db, suscripcion, cobro, pago, fecha, periodo)
 
     if es_renovacion:
         return _aplicar_renovacion(db, suscripcion, cobro)
@@ -621,6 +632,38 @@ async def estado_ultima(db: Session, usuario: Usuario, cliente, mail_service) ->
         "fechaFin": suscripcion.FechaFin,
         "fechaProximaRenovacion": suscripcion.FechaFin if estado == INTENTO_ACTIVA else None,
         "planActual": "pro" if usuario.IdPlan == PLAN_PRO else "gratuito",
+    }
+
+
+def historial_pagos(db: Session, usuario: Usuario) -> dict:
+    """US 120: pagos de todas las suscripciones del viajero, incluidos los intentos
+    descartados, del más reciente al más antiguo."""
+    filas = db.execute(
+        select(PagoSuscripcion, EstadoPagoSuscripcion.Nombre)
+        .join(
+            SuscripcionUsuario,
+            SuscripcionUsuario.IdSuscripcionUsuario == PagoSuscripcion.IdSuscripcionUsuario,
+        )
+        .join(
+            EstadoPagoSuscripcion,
+            EstadoPagoSuscripcion.IdEstadoPagoSuscripcion
+            == PagoSuscripcion.IdEstadoPagoSuscripcion,
+        )
+        .where(SuscripcionUsuario.IdUsuario == usuario.IdUsuario)
+        .order_by(PagoSuscripcion.FechaPago.desc(), PagoSuscripcion.IdPagoSuscripcion.desc())
+    )
+    return {
+        "items": [
+            {
+                "id": pago.IdPagoSuscripcion,
+                "fecha": pago.FechaPago,
+                "montoARS": pago.MontoARS,
+                "estado": estado,
+                "periodoDesde": pago.PeriodoDesde,
+                "periodoHasta": pago.PeriodoHasta,
+            }
+            for pago, estado in filas
+        ]
     }
 
 

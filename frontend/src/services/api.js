@@ -557,6 +557,14 @@ export async function getSubscriptionManagement() {
   return parseResponse(response, "No se pudo obtener tu suscripción.");
 }
 
+// US 120: historial de pagos de la suscripción del usuario autenticado.
+export async function getSubscriptionPayments() {
+  const response = await fetch(`${API_BASE_URL}/users/me/suscripcion/pagos`, {
+    headers: await authHeaders(), cache: "no-store",
+  });
+  return parseResponse(response, "No se pudo obtener tu historial de pagos.");
+}
+
 export async function cancelSubscription() {
   const response = await fetch(`${API_BASE_URL}/users/me/suscripcion/cancelar`, {
     method: "POST",

@@ -88,10 +88,10 @@ export default function SearchPickerHeader({
 const styles = StyleSheet.create({
   header: {
     backgroundColor: colors.primary,
-    paddingHorizontal: spacing.md,
+    paddingHorizontal: spacing.lg,
     paddingBottom: spacing.md,
-    borderBottomLeftRadius: 20,
-    borderBottomRightRadius: 20,
+    borderBottomLeftRadius: 24,
+    borderBottomRightRadius: 24,
     gap: spacing.sm,
   },
   row: {
@@ -109,7 +109,7 @@ const styles = StyleSheet.create({
   title: {
     ...textStyles.tripTitle,
     color: colors.textInverse,
-    fontSize: 18,
+    fontSize: 20,
   },
   search: {
     flexDirection: "row",

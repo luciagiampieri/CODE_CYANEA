@@ -20,7 +20,7 @@ import {
 import Modal from "../components/ui/AppModal";
 
 import ScreenContainer from "../components/layout/ScreenContainer";
-import IconCircleButton from "../components/ui/IconCircleButton";
+import ScreenHeader from "../components/ui/ScreenHeader";
 import SearchPickerHeader, { SEARCH_PICKER_EDGES } from "../components/ui/SearchPickerHeader";
 import MetricCard from "../components/ui/MetricCard";
 import PrimaryButton from "../components/ui/PrimaryButton";
@@ -991,18 +991,7 @@ export default function EditTripScreen({ navigation, route }) {
         behavior={Platform.OS === "ios" ? "padding" : "height"}
         style={styles.flex}
       >
-        <View style={styles.hero}>
-          <View style={styles.heroTopRow}>
-            <IconCircleButton
-              icon="arrow-left"
-              onPress={() => navigation.goBack()}
-              tone="light"
-            />
-            <View style={styles.heroTitleWrap} pointerEvents="none">
-              <Text style={styles.heroTitle}>Editar viaje</Text>
-            </View>
-          </View>
-        </View>
+        <ScreenHeader title="Editar viaje" onBack={() => navigation.goBack()} />
 
         <ScrollView
           contentContainerStyle={styles.scrollContent}
@@ -1571,31 +1560,6 @@ const styles = StyleSheet.create({
     paddingTop: spacing.md,
     paddingBottom: spacing.xl,
     gap: spacing.md,
-  },
-  hero: {
-    backgroundColor: colors.primary,
-    paddingHorizontal: spacing.lg,
-    paddingTop: spacing.lg,
-    paddingBottom: spacing.md,
-    borderBottomLeftRadius: 24,
-    borderBottomRightRadius: 24,
-  },
-  heroTopRow: {
-    minHeight: 44,
-    justifyContent: "center",
-    alignItems: "flex-start",
-  },
-  heroTitleWrap: {
-    position: "absolute",
-    left: 0,
-    right: 0,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  heroTitle: {
-    ...textStyles.tripTitle,
-    color: colors.textInverse,
-    fontSize: 20,
   },
   body: {
     gap: spacing.md,

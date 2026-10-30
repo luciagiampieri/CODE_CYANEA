@@ -30,8 +30,9 @@ test('renovación rechazada: informa la fecha límite antes de que venza', async
 
   expect((await screen.findByTestId('mi-suscripcion-estado')).props.children).toBe('Pendiente de pago');
   const texto = screen.getByTestId('mi-suscripcion-fecha').props.children;
-  expect(texto).toContain('antes del 28/10/2026');
-  expect(texto).toContain('la suscripción vence y tu cuenta vuelve al plan gratuito');
+  expect(screen.getByText('No pudimos cobrar la renovación')).toBeTruthy();
+  expect(texto).toContain('Tenés hasta el 28/10/2026');
+  expect(texto).toContain('volvés al plan gratuito');
   expect(screen.getByTestId('mi-suscripcion-medio-pago')).toBeTruthy();
 });
 
@@ -48,7 +49,7 @@ test('al vencer por falta de pago lo informa y ofrece volver a suscribirse', asy
   await render(<SubscriptionPanel navigation={navigation} onVerPlanes={jest.fn()} />);
 
   expect((await screen.findByTestId('mi-suscripcion-estado')).props.children).toBe('Vencida');
-  expect(screen.getByTestId('mi-suscripcion-fecha').props.children).toBe('Tu suscripción venció el 25/10/2026.');
+  expect(screen.getByTestId('mi-suscripcion-fecha').props.children).toBe('Venció el 25/10/2026');
   expect(screen.queryByTestId('mi-suscripcion-medio-pago')).toBeNull();
   expect(screen.getByTestId('mi-suscripcion-suscribirme')).toBeTruthy();
 });

@@ -3,7 +3,7 @@ import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Switch, Text, Vie
 import { FontAwesome6 } from "@expo/vector-icons";
 
 import ScreenContainer from "../components/layout/ScreenContainer";
-import IconCircleButton from "../components/ui/IconCircleButton";
+import ScreenHeader from "../components/ui/ScreenHeader";
 import PrimaryButton from "../components/ui/PrimaryButton";
 import useResponsive from "../hooks/useResponsive";
 import { getPrivacySettings, updatePrivacySettings } from "../services/api";
@@ -112,17 +112,11 @@ export default function PrivacyPreferencesScreen({ navigation }) {
   return (
     <ScreenContainer fullWidth padded={false}>
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-        <View style={styles.hero}>
-          <View style={styles.heroTopRow}>
-            <IconCircleButton
-              icon="arrow-left"
-              onPress={() => navigation.goBack()}
-              tone="light"
-              testID="privacy-prefs-back-button"
-            />
-          </View>
-          <Text style={styles.title}>Privacidad</Text>
-        </View>
+        <ScreenHeader
+          title="Privacidad"
+          onBack={() => navigation.goBack()}
+          backTestID="privacy-prefs-back-button"
+        />
 
         {loading ? (
           <View style={styles.center}>
@@ -247,27 +241,6 @@ export default function PrivacyPreferencesScreen({ navigation }) {
 const styles = StyleSheet.create({
   scrollContent: {
     paddingBottom: spacing.xxxl,
-  },
-  hero: {
-    backgroundColor: colors.primary,
-    paddingHorizontal: spacing.lg,
-    paddingTop: spacing.sm,
-    paddingBottom: spacing.xl,
-    borderBottomLeftRadius: 32,
-    borderBottomRightRadius: 32,
-    alignItems: "center",
-  },
-  heroTopRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    alignSelf: "flex-start",
-  },
-  title: {
-    ...textStyles.tripTitle,
-    color: colors.textInverse,
-    fontSize: 26,
-    marginTop: spacing.xs,
-    textAlign: "center",
   },
   center: {
     padding: spacing.xxl,

@@ -4,20 +4,18 @@ import { useFocusEffect } from '@react-navigation/native';
 import { FontAwesome6 } from '@expo/vector-icons';
 import * as WebBrowser from 'expo-web-browser';
 import ScreenContainer from '../components/layout/ScreenContainer';
-import IconCircleButton from '../components/ui/IconCircleButton';
 import PrimaryButton from '../components/ui/PrimaryButton';
+import ScreenHeader from '../components/ui/ScreenHeader';
 import { getSubscriptionSummary, startSubscription } from '../services/api';
 import { colors, radii, spacing } from '../theme/tokens';
 import { p, precioPlan } from '../components/plans/planStyles';
+import { fechaCorta } from '../utils/fechasSuscripcion';
 
 export const MODALIDADES = [
   { clave: 'mensual', nombre: 'Mensual', periodo: 'mes' },
   { clave: 'anual', nombre: 'Anual', periodo: 'año' },
 ];
 
-export const fechaCorta = (valor) => new Date(valor).toLocaleDateString('es-AR', {
-  timeZone: 'America/Argentina/Buenos_Aires', day: '2-digit', month: '2-digit', year: 'numeric',
-});
 
 async function abrirPago(urlPago, urlRetorno) {
   try {
@@ -76,14 +74,12 @@ export default function SubscribeProScreen({ navigation, route }) {
 
   return <ScreenContainer fullWidth padded={false}>
     <ScrollView contentContainerStyle={p.scroll}>
+      <ScreenHeader
+        title="Suscribirme a Pro"
+        subtitle="Elegí cómo querés pagar y revisá el resumen antes de continuar."
+        onBack={() => navigation.goBack()}
+      />
       <View style={p.contenido}>
-        <View style={p.encabezado}>
-          <IconCircleButton icon="arrow-left" tone="surface" accessibilityLabel="Volver" onPress={() => navigation.goBack()} />
-          <View style={{ flex: 1 }}>
-            <Text style={p.titulo}>Suscribirme a Pro</Text>
-            <Text style={p.subtitulo}>Elegí cómo querés pagar y revisá el resumen antes de continuar.</Text>
-          </View>
-        </View>
         {cargando ? <ActivityIndicator color={colors.primary} size="large" /> : error ? <View style={p.panel}>
           <Text accessibilityRole="alert" style={p.error}>{error}</Text>
           <PrimaryButton label="Reintentar" onPress={() => setRecarga((n) => n + 1)} />

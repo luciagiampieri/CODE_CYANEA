@@ -3,7 +3,7 @@ import { useState } from "react";
 import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, View } from "react-native";
 
 import ScreenContainer from "../components/layout/ScreenContainer";
-import IconCircleButton from "../components/ui/IconCircleButton";
+import ScreenHeader from "../components/ui/ScreenHeader";
 import PrimaryButton from "../components/ui/PrimaryButton";
 import { RecoveryField, recoveryStyles as rs } from "../components/ui/RecoveryLayout";
 import { useAuth } from "../context/AuthContext";
@@ -82,17 +82,11 @@ export default function ChangePasswordScreen({ navigation }) {
         style={styles.flex}
       >
         <ScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
-          <View style={styles.hero}>
-            <View style={styles.heroTopRow}>
-              <IconCircleButton
-                icon="arrow-left"
-                onPress={() => navigation.goBack()}
-                tone="light"
-                testID="change-password-back"
-              />
-            </View>
-            <Text style={styles.title}>Cambiar contraseña</Text>
-          </View>
+          <ScreenHeader
+            title="Cambiar contraseña"
+            onBack={() => navigation.goBack()}
+            backTestID="change-password-back"
+          />
 
           <View style={[styles.card, isDesktop && styles.cardDesktop]}>
             {!disponible ? (
@@ -192,27 +186,6 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     paddingBottom: spacing.xxxl,
-  },
-  hero: {
-    backgroundColor: colors.primary,
-    paddingHorizontal: spacing.lg,
-    paddingTop: spacing.sm,
-    paddingBottom: spacing.xl,
-    borderBottomLeftRadius: 32,
-    borderBottomRightRadius: 32,
-    alignItems: "center",
-  },
-  heroTopRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    alignSelf: "flex-start",
-  },
-  title: {
-    ...textStyles.tripTitle,
-    color: colors.textInverse,
-    fontSize: 26,
-    marginTop: spacing.xs,
-    textAlign: "center",
   },
   card: {
     paddingHorizontal: spacing.lg,

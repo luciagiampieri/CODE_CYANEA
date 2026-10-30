@@ -3,7 +3,7 @@ import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from
 import { FontAwesome6 } from "@expo/vector-icons";
 
 import ScreenContainer from "../components/layout/ScreenContainer";
-import IconCircleButton from "../components/ui/IconCircleButton";
+import ScreenHeader from "../components/ui/ScreenHeader";
 import StatusPill from "../components/ui/StatusPill";
 import useResponsive from "../hooks/useResponsive";
 import { getMyPlanningPreferences } from "../services/api";
@@ -159,17 +159,11 @@ export default function PlanningPreferencesListScreen({ navigation }) {
   return (
     <ScreenContainer fullWidth padded={false}>
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-        <View style={styles.hero}>
-          <View style={styles.heroTopRow}>
-            <IconCircleButton
-              icon="arrow-left"
-              onPress={() => navigation.goBack()}
-              tone="light"
-              testID="planning-prefs-back-button"
-            />
-          </View>
-          <Text style={styles.title}>Planificación de viajes</Text>
-        </View>
+        <ScreenHeader
+          title="Planificación de viajes"
+          onBack={() => navigation.goBack()}
+          backTestID="planning-prefs-back-button"
+        />
         {renderListado()}
       </ScrollView>
 
@@ -187,27 +181,6 @@ export default function PlanningPreferencesListScreen({ navigation }) {
 const styles = StyleSheet.create({
   scrollContent: {
     paddingBottom: spacing.xxxl,
-  },
-  hero: {
-    backgroundColor: colors.primary,
-    paddingHorizontal: spacing.lg,
-    paddingTop: spacing.sm,
-    paddingBottom: spacing.xl,
-    borderBottomLeftRadius: 32,
-    borderBottomRightRadius: 32,
-    alignItems: "center",
-  },
-  heroTopRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    alignSelf: "flex-start",
-  },
-  title: {
-    ...textStyles.tripTitle,
-    color: colors.textInverse,
-    fontSize: 26,
-    marginTop: spacing.xs,
-    textAlign: "center",
   },
   center: {
     padding: spacing.xxl,

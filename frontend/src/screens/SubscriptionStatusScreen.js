@@ -3,12 +3,12 @@ import { ActivityIndicator, ScrollView, Text, View } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { FontAwesome6 } from '@expo/vector-icons';
 import ScreenContainer from '../components/layout/ScreenContainer';
-import IconCircleButton from '../components/ui/IconCircleButton';
 import PrimaryButton from '../components/ui/PrimaryButton';
+import ScreenHeader from '../components/ui/ScreenHeader';
 import { getSubscriptionStatus } from '../services/api';
 import { colors } from '../theme/tokens';
 import { p, precioPlan } from '../components/plans/planStyles';
-import { fechaCorta } from './SubscribeProScreen';
+import { fechaCorta } from '../utils/fechasSuscripcion';
 
 export const INTERVALO_CONSULTA_MS = 4000;
 export const MAX_CONSULTAS = 30; 
@@ -67,11 +67,8 @@ export default function SubscriptionStatusScreen({ navigation }) {
 
   return <ScreenContainer fullWidth padded={false}>
     <ScrollView contentContainerStyle={p.scroll}>
+      <ScreenHeader title="Estado de tu suscripción" onBack={volverAPlanes} backLabel="Volver a planes" />
       <View style={p.contenido}>
-        <View style={p.encabezado}>
-          <IconCircleButton icon="arrow-left" tone="surface" accessibilityLabel="Volver a planes" onPress={volverAPlanes} />
-          <Text style={[p.titulo, { flex: 1 }]}>Estado de tu suscripción</Text>
-        </View>
         {cargando && !estado ? <ActivityIndicator color={colors.primary} size="large" /> : error && !estado ? <View style={p.panel}>
           <Text accessibilityRole="alert" style={p.error}>{error}</Text>
           <PrimaryButton label="Volver a planes" variant="secondary" onPress={volverAPlanes} />

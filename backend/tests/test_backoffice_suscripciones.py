@@ -457,6 +457,8 @@ def test_no_persisten_ni_se_exponen_datos_de_tarjetas(
         "FechaPago",
         "MontoARS",
         "IdOperacionPasarela",
+        "PeriodoDesde",
+        "PeriodoHasta",
     }
     item = client.get(f"{BASE}/pagos", headers=admin_headers).json()["items"][0]
     assert set(item) == {

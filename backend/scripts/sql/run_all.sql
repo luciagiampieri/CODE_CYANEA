@@ -23,3 +23,4 @@
 \i 021_consulta_suscripciones_pagos.sql
 \i 022_suscripcion_pro_mercado_pago.sql
 \i 023_notificaciones_pasarela_pagos.sql
+\i 024_periodo_pagos_suscripciones.sql

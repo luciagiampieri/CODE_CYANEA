@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
 
 import ScreenContainer from "../components/layout/ScreenContainer";
 import ScreenHeader from "../components/ui/ScreenHeader";
@@ -19,14 +19,34 @@ const PESTANAS = [
 export default function PlanSubscriptionScreen({ navigation, route }) {
   const { isDesktop } = useResponsive();
   const [pestana, setPestana] = useState(route.params?.tab ?? "mi_plan");
+  const [refrescando, setRefrescando] = useState(false);
+  const [recarga, setRecarga] = useState(0);
 
   useEffect(() => {
     if (route.params?.tab) setPestana(route.params.tab);
   }, [route.params?.tab]);
 
+  // "Mi plan" avisa cuando termina de recargar; "Consumo" y "Planes" consultan
+  // al volver a montarse, así que basta con cambiarles la key.
+  function refrescar() {
+    setRecarga((n) => n + 1);
+    setRefrescando(pestana === "mi_plan");
+  }
+
   return (
     <ScreenContainer fullWidth padded={false}>
-      <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        contentContainerStyle={styles.scroll}
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={refrescando}
+            onRefresh={refrescar}
+            tintColor={colors.primary}
+            colors={[colors.primary]}
+          />
+        }
+      >
         <ScreenHeader
           title="Plan y suscripción"
           onBack={() => navigation.goBack()}
@@ -55,11 +75,20 @@ export default function PlanSubscriptionScreen({ navigation, route }) {
           </View>
 
           {pestana === "mi_plan" ? (
-            <SubscriptionPanel navigation={navigation} onVerPlanes={() => setPestana("planes")} />
+            <SubscriptionPanel
+              navigation={navigation}
+              onVerPlanes={() => setPestana("planes")}
+              recarga={recarga}
+              onRecargado={() => setRefrescando(false)}
+            />
           ) : pestana === "consumo" ? (
-            <AccountUsage />
+            <AccountUsage key={recarga} />
           ) : (
-            <PlansComparison navigation={navigation} onGestionar={() => setPestana("mi_plan")} />
+            <PlansComparison
+              key={recarga}
+              navigation={navigation}
+              onGestionar={() => setPestana("mi_plan")}
+            />
           )}
         </View>
       </ScrollView>

@@ -11,7 +11,7 @@ import {
 import { FontAwesome6 } from "@expo/vector-icons";
 
 import ScreenContainer from "../components/layout/ScreenContainer";
-import IconCircleButton from "../components/ui/IconCircleButton";
+import ScreenHeader from "../components/ui/ScreenHeader";
 import PrimaryButton from "../components/ui/PrimaryButton";
 import {
   getNotifications,
@@ -418,22 +418,11 @@ export default function InvitationsScreen({ navigation }) {
           />
         }
       >
-        <View style={styles.header}>
-          <View style={styles.headerRow}>
-            <IconCircleButton
-              icon="arrow-left"
-              onPress={handleBack}
-              tone="light"
-              testID="invitations-back-button"
-              accessibilityLabel="Volver"
-              hitSlop={10}
-              style={styles.backButton}
-            />
-            <View style={styles.headerTitleWrap} pointerEvents="none">
-              <Text style={styles.title}>Notificaciones</Text>
-            </View>
-          </View>
-        </View>
+        <ScreenHeader
+          title="Notificaciones"
+          onBack={handleBack}
+          backTestID="invitations-back-button"
+        />
 
         <View style={styles.body}>
           <Text style={styles.summary}>{buildSummary(invitations.length, unreadCount)}</Text>
@@ -500,28 +489,6 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     paddingBottom: 40,
-  },
-  header: {
-    backgroundColor: colors.primary,
-    paddingHorizontal: spacing.lg,
-    paddingTop: spacing.lg,
-    paddingBottom: spacing.md,
-    borderBottomLeftRadius: 24,
-    borderBottomRightRadius: 24,
-  },
-  headerRow: {
-    minHeight: 44,
-    justifyContent: "center",
-    alignItems: "flex-start",
-  },
-  backButton: {
-    zIndex: 1,
-    elevation: 1,
-  },
-  title: {
-    ...textStyles.tripTitle,
-    color: colors.textInverse,
-    fontSize: 20,
   },
   summary: {
     ...textStyles.meta,
@@ -780,12 +747,5 @@ const styles = StyleSheet.create({
     ...textStyles.meta,
     color: colors.textMuted,
     fontSize: 11,
-  },
-  headerTitleWrap: {
-    position: "absolute",
-    left: 0,
-    right: 0,
-    alignItems: "center",
-    justifyContent: "center",
   },
 });

@@ -69,3 +69,16 @@ class GestionSuscripcionRead(BaseModel):
 
 class AccionSuscripcionRead(GestionSuscripcionRead):
     message: str
+
+
+class PagoHistorialRead(BaseModel):
+    id: int
+    fecha: datetime
+    montoARS: Decimal
+    estado: Literal["aprobado", "rechazado", "pendiente"]
+    periodoDesde: datetime | None
+    periodoHasta: datetime | None
+
+
+class HistorialPagosRead(BaseModel):
+    items: list[PagoHistorialRead]

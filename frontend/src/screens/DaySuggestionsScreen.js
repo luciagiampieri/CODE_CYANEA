@@ -12,6 +12,7 @@ import {
 } from "react-native";
 
 import ScreenContainer from "../components/layout/ScreenContainer";
+import ScreenHeader from "../components/ui/ScreenHeader";
 import AcceptSuggestionModal from "../components/trip/AcceptSuggestionModal";
 import SuggestionCompactCard from "../components/trip/SuggestionCompactCard";
 import { appAlert } from "../components/ui/AppDialog";
@@ -385,26 +386,12 @@ export default function DaySuggestionsScreen({ navigation, route }) {
 
   return (
     <ScreenContainer fullWidth padded={false}>
-      <View style={styles.header}>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Volver"
-          hitSlop={8}
-          onPress={() => navigation.goBack()}
-          style={styles.botonAtras}
-          testID="sugerencias-dia-volver"
-        >
-          <FontAwesome6 name="arrow-left" size={16} color={colors.textInverse} />
-        </Pressable>
-        <View style={styles.headerTextos}>
-          <Text style={styles.titulo}>Sugerencias del día</Text>
-          <Text style={styles.subtitulo} numberOfLines={1}>
-            Día {dia?.dayIndex}
-            {dia?.dayDateText ? ` · ${dia.dayDateText}` : ""}
-            {tripTitle ? ` · ${tripTitle}` : ""}
-          </Text>
-        </View>
-      </View>
+      <ScreenHeader
+        title="Sugerencias del día"
+        subtitle={`Día ${dia?.dayIndex}${dia?.dayDateText ? ` · ${dia.dayDateText}` : ""}${tripTitle ? ` · ${tripTitle}` : ""}`}
+        onBack={() => navigation.goBack()}
+        backTestID="sugerencias-dia-volver"
+      />
 
       <ScrollView
         style={styles.scroll}
@@ -502,37 +489,6 @@ export default function DaySuggestionsScreen({ navigation, route }) {
 const ANCHO_MAXIMO = 720;
 
 const styles = StyleSheet.create({
-  header: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing.sm,
-    paddingHorizontal: spacing.lg,
-    paddingTop: spacing.lg,
-    paddingBottom: spacing.md,
-    backgroundColor: colors.primary,
-  },
-  botonAtras: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: colors.iconSurface,
-  },
-  headerTextos: {
-    flex: 1,
-  },
-  titulo: {
-    ...textStyles.tripTitle,
-    fontSize: 22,
-    color: colors.textInverse,
-  },
-  subtitulo: {
-    ...textStyles.meta,
-    fontSize: 12,
-    color: "#dde7fb",
-    marginTop: 2,
-  },
   scroll: {
     flex: 1,
   },

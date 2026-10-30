@@ -1,15 +1,16 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Linking, StyleSheet, Text, View } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { FontAwesome6 } from '@expo/vector-icons';
+import ListRow from '../ui/ListRow';
 import PrimaryButton from '../ui/PrimaryButton';
 import SectionCard from '../ui/SectionCard';
 import { appAlert } from '../ui/AppDialog';
 import useAvailablePlans from '../../hooks/useAvailablePlans';
 import { cancelSubscription, getSubscriptionManagement, reactivateSubscription } from '../../services/api';
-import { fechaCorta } from '../../screens/SubscribeProScreen';
+import { fechaCorta } from '../../utils/fechasSuscripcion';
 import { colors, radii, spacing, textStyles } from '../../theme/tokens';
-import { p, precioPlan } from './planStyles';
+import { p, precioCorto } from './planStyles';
 
 const ESTADOS = {
   activa: { texto: 'Activa', fondo: colors.successSurface, color: colors.success },
@@ -35,30 +36,26 @@ function confirmarAccion(titulo, mensaje, textoConfirmar, destructivo) {
 }
 
 function textoFecha(sub) {
-  if (sub.estado === 'activa') return `Próxima renovación: ${fechaCorta(sub.fechaProximaRenovacion)}`;
-  if (sub.estado === 'cancelada' && sub.puedeReactivar) return `Conservás los beneficios Pro hasta el ${fechaCorta(sub.fechaFin)}. La suscripción no se renovará.`;
-  if (sub.estado === 'cancelada') return `Tu suscripción finalizó el ${fechaCorta(sub.fechaFin)}.`;
-  if (sub.estado === 'pendiente_pago') {
-    const plazo = sub.fechaLimitePago ? `antes del ${fechaCorta(sub.fechaLimitePago)}` : 'en los próximos días';
-    return `No pudimos cobrar la renovación. Mercado Pago va a reintentar el cobro: actualizá tu medio de pago. Si el pago no se acredita ${plazo}, la suscripción vence y tu cuenta vuelve al plan gratuito.`;
-  }
-  return `Tu suscripción venció el ${fechaCorta(sub.fechaFin)}.`;
+  if (sub.estado === 'activa') return `Se renueva el ${fechaCorta(sub.fechaProximaRenovacion)}`;
+  if (sub.estado === 'cancelada' && sub.puedeReactivar) return `Pro hasta el ${fechaCorta(sub.fechaFin)} · no se renueva`;
+  if (sub.estado === 'cancelada') return `Finalizó el ${fechaCorta(sub.fechaFin)}`;
+  return `Venció el ${fechaCorta(sub.fechaFin)}`;
 }
 
-function Dato({ etiqueta, valor }) {
-  return <View style={s.dato}>
-    <Text style={s.datoEtiqueta}>{etiqueta}</Text>
-    <Text style={s.datoValor}>{valor}</Text>
-  </View>;
+function textoPendiente(sub) {
+  return sub.fechaLimitePago
+    ? `Tenés hasta el ${fechaCorta(sub.fechaLimitePago)} para regularizarlo; si no, volvés al plan gratuito.`
+    : 'Mercado Pago va a reintentar el cobro en los próximos días.';
 }
 
-export default function SubscriptionPanel({ navigation, onVerPlanes }) {
+export default function SubscriptionPanel({ navigation, onVerPlanes, recarga = 0, onRecargado }) {
   const planes = useAvailablePlans();
   const [datos, setDatos] = useState(null);
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState('');
   const [procesando, setProcesando] = useState(false);
-  const [recarga, setRecarga] = useState(0);
+  const [recargaInterna, setRecargaInterna] = useState(0);
+  const recargaInicial = useRef(recarga);
 
   useFocusEffect(useCallback(() => {
     let vigente = true;
@@ -66,16 +63,24 @@ export default function SubscriptionPanel({ navigation, onVerPlanes }) {
     getSubscriptionManagement()
       .then((respuesta) => { if (vigente) setDatos(respuesta); })
       .catch((err) => { if (vigente) setError(err.message || 'No se pudo cargar tu suscripción.'); })
-      .finally(() => { if (vigente) setCargando(false); });
+      .finally(() => {
+        if (vigente) setCargando(false);
+        onRecargado?.();
+      });
     return () => { vigente = false; };
-  }, [recarga]));
+  }, [recargaInterna, recarga]));
+
+  // El pull-to-refresh de la pantalla también vuelve a consultar los planes.
+  useEffect(() => {
+    if (recarga !== recargaInicial.current) planes.actualizar?.();
+  }, [recarga]);
 
   const sub = datos?.suscripcion;
   const esPro = datos?.planActual === 'pro';
   const intentoPendiente = !sub && planes.datos?.ultimaSuscripcion?.estado === 'pendiente_pago';
 
   function actualizar() {
-    setRecarga((n) => n + 1);
+    setRecargaInterna((n) => n + 1);
     planes.actualizar?.();
   }
 
@@ -129,6 +134,17 @@ export default function SubscriptionPanel({ navigation, onVerPlanes }) {
   if (!datos) return null;
 
   const estado = sub ? ESTADOS[sub.estado] : null;
+  const pendiente = sub?.estado === 'pendiente_pago';
+  const periodo = sub ? PERIODOS[sub.modalidad] : null;
+  const indicador = procesando ? <ActivityIndicator color={colors.primary} /> : undefined;
+
+  // US 120: el historial se consulta aunque el usuario ya no sea Pro.
+  const filas = [
+    !esPro && { clave: 'planes', icon: 'scale-balanced', title: 'Comparar planes', onPress: onVerPlanes, testID: 'mi-suscripcion-ver-planes' },
+    { clave: 'historial', icon: 'receipt', title: 'Historial de pagos', onPress: () => navigation.navigate('HistorialPagos'), testID: 'mi-suscripcion-historial' },
+    sub?.puedeReactivar && { clave: 'reactivar', icon: 'rotate-right', title: 'Reactivar renovación', onPress: reactivar, testID: 'mi-suscripcion-reactivar', disabled: procesando, right: indicador },
+    sub?.puedeCancelar && { clave: 'cancelar', icon: 'ban', title: 'Cancelar renovación', onPress: cancelar, testID: 'mi-suscripcion-cancelar', destructive: true, disabled: procesando, right: indicador },
+  ].filter(Boolean);
 
   return <View style={{ gap: spacing.lg }} testID="mi-suscripcion">
     <SectionCard padded>
@@ -136,53 +152,64 @@ export default function SubscriptionPanel({ navigation, onVerPlanes }) {
         <View style={[s.icono, esPro && s.iconoPro]}>
           <FontAwesome6 name={esPro ? 'crown' : 'suitcase-rolling'} size={18} color={colors.primary} />
         </View>
-        <View style={{ flex: 1 }}>
-          <Text style={s.etiqueta}>Tu plan actual</Text>
+        <View style={s.nombreBloque}>
           <Text style={p.nombre}>{esPro ? 'Pro' : 'Gratuito'}</Text>
+          {esPro && MODALIDADES[sub?.modalidad] ? <Text style={s.modalidad}>{MODALIDADES[sub.modalidad]}</Text> : null}
         </View>
-        {estado ? <Text testID="mi-suscripcion-estado" style={[s.pastilla, { backgroundColor: estado.fondo, color: estado.color }]}>
+        {estado ? <Text testID="mi-suscripcion-estado" style={[p.pastilla, { backgroundColor: estado.fondo, color: estado.color }]}>
           {estado.texto}
         </Text> : null}
       </View>
 
-      {sub ? <>
-        <View style={s.datos}>
-          <Dato etiqueta="Modalidad" valor={MODALIDADES[sub.modalidad] || 'Sin periodicidad registrada'} />
-          <Dato etiqueta="Precio" valor={sub.precioARS == null ? 'No registrado' : `${precioPlan(sub.precioARS)}${PERIODOS[sub.modalidad] ? ` por ${PERIODOS[sub.modalidad]}` : ''}`} />
-        </View>
-        <Text testID="mi-suscripcion-fecha"
-          style={sub.estado === 'pendiente_pago' ? s.alerta : sub.estado === 'cancelada' && sub.puedeReactivar ? p.ahorro : p.texto}>
-          {textoFecha(sub)}
-        </Text>
-        {sub.fechaCancelacion ? <Text style={p.subtitulo}>Cancelación registrada el {fechaCorta(sub.fechaCancelacion)}</Text> : null}
-        {sub.urlMedioPago ? <PrimaryButton label="Actualizar medio de pago" testID="mi-suscripcion-medio-pago" onPress={actualizarMedioPago} /> : null}
-        {sub.puedeReactivar ? <PrimaryButton label="Reactivar renovación automática" testID="mi-suscripcion-reactivar" loading={procesando} disabled={procesando} onPress={reactivar} /> : null}
-        {sub.puedeCancelar ? <PrimaryButton label="Cancelar renovación automática" variant="secondary" testID="mi-suscripcion-cancelar" loading={procesando} disabled={procesando} onPress={cancelar} /> : null}
-        {!esPro ? <PrimaryButton label="Suscribirme a Pro" testID="mi-suscripcion-suscribirme" onPress={() => navigation.navigate('SuscribirsePro')} /> : null}
-      </> : <>
-        <Text style={p.texto}>
-          Con Pro, los viajes que administrás suman más participantes, sugerencias con IA y almacenamiento para todo el grupo.
-        </Text>
+      {esPro && sub ? <View style={s.precioFila} testID="mi-suscripcion-precio">
+        {sub.precioARS == null
+          ? <Text style={p.subtitulo}>Precio no registrado</Text>
+          : <>
+            <Text style={p.precio}>{precioCorto(sub.precioARS)}</Text>
+            {periodo ? <Text style={s.periodo}>/{periodo}</Text> : null}
+          </>}
+      </View> : null}
+
+      {sub && !pendiente ? <View style={s.fechaFila}>
+        <FontAwesome6 name="calendar" size={13} color={colors.textSecondary} />
+        <Text testID="mi-suscripcion-fecha" style={s.fecha}>{textoFecha(sub)}</Text>
+      </View> : null}
+
+      {!esPro ? <>
+        <Text style={p.subtitulo}>Más participantes, IA y almacenamiento en los viajes que administrás.</Text>
         {intentoPendiente
           ? <PrimaryButton label="Ver el estado de mi último pago" testID="mi-suscripcion-estado-pago" onPress={() => navigation.navigate('SuscripcionEstado')} />
           : <PrimaryButton label="Suscribirme a Pro" testID="mi-suscripcion-suscribirme" onPress={() => navigation.navigate('SuscribirsePro')} />}
-        <PrimaryButton label="Comparar planes" variant="secondary" testID="mi-suscripcion-ver-planes" onPress={onVerPlanes} />
-      </>}
+      </> : null}
     </SectionCard>
 
-    <PrimaryButton label="Actualizar información" variant="secondary" loading={cargando} onPress={actualizar} />
+    {pendiente ? <View style={s.aviso} testID="mi-suscripcion-aviso-pago">
+      <View style={s.avisoTitulo}>
+        <FontAwesome6 name="triangle-exclamation" size={15} color={colors.danger} />
+        <Text style={s.avisoTexto}>No pudimos cobrar la renovación</Text>
+      </View>
+      <Text testID="mi-suscripcion-fecha" style={s.avisoDetalle}>{textoPendiente(sub)}</Text>
+      {sub.urlMedioPago ? <PrimaryButton label="Actualizar medio de pago" testID="mi-suscripcion-medio-pago" onPress={actualizarMedioPago} /> : null}
+    </View> : null}
+
+    <SectionCard>
+      {filas.map(({ clave, ...fila }, indice) => <ListRow key={clave} {...fila} divider={indice < filas.length - 1} />)}
+    </SectionCard>
   </View>;
 }
 
 const s = StyleSheet.create({
   cabecera: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
-  icono: { width: 44, height: 44, borderRadius: radii.sm, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.surfaceAlt },
+  icono: { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.surfaceAlt },
   iconoPro: { backgroundColor: colors.accent },
-  etiqueta: { ...textStyles.label, color: colors.textMuted, fontSize: 11 },
-  pastilla: { borderRadius: radii.pill, paddingHorizontal: 10, paddingVertical: 4, fontSize: 12, fontWeight: '700', overflow: 'hidden' },
-  datos: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginTop: spacing.xs },
-  dato: { flexGrow: 1, flexBasis: 160, padding: spacing.sm, borderRadius: radii.sm, backgroundColor: colors.surfaceMuted, gap: 2 },
-  datoEtiqueta: { ...textStyles.meta, color: colors.textSecondary, fontSize: 12 },
-  datoValor: { ...textStyles.bodyStrong, color: colors.textPrimary, fontSize: 15 },
-  alerta: { ...textStyles.body, color: colors.danger },
+  nombreBloque: { flex: 1 },
+  modalidad: { ...textStyles.meta, color: colors.textSecondary, fontSize: 13 },
+  precioFila: { flexDirection: 'row', alignItems: 'baseline', gap: 4, marginTop: spacing.xs },
+  periodo: { ...textStyles.meta, color: colors.textSecondary, fontSize: 14 },
+  fechaFila: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
+  fecha: { ...textStyles.meta, color: colors.textSecondary, fontSize: 14, flex: 1 },
+  aviso: { backgroundColor: colors.dangerSurface, borderRadius: radii.md, padding: spacing.lg, gap: spacing.sm },
+  avisoTitulo: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
+  avisoTexto: { ...textStyles.bodyStrong, color: colors.danger, flex: 1 },
+  avisoDetalle: { ...textStyles.meta, color: colors.textPrimary, fontSize: 14 },
 });

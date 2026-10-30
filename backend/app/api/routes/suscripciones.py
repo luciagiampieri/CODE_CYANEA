@@ -18,6 +18,7 @@ from app.schemas.suscripcion_pro import (
     AccionSuscripcionRead,
     EstadoSuscripcionRead,
     GestionSuscripcionRead,
+    HistorialPagosRead,
     IniciarSuscripcionRequest,
     IniciarSuscripcionResponse,
     ResumenSuscripcionRead,
@@ -51,6 +52,16 @@ def gestion_suscripcion(
 ):
     response.headers["Cache-Control"] = "no-store"
     return suscripcion_pro.gestion(db, current_user)
+
+
+@router.get("/me/suscripcion/pagos", response_model=HistorialPagosRead)
+def historial_pagos(
+    response: Response,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+):
+    response.headers["Cache-Control"] = "no-store"
+    return suscripcion_pro.historial_pagos(db, current_user)
 
 
 @router.post("/me/suscripcion/cancelar", response_model=AccionSuscripcionRead)

@@ -1955,7 +1955,7 @@ const styles = StyleSheet.create({
   hero: {
     backgroundColor: colors.primary,
     paddingHorizontal: spacing.lg,
-    paddingTop: spacing.xxs,
+    paddingTop: spacing.lg,
     paddingBottom: spacing.md,
     borderBottomLeftRadius: 24,
     borderBottomRightRadius: 24,

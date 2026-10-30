@@ -13,22 +13,31 @@ export default function ListRow({
   divider = false,
   right,
   testID,
+  destructive = false,
+  disabled = false,
 }) {
   return (
     <Pressable
       accessibilityRole="button"
+      accessibilityState={{ disabled }}
       onPress={onPress}
+      disabled={disabled}
       testID={testID}
-      style={({ pressed }) => [styles.row, divider && styles.divider, pressed && styles.pressed]}
+      style={({ pressed }) => [
+        styles.row,
+        divider && styles.divider,
+        pressed && styles.pressed,
+        disabled && styles.disabled,
+      ]}
     >
       <View style={styles.left}>
         {icon ? (
-          <View style={[styles.icon, { backgroundColor: iconBackground }]}>
-            <FontAwesome6 name={icon} size={16} color={iconColor} />
+          <View style={[styles.icon, { backgroundColor: destructive ? colors.dangerSurface : iconBackground }]}>
+            <FontAwesome6 name={icon} size={16} color={destructive ? colors.danger : iconColor} />
           </View>
         ) : null}
         <View style={styles.texts}>
-          <Text style={styles.title}>{title}</Text>
+          <Text style={[styles.title, destructive && styles.titleDestructive]}>{title}</Text>
           {subtitle ? <Text style={styles.subtitle}>{subtitle}</Text> : null}
         </View>
       </View>
@@ -52,6 +61,9 @@ const styles = StyleSheet.create({
   pressed: {
     backgroundColor: colors.surfaceAlt,
   },
+  disabled: {
+    opacity: 0.6,
+  },
   left: {
     flexDirection: "row",
     alignItems: "center",
@@ -72,6 +84,9 @@ const styles = StyleSheet.create({
     ...textStyles.bodyStrong,
     color: colors.textPrimary,
     fontSize: 15,
+  },
+  titleDestructive: {
+    color: colors.danger,
   },
   subtitle: {
     ...textStyles.meta,
