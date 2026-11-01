@@ -2,7 +2,7 @@ import logging
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
-from sqlalchemy import and_, or_, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
@@ -244,10 +244,44 @@ def _activar(db: Session, suscripcion: SuscripcionUsuario, fecha_aprobacion: dat
     usuario.IdPlan = PLAN_PRO
 
 
-def _renovar(db: Session, suscripcion: SuscripcionUsuario) -> None:
+def _fecha_activacion(db: Session, suscripcion: SuscripcionUsuario) -> datetime | None:
+    """Fecha del primer cobro aprobado: _activar cuenta el primer período desde ahí."""
+    return _aware(
+        db.scalar(
+            select(func.min(PagoSuscripcion.FechaPago))
+            .join(
+                EstadoPagoSuscripcion,
+                EstadoPagoSuscripcion.IdEstadoPagoSuscripcion
+                == PagoSuscripcion.IdEstadoPagoSuscripcion,
+            )
+            .where(
+                PagoSuscripcion.IdSuscripcionUsuario == suscripcion.IdSuscripcionUsuario,
+                EstadoPagoSuscripcion.Nombre == PAGO_APROBADO,
+            )
+        )
+    )
+
+
+def _periodo_siguiente(
+    db: Session, suscripcion: SuscripcionUsuario
+) -> tuple[datetime, datetime]:
+    """Período que paga una renovación: desde el fin del vigente hasta el próximo vencimiento.
+
+    Los vencimientos se cuentan desde la activación y no desde el fin anterior: si no,
+    un fin recortado a fin de mes (31/10 -> 30/11) correría el día de cobro en cada
+    renovación (30/12 en lugar de 31/12).
+    """
     inicio = _aware(suscripcion.FechaFin)
-    suscripcion.FechaInicio = inicio
-    suscripcion.FechaFin = sumar_meses(inicio, suscripcion.MesesPeriodo or 1)
+    meses = suscripcion.MesesPeriodo or 1
+    ancla = _fecha_activacion(db, suscripcion)
+    if ancla is None or ancla > inicio:
+        return inicio, sumar_meses(inicio, meses)
+    transcurridos = (inicio.year - ancla.year) * 12 + inicio.month - ancla.month
+    return inicio, sumar_meses(ancla, (transcurridos // meses + 1) * meses)
+
+
+def _renovar(db: Session, suscripcion: SuscripcionUsuario) -> None:
+    suscripcion.FechaInicio, suscripcion.FechaFin = _periodo_siguiente(db, suscripcion)
     suscripcion.IdEstadoSuscripcion = _id_estado_suscripcion(db, ESTADO_ACTIVA)
     suscripcion.EstadoPasarela = PASARELA_AUTORIZADA
     suscripcion.FechaPendientePago = None
@@ -336,8 +370,11 @@ def _registrar_cobro(db: Session, cobro: CobroPasarela) -> _Aviso | None:
     # US 120: el período se calcula antes de que _activar o _renovar muevan las
     # fechas. Una renovación paga el período siguiente al vigente; el primer pago,
     # desde su fecha (al aprobarse tras un rechazo se recalcula, como en _activar).
-    desde = _aware(suscripcion.FechaFin) if es_renovacion else fecha
-    periodo = (desde, sumar_meses(desde, suscripcion.MesesPeriodo or 1))
+    periodo = (
+        _periodo_siguiente(db, suscripcion)
+        if es_renovacion
+        else (fecha, sumar_meses(fecha, suscripcion.MesesPeriodo or 1))
+    )
     _guardar_pago(db, suscripcion, cobro, pago, fecha, periodo)
 
     if es_renovacion:

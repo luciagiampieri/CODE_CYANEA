@@ -157,7 +157,6 @@ def _correos(pasarela, template):
 def _minutos(valor: datetime) -> str:
     return valor.strftime("%Y-%m-%dT%H:%M")
 
-
 def test_renovacion_mensual_aprobada_extiende_un_mes(
     client, db_session, usuario_activo, auth_headers, pasarela
 ):
@@ -172,6 +171,36 @@ def test_renovacion_mensual_aprobada_extiende_un_mes(
     assert suscripcion["fechaProximaRenovacion"].startswith(_minutos(sumar_meses(APROBACION, 2)))
     assert len(_pagos(db_session)) == 2
     assert _plan(db_session, usuario_activo) == PLAN_PRO
+
+
+def test_renovaciones_conservan_el_dia_de_cobro_despues_de_un_mes_corto(
+    client, db_session, auth_headers, pasarela
+):
+    # Activación el 31: febrero se recorta al 28, pero las siguientes vuelven al 31/30.
+    activacion = datetime(2026, 1, 31, 15, 0, tzinfo=timezone.utc)
+    respuesta = client.post(
+        URL, headers=auth_headers, json={"modalidad": "mensual", "aceptaRenovacionAutomatica": True}
+    )
+    assert respuesta.status_code == 201
+    pasarela.cobrar(PAGO_APROBADO, "cobro-1", activacion)
+    assert _avisar_cobro(client, "cobro-1").status_code == 200
+    assert _ver(client, auth_headers)["fechaFin"].startswith("2026-02-28T15:00")
+
+    vencimientos = ["2026-03-31T15:00", "2026-04-30T15:00", "2026-05-31T15:00"]
+    for numero, esperado in enumerate(vencimientos, start=2):
+        pasarela.cobrar(PAGO_APROBADO, f"cobro-{numero}", sumar_meses(activacion, numero - 1))
+        assert _avisar_cobro(client, f"cobro-{numero}").status_code == 200
+        assert _ver(client, auth_headers)["fechaFin"].startswith(esperado)
+
+    periodos = [
+        (_minutos(p.PeriodoDesde), _minutos(p.PeriodoHasta))
+        for p in _pagos(db_session)[1:]
+    ]
+    assert periodos == [
+        ("2026-02-28T15:00", "2026-03-31T15:00"),
+        ("2026-03-31T15:00", "2026-04-30T15:00"),
+        ("2026-04-30T15:00", "2026-05-31T15:00"),
+    ]
 
 
 def test_renovacion_anual_aprobada_extiende_un_anio(client, db_session, auth_headers, pasarela):
