@@ -14,6 +14,7 @@ export default function BackofficeHomeScreen({
   onAbrirTerminos,
   onAbrirPlanes,
   onAbrirSuscripciones,
+  onAbrirAuditoria,
 }) {
   const nombre = admin.nombreCompleto.split(' ').filter(Boolean)[0] || '';
 
@@ -52,6 +53,9 @@ export default function BackofficeHomeScreen({
       </LinearGradient>
 
       <View style={styles.accesos}>
+        {onAbrirAuditoria ? (
+          <Acceso descripcion="Accesos y acciones sensibles de la plataforma" icono="shield-halved" onPress={onAbrirAuditoria} titulo="Registro de auditoría" />
+        ) : null}
         {onAbrirSuscripciones ? (
           <Acceso descripcion="Estados, historial y seguimiento de ingresos" icono="file-invoice-dollar" onPress={onAbrirSuscripciones} titulo="Suscripciones y pagos" />
         ) : null}

@@ -118,14 +118,14 @@ def iniciar_sesion(
     user_agent: str | None,
 ) -> str:
     email = email.strip().lower()
+    usuario = db.scalar(select(Usuario).where(Usuario.Email == email))
 
     bloqueado_hasta = _bloqueado_hasta(db, email)
     if bloqueado_hasta:
-        _auditar(db, email, None, False, MOTIVO_INTENTO_BLOQUEADO, ip, user_agent)
+        _auditar(db, email, usuario, False, MOTIVO_INTENTO_BLOQUEADO, ip, user_agent)
         db.commit()
         raise AccesoBloqueado(bloqueado_hasta)
 
-    usuario = db.scalar(select(Usuario).where(Usuario.Email == email))
     hash_guardado = (
         usuario.HashedPassword if usuario and usuario.HashedPassword else _HASH_DUMMY
     )

@@ -15,10 +15,27 @@ import {
   obtenerToken,
   obtenerUsuario,
   registrarExpiracionSesion,
+  listarAuditoria,
+  obtenerEventoAuditoria,
+  obtenerOpcionesAuditoria,
 } from '../../services/backofficeApi';
 
 const CLAVE_TOKEN = 'cyanea.backoffice.token';
 const ADMIN = { id: 1, nombreCompleto: 'Lucía Giampieri', email: 'lucia@cyanea.test' };
+
+test('auditoría envía filtros, pagina y token sin operaciones mutantes', async () => {
+  window.sessionStorage.setItem(CLAVE_TOKEN, 'token-admin');
+  fetch.mockReturnValue(respuestaFetch(200, {}));
+  await listarAuditoria({ desde: '2026-10-01', hasta: '2026-10-07', tipo: 'suspension_usuario', idAdministrador: 8, pagina: 2 });
+  const url = new URL(urlLlamada(), 'https://cyanea.test');
+  expect(Object.fromEntries(url.searchParams)).toEqual({ desde: '2026-10-01', hasta: '2026-10-07', tipo: 'suspension_usuario', idAdministrador: '8', pagina: '2' });
+  expect(opcionesLlamada().headers.Authorization).toBe('Bearer token-admin');
+  expect(opcionesLlamada().method).toBe('GET');
+  await obtenerEventoAuditoria('plan:7');
+  expect(urlLlamada(1)).toMatch(/\/auditoria\/plan%3A7$/);
+  await obtenerOpcionesAuditoria();
+  expect(urlLlamada(2)).toMatch(/\/auditoria\/opciones$/);
+});
 
 function crearAlmacenamiento() {
   const datos = new Map();

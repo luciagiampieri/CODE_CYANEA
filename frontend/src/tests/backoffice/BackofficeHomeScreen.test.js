@@ -9,6 +9,13 @@ jest.mock('../../components/backoffice/PanelMetricas', () => ({
 
 const ADMIN = { id: 1, nombreCompleto: 'Lucía Giampieri', email: 'lucia@cyanea.test' };
 
+test('ofrece el registro de auditoría desde el inicio', async () => {
+  const onAbrirAuditoria = jest.fn();
+  await render(<BackofficeHomeScreen admin={ADMIN} onAbrirAuditoria={onAbrirAuditoria} />);
+  await fireEvent.press(screen.getByText('Registro de auditoría'));
+  expect(onAbrirAuditoria).toHaveBeenCalledTimes(1);
+});
+
 describe('BackofficeHomeScreen', () => {
   test('saluda al administrador por su nombre', async () => {
     await render(<BackofficeHomeScreen admin={ADMIN} onAbrirUsuarios={jest.fn()} />);

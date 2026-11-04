@@ -755,6 +755,16 @@ El flujo minimo actual incluye:
 
 ## Backoffice
 
+### Registro de auditoria (US 132)
+
+- Consulta exclusiva del router protegido por `require_admin_sistema`: `GET /backoffice/auditoria?desde&hasta&tipo&idAdministrador&pagina`, `GET /backoffice/auditoria/opciones` y `GET /backoffice/auditoria/{id_evento}`. Todas responden `Cache-Control: no-store`; no existen operaciones de alta, edicion ni eliminacion de auditorias por API.
+- `services/backoffice/auditoria_service.py` unifica con UNION ALL las auditorias existentes de accesos, suspensiones/reactivaciones, publicaciones de terminos y cambios de planes. No duplica datos ni necesita migraciones. Los ids publicos son `acceso:N`, `suspension:N`, `terminos:N` y `plan:N`; el orden global es fecha descendente, origen e id descendentes para desempatar, con conteo y paginacion SQL de 20 filas.
+- Fechas inclusivas en hora Argentina (UTC-3); por defecto hoy y los seis dias anteriores. Si solo se informa hasta, desde toma los seis dias anteriores a esa fecha; si solo se informa desde, hasta es hoy. Fechas o filtros invalidos responden 422, detalle inexistente 404. Tipos: `inicio_sesion`, `suspension_usuario`, `reactivacion_usuario`, `publicacion_terminos`, `cambio_plan`.
+- Los cambios de configuracion devuelven solamente campos reconocidos de planes con sus valores numericos anterior/nuevo. Los accesos conservan el resultado registrado; las otras fuentes contienen acciones confirmadas exitosas, no se inventan intentos fallidos historicos. Cada campo modificado de un plan constituye un evento, igual que en su fuente original.
+- Las identidades se resuelven desde Usuarios; con FechaBaja se presenta Usuario anonimizado y sin email aunque existan datos anteriores en las auditorias. No se exponen email historico del acceso, user agent, IP, motivos de texto libre, cuerpos de terminos, contraseñas, tokens ni contenido de viajes. Un acceso sin vinculo a usuario se muestra como Usuario no identificado. Los nuevos intentos durante un bloqueo conservan IdUsuario cuando existe la cuenta, para filtrarlos por administrador; no se altera el control de intentos ni se reconstruyen vinculos historicos desconocidos.
+- Acceso desde Inicio > Registro de auditoria, vista `auditoria` de `BackofficeApp`, pantalla `BackofficeAuditoriaScreen`. Usa `backofficeApi.js`, componentes y tokens existentes; permite filtrar, buscar un administrador, abrir detalle, volver conservando filtros/pagina y restablecer los ultimos siete dias. Las fechas aplicadas proceden de la respuesta del servidor. Sin resultados muestra un mensaje, con errores ofrece reintento y descarta respuestas anteriores al cambiar filtros.
+- Pruebas: `backend/tests/test_backoffice_auditoria.py` cubre CP1-CP10, fuentes reales, bloqueo, anonimización, cortes de dia, filtros combinados y paginacion global; frontend `backoffice/BackofficeAuditoriaScreen.test.js`, `BackofficeApp.test.js`, `BackofficeHomeScreen.test.js` y `backofficeApi.test.js` cubren consulta, filtros, detalle, errores, navegacion y contrato HTTP.
+
 ### Acceso
 
 - el backoffice es exclusivo para administradores del sistema: `Usuarios.IdRolSistema = ROL_ADMIN_SISTEMA`, cuenta activa, email confirmado y proveedor `local`
@@ -862,7 +872,7 @@ El flujo minimo actual incluye:
 
 ### Frontend del backoffice
 
-- punto de entrada: `BackofficeApp`, con navegacion por estado (`inicio`, `usuarios`, `detalleUsuario`, `categorias`, `monitoreoIA`, `terminos`, `planes`, `suscripciones`); no usa React Navigation
+- punto de entrada: `BackofficeApp`, con navegacion por estado (`inicio`, `usuarios`, `detalleUsuario`, `categorias`, `monitoreoIA`, `terminos`, `planes`, `suscripciones`, `auditoria`); no usa React Navigation
 - `BackofficeApp` monta su propio `<DialogHost root />` (es una raiz distinta de `App.js`) para que `appAlert`, `confirmar` y `appToast` funcionen en el backoffice
 - `backofficeApi.js` toma el mensaje del primer error de validacion cuando el `detail` es una lista (422) y expone el header `X-Error-Code` en `error.codigo`
 - `BackofficeLayout` (`frontend/src/components/backoffice/`) concentra la barra superior; las pantallas solo renderizan su contenido

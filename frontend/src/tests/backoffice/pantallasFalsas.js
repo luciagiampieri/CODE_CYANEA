@@ -21,7 +21,7 @@ export function LoginFalso({ onLogin, aviso }) {
   );
 }
 
-export function HomeFalso({ admin, onAbrirUsuarios, onAbrirCategorias, onAbrirMonitoreoIA, onAbrirPlanes, onAbrirSuscripciones }) {
+export function HomeFalso({ admin, onAbrirUsuarios, onAbrirCategorias, onAbrirMonitoreoIA, onAbrirPlanes, onAbrirSuscripciones, onAbrirAuditoria }) {
   return (
     <View>
       <Text>{`Inicio de ${admin.nombreCompleto}`}</Text>
@@ -30,12 +30,17 @@ export function HomeFalso({ admin, onAbrirUsuarios, onAbrirCategorias, onAbrirMo
       <Boton onPress={onAbrirMonitoreoIA} texto="Ir a monitoreo" />
       <Boton onPress={onAbrirPlanes} texto="Ir a planes" />
       <Boton onPress={onAbrirSuscripciones} texto="Ir a suscripciones" />
+      <Boton onPress={onAbrirAuditoria} texto="Ir a auditoría" />
     </View>
   );
 }
 
 export function PlanesFalso({ onVolver }) {
   return <View><Text>Pantalla de planes</Text><Boton onPress={onVolver} texto="Volver de planes" /></View>;
+}
+
+export function AuditoriaFalso({ onVolver }) {
+  return <View><Text>Pantalla de auditoría</Text><Boton onPress={onVolver} texto="Volver de auditoría" /></View>;
 }
 
 export function SuscripcionesFalso({ onVolver }) {
