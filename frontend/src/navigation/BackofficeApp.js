@@ -1,4 +1,5 @@
 import BackofficePlanesScreen from '../screens/backoffice/BackofficePlanesScreen';
+import BackofficeAuditoriaScreen from '../screens/backoffice/BackofficeAuditoriaScreen';
 import BackofficeSuscripcionesScreen from '../screens/backoffice/BackofficeSuscripcionesScreen';
 import { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Platform, StyleSheet, View } from 'react-native';
@@ -111,6 +112,8 @@ export default function BackofficeApp() {
     pantalla = <BackofficeMonitoreoIAScreen onVolver={() => setVista(VISTA_INICIO)} />;
   } else if (vista.nombre === 'planes') {
     pantalla = <BackofficePlanesScreen onVolver={() => setVista(VISTA_INICIO)} />;
+  } else if (vista.nombre === 'auditoria') {
+    pantalla = <BackofficeAuditoriaScreen onVolver={() => setVista(VISTA_INICIO)} />;
   } else if (vista.nombre === 'suscripciones') {
     pantalla = <BackofficeSuscripcionesScreen onVolver={() => setVista(VISTA_INICIO)} />;
   } else if (vista.nombre === 'terminos') {
@@ -129,6 +132,7 @@ export default function BackofficeApp() {
         onAbrirCategorias={() => setVista({ nombre: 'categorias' })}
         onAbrirMonitoreoIA={() => setVista({ nombre: 'monitoreoIA' })}
         onAbrirPlanes={() => setVista({ nombre: 'planes' })}
+        onAbrirAuditoria={() => setVista({ nombre: 'auditoria' })}
         onAbrirSuscripciones={() => setVista({ nombre: 'suscripciones' })}
         onAbrirTerminos={() => setVista({ nombre: 'terminos' })}
         onAbrirUsuarios={() => setVista({ nombre: 'usuarios' })}

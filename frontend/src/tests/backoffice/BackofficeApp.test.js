@@ -57,6 +57,19 @@ const ADMIN = { id: 1, nombreCompleto: 'Lucía Giampieri', email: 'lucia@cyanea.
 const INICIO = 'Inicio de Lucía Giampieri';
 const LOGIN = 'Pantalla de login';
 
+jest.mock('../../screens/backoffice/BackofficeAuditoriaScreen', () => ({
+  __esModule: true,
+  default: require('./pantallasFalsas').AuditoriaFalso,
+}));
+
+test('abre el registro de auditoría y vuelve al inicio', async () => {
+  await iniciarConSesion();
+  await presionar('Ir a auditoría');
+  expect(await screen.findByText('Pantalla de auditoría')).toBeTruthy();
+  await presionar('Volver de auditoría');
+  expect(await screen.findByText(INICIO)).toBeTruthy();
+});
+
 async function iniciarConSesion() {
   obtenerToken.mockReturnValue('token');
   obtenerAdminActual.mockResolvedValue(ADMIN);

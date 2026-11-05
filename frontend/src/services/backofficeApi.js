@@ -254,3 +254,20 @@ export function obtenerResumenFinanciero({ desde, hasta } = {}) {
 export function obtenerHistorialComercialUsuario(idUsuario, pagina = 1) {
   return solicitar(`/usuarios/${idUsuario}/historial-comercial?pagina=${pagina}`);
 }
+
+export function listarAuditoria({ desde, hasta, tipo, idAdministrador, pagina = 1 } = {}) {
+  const params = new URLSearchParams({ pagina: String(pagina) });
+  if (desde) params.set('desde', desde);
+  if (hasta) params.set('hasta', hasta);
+  if (tipo) params.set('tipo', tipo);
+  if (idAdministrador != null) params.set('idAdministrador', String(idAdministrador));
+  return solicitar(`/auditoria?${params.toString()}`);
+}
+
+export function obtenerEventoAuditoria(id) {
+  return solicitar(`/auditoria/${encodeURIComponent(id)}`);
+}
+
+export function obtenerOpcionesAuditoria() {
+  return solicitar('/auditoria/opciones');
+}

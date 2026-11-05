@@ -1,7 +1,7 @@
 import math
 from datetime import date
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -56,10 +56,41 @@ from app.services.mail.service import MailService
 from app.services.backoffice import usuarios_service
 from app.services.backoffice import suspension_service
 from app.services import terminos_service
+from app.schemas.backoffice_auditoria import (
+    DetalleAuditoriaRead, OpcionesAuditoriaRead, PaginaAuditoriaRead, TipoEventoAuditoria,
+)
+from app.services.backoffice import auditoria_service
 
 router_publico = APIRouter()
 
 router = APIRouter(dependencies=[Depends(require_admin_sistema)])
+
+
+@router.get("/auditoria/opciones", response_model=OpcionesAuditoriaRead)
+def opciones_auditoria_backoffice(response: Response, db: Session = Depends(get_db)):
+    response.headers["Cache-Control"] = "no-store"
+    return auditoria_service.opciones(db)
+
+
+@router.get("/auditoria", response_model=PaginaAuditoriaRead)
+def listar_auditoria_backoffice(
+    response: Response,
+    desde: date | None = None,
+    hasta: date | None = None,
+    tipo: TipoEventoAuditoria | None = None,
+    id_administrador: int | None = Query(default=None, alias="idAdministrador", gt=0),
+    pagina: int = Query(default=1, ge=1),
+    db: Session = Depends(get_db),
+):
+    response.headers["Cache-Control"] = "no-store"
+    return auditoria_service.listar(db, desde=desde, hasta=hasta, tipo=tipo,
+                                   id_administrador=id_administrador, pagina=pagina)
+
+
+@router.get("/auditoria/{id_evento}", response_model=DetalleAuditoriaRead)
+def detalle_auditoria_backoffice(id_evento: str, response: Response, db: Session = Depends(get_db)):
+    response.headers["Cache-Control"] = "no-store"
+    return auditoria_service.obtener(db, id_evento)
 
 
 class AdminSistemaRead(BaseModel):
