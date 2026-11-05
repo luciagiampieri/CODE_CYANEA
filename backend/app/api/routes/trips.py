@@ -86,6 +86,7 @@ from app.services.estado_viajes import (
 from app.services.destination_search import build_destination_image_url, search_destinations, autocomplete_destinations, resolve_destination
 from app.services.place_search import get_place_photo_uri
 from app.services.privacidad import datos_visibles, nombre_para_otros
+from app.services.recorrido_viaje import aplicar_recorrido, resolver_recorrido, validar_recorrido
 from app.services.trip_access import get_trip_with_relations, require_trip_access, require_trip_edit_access, require_trip_not_finished, resolve_trip_status, require_trip_info_editable, trip_info_editable_until
 from app.services.liquidacion_service import calcular_balances_participantes
 from app.services.supabase.storage import eliminar_documento_storage, subir_portada_viaje, subir_portada_viaje_bytes, obtener_url_publica
@@ -168,6 +169,20 @@ def _require_trip_admin(viaje: Viaje, current_user: Usuario) -> None:
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Solo el administrador del viaje puede modificar participantes",
         )
+
+
+def _destination_read(rel: DestinoViaje) -> DestinationRead:
+    return DestinationRead(
+        id=rel.Destino.IdDestino,
+        name=rel.Destino.Nombre,
+        country=rel.Destino.Pais,
+        provinceState=rel.Destino.ProvinciaEstado,
+        lat=rel.Destino.Lat,
+        lng=rel.Destino.Lng,
+        orden=rel.Orden,
+        noches=rel.Noches,
+        nochesEnViaje=rel.NochesEnViaje,
+    )
 
 
 def _actor_display_name(usuario: Usuario) -> str:
@@ -579,13 +594,7 @@ def _build_trip_detail(
         image=_trip_image_url(viaje),
         hasCustomCover=bool(viaje.UrlPortadaPersonalizada),
         defaultCoverImage=default_cover_image,
-        destinations= [DestinationRead(
-            id=rel.Destino.IdDestino,
-            name=rel.Destino.Nombre,
-            country=rel.Destino.Pais,
-            lat=rel.Destino.Lat,
-            lng=rel.Destino.Lng
-        ) for rel in viaje.Destinos
+        destinations= [_destination_read(rel) for rel in viaje.Destinos
         ],
         description=viaje.Descripcion,
         status=resolve_trip_status(viaje),
@@ -728,13 +737,7 @@ def get_pending_invitations(
             tripId=p.Viaje.IdViaje,
             title=p.Viaje.Titulo,
             destinations=[
-                DestinationRead(
-                    id=rel.Destino.IdDestino,
-                    name=rel.Destino.Nombre,
-                    country=rel.Destino.Pais,
-                    lat=rel.Destino.Lat,
-                    lng=rel.Destino.Lng
-                )
+                _destination_read(rel)
                 for rel in p.Viaje.Destinos
             ],
             status=p.EstadoParticipacion.Nombre,
@@ -966,13 +969,7 @@ def list_trips(
             title=viaje.Titulo,
             image=_trip_image_url(viaje),
             destinations=[
-                DestinationRead(
-                    id=rel.Destino.IdDestino,
-                    name=rel.Destino.Nombre,
-                    country=rel.Destino.Pais,
-                    lat=rel.Destino.Lat,
-                    lng=rel.Destino.Lng
-                )
+                _destination_read(rel)
                 for rel in viaje.Destinos
             ],
             status=resolver_estado(viaje),
@@ -1052,6 +1049,8 @@ async def update_trip(
             ),
         )
 
+    validar_recorrido(payload.destinations, payload.startDate, payload.endDate)
+
     viaje.Titulo = payload.title.strip()
     viaje.Descripcion = payload.description.strip() if payload.description else None
     viaje.FechaInicio = payload.startDate
@@ -1062,14 +1061,21 @@ async def update_trip(
         (rel.Destino.Nombre, rel.Destino.Pais): rel for rel in viaje.Destinos
     }
     claves_nuevas = {(d.name, d.country) for d in payload.destinations}
+    recorrido = resolver_recorrido(
+        payload.destinations,
+        payload.startDate,
+        payload.endDate,
+        destinos_actuales_por_clave,
+    )
 
     for clave, rel in list(destinos_actuales_por_clave.items()):
         if clave not in claves_nuevas:
             db.delete(rel)
 
-    for destino_data in payload.destinations:
+    for destino_data, valores in zip(payload.destinations, recorrido):
         clave = (destino_data.name, destino_data.country)
         if clave in destinos_actuales_por_clave:
+            aplicar_recorrido(destinos_actuales_por_clave[clave], valores)
             continue
 
         destino = db.scalar(
@@ -1089,7 +1095,9 @@ async def update_trip(
             db.add(destino)
             db.flush()
 
-        db.add(DestinoViaje(IdViaje=viaje.IdViaje, IdDestino=destino.IdDestino))
+        rel_nueva = DestinoViaje(IdViaje=viaje.IdViaje, IdDestino=destino.IdDestino)
+        aplicar_recorrido(rel_nueva, valores)
+        db.add(rel_nueva)
 
     db.flush()
 
@@ -2320,6 +2328,7 @@ async def create_trip(
     admin_user_id = current_user.IdUsuario
 
     validar_viajes_activos(db, current_user)
+    validar_recorrido(payload.destinations, payload.startDate, payload.endDate)
 
     participantes_ids = set(payload.participantUserIds) - {admin_user_id}
     if participantes_ids:
@@ -2414,7 +2423,8 @@ async def create_trip(
     db.add(viaje)
     db.flush()
 
-    for destino_data in payload.destinations:
+    recorrido = resolver_recorrido(payload.destinations, payload.startDate, payload.endDate)
+    for destino_data, valores in zip(payload.destinations, recorrido):
         destino = db.scalar(
             select(Destino).where(
                 Destino.Nombre == destino_data.name,
@@ -2433,12 +2443,9 @@ async def create_trip(
             db.add(destino)
             db.flush()
 
-        db.add(
-            DestinoViaje(
-                IdViaje=viaje.IdViaje,
-                IdDestino=destino.IdDestino
-            )
-        )
+        rel_nueva = DestinoViaje(IdViaje=viaje.IdViaje, IdDestino=destino.IdDestino)
+        aplicar_recorrido(rel_nueva, valores)
+        db.add(rel_nueva)
     db.flush()
 
     if viaje.FechaInicio and viaje.FechaFin:
@@ -2536,14 +2543,7 @@ async def create_trip(
         title=viaje.Titulo,
         image=_trip_image_url(viaje),
         destinations=[
-            DestinationRead(
-                id=rel.Destino.IdDestino,
-                name=rel.Destino.Nombre,
-                country=rel.Destino.Pais,
-                provinceState=rel.Destino.ProvinciaEstado,
-                lat=rel.Destino.Lat,
-                lng=rel.Destino.Lng
-            )
+            _destination_read(rel)
             for rel in viaje.Destinos
         ],
         status=resolve_trip_status(viaje),

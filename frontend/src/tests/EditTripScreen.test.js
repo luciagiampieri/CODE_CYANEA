@@ -209,7 +209,7 @@ function urisDeImagenes(utils) {
 
 async function quitarDestino(utils, indice) {
   await act(async () => {
-    fireEvent.press(utils.getByTestId(`edit-trip-remove-destination-${indice}`));
+    fireEvent.press(utils.getByTestId(`trip-remove-destination-${indice}`));
   });
 }
 
@@ -734,6 +734,8 @@ describe("US - Editar viaje (EditTripScreen)", () => {
             placeId: "google:mdq-id",
             provinceState: "Buenos Aires",
             imageUrl: "https://maps.test/mdq.jpg",
+            noches: null,
+            nochesEnViaje: 0,
           },
         ],
       });
@@ -1271,6 +1273,8 @@ describe("US - Editar viaje (EditTripScreen)", () => {
       expect(urisDeImagenes(utils)).toContain("https://example.com/bariloche.jpg");
 
       await press(utils, "Listo · 2 destinos");
+      // El destino nuevo entra sin noches: hay que repartirlas para poder guardar.
+      await press(utils, "Repartir automáticamente");
       await guardar(utils);
 
       await waitFor(() => expect(updateTrip).toHaveBeenCalledTimes(1));
@@ -1760,6 +1764,280 @@ describe("US - Editar viaje (EditTripScreen)", () => {
 
       await waitFor(() => expect(removeTripCover).toHaveBeenCalledWith(42));
       expect(uploadTripCover).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("US A - recorrido en la pestaña Destinos", () => {
+    const destino = (name, noches, nochesEnViaje = 0) => ({
+      name,
+      country: "Argentina",
+      noches,
+      nochesEnViaje,
+    });
+
+    // tripFuturo dura 9 noches: del 01/01/2030 al 10/01/2030.
+    const conDestinos = (...destinations) => ({ ...tripFuturo, destinations });
+
+    function destinosGuardados() {
+      return updateTrip.mock.calls[0][1].destinations.map((d) => [d.name, d.noches, d.nochesEnViaje]);
+    }
+
+    it("guarda las noches y el orden editados", async () => {
+      getTripDetail.mockResolvedValue(conDestinos(destino("Mendoza", 4, 1), destino("Salta", 4)));
+
+      const utils = await renderPantallaCargada();
+      await abrirPestania(utils, "destinations");
+      await act(async () => {
+        fireEvent(utils.getByTestId("recorrido-mover-0"), "accessibilityAction", {
+          nativeEvent: { actionName: "moverDespues" },
+        });
+      });
+      await guardar(utils);
+
+      await waitFor(() => expect(updateTrip).toHaveBeenCalledTimes(1));
+      expect(destinosGuardados()).toEqual([
+        ["Salta", 4, 1],
+        ["Mendoza", 4, 0],
+      ]);
+    });
+
+    it("no guarda con un destino en 0 noches", async () => {
+      getTripDetail.mockResolvedValue(conDestinos(destino("Mendoza", 8), destino("Salta", 1)));
+
+      const utils = await renderPantallaCargada();
+      await abrirPestania(utils, "destinations");
+      await pressPorEtiqueta(utils, "Sacar una noche de Salta");
+      await guardar(utils);
+
+      expect(utils.getByText(/Tenés 1 noche para repartir/)).toBeTruthy();
+      expect(updateTrip).not.toHaveBeenCalled();
+    });
+
+    it("al extender las fechas avisa en Datos y en Destinos y deja guardar", async () => {
+      getTripDetail.mockResolvedValue(conDestinos(destino("Mendoza", 5), destino("Salta", 4)));
+
+      const utils = await renderPantallaCargada();
+      await elegirFecha(utils, "10/01/2030", "Fecha de vuelta", new Date(2030, 0, 12, 12));
+
+      expect(
+        utils.getByText("Ahora el viaje tiene 11 noches. Te quedan 2 noches sin destino.")
+      ).toBeTruthy();
+      await abrirPestania(utils, "destinations");
+      expect(utils.getByText("Quedan 2 noches sin destino. Podés seguir igual.")).toBeTruthy();
+
+      await guardar(utils);
+
+      await waitFor(() => expect(updateTrip).toHaveBeenCalledTimes(1));
+      expect(destinosGuardados()).toEqual([
+        ["Mendoza", 5, 0],
+        ["Salta", 4, 0],
+      ]);
+    });
+
+    it("al acortar las fechas con noches de más no guarda hasta corregirlo", async () => {
+      getTripDetail.mockResolvedValue(conDestinos(destino("Mendoza", 5), destino("Salta", 4)));
+
+      const utils = await renderPantallaCargada();
+      await elegirFecha(utils, "10/01/2030", "Fecha de vuelta", new Date(2030, 0, 8, 12));
+      expect(
+        utils.getByText("Ahora el viaje tiene 7 noches. Sacá 2 noches de tus destinos para poder guardar.")
+      ).toBeTruthy();
+      await guardar(utils);
+      expect(updateTrip).not.toHaveBeenCalled();
+
+      await abrirPestania(utils, "destinations");
+      expect(utils.getByText("Hay 2 noches de más. Sacá noches para poder seguir.")).toBeTruthy();
+
+      await pressPorEtiqueta(utils, "Sacar una noche de Mendoza");
+      await pressPorEtiqueta(utils, "Sacar una noche de Mendoza");
+      await guardar(utils);
+
+      await waitFor(() => expect(updateTrip).toHaveBeenCalledTimes(1));
+      expect(destinosGuardados()).toEqual([
+        ["Mendoza", 3, 0],
+        ["Salta", 4, 0],
+      ]);
+    });
+
+    it("un viaje viejo se guarda sin tocar el recorrido", async () => {
+      getTripDetail.mockResolvedValue(
+        conDestinos({ name: "Mendoza", country: "Argentina" }, { name: "Salta", country: "Argentina" })
+      );
+
+      const utils = await renderPantallaCargada();
+      await guardar(utils);
+
+      await waitFor(() => expect(updateTrip).toHaveBeenCalledTimes(1));
+      expect(destinosGuardados()).toEqual([
+        ["Mendoza", null, 0],
+        ["Salta", null, 0],
+      ]);
+    });
+
+    it("en un viaje viejo las reglas rigen al empezar a armar el recorrido", async () => {
+      getTripDetail.mockResolvedValue(
+        conDestinos({ name: "Mendoza", country: "Argentina" }, { name: "Salta", country: "Argentina" })
+      );
+
+      const utils = await renderPantallaCargada();
+      await abrirPestania(utils, "destinations");
+      await pressPorEtiqueta(utils, "Sumar una noche a Mendoza");
+      await guardar(utils);
+
+      expect(updateTrip).not.toHaveBeenCalled();
+    });
+
+    it("recupera las noches si vuelven a alcanzar antes de guardar", async () => {
+      getTripDetail.mockResolvedValue(conDestinos(destino("Mendoza", 5, 1), destino("Salta", 3)));
+
+      const utils = await renderPantallaCargada();
+      await elegirFecha(utils, "10/01/2030", "Fecha de vuelta", new Date(2030, 0, 2, 12));
+      await abrirPestania(utils, "destinations");
+      expect(utils.queryByLabelText("Sumar una noche a Mendoza")).toBeNull();
+
+      await abrirPestania(utils, "info");
+      await elegirFecha(utils, "02/01/2030", "Fecha de vuelta", new Date(2030, 0, 10, 12));
+      await guardar(utils);
+
+      await waitFor(() => expect(updateTrip).toHaveBeenCalledTimes(1));
+      expect(destinosGuardados()).toEqual([
+        ["Mendoza", 5, 1],
+        ["Salta", 3, 0],
+      ]);
+    });
+
+    it("deshacer devuelve el destino a su posición con sus noches y noches en viaje", async () => {
+      getTripDetail.mockResolvedValue(
+        conDestinos(destino("Mendoza", 2, 1), destino("Salta", 2, 2), destino("Cafayate", 2))
+      );
+
+      const utils = await renderPantallaCargada();
+      await abrirPestania(utils, "destinations");
+      await pressPorEtiqueta(utils, "Quitar Salta del viaje");
+
+      expect(utils.queryByLabelText("Quitar Salta del viaje")).toBeNull();
+      expect(utils.getByText("Quitaste Salta de tu viaje")).toBeTruthy();
+
+      await press(utils, "Deshacer");
+      await guardar(utils);
+
+      await waitFor(() => expect(updateTrip).toHaveBeenCalledTimes(1));
+      expect(destinosGuardados()).toEqual([
+        ["Mendoza", 2, 1],
+        ["Salta", 2, 2],
+        ["Cafayate", 2, 0],
+      ]);
+    });
+
+    it("sin deshacer guarda el recorrido sin el destino quitado", async () => {
+      getTripDetail.mockResolvedValue(
+        conDestinos(destino("Mendoza", 2, 1), destino("Salta", 2, 2), destino("Cafayate", 2))
+      );
+
+      const utils = await renderPantallaCargada();
+      await abrirPestania(utils, "destinations");
+      await pressPorEtiqueta(utils, "Quitar Salta del viaje");
+      await guardar(utils);
+
+      await waitFor(() => expect(updateTrip).toHaveBeenCalledTimes(1));
+      expect(destinosGuardados()).toEqual([
+        ["Mendoza", 2, 2],
+        ["Cafayate", 2, 0],
+      ]);
+    });
+
+    it("cualquier cambio cierra el aviso de deshacer", async () => {
+      getTripDetail.mockResolvedValue(
+        conDestinos(destino("Mendoza", 2), destino("Salta", 2), destino("Cafayate", 2))
+      );
+
+      const utils = await renderPantallaCargada();
+      await abrirPestania(utils, "destinations");
+      await pressPorEtiqueta(utils, "Quitar Salta del viaje");
+      await pressPorEtiqueta(utils, "Sumar una noche a Mendoza");
+
+      expect(utils.queryByText("Quitaste Salta de tu viaje")).toBeNull();
+    });
+
+    it("cambia las noches en viaje con la píldora en línea", async () => {
+      getTripDetail.mockResolvedValue(conDestinos(destino("Mendoza", 4), destino("Salta", 4)));
+
+      const utils = await renderPantallaCargada();
+      await abrirPestania(utils, "destinations");
+      expect(utils.getByText("Traslado el 5 ene")).toBeTruthy();
+      await pressPorEtiqueta(utils, "Sumar una noche en viaje hacia Salta");
+      expect(utils.getByText("Llegan el 6 ene")).toBeTruthy();
+      await guardar(utils);
+
+      await waitFor(() => expect(updateTrip).toHaveBeenCalledTimes(1));
+      expect(destinosGuardados()).toEqual([
+        ["Mendoza", 4, 1],
+        ["Salta", 4, 0],
+      ]);
+    });
+
+    it("'Ir a ajustar destinos' lleva a la pestaña Destinos", async () => {
+      getTripDetail.mockResolvedValue(conDestinos(destino("Mendoza", 5), destino("Salta", 4)));
+
+      const utils = await renderPantallaCargada();
+      await elegirFecha(utils, "10/01/2030", "Fecha de vuelta", new Date(2030, 0, 12, 12));
+      await press(utils, "Ir a ajustar destinos ›");
+
+      expect(utils.getByLabelText("Sumar una noche a Mendoza")).toBeTruthy();
+      expect(utils.queryByText("Ir a ajustar destinos ›")).toBeNull();
+    });
+
+    it("correr las fechas sin cambiar la cantidad de noches no muestra el aviso", async () => {
+      getTripDetail.mockResolvedValue(conDestinos(destino("Mendoza", 5), destino("Salta", 4)));
+
+      const utils = await renderPantallaCargada();
+      await elegirFecha(utils, "10/01/2030", "Fecha de vuelta", new Date(2030, 0, 12, 12));
+      await elegirFecha(utils, "01/01/2030", "Fecha de ida", new Date(2030, 0, 3, 12));
+
+      expect(utils.queryByText("Ir a ajustar destinos ›")).toBeNull();
+    });
+
+    it("un viaje guardado con noches libres no muestra nada en Datos sin cambiar fechas", async () => {
+      getTripDetail.mockResolvedValue(conDestinos(destino("Mendoza", 3), destino("Salta", 3)));
+
+      const utils = await renderPantallaCargada();
+
+      expect(utils.queryByText("Ir a ajustar destinos ›")).toBeNull();
+      expect(utils.queryByText(/sin destino/)).toBeNull();
+    });
+
+    it("no muestra el aviso en un recorrido sin armar", async () => {
+      getTripDetail.mockResolvedValue(
+        conDestinos({ name: "Mendoza", country: "Argentina" }, { name: "Salta", country: "Argentina" })
+      );
+
+      const utils = await renderPantallaCargada();
+      await elegirFecha(utils, "10/01/2030", "Fecha de vuelta", new Date(2030, 0, 12, 12));
+
+      expect(utils.queryByText("Ir a ajustar destinos ›")).toBeNull();
+    });
+
+    it("no muestra el aviso con menos noches que destinos", async () => {
+      getTripDetail.mockResolvedValue(conDestinos(destino("Mendoza", 5), destino("Salta", 4)));
+
+      const utils = await renderPantallaCargada();
+      await elegirFecha(utils, "10/01/2030", "Fecha de vuelta", new Date(2030, 0, 2, 12));
+
+      expect(utils.queryByText("Ir a ajustar destinos ›")).toBeNull();
+    });
+
+    it("guarda NULL solo si se guarda con menos noches que destinos", async () => {
+      getTripDetail.mockResolvedValue(conDestinos(destino("Mendoza", 5, 1), destino("Salta", 3)));
+
+      const utils = await renderPantallaCargada();
+      await elegirFecha(utils, "10/01/2030", "Fecha de vuelta", new Date(2030, 0, 2, 12));
+      await guardar(utils);
+
+      await waitFor(() => expect(updateTrip).toHaveBeenCalledTimes(1));
+      expect(destinosGuardados()).toEqual([
+        ["Mendoza", null, 0],
+        ["Salta", null, 0],
+      ]);
     });
   });
 });

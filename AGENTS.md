@@ -483,6 +483,24 @@ Reglas vigentes para la HU de balance y liquidacion:
 - Fuera de alcance: la cancelacion (US 119), el vencimiento por falta de pago (US 124/117), la aplicacion general de limites (US 118) y la eliminacion del contenido excedente
 - Tests: `backend/tests/test_fin_suscripcion_pro.py` (cambio de plan, aviso previo, notificaciones) y `test_fin_suscripcion_viajes.py` (conservacion de contenido y bloqueos posteriores)
 
+## Recorrido del viaje (US A)
+
+- Se arma en el paso Destinos de `CreateTripScreen` y en la pestaña Destinos de `EditTripScreen`, con el componente compartido `components/trip/RecorridoViaje.js`. La logica pura vive en `frontend/src/utils/recorrido.js` y en backend en `backend/app/services/recorrido_viaje.py`
+- `DestinosViajes` guarda `Orden` (desde 0), `Noches` (NULL = sin armar) y `NochesEnViaje` (traslado hacia el destino siguiente; el ultimo siempre 0). Migracion `b130a1b2c3d4`, script `025_recorrido_destinos_viajes.sql`. `Viaje.Destinos` se ordena por `Orden`. El backfill toma `ctid` como orden de carga y deja `Noches` en NULL: los viajes existentes no se reparten automaticamente
+- Noches del viaje = `FechaFin - FechaInicio`. Las fechas de cada destino nunca se persisten: `calcularTramos` las deriva (salida = llegada + noches; llegada siguiente = salida + noches en viaje). Las noches libres quedan al final como dias sin destino. La US B debe reutilizar `calcularTramos` y tomar cualquier `Noches` NULL como recorrido sin armar
+- `modoRecorrido` define que se ve y que se valida: `unico` (1 destino, "Todo el viaje", se guarda NULL), `pocasNoches` (menos noches que destinos: el paso se ve como antes y se guarda NULL), `sinArmar` (solo al editar, algun destino en NULL: contadores en "—", no bloquea hasta tocar un contador, que pasa los demas a 0) y `armado`
+- Un destino nuevo arranca en 0 noches, tambien al pasar de 1 a 2 destinos (los dos quedan en 0); en `sinArmar` queda sin noches. Solo se avanza o guarda en `armado` si no hay destinos en 0 ni noches de mas. Las noches libres solo se avisan en amarillo. En la pestaña Datos de la edicion, `avisoCambioFechas` compara con las noches del viaje al cargarlo: si cambia la cantidad y un recorrido `armado` deja de coincidir, muestra el aviso (o el error, si no entran) con el link "Ir a ajustar destinos ›" dentro del cartel (prop `accion` de `AvisoRecorrido`), que abre la pestaña Destinos. Usa la misma cuenta que Destinos (noches de destinos + noches en viaje). Si solo se corren las fechas, o en otros modos, no se muestra nada
+- Mientras se edita, el formulario conserva los valores en cualquier modo: `destinosParaGuardar` envia NULL solo si se guarda sin estar `armado`
+- Las noches en viaje quedan por posicion: al arrastrar, las noches viajan con el destino y cada traslado queda entre las mismas tarjetas. Al quitar B en A-B-C se libera A-B y B-C pasa a ser A-C; al quitar el primero se libera su traslado saliente; el ultimo nunca conserva noches en viaje
+- Vista: `EncabezadoDestinos` ("Tus destinos" y, si hay fechas, rango y noches en gris) lo renderiza cada pantalla tambien sin destinos, dentro de la tarjeta blanca del paso. Debajo, barra de 6 px y el estado (`AvisoRecorrido`): con prioridad error en rojo con fondo y `accessibilityRole="alert"` (noches de mas), informativo en azul con fondo (hay destinos en 0: bloquea, pero es un paso normal del armado), aviso en amarillo con fondo (noches libres) y todo bien con check verde sin fondo. Cada destino es una cajita con borde: foto de 52 px con el numero de orden, nombre y region debajo (`textoRegion`), cruz para quitar y una franja con `colorSuaveDeDestino` que lleva el rango corto ("2 → 4 dic", "28 nov → 1 dic") y la pildora `ContadorNoches`. Nombre, region y rango no llevan `numberOfLines`: si no entran pasan a otro renglon
+- Entre cajitas va una fila con linea de puntos, icono, texto corto (`textoTraslado`) y una pildora chica para las noches en viaje (`textoPildoraTraslado`). No se muestra en `pocasNoches`
+- La cruz quita sin confirmar y `useDeshacerDestino` muestra `AvisoDeshacer` 5 segundos: arriba de los botones en crear y flotante en editar, donde los botones estan dentro del scroll. Deshacer restaura la lista anterior completa; cualquier cambio en los destinos, de paso o de pestaña cierra el aviso. No se usa `appToast` porque no admite botones. Quitar desde el buscador no ofrece deshacer
+- Para reordenar se mantiene apretada la foto (300 ms) y se arrastra: `useArrastre` combina el `onLongPress` de un `Pressable` con `PanResponder`, sin librerias nativas, y el `PanResponder` solo toma el gesto despues de la pulsacion larga para no chocar con el scroll. `onArrastreChange` bloquea el scroll mientras se arrastra. La foto expone las acciones de accesibilidad "Mover antes" y "Mover despues"
+- Contrato: `DestinationCreate` suma `noches` y `nochesEnViaje`; `DestinationRead` suma `orden`, `noches` y `nochesEnViaje`. El orden es el de la lista enviada. El permiso es el del `PUT /trips/{trip_id}` (`_require_trip_admin` y `require_trip_info_editable`)
+- Validacion (`validar_recorrido`, 400 con `X-Error-Code`): `ROUTE_INVALID_NIGHTS`, `ROUTE_INCOMPLETE` (algunos destinos con noches y otros no), `ROUTE_DESTINATION_WITHOUT_NIGHTS`, `ROUTE_NIGHTS_EXCEEDED` y `ROUTE_INVALID_TRANSFER` (noches en viaje en el ultimo destino). Con un destino los valores se ignoran
+- APKs anteriores: `model_fields_set` distingue el campo ausente del `null` explicito. Ausente en `PUT` conserva lo guardado (los destinos nuevos quedan en NULL) y, si la suma ya no entra en las fechas, el recorrido vuelve a NULL porque ese cliente no puede corregirlo. `null` explicito guarda NULL
+- Tests: `backend/tests/test_recorrido_viaje.py`, `frontend/src/tests/Recorrido.test.js`, `RecorridoViaje.test.js` y las secciones "US A" de `CreateTripScreen.test.js` y `EditTripScreen.test.js`
+
 ## Integraciones externas
 
 - Ninguna integracion externa no esencial debe impedir los flujos base del dominio
@@ -543,6 +561,7 @@ Orden actual:
 - `022_suscripcion_pro_mercado_pago.sql`
 - `023_notificaciones_pasarela_pagos.sql`
 - `024_periodo_pagos_suscripciones.sql`
+- `025_recorrido_destinos_viajes.sql`
 
 ## Convenciones de backend
 
@@ -659,6 +678,7 @@ Para retomar o replicar la configuracion de push Android:
 
 - Color primario: `#1e3e7b`
 - Color acento: `#ffec80`
+- Colores de destinos por orden del recorrido: `routeColors` y `colorDeDestino(index)` de `theme/tokens.js` (se repiten despues del cuarto); no redefinirlos por pantalla
 - Estilo limpio, profesional y mobile-first
 - En Expo no se usa un `styles.css` global; la identidad visual debe centralizarse en tokens compartidos y helpers de estilo
 - Evitar hardcodear colores, radios o espaciados por componente si ya existe token equivalente

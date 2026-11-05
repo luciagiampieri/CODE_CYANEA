@@ -25,6 +25,31 @@ export function formatDateDisplay(isoDate) {
   return `${day}/${month}/${year}`;
 }
 
+const MESES_CORTOS = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"];
+
+// "2026-11-21" -> "21 nov"
+export function formatDayMonth(isoDate) {
+  if (!isoDate) return "";
+  const fecha = parseYMD(isoDate);
+  return `${fecha.getDate()} ${MESES_CORTOS[fecha.getMonth()]}`;
+}
+
+// "3 al 12 nov", "28 nov al 3 dic" o "28 dic 2026 al 3 ene 2027"
+export function formatDateRangeShort(inicio, fin) {
+  if (!inicio || !fin) return "";
+  const desde = parseYMD(inicio);
+  const hasta = parseYMD(fin);
+  const mesFin = MESES_CORTOS[hasta.getMonth()];
+  if (desde.getFullYear() !== hasta.getFullYear()) {
+    const mesInicio = MESES_CORTOS[desde.getMonth()];
+    return `${desde.getDate()} ${mesInicio} ${desde.getFullYear()} al ${hasta.getDate()} ${mesFin} ${hasta.getFullYear()}`;
+  }
+  if (desde.getMonth() !== hasta.getMonth()) {
+    return `${desde.getDate()} ${MESES_CORTOS[desde.getMonth()]} al ${hasta.getDate()} ${mesFin}`;
+  }
+  return `${desde.getDate()} al ${hasta.getDate()} ${mesFin}`;
+}
+
 export function getTodayIso() {
   const d = new Date();
   const y = d.getFullYear();

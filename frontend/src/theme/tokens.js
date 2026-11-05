@@ -16,12 +16,14 @@ export const colors = {
   textSecondary: "#5c6582",
   textMuted: "#7A7068",
   textInverse: "#ffffff",
+  iconMuted: "#9aa6c0",
   border: "#dbe2ef",
   borderStrong: "#c8d4ea",
   success: "#327a5a",
   successSurface: "#dcf7df",
   warning: "#b97b12",
   warningSurface: "#fff4c6",
+  warningText: "#6f4a0a",
   danger: "#c84949",
   dangerSurface: "#fff0ef",
   overlay: "rgba(10, 22, 48, 0.42)",
@@ -29,6 +31,17 @@ export const colors = {
   shadow: "#102955",
   iconSurface: "rgba(255,255,255,0.16)",
 };
+
+// Color de cada destino según su orden en el recorrido; después se repiten.
+export const routeColors = ["#1e3e7b", "#8e3b5c", "#2a7a6d", "#9a5a14"];
+
+export function colorDeDestino(index) {
+  return routeColors[index % routeColors.length];
+}
+
+export function colorSuaveDeDestino(index) {
+  return `${colorDeDestino(index)}1a`;
+}
 
 export const spacing = {
   xxs: 4,

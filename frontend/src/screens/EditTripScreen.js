@@ -39,6 +39,17 @@ import {
     acceptTripCoverAI 
 } from "../services/api.js";
 import { esErrorDeLimite, mostrarLimiteAlcanzado } from "../utils/limitesPlan";
+import RecorridoViaje, { AvisoRecorrido, EncabezadoDestinos } from "../components/trip/RecorridoViaje";
+import AvisoDeshacer from "../components/trip/AvisoDeshacer";
+import useDeshacerDestino from "../hooks/useDeshacerDestino";
+import {
+  agregarDestino,
+  avisoCambioFechas,
+  calcularNochesViaje,
+  destinosParaGuardar,
+  quitarDestino,
+  resumenRecorrido,
+} from "../utils/recorrido";
 import { colors, radii, spacing, surfaces, textStyles } from "../theme/tokens";
 
 import * as ImagePicker from "expo-image-picker";
@@ -142,24 +153,6 @@ async function fetchDestinationImage(dest) {
     }
 }
 
-// Miniatura de destino: si la imagen no carga, muestra el ícono en lugar de quedar en blanco.
-function DestinationThumb({ uri }) {
-    const [failed, setFailed] = useState(false);
-
-    useEffect(() => {
-        setFailed(false);
-    }, [uri]);
-
-    if (!uri || failed) {
-        return (
-            <View style={[styles.destinationThumb, styles.destinationThumbEmpty]}>
-                <FontAwesome6 name="location-dot" size={16} color={colors.primary} />
-            </View>
-        );
-    }
-    return <Image source={{ uri }} style={styles.destinationThumb} onError={() => setFailed(true)} />;
-}
-
 function formatDateToDisplay(isoString) {
     if (!isoString) return "";
     const parts = isoString.split("-");
@@ -192,16 +185,6 @@ function CardHeader({ icon, title, subtitle }) {
         <Text style={styles.cardTitle}>{title}</Text>
         {subtitle ? <Text style={styles.cardSubtitle}>{subtitle}</Text> : null}
       </View>
-    </View>
-  );
-}
-
-function RouteRail({ children, topHeight = 18, showTop = true, showBottom = true }) {
-  return (
-    <View style={styles.routeRail}>
-      <View style={[styles.routeLine, { height: topHeight }, !showTop && styles.routeLineHidden]} />
-      {children}
-      <View style={[styles.routeLineBottom, showBottom && styles.routeLine]} />
     </View>
   );
 }
@@ -595,6 +578,20 @@ export default function EditTripScreen({ navigation, route }) {
         };
     }, []);
 
+    const [arrastrandoDestino, setArrastrandoDestino] = useState(false);
+    const nochesViaje = calcularNochesViaje(form.startDate, form.endDate);
+    const recorrido = resumenRecorrido(form.destinations, nochesViaje);
+    const [nochesOriginales, setNochesOriginales] = useState(null);
+    const avisoFechas = avisoCambioFechas(form.destinations, nochesViaje, nochesOriginales);
+    const { aviso: avisoQuitado, avisarQuitado, deshacer, descartar: descartarAviso } = useDeshacerDestino(
+        form.destinations,
+        (destinations) => setForm((current) => ({ ...current, destinations }))
+    );
+
+    useEffect(() => {
+        descartarAviso();
+    }, [activeTab, descartarAviso]);
+
     const tripAlreadyStarted = originalStartDate ? originalStartDate <= todayISO() : false;
 
     const [coverImage, setCoverImage] = useState(null);
@@ -635,6 +632,7 @@ export default function EditTripScreen({ navigation, route }) {
                     })),
                 });
                 setOriginalStartDate(trip.startDate ?? "");
+                setNochesOriginales(calcularNochesViaje(trip.startDate, trip.endDate));
                 setHasCustomCover(Boolean(trip.hasCustomCover));
                 setCurrentCoverUrl(trip.image ?? null);
                 setDefaultCoverUrl(trip.defaultCoverImage ?? null);
@@ -810,10 +808,10 @@ export default function EditTripScreen({ navigation, route }) {
             const full = await resolveDestination(suggestion.placeId, sessionTokenRef.current);
             setForm((current) => ({
                 ...current,
-                destinations: [...current.destinations, {
+                destinations: agregarDestino(current.destinations, {
                     ...full,
                     imageUrl: pickDestinationImage(full),
-                }],
+                }),
             }));
             sessionTokenRef.current = makeSessionToken();
         } catch {
@@ -826,10 +824,21 @@ export default function EditTripScreen({ navigation, route }) {
     function removeDestination(destinationToRemove) {
         setForm((current) => ({
             ...current,
-            destinations: current.destinations.filter(
-                (item) => !isSameDestination(item, destinationToRemove)
+            destinations: quitarDestino(
+                current.destinations,
+                current.destinations.findIndex((item) => isSameDestination(item, destinationToRemove))
             ),
         }));
+    }
+
+    function quitarConDeshacer(destino) {
+        const anterior = form.destinations;
+        const resultante = quitarDestino(
+            anterior,
+            anterior.findIndex((item) => isSameDestination(item, destino))
+        );
+        setForm((current) => ({ ...current, destinations: resultante }));
+        avisarQuitado(destino.name, anterior, resultante);
     }
 
     function openDestinationPicker() {
@@ -911,7 +920,7 @@ export default function EditTripScreen({ navigation, route }) {
           startDate: form.startDate,
           endDate: form.endDate,
           currency: form.currency,
-          destinations: form.destinations.map(({ name, country, lat, lng, placeId, provinceState, imageUrl, image }) => ({
+          destinations: destinosParaGuardar(form.destinations, nochesViaje).map(({ name, country, lat, lng, placeId, provinceState, imageUrl, image, noches, nochesEnViaje }) => ({
             name,
             country,
             lat,
@@ -919,6 +928,8 @@ export default function EditTripScreen({ navigation, route }) {
             placeId,
             provinceState,
             imageUrl: pickDestinationImage({ imageUrl, image }),
+            noches,
+            nochesEnViaje,
           })),
         });
 
@@ -981,7 +992,7 @@ export default function EditTripScreen({ navigation, route }) {
   // Marca en la pestaña si tiene un error pendiente, para no perderlo de vista.
   const tabHasError = {
     info: Boolean(errors.title || errors.description || errors.startDate || errors.endDate),
-    destinations: Boolean(errors.destinations),
+    destinations: Boolean(errors.destinations) || !recorrido.puedeAvanzar,
     cover: Boolean(coverError),
   };
 
@@ -996,6 +1007,7 @@ export default function EditTripScreen({ navigation, route }) {
         <ScrollView
           contentContainerStyle={styles.scrollContent}
           showsVerticalScrollIndicator={false}
+          scrollEnabled={!arrastrandoDestino}
           keyboardShouldPersistTaps="handled"
         >
           <View style={styles.body}>
@@ -1139,6 +1151,17 @@ export default function EditTripScreen({ navigation, route }) {
                       <Text style={styles.durationChipText}>{tripDuration}</Text>
                     </View>
                   ) : null}
+
+                  {avisoFechas ? (
+                    <AvisoRecorrido
+                      tono={avisoFechas.tono}
+                      mensaje={avisoFechas.mensaje}
+                      accion={{
+                        texto: "Ir a ajustar destinos ›",
+                        onPress: () => setActiveTab("destinations"),
+                      }}
+                    />
+                  ) : null}
                 </View>
               </View>
             )}
@@ -1146,18 +1169,9 @@ export default function EditTripScreen({ navigation, route }) {
             {/* PESTAÑA 2: DESTINOS */}
             {activeTab === "destinations" && (
               <View style={styles.card}>
-                <CardHeader
-                  icon="location-dot"
-                  title="Destinos y Ruta"
-                  subtitle="Administrá las ciudades o países que vas a visitar."
-                />
+                <EncabezadoDestinos startDate={form.startDate} endDate={form.endDate} />
 
                 <View style={styles.sectionBlock}>
-                  <View style={styles.labelRow}>
-                    <Text style={styles.fieldLabel}>Destino</Text>
-                    <Text style={styles.requiredMark}>*</Text>
-                  </View>
-
                   {form.destinations.length === 0 ? (
                     <>
                       <TouchableOpacity
@@ -1176,50 +1190,16 @@ export default function EditTripScreen({ navigation, route }) {
                       <Text style={styles.fieldHint}>Podés agregar más de un destino.</Text>
                     </>
                   ) : (
-                    <View>
-                      {form.destinations.map((d, index) => (
-                        <View key={`${d.name}-${d.country}-${index}`} style={styles.routeRow}>
-                          <RouteRail showTop={index > 0}>
-                            <View style={styles.routeDot}>
-                              <Text style={styles.routeDotText}>{index + 1}</Text>
-                            </View>
-                          </RouteRail>
-                          <View style={styles.routeContent}>
-                            <View style={styles.destinationCard}>
-                              <DestinationThumb uri={pickDestinationImage(d)} />
-                              <View style={styles.flex}>
-                                <Text style={styles.destinationChipText} numberOfLines={1}>{d.name}</Text>
-                                <Text style={styles.destinationCountry} numberOfLines={1}>
-                                  {[d.provinceState, d.country].filter(Boolean).join(", ")}
-                                </Text>
-                              </View>
-                              <Pressable
-                                onPress={() => removeDestination(d)}
-                                hitSlop={12}
-                                testID={`edit-trip-remove-destination-${index}`}
-                                style={styles.destinationRemoveButton}
-                                accessibilityLabel={`Quitar ${d.name}`}
-                              >
-                                <FontAwesome6 name="xmark" size={12} color={COLOR_DANGER} />
-                              </Pressable>
-                            </View>
-                          </View>
-                        </View>
-                      ))}
-
-                      <View style={styles.routeRow}>
-                        <RouteRail topHeight={9} showBottom={false}>
-                          <View style={[styles.routeDot, styles.routeDotAdd]}>
-                            <FontAwesome6 name="plus" size={11} color={colors.primary} />
-                          </View>
-                        </RouteRail>
-                        <View style={styles.routeContent}>
-                          <TouchableOpacity style={styles.addAnotherButton} onPress={openDestinationPicker} activeOpacity={0.8}>
-                            <Text style={styles.addAnotherText}>Agregar otro destino</Text>
-                          </TouchableOpacity>
-                        </View>
-                      </View>
-                    </View>
+                    <RecorridoViaje
+                      destinos={form.destinations}
+                      startDate={form.startDate}
+                      endDate={form.endDate}
+                      onChange={(destinations) => setForm((current) => ({ ...current, destinations }))}
+                      onQuitar={quitarConDeshacer}
+                      onAgregar={openDestinationPicker}
+                      onArrastreChange={setArrastrandoDestino}
+                      imagenDe={pickDestinationImage}
+                    />
                   )}
 
                   {errors.destinations ? (
@@ -1362,12 +1342,15 @@ export default function EditTripScreen({ navigation, route }) {
               <PrimaryButton
                 label={submitStatus === "submitting" ? "Guardando..." : "Guardar cambios"}
                 loading={submitStatus === "submitting"}
+                disabled={!recorrido.puedeAvanzar}
                 onPress={handleSubmit}
                 style={styles.actionPrimary}
               />
             </View>
           </View>
         </ScrollView>
+
+        {avisoQuitado ? <AvisoDeshacer flotante nombre={avisoQuitado.nombre} onDeshacer={deshacer} /> : null}
       </KeyboardAvoidingView>
 
       <DatePickerModal
@@ -1803,97 +1786,6 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     backgroundColor: colors.primary,
   },
-  routeRow: {
-    flexDirection: "row",
-    gap: 12,
-  },
-  routeRail: {
-    width: 28,
-    alignItems: "center",
-  },
-  routeLine: {
-    width: 2,
-    backgroundColor: colors.border,
-  },
-  routeLineHidden: {
-    backgroundColor: "transparent",
-  },
-  routeLineBottom: {
-    flex: 1,
-    width: 2,
-  },
-  routeDot: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: colors.primary,
-  },
-  routeDotText: {
-    ...textStyles.meta,
-    color: colors.textInverse,
-    fontWeight: "700",
-  },
-  routeDotAdd: {
-    backgroundColor: COLOR_SOFT,
-    borderWidth: 1.5,
-    borderStyle: "dashed",
-    borderColor: colors.primary,
-  },
-  routeContent: {
-    flex: 1,
-    paddingBottom: spacing.xs,
-  },
-  destinationCard: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-    minHeight: 64,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: radii.md,
-    backgroundColor: colors.surface,
-    padding: 6,
-    paddingRight: spacing.sm,
-  },
-  destinationThumb: {
-    width: 52,
-    height: 52,
-    borderRadius: radii.sm || 8,
-    backgroundColor: colors.surfaceMuted,
-  },
-  destinationThumbEmpty: {
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: COLOR_SOFT,
-  },
-  destinationChipText: {
-    ...textStyles.bodyStrong,
-    color: colors.primary,
-  },
-  destinationRemoveButton: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: COLOR_DANGER_SOFT,
-  },
-  addAnotherButton: {
-    alignItems: "center",
-    justifyContent: "center",
-    minHeight: 46,
-    borderWidth: 1.5,
-    borderStyle: "dashed",
-    borderColor: colors.primary,
-    borderRadius: radii.md,
-    backgroundColor: COLOR_SOFT,
-  },
-  addAnotherText: {
-    ...textStyles.bodyStrong,
-    color: colors.primary,
-  },
   banner: {
     flexDirection: "row",
     alignItems: "flex-start",
@@ -2015,11 +1907,6 @@ const styles = StyleSheet.create({
     color: COLOR_DANGER,
     fontSize: 13,
     textAlign: "center",
-  },
-  destinationCountry: {
-    ...textStyles.meta,
-    color: colors.textSecondary,
-    marginTop: 2,
   },
   dpBody: {
     flex: 1,

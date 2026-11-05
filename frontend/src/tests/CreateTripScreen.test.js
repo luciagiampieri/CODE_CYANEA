@@ -152,7 +152,7 @@ async function completarFechas(utils) {
 async function irAlPaso2(utils) {
   await press(utils, "Siguiente");
   await waitFor(() =>
-    expect(utils.getByText("Destinos y Portada")).toBeTruthy()
+    expect(utils.getByText("Tus destinos")).toBeTruthy()
   );
 }
 
@@ -260,7 +260,7 @@ describe("US - Crear viaje (CreateTripScreen)", () => {
     await press(utils, "Siguiente");
 
     await waitFor(() =>
-      expect(utils.getByText("Destinos y Portada")).toBeTruthy()
+      expect(utils.getByText("Tus destinos")).toBeTruthy()
     );
 
     // Agregar destino
@@ -319,7 +319,7 @@ describe("US - Crear viaje (CreateTripScreen)", () => {
       utils.getByText("Primero elegí la fecha de ida.")
     ).toBeTruthy();
 
-    expect(utils.queryByText("Destinos y Portada")).toBeNull();
+    expect(utils.queryByText("Tus destinos")).toBeNull();
 
     expect(createTrip).not.toHaveBeenCalled();
 
@@ -335,7 +335,7 @@ describe("US - Crear viaje (CreateTripScreen)", () => {
     await press(utils, "Siguiente");
 
     await waitFor(() =>
-      expect(utils.getByText("Destinos y Portada")).toBeTruthy()
+      expect(utils.getByText("Tus destinos")).toBeTruthy()
     );
 
     await press(utils, "Siguiente");
@@ -378,7 +378,7 @@ describe("US - Crear viaje (CreateTripScreen)", () => {
     ).toBeTruthy();
 
     expect(utils.getByText("Información Básica")).toBeTruthy();
-    expect(utils.queryByText("Destinos y Portada")).toBeNull();
+    expect(utils.queryByText("Tus destinos")).toBeNull();
     expect(createTrip).not.toHaveBeenCalled();
   });
 
@@ -416,7 +416,7 @@ describe("US - Crear viaje (CreateTripScreen)", () => {
     await press(utils, "Siguiente");
 
     await waitFor(() =>
-      expect(utils.getByText("Destinos y Portada")).toBeTruthy()
+      expect(utils.getByText("Tus destinos")).toBeTruthy()
     );
 
     // Abrir el buscador de destinos
@@ -485,7 +485,7 @@ describe("US - Crear viaje (CreateTripScreen)", () => {
     await press(utils, "Siguiente");
 
     await waitFor(() =>
-      expect(utils.getByText("Destinos y Portada")).toBeTruthy()
+      expect(utils.getByText("Tus destinos")).toBeTruthy()
     );
 
     // PASO 2: agregar destino
@@ -540,6 +540,8 @@ describe("US - Crear viaje (CreateTripScreen)", () => {
             lng: -71.3103,
             placeId: "google:bariloche-id",
             imageUrl: "https://example.com/bariloche.jpg",
+            noches: null,
+            nochesEnViaje: 0,
           },
         ],
       })
@@ -591,7 +593,7 @@ describe("US - Crear viaje (CreateTripScreen)", () => {
     await press(utils, "Siguiente");
 
     await waitFor(() =>
-      expect(utils.getByText("Destinos y Portada")).toBeTruthy()
+      expect(utils.getByText("Tus destinos")).toBeTruthy()
     );
 
     // PASO 2: agregar destino
@@ -675,7 +677,7 @@ describe("US - Crear viaje (CreateTripScreen)", () => {
     await press(utils, "Siguiente");
 
     await waitFor(() =>
-      expect(utils.getByText("Destinos y Portada")).toBeTruthy()
+      expect(utils.getByText("Tus destinos")).toBeTruthy()
     );
 
     // PASO 2: abrir buscador de destinos
@@ -749,7 +751,7 @@ describe("US - Crear viaje (CreateTripScreen)", () => {
     await press(utils, "Siguiente");
 
     await waitFor(() =>
-      expect(utils.getByText("Destinos y Portada")).toBeTruthy()
+      expect(utils.getByText("Tus destinos")).toBeTruthy()
     );
 
     // PASO 2: agregar destino
@@ -844,7 +846,7 @@ describe("US - Crear viaje (CreateTripScreen)", () => {
     await press(utils, "Siguiente");
 
     await waitFor(() =>
-      expect(utils.getByText("Destinos y Portada")).toBeTruthy()
+      expect(utils.getByText("Tus destinos")).toBeTruthy()
     );
 
     // Seleccionar portada
@@ -891,7 +893,7 @@ describe("US - Crear viaje (CreateTripScreen)", () => {
     await press(utils, "Siguiente");
 
     await waitFor(() =>
-      expect(utils.getByText("Destinos y Portada")).toBeTruthy()
+      expect(utils.getByText("Tus destinos")).toBeTruthy()
     );
 
     // Intentar seleccionar una portada GIF
@@ -936,7 +938,7 @@ describe("US - Crear viaje (CreateTripScreen)", () => {
     await press(utils, "Siguiente");
 
     await waitFor(() =>
-      expect(utils.getByText("Destinos y Portada")).toBeTruthy()
+      expect(utils.getByText("Tus destinos")).toBeTruthy()
     );
 
     // Seleccionar portada JPG
@@ -976,7 +978,7 @@ describe("US - Crear viaje (CreateTripScreen)", () => {
     await press(utils, "Siguiente");
 
     await waitFor(() =>
-      expect(utils.getByText("Destinos y Portada")).toBeTruthy()
+      expect(utils.getByText("Tus destinos")).toBeTruthy()
     );
 
     // Intentar seleccionar una portada
@@ -1165,6 +1167,149 @@ describe("US - Crear viaje (CreateTripScreen)", () => {
           ],
         })
       );
+    });
+  });
+
+  describe("US A - recorrido en el paso Destinos", () => {
+    const SALTA = { name: "Salta", country: "Argentina", placeId: "google:salta-id" };
+    const CAFAYATE = { name: "Cafayate", country: "Argentina", placeId: "google:cafayate-id" };
+
+    const textoListo = (cantidad) => `Listo · ${cantidad} ${cantidad === 1 ? "destino" : "destinos"}`;
+
+    // Completa los datos de un viaje de `noches` noches y llega al paso 2.
+    async function irAlPaso2ConNoches(noches) {
+      const utils = await renderPantallaCargada();
+      await act(async () => {
+        fireEvent.changeText(utils.getByPlaceholderText("Escapada a Bariloche"), "Norte");
+      });
+      await act(async () => {
+        fireEvent.press(utils.getAllByText("Seleccionar fecha")[0]);
+      });
+      await press(utils, "Seleccionar Fecha de ida (mock)");
+      mockPickerDate = new Date(Date.now() + noches * 24 * 60 * 60 * 1000);
+      await press(utils, "Seleccionar fecha");
+      await press(utils, "Seleccionar Fecha de vuelta (mock)");
+      await irAlPaso2(utils);
+      return utils;
+    }
+
+    async function agregarDestinos(utils, destinos) {
+      resolveDestination.mockImplementation(async (placeId) =>
+        destinos.find((d) => d.placeId === placeId)
+      );
+      await press(utils, "Buscar ciudad o país...");
+      for (const [indice, destino] of destinos.entries()) {
+        searchDestinations.mockResolvedValue([destino]);
+        await buscarDestino(utils, destino.name);
+        await waitFor(() => expect(utils.getByText(destino.name)).toBeTruthy());
+        await press(utils, destino.name);
+        await waitFor(() => expect(utils.getByText(textoListo(indice + 1))).toBeTruthy());
+      }
+      await press(utils, textoListo(destinos.length));
+      await waitFor(() =>
+        expect(utils.queryByPlaceholderText(PLACEHOLDER_BUSCADOR)).toBeNull()
+      );
+    }
+
+    it("con un solo destino muestra 'Todo el viaje' y deja avanzar", async () => {
+      const utils = await irAlPaso2ConNoches(9);
+      await agregarDestinos(utils, [SALTA]);
+
+      expect(utils.getByText("Todo el viaje")).toBeTruthy();
+      expect(utils.queryByLabelText("Sumar una noche a Salta")).toBeNull();
+
+      await irAlPaso3(utils);
+    });
+
+    it("no deja avanzar con un destino en 0 noches hasta repartir, y guarda el recorrido", async () => {
+      const utils = await irAlPaso2ConNoches(9);
+      await agregarDestinos(utils, [SALTA, CAFAYATE]);
+
+      expect(
+        utils.getByText("Indicá cuántas noches pasan en cada destino. Tenés 9 noches para repartir.")
+      ).toBeTruthy();
+
+      await press(utils, "Siguiente");
+      expect(utils.queryByText("Invitar participantes (Opcional)")).toBeNull();
+
+      await press(utils, "Repartir automáticamente");
+      await irAlPaso3(utils);
+      await press(utils, "Crear viaje");
+
+      await waitFor(() => expect(createTrip).toHaveBeenCalledTimes(1));
+      expect(createTrip.mock.calls[0][0].destinations).toEqual([
+        expect.objectContaining({ name: "Salta", noches: 5, nochesEnViaje: 0 }),
+        expect.objectContaining({ name: "Cafayate", noches: 4, nochesEnViaje: 0 }),
+      ]);
+    });
+
+    it("no deja avanzar con noches de más", async () => {
+      const utils = await irAlPaso2ConNoches(9);
+      await agregarDestinos(utils, [SALTA, CAFAYATE]);
+      await press(utils, "Repartir automáticamente");
+      await act(async () => {
+        fireEvent.press(utils.getByLabelText("Sumar una noche a Cafayate"));
+      });
+
+      expect(utils.getByText("Hay 1 noche de más. Sacá noches para poder seguir.")).toBeTruthy();
+
+      await press(utils, "Siguiente");
+      expect(utils.queryByText("Invitar participantes (Opcional)")).toBeNull();
+    });
+
+    it("quita con el tacho sin confirmar y deshacer lo devuelve con sus noches", async () => {
+      const utils = await irAlPaso2ConNoches(9);
+      await agregarDestinos(utils, [SALTA, CAFAYATE]);
+      await press(utils, "Repartir automáticamente");
+
+      await act(async () => {
+        fireEvent.press(utils.getByLabelText("Quitar Salta del viaje"));
+      });
+
+      expect(utils.queryByLabelText("Quitar Salta del viaje")).toBeNull();
+      expect(utils.getByText("Quitaste Salta de tu viaje")).toBeTruthy();
+
+      await press(utils, "Deshacer");
+
+      expect(utils.queryByText("Quitaste Salta de tu viaje")).toBeNull();
+
+      await irAlPaso3(utils);
+      await press(utils, "Crear viaje");
+
+      await waitFor(() => expect(createTrip).toHaveBeenCalledTimes(1));
+      expect(createTrip.mock.calls[0][0].destinations).toEqual([
+        expect.objectContaining({ name: "Salta", noches: 5 }),
+        expect.objectContaining({ name: "Cafayate", noches: 4 }),
+      ]);
+    });
+
+    it("el aviso de deshacer se cierra al cambiar de paso", async () => {
+      const utils = await irAlPaso2ConNoches(9);
+      await agregarDestinos(utils, [SALTA, CAFAYATE]);
+      await act(async () => {
+        fireEvent.press(utils.getByLabelText("Quitar Cafayate del viaje"));
+      });
+      expect(utils.getByText("Quitaste Cafayate de tu viaje")).toBeTruthy();
+
+      await irAlPaso3(utils);
+
+      expect(utils.queryByText("Quitaste Cafayate de tu viaje")).toBeNull();
+    });
+
+    it("con menos noches que destinos no pide noches y guarda sin recorrido", async () => {
+      const utils = await irAlPaso2ConNoches(1);
+      await agregarDestinos(utils, [SALTA, CAFAYATE]);
+
+      expect(utils.queryByLabelText("Sumar una noche a Salta")).toBeNull();
+
+      await irAlPaso3(utils);
+      await press(utils, "Crear viaje");
+
+      await waitFor(() => expect(createTrip).toHaveBeenCalledTimes(1));
+      expect(createTrip.mock.calls[0][0].destinations).toEqual([
+        expect.objectContaining({ name: "Salta", noches: null, nochesEnViaje: 0 }),
+        expect.objectContaining({ name: "Cafayate", noches: null, nochesEnViaje: 0 }),
+      ]);
     });
   });
 });

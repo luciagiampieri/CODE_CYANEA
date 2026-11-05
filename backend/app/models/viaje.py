@@ -89,6 +89,7 @@ class Viaje(Base):
         "DestinoViaje",
         back_populates="Viaje",
         cascade="all, delete-orphan", 
+        order_by="(DestinoViaje.Orden, DestinoViaje.IdDestino)",
     )
     Documentos = relationship(
         "DocumentoViaje",

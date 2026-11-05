@@ -247,6 +247,10 @@ class DestinationCreate(BaseModel):
     lng: float | None = None
     placeId: str | None = None
     imageUrl: str | None = None
+    # Recorrido: el orden es el de la lista. Las noches en viaje son las del
+    # traslado hacia el destino siguiente.
+    noches: int | None = None
+    nochesEnViaje: int | None = None
 
 
 class DestinationRead(BaseModel):
@@ -258,6 +262,9 @@ class DestinationRead(BaseModel):
     lng: float | None = None
     placeId: str | None = None
     imageUrl: str | None = None
+    orden: int = 0
+    noches: int | None = None
+    nochesEnViaje: int = 0
 
     class Config:
         from_attributes = True
