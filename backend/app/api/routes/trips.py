@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta, date
+from datetime import datetime, timedelta, date, timezone
 import logging
 from secrets import token_urlsafe
 from urllib.parse import quote
@@ -9,7 +9,7 @@ import binascii
 from fastapi import APIRouter, Depends, HTTPException, status, Query, File, UploadFile
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import object_session, Session, selectinload
 
 from app.api.deps import get_current_user
@@ -67,6 +67,7 @@ from app.schemas.trip import (
 from app.schemas.place import TripPlaceRead
 
 from app.services.mail import get_mail_service
+from app.services.mail.service import MailService
 from app.services.notifications.invitation_email_sender import (
     InvitationEmailPayload,
     InvitationEmailSender,
@@ -101,7 +102,7 @@ from app.services.cover_ai import (
 )
 from app.services.activity_analysis_service import analizar_horario_actividad
 from app.services.entradas_ai import EvaluacionEntradas, evaluar_entradas, normalizar_place_id
-from app.services import tareas_entradas, traslados as servicio_traslados
+from app.services import invitaciones_correo, tareas_entradas, traslados as servicio_traslados
 from app.services.cupos_viajes import require_trip_capacity
 from app.services.administracion_viajes import bloquear_viaje, cambiar_administrador, transferir_administracion
 from app.services.limites_planes import validar_viajes_activos
@@ -578,6 +579,7 @@ def _build_trip_detail(
         invitacion
         for invitacion in viaje.Invitaciones
         if invitacion.EstadoInvitacion.Nombre == "pendiente"
+        and not invitaciones_correo.esta_vencida(invitacion)
     ]
     invitaciones_visibles.sort(key=lambda item: item.EmailInvitado.lower())
 
@@ -688,6 +690,75 @@ def _reinvitar_participante(db, existente, estado_invitado, rol_participante, cu
     existente.VencidaPorFinViaje = False
     db.commit()
     return mensaje
+
+
+def _invitar_usuario_registrado(
+    db: Session,
+    viaje: Viaje,
+    usuario: Usuario,
+    rol_participante: RolParticipante,
+    estado_invitado: EstadoParticipacion,
+    estado_invitacion_pendiente: EstadoInvitacion,
+    current_user: Usuario,
+    mensaje_alta: str,
+) -> str:
+    existente = db.scalar(
+        select(ParticipanteViaje).where(
+            ParticipanteViaje.IdViaje == viaje.IdViaje,
+            ParticipanteViaje.IdUsuario == usuario.IdUsuario,
+        )
+    )
+    if existente is not None:
+        mensaje = _reinvitar_participante(db, existente, estado_invitado, rol_participante, current_user)
+        if mensaje is None:
+            raise HTTPException(status_code=409, detail="El usuario ya está agregado al viaje")
+        return mensaje
+
+    invitacion_externa = db.scalar(
+        select(InvitacionViaje).where(
+            InvitacionViaje.IdViaje == viaje.IdViaje,
+            func.lower(InvitacionViaje.EmailInvitado) == usuario.Email.lower(),
+            InvitacionViaje.IdEstadoInvitacion == estado_invitacion_pendiente.IdEstadoInvitacion,
+        )
+    )
+    if invitacion_externa is not None:
+        db.delete(invitacion_externa)
+
+    db.add(
+        ParticipanteViaje(
+            IdViaje=viaje.IdViaje,
+            IdUsuario=usuario.IdUsuario,
+            IdRolParticipante=rol_participante.IdRolParticipante,
+            IdEstadoParticipacion=estado_invitado.IdEstadoParticipacion,
+            InvitadoPor=current_user.IdUsuario,
+        )
+    )
+    db.commit()
+    return mensaje_alta
+
+
+async def _notificar_invitacion(db: Session, viaje: Viaje, invitado: Usuario, current_user: Usuario) -> None:
+    await dispatch_user_notification(
+        db,
+        TripNotificationEvent(
+            notification_type=NotificationType.INVITACION_VIAJE,
+            tipo="invitacion_viaje",
+            titulo=f"Te invitaron a {viaje.Titulo}",
+            mensaje=(
+                f"{_actor_display_name(current_user)} te invitó a sumarte al viaje. "
+                "Respondé la invitación desde Notificaciones."
+            ),
+            id_viaje=viaje.IdViaje,
+            id_usuario_actor=current_user.IdUsuario,
+            data={"eventType": "trip_invitation"},
+            abre_viaje=False,
+        ),
+        [invitado],
+    )
+
+
+def _instante(fecha: datetime) -> datetime:
+    return fecha.replace(tzinfo=timezone.utc) if fecha.tzinfo is None else fecha
 
 
 @router.post("/cover/ai/preview", response_model=TripCoverAIPreview)
@@ -1043,7 +1114,6 @@ async def update_trip(
         dia for dia in viaje.Cronograma
         if dia.Fecha < payload.startDate or dia.Fecha > payload.endDate
     ]
-    # Los traslados no bloquean: siguen al recorrido y se mueven a su día nuevo.
     dias_con_actividades = [
         dia
         for dia in dias_afectados
@@ -1600,7 +1670,6 @@ async def delete_activity(
     tramo_traslado = actividad.TramoTraslado
     db.delete(actividad)
     if tramo_traslado is not None:
-        # Sin la fila el tramo vuelve a mostrar su tarjeta, aunque antes estuviera oculta.
         db.delete(tramo_traslado)
     db.commit()
 
@@ -1694,15 +1763,22 @@ async def generate_route(
 
 
 @router.post("/{trip_id}/participants", response_model=TripMutationResponse, status_code=status.HTTP_201_CREATED)
-def add_trip_participant(
+async def add_trip_participant(
     trip_id: int,
     payload: TripParticipantUpsert,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
+    mail_service: MailService = Depends(get_mail_service),
 ) -> TripMutationResponse:
     viaje = require_trip_access(get_trip_with_relations(db, trip_id), current_user)
     _require_trip_admin(viaje, current_user)
     require_trip_not_finished(viaje, "la lista de participantes")
+    if viaje.EstadoViaje.Nombre != "activo":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Solo se puede invitar a viajes activos.",
+            headers={"X-Error-Code": "TRIP_NOT_ACTIVE"},
+        )
 
     rol_participante = db.scalar(
         select(RolParticipante).where(
@@ -1733,41 +1809,12 @@ def add_trip_participant(
         if usuario is None or not usuario.Activo:
             raise HTTPException(status_code=404, detail="Usuario inexistente o inactivo")
 
-        existente = db.scalar(
-            select(ParticipanteViaje)
-            .join(ParticipanteViaje.EstadoParticipacion)
-            .where(
-                ParticipanteViaje.IdViaje == trip_id,
-                ParticipanteViaje.IdUsuario == payload.userId,
-            )
+        mensaje = _invitar_usuario_registrado(
+            db, viaje, usuario, rol_participante, estado_invitado,
+            estado_invitacion_pendiente, current_user, "Participante agregado correctamente",
         )
-        if existente is not None:
-            mensaje = _reinvitar_participante(db, existente, estado_invitado, rol_participante, current_user)
-            if mensaje is None:
-                raise HTTPException(status_code=409, detail="El usuario ya está agregado al viaje")
-            return TripMutationResponse(message=mensaje)
-
-        invitacion_externa = db.scalar(
-            select(InvitacionViaje).where(
-                InvitacionViaje.IdViaje == trip_id,
-                InvitacionViaje.EmailInvitado == usuario.Email.lower(),
-                InvitacionViaje.IdEstadoInvitacion == estado_invitacion_pendiente.IdEstadoInvitacion,
-            )
-        )
-        if invitacion_externa is not None:
-            db.delete(invitacion_externa)
-
-        db.add(
-            ParticipanteViaje(
-                IdViaje=trip_id,
-                IdUsuario=usuario.IdUsuario,
-                IdRolParticipante=rol_participante.IdRolParticipante,
-                IdEstadoParticipacion=estado_invitado.IdEstadoParticipacion,
-                InvitadoPor=current_user.IdUsuario,
-            )
-        )
-        db.commit()
-        return TripMutationResponse(message="Participante agregado correctamente")
+        await _notificar_invitacion(db, viaje, usuario, current_user)
+        return TripMutationResponse(message=mensaje)
 
     email = payload.email
     if email is None:
@@ -1776,80 +1823,25 @@ def add_trip_participant(
     if email == viaje.Administrador.Email.lower():
         raise HTTPException(status_code=400, detail="No puedes invitar al administrador del viaje")
 
-    usuario_existente = db.scalar(select(Usuario).where(Usuario.Email == email))
+    usuario_existente = db.scalar(select(Usuario).where(func.lower(Usuario.Email) == email))
     if usuario_existente is not None:
         if not usuario_existente.Activo:
             raise HTTPException(status_code=400, detail="El usuario registrado está inactivo")
 
-        existente = db.scalar(
-            select(ParticipanteViaje).where(
-                ParticipanteViaje.IdViaje == trip_id,
-                ParticipanteViaje.IdUsuario == usuario_existente.IdUsuario,
-            )
+        mensaje = _invitar_usuario_registrado(
+            db, viaje, usuario_existente, rol_participante, estado_invitado,
+            estado_invitacion_pendiente, current_user, "Participante registrado agregado correctamente",
         )
-        if existente is not None:
-            mensaje = _reinvitar_participante(db, existente, estado_invitado, rol_participante, current_user)
-            if mensaje is None:
-                raise HTTPException(status_code=409, detail="El usuario ya está agregado al viaje")
-            return TripMutationResponse(message=mensaje)
+        await _notificar_invitacion(db, viaje, usuario_existente, current_user)
+        return TripMutationResponse(message=mensaje)
 
-        db.add(
-            ParticipanteViaje(
-                IdViaje=trip_id,
-                IdUsuario=usuario_existente.IdUsuario,
-                IdRolParticipante=rol_participante.IdRolParticipante,
-                IdEstadoParticipacion=estado_invitado.IdEstadoParticipacion,
-                InvitadoPor=current_user.IdUsuario,
-            )
-        )
-        db.commit()
-        return TripMutationResponse(message="Participante registrado agregado correctamente")
-
-    invitacion_existente = db.scalar(
-        select(InvitacionViaje).where(
-            InvitacionViaje.IdViaje == trip_id,
-            InvitacionViaje.EmailInvitado == email,
-            InvitacionViaje.IdEstadoInvitacion == estado_invitacion_pendiente.IdEstadoInvitacion,
-        )
+    invitacion = invitaciones_correo.preparar_invitacion(
+        db, viaje, email, current_user, estado_invitacion_pendiente
     )
-    if invitacion_existente is not None:
-        raise HTTPException(status_code=409, detail="Ese correo ya tiene una invitación pendiente")
-
-    ahora = datetime.now()
-    vencimiento = ahora + timedelta(days=7)
-    token_invitacion = token_urlsafe(32)
-    db.add(
-        InvitacionViaje(
-            IdViaje=trip_id,
-            EmailInvitado=email,
-            NombreInvitado=None,
-            TokenInvitacion=token_invitacion,
-            FechaVencimiento=vencimiento,
-            IdEstadoInvitacion=estado_invitacion_pendiente.IdEstadoInvitacion,
-            InvitadoPor=current_user.IdUsuario,
-        )
+    await invitaciones_correo.enviar_invitacion(
+        db, mail_service, invitaciones_correo.payload_invitacion(viaje, invitacion, current_user)
     )
-    db.commit()
-
-    invitation_sender = InvitationEmailSender(get_mail_service())
-    try:
-        invitation_sender.send(
-            InvitationEmailPayload(
-                to_email=email,
-                trip_title=viaje.Titulo,
-                trip_destination= ", ".join(f"{d.Destino.Nombre}, {d.Destino.Pais}" for d in viaje.Destinos),
-                inviter_name=nombre_para_otros(current_user),
-                invitation_token=token_invitacion,
-                expiration_at=vencimiento,
-            )
-        )
-    except Exception:
-        logger.exception(
-            "No se pudo enviar el correo de invitacion",
-            extra={"email": email, "trip_id": viaje.IdViaje},
-        )
-
-    return TripMutationResponse(message="Invitación externa creada correctamente")
+    return TripMutationResponse(message=f"Invitación enviada a {email}.")
 
 
 @router.delete("/{trip_id}/participants/{user_id}", response_model=TripMutationResponse)
@@ -2014,31 +2006,54 @@ def list_sent_invitations(
                 detail="Estado inválido. Valores posibles: pendiente, aceptada, rechazada, vencida",
             )
 
-    invitaciones = [
-        participacion
-        for participacion in viaje.Participantes
-        if participacion.IdUsuario != viaje.IdAdministrador
-        and participacion.EstadoParticipacion.Nombre in ESTADO_PARTICIPACION_A_ESTADO_INVITACION
-        and (
-            estado is None
-            or participacion.EstadoParticipacion.Nombre
-            == ESTADO_INVITACION_A_ESTADO_PARTICIPACION[estado]
+    enviadas: list[TripSentInvitationRead] = []
+    for participacion in viaje.Participantes:
+        nombre_estado = participacion.EstadoParticipacion.Nombre
+        if participacion.IdUsuario == viaje.IdAdministrador:
+            continue
+        if nombre_estado not in ESTADO_PARTICIPACION_A_ESTADO_INVITACION:
+            continue
+        estado_lista = ESTADO_PARTICIPACION_A_ESTADO_INVITACION[nombre_estado]
+        if estado is not None and estado_lista != estado:
+            continue
+        visibles = datos_visibles(participacion.Usuario, current_user.IdUsuario)
+        enviadas.append(
+            TripSentInvitationRead(
+                tipo="usuario",
+                userId=participacion.Usuario.IdUsuario,
+                nombreUsuario=participacion.Usuario.NombreUsuario,
+                nombreCompleto=visibles.nombreCompleto,
+                fotoUrl=visibles.fotoUrl,
+                status=estado_lista,
+                invitedAt=participacion.FechaInvitacion,
+                respondedAt=participacion.FechaRespuesta,
+            )
         )
-    ]
-    invitaciones.sort(key=lambda item: item.FechaInvitacion, reverse=True)
 
-    return [
-        TripSentInvitationRead(
-            userId=participacion.Usuario.IdUsuario,
-            nombreUsuario=participacion.Usuario.NombreUsuario,
-            nombreCompleto=datos_visibles(participacion.Usuario, current_user.IdUsuario).nombreCompleto,
-            fotoUrl=datos_visibles(participacion.Usuario, current_user.IdUsuario).fotoUrl,
-            status=ESTADO_PARTICIPACION_A_ESTADO_INVITACION[participacion.EstadoParticipacion.Nombre],
-            invitedAt=participacion.FechaInvitacion,
-            respondedAt=participacion.FechaRespuesta,
+    for invitacion in viaje.Invitaciones:
+        if invitacion.IdUsuarioRegistrado is not None:
+            continue
+        nombre_estado = invitacion.EstadoInvitacion.Nombre
+        if nombre_estado == "pendiente":
+            estado_lista = "vencida" if invitaciones_correo.esta_vencida(invitacion) else "pendiente"
+        elif nombre_estado == "vencida":
+            estado_lista = "vencida"
+        else:
+            continue
+        if estado is not None and estado_lista != estado:
+            continue
+        enviadas.append(
+            TripSentInvitationRead(
+                tipo="correo",
+                email=invitacion.EmailInvitado,
+                nombreCompleto=invitacion.EmailInvitado,
+                status=estado_lista,
+                invitedAt=invitacion.FechaInvitacion,
+            )
         )
-        for participacion in invitaciones
-    ]
+
+    enviadas.sort(key=lambda item: _instante(item.invitedAt), reverse=True)
+    return enviadas
 
 
 @router.post(
@@ -2390,6 +2405,8 @@ async def create_trip(
 
     if administrador.Email.lower() in emails_invitados:
         emails_invitados.discard(administrador.Email.lower())
+
+    invitaciones_correo.validar_cupo_diario(db, None, len(emails_invitados))
 
     participantes_ids = sorted(participantes_ids)
 

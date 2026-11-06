@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from datetime import datetime
+from urllib.parse import urlencode
 
 from app.core.config import settings
 from app.services.mail.service import MailService
@@ -20,7 +21,8 @@ class InvitationEmailSender:
         self.mail_service = mail_service
 
     def send(self, payload: InvitationEmailPayload) -> bool:
-        accept_url = f"{settings.mail_frontend_base_url.rstrip('/')}/invitaciones/{payload.invitation_token}"
+        query = urlencode({"email": payload.to_email, "invitacion": "1"})
+        accept_url = f"{settings.mail_frontend_base_url.rstrip('/')}/registro?{query}"
         context = {
             "trip_title": payload.trip_title,
             "trip_destination": payload.trip_destination,

@@ -150,6 +150,7 @@ MAIL_FROM_EMAIL=no-reply@cyanea.local
 MAIL_FROM_NAME=Cyanea
 MAIL_REPLY_TO=
 MAIL_FRONTEND_BASE_URL=http://127.0.0.1:8081
+EMAIL_INVITATIONS_DAILY_LIMIT=20
 ```
 
 Levantar backend:
@@ -786,6 +787,17 @@ Para retomar o replicar la configuracion de push Android:
 - Se puede volver a invitar a un usuario cuya participacion este en `cancelada`, `rechazado`, `expulsado` o `salio`: el backend la reactiva como `invitado` y limpia `FechaRespuesta` (`ESTADOS_REINVITABLES` y `_reinvitar_participante` en `backend/app/api/routes/trips.py`). La misma regla aplica al invitar por `userId` y por `email`
 - `invitado` o `aceptado` siguen respondiendo 409 ("El usuario ya está agregado al viaje")
 - En el frontend, `SentInvitationsList` muestra "Volver a invitar" en las invitaciones rechazadas (prop `onResend`); `TripDetailScreen` pide confirmacion y reutiliza `addTripParticipant`
+
+#### Invitacion por correo electronico (US 134)
+
+- `POST /trips/{trip_id}/participants` con `email`: solo el administrador y solo en viajes `activo` no finalizados (409 `TRIP_NOT_ACTIVE` o `TRIP_FINISHED`). El formato se valida con `normalizar_email` de `schemas/trip.py` (422)
+- Si el correo es de una cuenta registrada, se trata igual que la invitacion por `userId` (US 09): participacion `invitado` y aviso `NotificationType.INVITACION_VIAJE` (tipo interno `invitacion_viaje`, preferencia "cambios del viaje"). La invitacion por `userId` tambien notifica
+- Si no hay cuenta, `services/invitaciones_correo.py` crea o reutiliza la fila de `InvitacionesViajes` (unica por viaje y correo): las vencidas o canceladas se renuevan con token y vencimiento nuevos (7 dias); una pendiente vigente responde 409 `INVITATION_ALREADY_PENDING`
+- El envio del correo forma parte de la operacion: si falla, se hace rollback y se responde 502 `INVITATION_EMAIL_FAILED` para poder reintentar. `MAIL_ENABLED=false` no cuenta como falla. La ruta recibe `MailService` por `Depends(get_mail_service)` para poder reemplazarlo en tests
+- Limite `EMAIL_INVITATIONS_DAILY_LIMIT` (20) de invitaciones a correos sin cuenta por viaje y por dia calendario de Argentina, contado sobre `InvitacionesViajes.FechaInvitacion`; al superarlo responde 429 `EMAIL_INVITATION_LIMIT_REACHED`. Tambien se valida al crear el viaje
+- `GET /trips/{trip_id}/invitations/sent` suma las invitaciones por correo sin cuenta asociada (`tipo="correo"`, `email`, estado `pendiente` o `vencida`); al registrarse se muestran como participacion del usuario. En la app se cancelan con `DELETE /external-invitations`. Una invitacion pendiente vencida por fecha no figura en `invitedEmails` del detalle, asi el administrador puede volver a invitar ese correo
+- Al registrarse por cualquier metodo (correo, Google o Facebook) o al iniciar sesion, `vincular_invitaciones_externas` convierte las invitaciones pendientes del correo en participaciones `invitado`
+- Tests: `backend/tests/test_invitar_por_correo.py` y `frontend/src/tests/SentInvitationsList.test.js`
 
 ### Navegacion
 

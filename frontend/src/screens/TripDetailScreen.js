@@ -1696,13 +1696,17 @@ export default function TripDetailScreen({ navigation, route }) {
 
   function handleCancelSentInvitation(invitation) {
     if (!lock.canEdit("participantes") || !trip?.id) return;
+    const porCorreo = invitation.tipo === "correo";
+    const destinatario = porCorreo ? invitation.email : `@${invitation.nombreUsuario}`;
     confirmar(
       "Cancelar invitación",
-      `¿Seguro que querés cancelar la invitación de @${invitation.nombreUsuario}?`,
+      `¿Seguro que querés cancelar la invitación de ${destinatario}?`,
       async () => {
         try {
           setMutatingParticipants(true);
-          const resultado = await cancelSentInvitation(trip.id, invitation.userId);
+          const resultado = porCorreo
+            ? await removeTripExternalInvitation(trip.id, invitation.email)
+            : await cancelSentInvitation(trip.id, invitation.userId);
           avisar("Invitación cancelada", resultado?.message || "Invitación cancelada correctamente");
           await loadTripDetail();
         } catch (error) {
@@ -1824,10 +1828,13 @@ export default function TripDetailScreen({ navigation, route }) {
     try {
       setMutatingParticipants(true);
       setParticipantMessage("");
-      await addTripParticipant(trip.id, payload);
+      const resultado = await addTripParticipant(trip.id, payload);
       setParticipantSearch("");
       setUserOptions([]);
-      if (payload.userId && isAdmin) setGroupView("invitaciones");
+      if (isAdmin) setGroupView("invitaciones");
+      if (payload.email) {
+        avisar("Invitación enviada", resultado?.message || "La invitación se envió correctamente.");
+      }
       await loadTripDetail();
     } catch (error) {
       setParticipantMessage(error.message || "No se pudo agregar el participante.");

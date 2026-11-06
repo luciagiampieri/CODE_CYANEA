@@ -69,9 +69,30 @@ describe("SentInvitationsList", () => {
 
     expect(queryByText("@flor")).toBeTruthy();
     expect(queryByText("@pepe")).toBeNull();
-    // Una invitación vencida no se puede cancelar.
     expect(queryByTestId("sent-invitation-cancel-4")).toBeNull();
     expect(queryByTestId("sent-invitation-resend-4")).toBeNull();
+  });
+
+  it("muestra las invitaciones por correo identificadas por el correo (US 134)", async () => {
+    const onCancel = jest.fn();
+    const onResend = jest.fn();
+    const porCorreo = invitacion({
+      tipo: "correo",
+      userId: null,
+      nombreUsuario: null,
+      email: "nueva@afuera.com",
+      nombreCompleto: "nueva@afuera.com",
+    });
+    const { getByText, getByTestId, queryByText } = await render(
+      <SentInvitationsList invitations={[porCorreo]} onCancel={onCancel} onResend={onResend} />
+    );
+
+    expect(getByText("nueva@afuera.com")).toBeTruthy();
+    expect(getByText("Por correo", { exact: false })).toBeTruthy();
+    expect(queryByText("@null")).toBeNull();
+
+    await fireEvent.press(getByTestId("sent-invitation-cancel-nueva@afuera.com"));
+    expect(onCancel).toHaveBeenCalledWith(expect.objectContaining({ email: "nueva@afuera.com" }));
   });
 
   it("muestra mensaje cuando no hay invitaciones enviadas", async () => {

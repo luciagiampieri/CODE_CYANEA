@@ -1,3 +1,4 @@
+import re
 from datetime import date, datetime, time as time_type
 from typing import Literal, Optional
 
@@ -6,6 +7,19 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 from app.schemas.traslado import TramoTrasladoRead, TrasladoActividadRead
 from app.schemas.usuario import UsuarioRead
 from app.schemas.place import TripPlaceRead
+
+_EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+MENSAJE_EMAIL_INVALIDO = "El correo electrónico no tiene un formato válido (nombre_usuario@dominio)"
+
+
+def normalizar_email(value: str) -> str | None:
+    cleaned = value.strip().lower()
+    if not cleaned:
+        return None
+    if len(cleaned) > 255 or not _EMAIL_RE.fullmatch(cleaned):
+        raise ValueError(MENSAJE_EMAIL_INVALIDO)
+    return cleaned
+
 
 TipoRecomendacionEntradasLiteral = Literal[
     "RESERVA", "ENTRADAS_ANTICIPADAS", "ENTRADAS_PRESENCIALES", "RESERVA_DISPONIBLE"
@@ -21,21 +35,13 @@ class RecomendacionEntradas(BaseModel):
     mensaje: str
     nombreLugar: str | None = None
     googlePlaceId: str | None = None
-    # Sitio web oficial del establecimiento.
     urlSitioOficial: str | None = None
-    # Enlace oficial específico para reservar o comprar (si existe).
     urlAccion: str | None = None
-    # Enlace a mostrar: el específico o, si no hay, el sitio oficial.
     urlRecomendada: str | None = None
-    # Se informa cuando no se pudo obtener ningún enlace oficial.
     avisoEnlace: str | None = None
-    # Plataforma de reservas de terceros (OpenTable, Resy...) enlazada desde el sitio
-    # oficial. No es un enlace oficial: el frontend lo muestra aclarando la plataforma.
     urlReservaExterna: str | None = None
     plataformaReserva: str | None = None
-    # Fragmento del sitio oficial que respalda la recomendación y página de origen.
     evidencia: str | None = None
-    # Evidencia en español (traducida si el sitio está en otro idioma), para mostrar.
     evidenciaEs: str | None = None
     fuenteEvidencia: str | None = None
     verificada: bool = True
@@ -69,31 +75,23 @@ class ActividadRead(BaseModel):
     horaInicio: time_type = Field(..., alias="HoraInicio")
     horaFin: time_type = Field(..., alias="HoraFin")
     icono: str = Field("location-dot", alias="Icono")
-    # Aviso informativo (no bloqueante) cuando no se pudo verificar el horario del lugar.
     avisoHorario: str | None = Field(None, alias="AvisoHorario")
-    # Advertencia de horario aceptada por el usuario; se muestra marcada en el itinerario.
     tipoAdvertenciaHorario: str | None = Field(None, alias="TipoAdvertenciaHorario")
     advertenciaHorario: str | None = Field(None, alias="AdvertenciaHorario")
-    # Recomendación de entradas o reservas (solo en la respuesta de alta/edición).
     recomendacionEntradas: RecomendacionEntradas | None = Field(None, alias="RecomendacionEntradas")
-    # Tareas pendientes del checklist creadas con "Recordármelo" para esta actividad:
-    # al eliminarla se avisa que también se eliminan.
     tareasEntradasPendientes: list[TareaEntradasResumen] = Field(
         default_factory=list, alias="TareasEntradasPendientes"
     )
-    # Entradas o reservas subidas desde las tareas de la actividad.
     documentosReserva: list[DocumentoReservaResumen] = Field(
         default_factory=list, alias="DocumentosReserva"
     )
-    # Tramo del recorrido, si la actividad es un traslado (US 136).
     traslado: TrasladoActividadRead | None = Field(None, alias="Traslado")
 
     class Config:
         from_attributes = True
         populate_by_name = True
 
-# Definidas en un módulo propio para poder usarlas también desde `schemas.place`.
-from app.schemas.advertencia import AdvertenciaHorarioAceptada, TipoAdvertenciaHorarioLiteral  # noqa: E402,F401
+from app.schemas.advertencia import AdvertenciaHorarioAceptada, TipoAdvertenciaHorarioLiteral
 
 
 class ActividadCreate(BaseModel):
@@ -104,9 +102,6 @@ class ActividadCreate(BaseModel):
     horaFin: time_type
     icono: str = Field(default="location-dot", max_length=50)
     advertenciaHorario: AdvertenciaHorarioAceptada | None = None
-    # Lugar ya analizado para entradas/reservas que devolvió la advertencia de
-    # horario (`AdvertenciaHorario.googlePlaceIdEntradas`). Se reenvía al confirmar
-    # con `ignorar_advertencia=true`, cuando el análisis no vuelve a ejecutarse.
     googlePlaceIdEntradas: str | None = Field(default=None, max_length=255)
 
     @model_validator(mode="after")
@@ -148,12 +143,7 @@ class ActividadUpdate(BaseModel):
     horaFin: time_type
     icono: str = Field(default="location-dot", max_length=50)
     advertenciaHorario: AdvertenciaHorarioAceptada | None = None
-    # Lugar ya analizado para entradas/reservas que devolvió la advertencia de
-    # horario (`AdvertenciaHorario.googlePlaceIdEntradas`). Se reenvía al confirmar
-    # con `ignorar_advertencia=true`, cuando el análisis no vuelve a ejecutarse.
     googlePlaceIdEntradas: str | None = Field(default=None, max_length=255)
-    # Tareas pendientes de "Recordármelo" que el usuario aceptó eliminar al cambiar
-    # el lugar de la actividad (las devolvió `ConfirmacionTareasEntradas`).
     tareasEntradasAEliminar: list[int] = Field(default_factory=list, max_length=50)
 
     @model_validator(mode="after")
@@ -169,16 +159,10 @@ class AdvertenciaHorario(BaseModel):
     mensaje: str
     horariosApertura: str | None = None
     nombreLugar: str | None = None
-    # fuera_de_horario | cerrado_dia | cerrado_temporalmente | cerrado_permanentemente
     tipo: str | None = None
-    # Cuándo vuelve a abrir (solo `cerrado_dia`), p. ej. "martes 08/12 de 09:00 a 18:00".
     proximaApertura: str | None = None
-    # Texto corto que se reenvía al confirmar y queda marcado en el itinerario.
     resumen: str | None = None
-    # Recomendación de entradas o reservas del mismo lugar, para mostrarla cuando
-    # el usuario confirme el registro.
     recomendacionEntradas: RecomendacionEntradas | None = None
-    # Lugar analizado para entradas/reservas; el frontend lo reenvía al confirmar.
     googlePlaceIdEntradas: str | None = None
 
 class ConfirmacionTareasEntradas(BaseModel):
@@ -250,8 +234,6 @@ class DestinationCreate(BaseModel):
     lng: float | None = None
     placeId: str | None = None
     imageUrl: str | None = None
-    # Recorrido: el orden es el de la lista. Las noches en viaje son las del
-    # traslado hacia el destino siguiente.
     noches: int | None = None
     nochesEnViaje: int | None = None
 
@@ -297,7 +279,6 @@ class TripParticipantRead(BaseModel):
     id: int
     nombreCompleto: str
     nombreUsuario: str
-    # None si el participante configuró su email como privado (US 61).
     email: str | None = None
     fotoUrl: str | None = None
     role: str
@@ -315,7 +296,6 @@ class TripAdminRead(BaseModel):
     id: int
     nombreCompleto: str
     nombreUsuario: str
-    # None si el administrador configuró su email como privado (US 61).
     email: str | None = None
     fotoUrl: str | None = None
 
@@ -331,9 +311,7 @@ class TripDetailRead(TripRead):
     image: str | None = None
     hasCustomCover: bool = False
     defaultCoverImage: str | None = None
-    # Hasta cuándo el admin puede editar los datos generales (FechaFin + 1 mes).
     infoEditableUntil: date | None = None
-    # Tramos del recorrido con su estado (US 136): de acá salen las tarjetas para agendar.
     traslados: list[TramoTrasladoRead] = Field(default_factory=list)
 
 
@@ -350,14 +328,7 @@ class TripParticipantUpsert(BaseModel):
     @field_validator("email")
     @classmethod
     def normalize_email(cls, value: str | None) -> str | None:
-        if value is None:
-            return None
-        cleaned = value.strip().lower()
-        if not cleaned:
-            return None
-        if "@" not in cleaned or "." not in cleaned.split("@")[-1]:
-            raise ValueError("El email no tiene un formato valido")
-        return cleaned
+        return None if value is None else normalizar_email(value)
 
 
 class TripMutationResponse(BaseModel):
@@ -366,7 +337,6 @@ class TripMutationResponse(BaseModel):
 
 
 class TripCoverAIGenerateRequest(BaseModel):
-    # Indicación adicional opcional para orientar la generación (AC2).
     prompt: str | None = Field(default=None, max_length=300)
 
 
@@ -416,12 +386,8 @@ class TripCreate(BaseModel):
     def normalize_invited_emails(cls, value: list[str]) -> list[str]:
         normalized: list[str] = []
         for email in value:
-            cleaned = email.strip().lower()
-            if not cleaned:
-                continue
-            if "@" not in cleaned or "." not in cleaned.split("@")[-1]:
-                raise ValueError(f"El email '{email}' no tiene un formato valido")
-            if cleaned not in normalized:
+            cleaned = normalizar_email(email)
+            if cleaned and cleaned not in normalized:
                 normalized.append(cleaned)
         return normalized
 
@@ -484,10 +450,13 @@ class TripInvitationRead(BaseModel):
 
 
 class TripSentInvitationRead(BaseModel):
-    """Invitacion enviada por el administrador a un usuario registrado (HU 71)."""
+    """Invitación enviada por el administrador (US 71). `tipo="correo"` es una
+    invitación a un correo sin cuenta (US 134)."""
 
-    userId: int
-    nombreUsuario: str
+    tipo: Literal["usuario", "correo"] = "usuario"
+    userId: int | None = None
+    email: str | None = None
+    nombreUsuario: str | None = None
     nombreCompleto: str
     fotoUrl: str | None = None
     status: Literal["pendiente", "aceptada", "rechazada", "vencida"]

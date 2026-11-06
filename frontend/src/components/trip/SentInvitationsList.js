@@ -12,7 +12,6 @@ import {
 import Avatar from "../ui/Avatar";
 import { colors, radii, spacing, textStyles } from "../../theme/tokens";
 
-// HU 71 - Visualizar invitaciones enviadas.
 export const INVITATION_FILTERS = [
   { id: "todas", label: "Todas" },
   { id: "pendiente", label: "Pendientes" },
@@ -30,7 +29,6 @@ const STATUS_META = {
 
 const MONTHS = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"];
 
-// "28 sep" si es del año en curso, "28 sep 2025" si no.
 export function formatInvitationDate(isoDateTime, today = new Date()) {
   if (!isoDateTime) return "";
   const date = new Date(isoDateTime);
@@ -146,18 +144,20 @@ export default function SentInvitationsList({
               label: invitation.status,
               color: colors.textMuted,
             };
+            const porCorreo = invitation.tipo === "correo";
+            const clave = invitation.userId ?? invitation.email;
+            const etiqueta = porCorreo ? invitation.email : `@${invitation.nombreUsuario}`;
             const canCancel =
               invitation.status === "pendiente" && typeof onCancel === "function";
-            // Quien rechazó la invitación puede ser invitado de nuevo
             const canResend =
-              invitation.status === "rechazada" && typeof onResend === "function";
+              !porCorreo && invitation.status === "rechazada" && typeof onResend === "function";
             const isLast = index === visibleInvitations.length - 1;
 
             return (
               <View
-                key={`sent-invitation-${invitation.userId}`}
+                key={`sent-invitation-${clave}`}
                 style={[styles.row, !isLast && styles.rowDivider]}
-                testID={`sent-invitation-${invitation.userId}`}
+                testID={`sent-invitation-${clave}`}
               >
                 <Avatar
                   imageUrl={invitation.fotoUrl}
@@ -166,22 +166,23 @@ export default function SentInvitationsList({
                 />
                 <View style={styles.body}>
                   <Text numberOfLines={1} style={styles.username}>
-                    @{invitation.nombreUsuario}
+                    {etiqueta}
                   </Text>
                   <View style={styles.metaRow}>
                     <View style={[styles.dot, { backgroundColor: meta.color }]} />
                     <Text style={[styles.status, { color: meta.color }]}>{meta.label}</Text>
                     <Text style={styles.meta}>
-                      · Enviada el {formatInvitationDate(invitation.invitedAt)}
+                      · {porCorreo ? "Por correo · " : ""}Enviada el{" "}
+                      {formatInvitationDate(invitation.invitedAt)}
                     </Text>
                   </View>
                 </View>
                 {canCancel ? (
                   <Pressable
-                    accessibilityLabel={`Cancelar invitación de ${invitation.nombreUsuario}`}
+                    accessibilityLabel={`Cancelar invitación de ${etiqueta}`}
                     hitSlop={8}
                     onPress={() => onCancel(invitation)}
-                    testID={`sent-invitation-cancel-${invitation.userId}`}
+                    testID={`sent-invitation-cancel-${clave}`}
                   >
                     <Text style={styles.cancelText}>Cancelar</Text>
                   </Pressable>
@@ -189,10 +190,10 @@ export default function SentInvitationsList({
                 {canResend ? (
                   <Pressable
                     accessibilityRole="button"
-                    accessibilityLabel={`Volver a invitar a ${invitation.nombreUsuario}`}
+                    accessibilityLabel={`Volver a invitar a ${etiqueta}`}
                     hitSlop={8}
                     onPress={() => onResend(invitation)}
-                    testID={`sent-invitation-resend-${invitation.userId}`}
+                    testID={`sent-invitation-resend-${clave}`}
                   >
                     <Text style={styles.resendText}>Volver a invitar</Text>
                   </Pressable>
