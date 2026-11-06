@@ -26,6 +26,7 @@ from app.models.viaje import Viaje
 from app.models.votacion import Votacion
 from app.models.voto import Voto
 from app.services import sugerencias_votacion
+from app.services.activity_ai.context import intervalo_actividad, minutos_de, superpone
 from app.services.notifications import (
     NotificationType,
     TripNotificationEvent,
@@ -237,7 +238,11 @@ def _incorporar(
                 ActividadItinerario.IdDiaCronograma == dia.IdDiaCronograma
             )
         ).all()
-        if actividad.HoraInicio < sugerencia.HoraFin and sugerencia.HoraInicio < actividad.HoraFin
+        if superpone(
+            *intervalo_actividad(actividad),
+            minutos_de(sugerencia.HoraInicio),
+            minutos_de(sugerencia.HoraFin),
+        )
     ]
 
     actividad = ActividadItinerario(

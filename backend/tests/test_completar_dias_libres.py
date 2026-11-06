@@ -510,3 +510,39 @@ def test_solo_participantes_actuales_pueden_ver_franjas(
     )
 
     assert respuesta.status_code in (403, 404)
+
+
+# --- Traslados (US 136) ---------------------------------------------------------
+
+
+def _traslado(inicio, fin):
+    return SimpleNamespace(HoraInicio=time(*inicio), HoraFin=time(*fin), IdTramoTraslado=1)
+
+
+def test_traslado_ocupa_lo_informado_y_no_sus_horas():
+    dias = [_dia(1, HOY + timedelta(days=1))]
+
+    franjas = detectar_franjas_libres(
+        dias,
+        {1: [_traslado((20, 0), (8, 0))]},
+        HOY,
+        ocupados_traslados={1: [(20 * 60, 1439)]},
+    )
+
+    assert [(f.inicio, f.fin, f.dia_completo) for f in franjas] == [(9 * 60, 20 * 60, False)]
+
+
+def test_dia_de_llegada_descuenta_lo_anterior_a_la_llegada():
+    dias = [_dia(1, HOY + timedelta(days=1))]
+
+    franjas = detectar_franjas_libres(dias, {}, HOY, ocupados_traslados={1: [(0, 13 * 60)]})
+
+    assert [(f.inicio, f.fin, f.dia_completo) for f in franjas] == [(13 * 60, 22 * 60, False)]
+
+
+def test_un_dia_completo_en_viaje_no_es_libre():
+    dias = [_dia(1, HOY + timedelta(days=1)), _dia(2, HOY + timedelta(days=2))]
+
+    franjas = detectar_franjas_libres(dias, {}, HOY, dias_en_viaje={1})
+
+    assert [f.id_dia for f in franjas] == [2]

@@ -4,7 +4,9 @@ Funciones puras (sin base de datos) para poder probarlas directamente:
 - un día del cronograma sin actividades es un día libre completo (09:00 a 22:00);
 - en un día con actividades, es franja libre todo tramo sin actividades de al
   menos tres horas dentro de la ventana 09:00 a 22:00;
-- solo cuentan los días posteriores a la fecha actual.
+- solo cuentan los días posteriores a la fecha actual;
+- los traslados (US 136) ocupan lo que dura el viaje, también en el día de llegada, y
+  los días completos en viaje no son libres.
 """
 
 from __future__ import annotations
@@ -62,17 +64,31 @@ def tramos_libres(
     return libres
 
 
-def detectar_franjas_libres(dias: Iterable, actividades_por_dia: dict[int, list], hoy: date) -> list[FranjaLibre]:
+def detectar_franjas_libres(
+    dias: Iterable,
+    actividades_por_dia: dict[int, list],
+    hoy: date,
+    ocupados_traslados: dict[int, list[tuple[int, int]]] | None = None,
+    dias_en_viaje: set[int] | None = None,
+) -> list[FranjaLibre]:
     """Días libres y franjas libres de los días posteriores a `hoy`, en orden cronológico.
 
     `dias` son objetos con `IdDiaCronograma`, `Fecha` e `IndiceDia`; las actividades,
-    objetos con `HoraInicio` y `HoraFin`."""
+    objetos con `HoraInicio` y `HoraFin`. Los traslados no se miden por sus horas sino por
+    `ocupados_traslados` (minutos por día), porque pueden llegar otro día."""
+    ocupados_traslados = ocupados_traslados or {}
+    dias_en_viaje = dias_en_viaje or set()
     franjas: list[FranjaLibre] = []
     for dia in sorted(dias, key=lambda d: d.Fecha):
-        if dia.Fecha <= hoy:
+        if dia.Fecha <= hoy or dia.IdDiaCronograma in dias_en_viaje:
             continue
-        actividades = actividades_por_dia.get(dia.IdDiaCronograma, [])
-        ocupados = [(_minutos(a.HoraInicio), _minutos(a.HoraFin)) for a in actividades]
+        actividades = [
+            a
+            for a in actividades_por_dia.get(dia.IdDiaCronograma, [])
+            if getattr(a, "IdTramoTraslado", None) is None
+        ]
+        traslados = ocupados_traslados.get(dia.IdDiaCronograma, [])
+        ocupados = [(_minutos(a.HoraInicio), _minutos(a.HoraFin)) for a in actividades] + traslados
         for inicio, fin in tramos_libres(ocupados):
             franjas.append(
                 FranjaLibre(
@@ -81,7 +97,7 @@ def detectar_franjas_libres(dias: Iterable, actividades_por_dia: dict[int, list]
                     indice_dia=getattr(dia, "IndiceDia", None),
                     inicio=inicio,
                     fin=fin,
-                    dia_completo=not actividades,
+                    dia_completo=not ocupados,
                 )
             )
     return franjas

@@ -6,7 +6,7 @@ de varios destinos significa que todavía no hay recorrido.
 """
 
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, timedelta
 from typing import Sequence
 
 from fastapi import HTTPException, status
@@ -26,6 +26,32 @@ class ValoresRecorrido:
     orden: int
     noches: int | None
     noches_en_viaje: int
+
+
+@dataclass(frozen=True)
+class TramoRecorrido:
+    llegada: date
+    salida: date
+    noches_en_viaje: int
+    llegada_siguiente: date
+
+
+def recorrido_armado(destinos: Sequence[DestinoViaje]) -> bool:
+    """Con un destino, o con alguno sin noches, no hay fechas por destino."""
+    return len(destinos) > 1 and all(d.Noches is not None for d in destinos)
+
+
+def calcular_tramos(destinos: Sequence[DestinoViaje], fecha_inicio: date) -> list[TramoRecorrido]:
+    """Misma cuenta que `calcularTramos` de `frontend/src/utils/recorrido.js`."""
+    tramos: list[TramoRecorrido] = []
+    llegada = fecha_inicio
+    for destino in destinos:
+        salida = llegada + timedelta(days=destino.Noches or 0)
+        noches_en_viaje = destino.NochesEnViaje or 0
+        llegada_siguiente = salida + timedelta(days=noches_en_viaje)
+        tramos.append(TramoRecorrido(llegada, salida, noches_en_viaje, llegada_siguiente))
+        llegada = llegada_siguiente
+    return tramos
 
 
 def _rechazar(codigo: str, mensaje: str) -> None:

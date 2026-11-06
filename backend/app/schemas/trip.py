@@ -3,6 +3,7 @@ from typing import Literal, Optional
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
+from app.schemas.traslado import TramoTrasladoRead, TrasladoActividadRead
 from app.schemas.usuario import UsuarioRead
 from app.schemas.place import TripPlaceRead
 
@@ -84,6 +85,8 @@ class ActividadRead(BaseModel):
     documentosReserva: list[DocumentoReservaResumen] = Field(
         default_factory=list, alias="DocumentosReserva"
     )
+    # Tramo del recorrido, si la actividad es un traslado (US 136).
+    traslado: TrasladoActividadRead | None = Field(None, alias="Traslado")
 
     class Config:
         from_attributes = True
@@ -330,6 +333,8 @@ class TripDetailRead(TripRead):
     defaultCoverImage: str | None = None
     # Hasta cuándo el admin puede editar los datos generales (FechaFin + 1 mes).
     infoEditableUntil: date | None = None
+    # Tramos del recorrido con su estado (US 136): de acá salen las tarjetas para agendar.
+    traslados: list[TramoTrasladoRead] = Field(default_factory=list)
 
 
 class TripParticipantUpsert(BaseModel):

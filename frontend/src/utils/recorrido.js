@@ -59,8 +59,9 @@ export function calcularTramos(destinos, startDate) {
   });
 }
 
-// "2 → 4 dic"; si cruza de mes, "28 nov → 1 dic".
+// "2 → 4 dic"; si cruza de mes, "28 nov → 1 dic". Sin noches no hay rango que mostrar.
 export function textoRangoTramo(tramo) {
+  if (tramo.llegada === tramo.salida) return "Sin noches todavía";
   const mismoMes = tramo.llegada.slice(0, 7) === tramo.salida.slice(0, 7);
   const inicio = mismoMes ? parseYMD(tramo.llegada).getDate() : formatDayMonth(tramo.llegada);
   return `${inicio} → ${formatDayMonth(tramo.salida)}`;

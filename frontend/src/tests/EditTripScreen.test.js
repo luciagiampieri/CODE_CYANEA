@@ -2041,3 +2041,16 @@ describe("US - Editar viaje (EditTripScreen)", () => {
     });
   });
 });
+
+describe("US 136 - abrir directo en el recorrido", () => {
+  it("con initialTab abre la pestaña Destinos", async () => {
+    const utils = await render(
+      <EditTripScreen
+        navigation={navigation}
+        route={{ params: { ...route.params, initialTab: "destinations" } }}
+      />
+    );
+
+    await waitFor(() => expect(utils.getByText("Tus destinos")).toBeTruthy());
+  });
+});

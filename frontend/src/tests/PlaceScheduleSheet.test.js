@@ -174,3 +174,25 @@ describe("PlaceScheduleSheet - horarios y recomendación de entradas (igual que 
     expect(onClose).not.toHaveBeenCalled();
   });
 });
+
+describe("PlaceScheduleSheet - categorías (US 136)", () => {
+  beforeEach(() => {
+    Platform.OS = "web";
+  });
+
+  it("un aeropuerto ya no sugiere Vuelo: queda en Otro", async () => {
+    const onSubmit = jest.fn().mockResolvedValue();
+    const aeropuerto = { ...place, name: "Aeropuerto de Ezeiza" };
+    const utils = await render(
+      <PlaceScheduleSheet days={days} place={aeropuerto} visible onClose={jest.fn()} onSubmit={onSubmit} />
+    );
+
+    await elegirHoras(utils, "10:00", "12:30");
+    await agregar(utils);
+
+    await waitFor(() => expect(onSubmit).toHaveBeenCalled());
+    expect(onSubmit.mock.calls[0][0].icono).toBe("location-dot");
+    expect(utils.queryByText("Vuelo")).toBeNull();
+    expect(utils.queryByText("Traslado")).toBeNull();
+  });
+});

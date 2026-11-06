@@ -49,6 +49,8 @@ export default function ItinerarioCalendarView({
   onVerMapa,
   onSuggestGap,
   sugerenciasPorDia = {},
+  // Contenido arriba de las actividades del día (tarjetas de traslados, US 136).
+  renderEncabezadoDia,
 }) {
   const { width } = useResponsive();
   const [diaSeleccionadoId, setDiaSeleccionadoId] = useState(null);
@@ -202,6 +204,7 @@ export default function ItinerarioCalendarView({
                 </View>
 
                 <View style={styles.celdaAgenda}>
+                  {renderEncabezadoDia?.(dia)}
                   {esMobile ? (
                     <DayTimeGrid
                       actividades={dia.actividades}

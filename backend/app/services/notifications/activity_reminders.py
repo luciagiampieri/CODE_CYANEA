@@ -4,7 +4,7 @@ import os
 from contextlib import suppress
 from datetime import datetime, timedelta
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
@@ -14,6 +14,7 @@ from app.models.actividad_itinerario import ActividadItinerario
 from app.models.dia_cronograma import DiaCronograma
 from app.models.estado_viaje import EstadoViaje
 from app.models.recordatorio_actividad_notificado import RecordatorioActividadNotificado
+from app.models.tramo_traslado_viaje import TIPO_TRAMO_IDA, TramoTrasladoViaje
 from app.models.viaje import Viaje
 from app.services.notifications.dispatcher import TripNotificationEvent, dispatch_trip_notification
 from app.services.notifications.service import NotificationType
@@ -116,6 +117,10 @@ def _load_candidate_activities(
             .join(DiaCronograma, DiaCronograma.IdDiaCronograma == ActividadItinerario.IdDiaCronograma)
             .join(Viaje, Viaje.IdViaje == DiaCronograma.IdViaje)
             .join(EstadoViaje, EstadoViaje.IdEstadoViaje == Viaje.IdEstadoViaje)
+            .outerjoin(
+                TramoTrasladoViaje,
+                TramoTrasladoViaje.IdTramoTraslado == ActividadItinerario.IdTramoTraslado,
+            )
             .options(
                 selectinload(ActividadItinerario.DiaCronograma)
                 .selectinload(DiaCronograma.Viaje)
@@ -124,6 +129,11 @@ def _load_candidate_activities(
                 DiaCronograma.Fecha >= ahora.date(),
                 DiaCronograma.Fecha <= hasta.date(),
                 EstadoViaje.Nombre == "activo",
+                # La hora de la ida es la de llegada: no hay salida para recordar.
+                or_(
+                    TramoTrasladoViaje.IdTramoTraslado.is_(None),
+                    TramoTrasladoViaje.IdTipoTramoTraslado != TIPO_TRAMO_IDA,
+                ),
             )
             .order_by(DiaCronograma.Fecha, ActividadItinerario.HoraInicio)
         ).all()

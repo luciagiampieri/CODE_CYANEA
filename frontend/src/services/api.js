@@ -1210,6 +1210,42 @@ export async function deleteActivity(tripId, dayId, activityId, { confirmarElimi
   return parseResponse(response, "No se pudo eliminar la actividad");
 }
 
+export async function createTransfer(tripId, payload) {
+  const response = await fetch(`${API_BASE_URL}/trips/${tripId}/traslados`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(await authHeaders()),
+    },
+    body: JSON.stringify(payload),
+  });
+  return parseResponse(response, "No se pudo agendar el traslado");
+}
+
+export async function updateTransfer(tripId, activityId, payload) {
+  const response = await fetch(`${API_BASE_URL}/trips/${tripId}/traslados/${activityId}`, {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+      ...(await authHeaders()),
+    },
+    body: JSON.stringify(payload),
+  });
+  return parseResponse(response, "No se pudo actualizar el traslado");
+}
+
+export async function hideTransfer(tripId, tramo, oculto = true) {
+  const response = await fetch(`${API_BASE_URL}/trips/${tripId}/traslados/ocultar`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(await authHeaders()),
+    },
+    body: JSON.stringify({ tramo, oculto }),
+  });
+  return parseResponse(response, "No se pudo actualizar el traslado");
+}
+
 export async function deleteTrip(tripId) {
   const response = await fetch(`${API_BASE_URL}/trips/${tripId}`, {
     method: "DELETE",

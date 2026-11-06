@@ -22,6 +22,7 @@ from app.models.participantes_gastos import ParticipantesGastos
 from app.models.categorias_gastos import CategoriasGastos
 from app.models.actividad_itinerario import ActividadItinerario
 from app.models.dia_cronograma import DiaCronograma
+from app.models.tramo_traslado_viaje import TipoTramoTraslado, TramoTrasladoViaje
 from app.models.moneda import Moneda
 from app.models.categorias_documento import CategoriaDocumento
 from app.models.documento_viaje import DocumentoViaje
@@ -77,6 +78,8 @@ __all__ = [
     "CategoriasGastos",
     "ActividadItinerario",
     "DiaCronograma",
+    "TipoTramoTraslado",
+    "TramoTrasladoViaje",
     "Moneda",
     "CategoriaDocumento",
     "DocumentoViaje",

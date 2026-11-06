@@ -21,26 +21,15 @@ import { FontAwesome6 } from "@expo/vector-icons";
 
 import PrimaryButton from "../ui/PrimaryButton";
 import { colors, radii, spacing, textStyles } from "../../theme/tokens";
+import { ICON_OPTIONS } from "../../utils/categoriasActividad";
 import { recomendacionDeRespuesta } from "../../utils/recomendacionEntradas";
 import { mostrarAdvertenciaHorario, mostrarRecomendacionEntradas } from "../../utils/dialogosActividad";
-
-const ICON_OPTIONS = [
-  { name: "plane", label: "Vuelo" },
-  { name: "building", label: "Hotel" },
-  { name: "utensils", label: "Comida" },
-  { name: "camera", label: "Turismo" },
-  { name: "ticket", label: "Evento" },
-  { name: "car", label: "Traslado" },
-  { name: "person-hiking", label: "Excursión" },
-  { name: "location-dot", label: "Otro" },
-];
 
 function suggestIcon(place) {
   const text = `${place?.category ?? ""} ${place?.name ?? ""}`.toLowerCase();
   if (text.includes("hotel") || text.includes("hostel")) return "building";
   if (text.includes("rest") || text.includes("comida") || text.includes("cafe")) return "utensils";
   if (text.includes("muse") || text.includes("tour") || text.includes("playa")) return "camera";
-  if (text.includes("aero") || text.includes("vuelo")) return "plane";
   return "location-dot";
 }
 

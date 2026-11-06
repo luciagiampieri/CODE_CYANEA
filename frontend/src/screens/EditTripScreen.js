@@ -542,7 +542,8 @@ export default function EditTripScreen({ navigation, route }) {
     const [loading, setLoading] = useState(true);
     const [loadError, setLoadError] = useState("");
     
-    const [activeTab, setActiveTab] = useState("info"); // "info" | "destinations" | "cover"
+    // "info" | "destinations" | "cover"
+    const [activeTab, setActiveTab] = useState(route.params?.initialTab ?? "info");
 
     const [form, setForm] = useState({
         title: "",

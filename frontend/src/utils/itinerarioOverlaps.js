@@ -7,15 +7,19 @@ export function minutosDesdeMedianoche(hora) {
 }
 
 
+const MINUTOS_DEL_DIA = 24 * 60;
+
 export function calcularActividadesSolapadas(actividades = []) {
     const solapadas = new Set();
 
     const normalizadas = actividades
-        .map((actividad) => ({
-            id: actividad.id,
-            inicio: minutosDesdeMedianoche(actividad.horaInicio),
-            fin: minutosDesdeMedianoche(actividad.horaFin),
-        }))
+        .map((actividad) => {
+            const inicio = minutosDesdeMedianoche(actividad.horaInicio);
+            const fin = minutosDesdeMedianoche(actividad.horaFin);
+            // Un traslado que llega otro día ocupa hasta el final del día de salida.
+            const llegaOtroDia = Boolean(actividad.traslado) && fin !== null && fin < inicio;
+            return { id: actividad.id, inicio, fin: llegaOtroDia ? MINUTOS_DEL_DIA : fin };
+        })
         .filter((actividad) => actividad.inicio !== null && actividad.fin !== null);
 
     for (let i = 0; i < normalizadas.length; i += 1) {

@@ -77,6 +77,9 @@ import {
   getRepositorioItems,
   deleteRepositorioItem,
   createActivity,
+  createTransfer,
+  hideTransfer,
+  updateTransfer,
   deleteActivity,
   generateTripRoute,
   leaveTrip,
@@ -104,6 +107,9 @@ import {
 } from "../database/offlineViajes";
 
 import AddActivityScreen from "./AddActivityScreen";
+import AddTrasladoScreen from "./AddTrasladoScreen";
+import TrasladoCard from "../components/trip/TrasladoCard";
+import { refDeTramo, tramosDelDia, tramosSinAgendar } from "../utils/traslados";
 import AddGastoScreen from "./AddGastoScreen";
 import CrearVotacionScreen from "./CreateVotationScreen";
 import DocumentsScreen from "./DocumentsScreen";
@@ -176,6 +182,8 @@ function normalizeTrip(raw) {
     externalInvitations: raw.externalInvitations ?? [],
     admin: raw.admin ?? null,
     cronograma: raw.cronograma ?? raw.Cronograma ?? raw.dias ?? [],
+    traslados: raw.traslados ?? [],
+    destinations: raw.destinations ?? [],
     image:
       raw.image ??
       "https://images.unsplash.com/photo-1570077188670-e3a8d69ac5ff?auto=format&fit=crop&w=1400&q=80",
@@ -383,6 +391,7 @@ export default function TripDetailScreen({ navigation, route }) {
   const [mutatingParticipants, setMutatingParticipants] = useState(false);
   const [participantMessage, setParticipantMessage] = useState("");
   const [activityModalDay, setActivityModalDay] = useState(null);
+  const [trasladoModal, setTrasladoModal] = useState(null);
   const [showAddGastoModal, setShowAddGastoModal] = useState(false);
   const [showCrearVotacionModal, setShowCrearVotacionModal] = useState(false);
   const [currentUser, setCurrentUser] = useState(null);
@@ -1343,7 +1352,10 @@ export default function TripDetailScreen({ navigation, route }) {
             }
             if (mensaje.tipo === "edicion_concedida") {
               const actividadPendiente = pendingEditRef.current;
-              if (actividadPendiente) {
+              if (actividadPendiente?.activity?.traslado) {
+                setTrasladoModal({ actividad: actividadPendiente.activity });
+                pendingEditRef.current = null;
+              } else if (actividadPendiente) {
                 setActivityModalDay(actividadPendiente);
                 pendingEditRef.current = null;
               }
@@ -1478,6 +1490,7 @@ export default function TripDetailScreen({ navigation, route }) {
           advertenciaHorario: act.advertenciaHorario ?? act.AdvertenciaHorario ?? null,
           tareasEntradasPendientes: act.tareasEntradasPendientes ?? act.TareasEntradasPendientes ?? [],
           documentosReserva: act.documentosReserva ?? act.DocumentosReserva ?? [],
+          traslado: act.traslado ?? act.Traslado ?? null,
         };
       });
       const actividades = day.items ?? actividadesBackend;
@@ -1937,6 +1950,47 @@ export default function TripDetailScreen({ navigation, route }) {
     }
     await loadTripDetail();
     return resultado;
+  }
+
+  async function guardarTraslado(payload) {
+    const actividad = trasladoModal?.actividad;
+    const resultado = actividad
+      ? await updateTransfer(trip.id, actividad.id, payload)
+      : await createTransfer(trip.id, payload);
+    if (resultado?.guardado) await loadTripDetail();
+    return resultado;
+  }
+
+  function cerrarTraslado() {
+    if (trasladoModal?.actividad) finalizarEdicionActividad(trasladoModal.actividad.id);
+    setTrasladoModal(null);
+  }
+
+  async function cambiarOcultoTraslado(tramo, oculto) {
+    try {
+      await hideTransfer(trip.id, refDeTramo(tramo), oculto);
+      await loadTripDetail();
+    } catch (error) {
+      mostrarAlertaConfirmacion("Error", error.message || "No se pudo actualizar el traslado.");
+    }
+  }
+
+  function cambiarRecorrido() {
+    cerrarTraslado();
+    navigation.navigate("EditarViaje", { tripId: trip.id, initialTab: "destinations" });
+  }
+
+  function renderTrasladosDelDia(dayId) {
+    if (!lock.canEdit("itinerario")) return null;
+    return tramosDelDia(trip?.traslados, dayId).map((tramo) => (
+      <TrasladoCard
+        key={`${tramo.tipo}-${tramo.idDestinoOrigen ?? ""}-${tramo.idDestinoLlegada ?? ""}`}
+        tramo={tramo}
+        onAgendar={(elegido) => setTrasladoModal({ tramo: elegido })}
+        onOcultar={(elegido) => cambiarOcultoTraslado(elegido, true)}
+        onMostrar={(elegido) => cambiarOcultoTraslado(elegido, false)}
+      />
+    ));
   }
 
   async function handleRebuildSettlement() {
@@ -2765,6 +2819,7 @@ export default function TripDetailScreen({ navigation, route }) {
 
                     {isExpanded ? (
                       <View style={styles.dayAgenda}>
+                        {renderTrasladosDelDia(dayId)}
                         <DayAgenda
                           actividades={actividades}
                           fecha={fechaRaw}
@@ -2989,6 +3044,7 @@ export default function TripDetailScreen({ navigation, route }) {
                   : undefined
               }
               sugerenciasPorDia={sugerenciasPorDia}
+              renderEncabezadoDia={(day) => renderTrasladosDelDia(day.dayId)}
               onAddActivity={
                 lock.canEdit("itinerario")
                   ? (day) =>
@@ -3845,6 +3901,20 @@ export default function TripDetailScreen({ navigation, route }) {
         onCancelEdit={(activityId) => {
           finalizarEdicionActividad(activityId);
         }}
+      />
+      <AddTrasladoScreen
+        visible={!!trasladoModal}
+        tramo={trasladoModal?.tramo ?? null}
+        actividad={trasladoModal?.actividad ?? null}
+        tramosLibres={tramosSinAgendar(trip?.traslados)}
+        dias={itinerarioDias}
+        destinos={trip?.destinations}
+        esAdmin={isAdmin}
+        puedeCambiarRecorrido={lock.canEdit("viaje")}
+        nombreAdministrador={trip?.admin?.nombreCompleto ?? ""}
+        onCambiarRecorrido={cambiarRecorrido}
+        onSubmit={guardarTraslado}
+        onClose={cerrarTraslado}
       />
       <CompleteFreeDaysScreen
         visible={showDiasLibresModal}

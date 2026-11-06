@@ -13,6 +13,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import object_session, Session, selectinload
 
 from app.api.deps import get_current_user
+from app.schemas.traslado import TrasladoActividadRead
 from app.services.websocket_manager import manager
 from app.core.config import settings
 from app.db.session import get_db
@@ -100,7 +101,7 @@ from app.services.cover_ai import (
 )
 from app.services.activity_analysis_service import analizar_horario_actividad
 from app.services.entradas_ai import EvaluacionEntradas, evaluar_entradas, normalizar_place_id
-from app.services import tareas_entradas
+from app.services import tareas_entradas, traslados as servicio_traslados
 from app.services.cupos_viajes import require_trip_capacity
 from app.services.administracion_viajes import bloquear_viaje, cambiar_administrador, transferir_administracion
 from app.services.limites_planes import validar_viajes_activos
@@ -381,6 +382,7 @@ def _build_actividad_read(
     actividad: ActividadItinerario,
     tareas_pendientes: list[TareaEntradasResumen] | None = None,
     documentos_reserva: list[DocumentoReservaResumen] | None = None,
+    traslado: TrasladoActividadRead | None = None,
 ) -> ActividadRead:
     lugar = actividad.LugarInteres
 
@@ -400,6 +402,7 @@ def _build_actividad_read(
         AdvertenciaHorario=actividad.AdvertenciaHorario,
         TareasEntradasPendientes=tareas_pendientes or [],
         DocumentosReserva=documentos_reserva or [],
+        Traslado=traslado,
     )
 
 async def _notificar_viaje_actualizado(viaje: Viaje, message: str) -> None:
@@ -579,6 +582,7 @@ def _build_trip_detail(
     invitaciones_visibles.sort(key=lambda item: item.EmailInvitado.lower())
 
     admin_visible = datos_visibles(admin_a_mostrar, id_observador)
+    traslados_por_actividad = servicio_traslados.traslados_por_actividad(viaje)
     tareas_entradas_pendientes = _tareas_entradas_pendientes_por_actividad(viaje)
     documentos_reserva = _documentos_reserva_por_actividad(viaje, id_observador)
 
@@ -611,6 +615,7 @@ def _build_trip_detail(
                         actividad,
                         tareas_entradas_pendientes.get(actividad.IdActividad),
                         documentos_reserva.get(actividad.IdActividad),
+                        traslados_por_actividad.get(actividad.IdActividad),
                     )
                     for actividad in (dia.Actividades or [])
                     if (
@@ -654,6 +659,7 @@ def _build_trip_detail(
         invitedEmails=[invitacion.EmailInvitado for invitacion in invitaciones_visibles],
         hasLeft=has_left,
         infoEditableUntil=trip_info_editable_until(viaje),
+        traslados=servicio_traslados.tramos_read(viaje),
     )
 
 
@@ -1037,7 +1043,12 @@ async def update_trip(
         dia for dia in viaje.Cronograma
         if dia.Fecha < payload.startDate or dia.Fecha > payload.endDate
     ]
-    dias_con_actividades = [dia for dia in dias_afectados if dia.Actividades]
+    # Los traslados no bloquean: siguen al recorrido y se mueven a su día nuevo.
+    dias_con_actividades = [
+        dia
+        for dia in dias_afectados
+        if any(actividad.IdTramoTraslado is None for actividad in dia.Actividades)
+    ]
     if dias_con_actividades:
         fechas_conflicto = ", ".join(dia.Fecha.isoformat() for dia in dias_con_actividades)
         raise HTTPException(
@@ -1101,10 +1112,6 @@ async def update_trip(
 
     db.flush()
 
-    for dia in dias_afectados:
-        db.delete(dia)
-    db.flush()
-
     fechas_existentes = {
         dia.Fecha
         for dia in viaje.Cronograma
@@ -1115,6 +1122,12 @@ async def update_trip(
         if fecha_actual not in fechas_existentes:
             db.add(DiaCronograma(IdViaje=viaje.IdViaje, Fecha=fecha_actual, IndiceDia=1))
         fecha_actual += timedelta(days=1)
+    db.flush()
+
+    servicio_traslados.sincronizar_traslados(db, viaje)
+
+    for dia in dias_afectados:
+        db.delete(dia)
     db.flush()
 
     dias_ordenados = db.scalars(
@@ -1377,6 +1390,13 @@ async def update_activity(
             detail="La actividad no existe en este día del itinerario.",
         )
 
+    if actividad.IdTramoTraslado is not None:
+        raise servicio_traslados.error_traslado(
+            status.HTTP_409_CONFLICT,
+            "Este traslado se edita desde su formulario. Actualizá la app para modificarlo.",
+            servicio_traslados.TRANSFER_USE_TRANSFER_FORM,
+        )
+
     cambia_lugar = _cambia_lugar_actividad(actividad, payload)
     cambia_horario = (
         payload.horaInicio != actividad.HoraInicio or payload.horaFin != actividad.HoraFin
@@ -1577,7 +1597,11 @@ async def delete_activity(
     tareas_entradas.desvincular_tareas_hechas(db, actividad.IdActividad)
 
     nombre_actividad = actividad.Nombre
+    tramo_traslado = actividad.TramoTraslado
     db.delete(actividad)
+    if tramo_traslado is not None:
+        # Sin la fila el tramo vuelve a mostrar su tarjeta, aunque antes estuviera oculta.
+        db.delete(tramo_traslado)
     db.commit()
 
     if tareas_eliminadas:

@@ -14,6 +14,7 @@ from app.services.mail import get_mail_service
 from app.models.usuario import Usuario
 from app.models.plan import Plan
 from app.models.estado_viaje import EstadoViaje
+from app.models.tramo_traslado_viaje import TipoTramoTraslado
 from app.models.estado_participacion import EstadoParticipacion
 from app.models.estado_invitacion import EstadoInvitacion
 from app.models.rol_participante import RolParticipante
@@ -135,7 +136,12 @@ def master_data(db_session):
         EstadoTransferenciaLiquidacion(Nombre="anulada", Activo=True),
     ]
 
-    db_session.add_all(estados_viaje + estados_participacion + estados_invitacion + roles + estados_transferencia)
+    tipos_tramos = [
+        TipoTramoTraslado(IdTipoTramoTraslado=id_tipo, Nombre=nombre, Activo=True)
+        for id_tipo, nombre in ((1, "ida"), (2, "entre_destinos"), (3, "regreso"))
+    ]
+
+    db_session.add_all(estados_viaje + estados_participacion + estados_invitacion + roles + estados_transferencia + tipos_tramos)
     db_session.commit()
 
 

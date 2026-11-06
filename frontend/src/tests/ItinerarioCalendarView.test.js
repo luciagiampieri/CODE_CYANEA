@@ -169,3 +169,17 @@ describe("HU 23 - ItinerarioCalendarView", () => {
     expect(getByLabelText(`Eliminar ${actividadA.title}`)).toBeTruthy();
   });
 });
+
+describe("US 136 - tarjetas de traslados", () => {
+  it("dibuja el encabezado de cada día arriba de las actividades", async () => {
+    const { Text } = require("react-native");
+    const { getByText } = await render(
+      <ItinerarioCalendarView
+        dias={[{ dayId: 2, dayIndex: 1, dayDateText: "20/07/2026", actividades: [] }]}
+        renderEncabezadoDia={(dia) => <Text>{`Tarjeta del día ${dia.dayId}`}</Text>}
+      />
+    );
+
+    expect(getByText("Tarjeta del día 2")).toBeTruthy();
+  });
+});

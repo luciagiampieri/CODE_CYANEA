@@ -16,6 +16,7 @@ import {
   getTripSettlement,
   getVotaciones,
   onTripFinishedError,
+  hideTransfer,
 } from "../services/api";
 import {
   guardarDocumentoOffline,
@@ -78,6 +79,9 @@ jest.mock("../services/api", () => ({
   onTripFinishedError: jest.fn(),
   getItinerarySocketUrl: jest.fn(),
   getActivitySuggestions: jest.fn(),
+  createTransfer: jest.fn(),
+  updateTransfer: jest.fn(),
+  hideTransfer: jest.fn(),
 }));
 
 jest.mock("../database/offlineViajes", () => ({
@@ -331,5 +335,104 @@ describe("US 127 - Consultar itinerario y documentos sin conexión", () => {
     });
 
     await waitFor(() => expect(queryByTestId("banner-sin-conexion")).toBeNull());
+  });
+});
+
+describe("US 136 - Agendar traslados", () => {
+  const refIda = { tipo: "ida", idDestinoOrigen: null, idDestinoLlegada: null };
+  const tramoIda = {
+    tipo: "ida",
+    nombreLlegada: "Bariloche",
+    fechaSalida: viaje.cronograma[0].fecha,
+    fechaLlegada: viaje.cronograma[0].fecha,
+    validez: "valido",
+    estado: "pendiente",
+    idDiaCronograma: viaje.cronograma[0].id,
+  };
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    getCurrentUser.mockResolvedValue({ id: 99, nombre: "Otra", apellido: "Persona" });
+    getTripDetail.mockResolvedValue({
+      ...viaje,
+      status: "activo",
+      endDate: "2099-12-31",
+      admin: { id: 1, nombreCompleto: "Ana Gómez" },
+      traslados: [tramoIda],
+    });
+    getVotaciones.mockResolvedValue([]);
+    getTripDocuments.mockResolvedValue([]);
+    getRepositorioItems.mockResolvedValue([]);
+    getTripSettlement.mockResolvedValue({});
+    getTripParticipants.mockResolvedValue([]);
+    getExpenseCategories.mockResolvedValue([]);
+    getSentInvitations.mockResolvedValue([]);
+    getTripExpenses.mockResolvedValue([]);
+    getActivitySuggestions.mockResolvedValue([]);
+    onTripFinishedError.mockImplementation(() => jest.fn());
+    getItinerarySocketUrl.mockReturnValue(new Promise(() => {}));
+    offlineDisponible.mockReturnValue(false);
+    hideTransfer.mockResolvedValue({ message: "ok" });
+  });
+
+  async function abrirItinerario() {
+    const utils = await renderPantalla();
+    await fireEvent.press(await utils.findByText("Itinerario"));
+    return utils;
+  }
+
+  test("CP1 y CP13: el primer día muestra la tarjeta y el formulario, al administrador", async () => {
+    const utils = await abrirItinerario();
+
+    expect(await utils.findByText("¿Cómo llegan a Bariloche?")).toBeTruthy();
+
+    await fireEvent.press(utils.getByText("Agendar"));
+
+    expect(await utils.findByText("Traslado a Bariloche")).toBeTruthy();
+    expect(utils.getByText(/Solo Ana Gómez \(administrador\/a\) puede cambiarlos\./)).toBeTruthy();
+  });
+
+  test("CP11: ocultar llama al backend y recarga el viaje", async () => {
+    const utils = await abrirItinerario();
+    await utils.findByText("¿Cómo llegan a Bariloche?");
+    const cargas = getTripDetail.mock.calls.length;
+
+    await fireEvent.press(utils.getByText("Ocultar"));
+
+    await waitFor(() => expect(hideTransfer).toHaveBeenCalledWith(viaje.id, refIda, true));
+    await waitFor(() => expect(getTripDetail.mock.calls.length).toBeGreaterThan(cargas));
+  });
+
+  function conTramoOculto() {
+    getTripDetail.mockResolvedValue({
+      ...viaje,
+      status: "activo",
+      endDate: "2099-12-31",
+      admin: { id: 1, nombreCompleto: "Ana Gómez" },
+      traslados: [{ ...tramoIda, estado: "oculto" }],
+    });
+  }
+
+  test("Mostrar quita el ocultamiento y recarga el viaje", async () => {
+    conTramoOculto();
+    const utils = await abrirItinerario();
+    await utils.findByText("Llegada a Bariloche oculta");
+    const cargas = getTripDetail.mock.calls.length;
+
+    await fireEvent.press(utils.getByText("Mostrar"));
+
+    await waitFor(() => expect(hideTransfer).toHaveBeenCalledWith(viaje.id, refIda, false));
+    await waitFor(() => expect(getTripDetail.mock.calls.length).toBeGreaterThan(cargas));
+  });
+
+  test("Agendar desde la línea oculta abre el formulario", async () => {
+    conTramoOculto();
+    const utils = await abrirItinerario();
+    await utils.findByText("Llegada a Bariloche oculta");
+
+    await fireEvent.press(utils.getByText("Agendar"));
+
+    expect(await utils.findByText("Traslado a Bariloche")).toBeTruthy();
+    expect(hideTransfer).not.toHaveBeenCalled();
   });
 });

@@ -262,11 +262,13 @@ Respetar el modelo de dominio en espanol. No introducir nombres tipo `trip_id`, 
 - `Planes`
 - `EstadosSuscripciones`
 - `EstadosNotificacionesPasarela`
+- `TiposTramosTraslados`
 
 Datos maestros y seed:
 
 - `backend/scripts/sql/007_datos_maestros.sql`
 - `backend/scripts/sql/008_seed_minimo.sql`
+- Las tablas maestras posteriores a esos scripts se siembran en su propio script (por ejemplo `015`, `021` y `026`), porque `run_all.sql` ejecuta `007` antes de crearlas
 
 ## Liquidacion de gastos
 
@@ -489,6 +491,7 @@ Reglas vigentes para la HU de balance y liquidacion:
 - `DestinosViajes` guarda `Orden` (desde 0), `Noches` (NULL = sin armar) y `NochesEnViaje` (traslado hacia el destino siguiente; el ultimo siempre 0). Migracion `b130a1b2c3d4`, script `025_recorrido_destinos_viajes.sql`. `Viaje.Destinos` se ordena por `Orden`. El backfill toma `ctid` como orden de carga y deja `Noches` en NULL: los viajes existentes no se reparten automaticamente
 - Noches del viaje = `FechaFin - FechaInicio`. Las fechas de cada destino nunca se persisten: `calcularTramos` las deriva (salida = llegada + noches; llegada siguiente = salida + noches en viaje). Las noches libres quedan al final como dias sin destino. La US B debe reutilizar `calcularTramos` y tomar cualquier `Noches` NULL como recorrido sin armar
 - `modoRecorrido` define que se ve y que se valida: `unico` (1 destino, "Todo el viaje", se guarda NULL), `pocasNoches` (menos noches que destinos: el paso se ve como antes y se guarda NULL), `sinArmar` (solo al editar, algun destino en NULL: contadores en "—", no bloquea hasta tocar un contador, que pasa los demas a 0) y `armado`
+- Un destino sin noches muestra "Sin noches todavía" en lugar del rango (`textoRangoTramo`)
 - Un destino nuevo arranca en 0 noches, tambien al pasar de 1 a 2 destinos (los dos quedan en 0); en `sinArmar` queda sin noches. Solo se avanza o guarda en `armado` si no hay destinos en 0 ni noches de mas. Las noches libres solo se avisan en amarillo. En la pestaña Datos de la edicion, `avisoCambioFechas` compara con las noches del viaje al cargarlo: si cambia la cantidad y un recorrido `armado` deja de coincidir, muestra el aviso (o el error, si no entran) con el link "Ir a ajustar destinos ›" dentro del cartel (prop `accion` de `AvisoRecorrido`), que abre la pestaña Destinos. Usa la misma cuenta que Destinos (noches de destinos + noches en viaje). Si solo se corren las fechas, o en otros modos, no se muestra nada
 - Mientras se edita, el formulario conserva los valores en cualquier modo: `destinosParaGuardar` envia NULL solo si se guarda sin estar `armado`
 - Las noches en viaje quedan por posicion: al arrastrar, las noches viajan con el destino y cada traslado queda entre las mismas tarjetas. Al quitar B en A-B-C se libera A-B y B-C pasa a ser A-C; al quitar el primero se libera su traslado saliente; el ultimo nunca conserva noches en viaje
@@ -500,6 +503,32 @@ Reglas vigentes para la HU de balance y liquidacion:
 - Validacion (`validar_recorrido`, 400 con `X-Error-Code`): `ROUTE_INVALID_NIGHTS`, `ROUTE_INCOMPLETE` (algunos destinos con noches y otros no), `ROUTE_DESTINATION_WITHOUT_NIGHTS`, `ROUTE_NIGHTS_EXCEEDED` y `ROUTE_INVALID_TRANSFER` (noches en viaje en el ultimo destino). Con un destino los valores se ignoran
 - APKs anteriores: `model_fields_set` distingue el campo ausente del `null` explicito. Ausente en `PUT` conserva lo guardado (los destinos nuevos quedan en NULL) y, si la suma ya no entra en las fechas, el recorrido vuelve a NULL porque ese cliente no puede corregirlo. `null` explicito guarda NULL
 - Tests: `backend/tests/test_recorrido_viaje.py`, `frontend/src/tests/Recorrido.test.js`, `RecorridoViaje.test.js` y las secciones "US A" de `CreateTripScreen.test.js` y `EditTripScreen.test.js`
+
+## Agendar traslados (US 136)
+
+- Un traslado es una `ActividadItinerario` vinculada a un tramo del recorrido, no a un dia: ida (llegada al primer destino, primer dia), entre destinos (par origen -> destino consecutivo, dia de salida del origen) y regreso (ultimo dia). Si el viaje tiene un destino o el recorrido no esta armado solo se ofrecen ida y regreso
+- Modelo (migracion `c136a1b2c3d4`, script `026_traslados_viajes.sql`): tabla maestra `TiposTramosTraslados` (ids fijos 1 ida, 2 entre_destinos, 3 regreso; constantes `TIPO_TRAMO_*` en `app/models/tramo_traslado_viaje.py`) y `TramosTrasladosViajes`. Hay fila solo si el tramo tiene algo para recordar (agendado u oculto); un tramo sin agendar se deriva del recorrido. `IdDestinoOrigen`/`IdDestinoLlegada` apuntan a `Destinos` (no a `DestinosViajes`) para conservar el par aunque el destino salga del recorrido, y solo se informan entre destinos. Dos indices unicos parciales garantizan un traslado por tramo
+- `ActividadesItinerario.IdTramoTraslado` (UNIQUE) marca que actividad es el traslado de cada tramo: es el dato que usa la US B. Para traslados `Icono` es el medio, `Descripcion` las notas, `HoraInicio` la salida y `HoraFin` la llegada; en ida y regreso, con una sola hora, ambas son iguales. `HoraInicio`/`HoraFin` siguen NOT NULL y `CK_ActividadesItinerario_Horarios` no exige fin > inicio en traslados. La FK es `ON DELETE CASCADE` y no `SET NULL`: anular el vinculo dejaria una fila que viola ese CHECK
+- Las fechas de un tramo, el dia donde se muestra y su validez nunca se persisten: se calculan en `app/services/traslados.py` con `recorrido_viaje.calcular_tramos` (mismo calculo que `calcularTramos` del frontend; la UI usa lo que manda el backend). `GET /trips/{trip_id}` suma `traslados` (tramos con `estado` `pendiente`/`oculto`/`agendado`, `validez`, `revisarHorario`, fechas e `idDiaCronograma`) y cada actividad suma `Traslado`
+- Contratos (`app/api/routes/traslados.py`, cualquier participante `aceptado`, viaje no finalizado): `POST /trips/{trip_id}/traslados` (`tramo`, `medio`, `horaSalida`, `horaLlegada`, `notas`, `confirmarSuperposicion`), `PUT /trips/{trip_id}/traslados/{activity_id}` (`tramo` solo para reasignar) y `POST /trips/{trip_id}/traslados/ocultar` (`tramo` y `oculto`, `true` por defecto; con `false` se borra la fila y vuelve la tarjeta para todo el grupo). Los schemas usan `extra="forbid"`: enviar una fecha responde 422. La baja reutiliza el `DELETE` de actividades, que tambien borra la fila del tramo y vuelve la tarjeta. El `PUT` generico de actividades responde 409 `TRANSFER_USE_TRANSFER_FORM`
+- Errores con `X-Error-Code`: `TRANSFER_MEDIUM_REQUIRED`, `TRANSFER_TIME_REQUIRED`, `TRANSFER_TIME_INVALID`, `TRANSFER_SEGMENT_REQUIRED` (400), `TRANSFER_ALREADY_EXISTS`, `TRANSFER_SEGMENT_NOT_AVAILABLE` (409), `TRANSFER_NOT_FOUND` (404)
+- Nombre automatico (`nombre_traslado`): "<Medio> a <destino>" o "<Medio> de regreso". Otro se nombra "Traslado", Barco o ferry "Barco" y A pie "Caminando". El de la ida se regenera si cambia el primer destino
+- `update_trip` llama a `sincronizar_traslados` despues de crear los dias nuevos y antes de borrar los sobrantes, y los traslados no bloquean achicar fechas. Se mueven con `mover_de_dia` (colecciones): `DiaCronograma.Actividades` es delete-orphan y borrar el dia viejo arrastraria la actividad si quedara en su coleccion. Sincronizar tambien descarta las tarjetas ocultas de tramos que ya no existen
+- Validez: `no_corresponde` (el par dejo de ser consecutivo; se muestra el dia de salida del origen o el primer dia si ya no esta) y `sin_fecha` (el par sigue consecutivo pero el recorrido no esta armado; primer dia, y vuelve solo a su dia al rearmarlo). Un `no_corresponde` solo se guarda eligiendo un tramo vigente sin traslado (reasignacion); si no hay, queda eliminarlo. Un `sin_fecha` edita medio, horas y notas sin comparar horas. Si un tramo pasa a 0 noches en viaje y la llegada queda antes de la salida, sigue valido con `revisarHorario`
+- Superposicion (`actividades_superpuestas`, no bloquea; responde `requiereConfirmacion` sin guardar y se reenvia con `confirmarSuperposicion`): en la ida lo que empieza antes de la llegada, en el regreso lo que termina despues de la salida, el mismo dia lo que se cruza con el horario y con noches en viaje lo posterior a la salida y lo anterior a la llegada. Los dias completos en viaje y los otros traslados no cuentan
+- Los traslados no pasan por el analisis de horarios ni de entradas (US 98 y 122) y `route_generation` los saltea. Recordatorios: entre destinos y regreso avisan antes de la salida; la ida no. Notificaciones iguales a las de actividades; ocultar no notifica. Tiempo real: `actividad_creada`, `actividad_actualizada`, `actividad_eliminada`, `traslados_actualizados` y `viaje_actualizado`
+- Ocupacion: `activity_ai.context.intervalo_actividad` da los minutos de una actividad en su dia (sugerencias, aceptar sugerencia y votaciones). En "Completar dias libres" (US 92), `ocupacion_traslados` descuenta lo que dura el viaje tambien en el dia de llegada y `dias_en_viaje` excluye los dias completos en viaje segun el recorrido armado, este agendado o no
+- Frontend: `utils/traslados.js` (medios, textos, validacion), `components/trip/TrasladoCard.js` (tarjeta, linea compacta del tramo oculto con Mostrar y Agendar, y `AvisoTraslado`), `components/trip/RecorridoTraslado.js` (caja unica con origen, destino, sus horas con `HoraField` compacto, noches en viaje y pie para editar el recorrido) y `screens/AddTrasladoScreen.js` (hoja igual a `AddActivityScreen`). `TripDetailScreen` dibuja las tarjetas con `renderTrasladosDelDia` arriba de `DayAgenda` y por `renderEncabezadoDia` en `ItinerarioCalendarView`, solo con `lock.canEdit("itinerario")`; `edicion_concedida` abre este formulario si la actividad es un traslado. "Cambiar en el recorrido" abre `EditarViaje` con `initialTab: "destinations"`. `DayAgenda` y `DayTimeGrid` destacan el traslado; un traslado que llega otro dia ocupa hasta el final del dia de salida (`getActivityTimes`). Web usa los mismos componentes, sin ajustes propios
+- Los formularios tipo hoja comparten piezas: `components/ui/sheetFormStyles.js` (estilos), `OptionSheet` (panel inferior de seleccion), `SelectField` (desplegable), `HoraField` y `SelectorHora`/`useSelectorHora` (hora y reloj nativo) y `hooks/useScrollACampo.js` (llevar un campo a la vista con el teclado). `AddActivityScreen` y `AddTrasladoScreen` las usan; un formulario nuevo de este tipo tiene que reutilizarlas. `PlaceScheduleSheet` todavia tiene su propia copia del panel
+- Fuera de alcance (US B): mostrar el traslado en el dia de llegada, franjas por destino y dividir el dia de traslado
+- Migracion de datos: las actividades `plane`/`car` que caen en un dia de traslado con el tramo libre se convierten en su traslado (la primera por hora; el nombre original pasa a notas) y el resto pasa a `location-dot`. La regla esta en `convertir_actividades` y repetida en PL/pgSQL en el script 026. El downgrade conserva la hora conocida con un minuto de duracion pero no recupera nombres, iconos ni la llegada de los traslados que llegan otro dia
+- Tests: `backend/tests/test_traslados.py`, `test_migracion_traslados.py` y `test_completar_dias_libres.py`; frontend `Traslados.test.js`, `AddTrasladoScreen.test.js` y `CategoriasActividad.test.js`. SQLite no aplica FKs ni corre el SQL de Postgres: la migracion y el script se prueban tambien contra Postgres
+
+## Categorias de actividades
+
+- Las actividades tienen 6 categorias, guardadas como icono en `ActividadesItinerario.Icono`: Hotel (`building`), Comida (`utensils`), Turismo (`camera`), Evento (`ticket`), Excursion (`person-hiking`) y Otro (`location-dot`). La lista y la deteccion por palabras viven en `frontend/src/utils/categoriasActividad.js`, compartidas por `AddActivityScreen` y `PlaceScheduleSheet`
+- Vuelo y Traslado no son categorias: esos viajes se agendan como traslados (US 136). `plane` y `car` solo se usan como medio de un traslado y en categorias de gastos, checklist y documentos, que no cambian
+- Las palabras de viajes ("vuelo", "aeropuerto", "taxi", "tren", "ferry", etc.) resuelven a Otro y conservan su lugar en el orden de deteccion: si se quitaran, "Vuelo a Bariloche" caeria en Comida por contener "bar"
 
 ## Integraciones externas
 
@@ -562,6 +591,7 @@ Orden actual:
 - `023_notificaciones_pasarela_pagos.sql`
 - `024_periodo_pagos_suscripciones.sql`
 - `025_recorrido_destinos_viajes.sql`
+- `026_traslados_viajes.sql`
 
 ## Convenciones de backend
 

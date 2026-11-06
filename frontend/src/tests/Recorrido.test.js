@@ -127,6 +127,12 @@ describe("textos de la vista", () => {
     expect(textoRangoTramo({ llegada: "2026-12-28", salida: "2027-01-03" })).toBe("28 dic → 3 ene");
   });
 
+  it("un destino sin noches no muestra un rango", () => {
+    expect(textoRangoTramo({ llegada: "2026-11-12", salida: "2026-11-12" })).toBe(
+      "Sin noches todavía"
+    );
+  });
+
   it("nombra la píldora del traslado", () => {
     expect(textoPildoraTraslado(0)).toBe("Mismo día");
     expect(textoPildoraTraslado(1)).toBe("1 noche");

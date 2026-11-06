@@ -3,8 +3,10 @@ import { FontAwesome6 } from "@expo/vector-icons";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import GapSuggestChip from "./GapSuggestChip";
+import { AvisoTraslado } from "./TrasladoCard";
 import { buildAgenda, getPlaceName, isTodayISO } from "../../utils/agenda";
 import { aHora, aMinutos } from "../../utils/huecosLibres";
+import { textoHorario } from "../../utils/traslados";
 import { colors, radii, spacing, textStyles } from "../../theme/tokens";
 
 const COLOR_SOFT = colors.primarySoft ? `${colors.primarySoft}33` : "#eef2ff";
@@ -100,8 +102,11 @@ export default function DayAgenda({
         const siguiente = entrada.estado === "siguiente";
         const pasada = entrada.estado === "pasada";
 
+        const traslado = item.traslado;
+
         let horario = "Sin horario";
-        if (entrada.start && entrada.end) horario = `${entrada.start} – ${entrada.end}`;
+        if (traslado) horario = textoHorario(traslado, item.horaInicio, item.horaFin);
+        else if (entrada.start && entrada.end) horario = `${entrada.start} – ${entrada.end}`;
         else if (entrada.start) horario = `Desde las ${entrada.start}`;
 
         const anterior = posicion > 0 ? agenda[posicion - 1] : null;
@@ -145,8 +150,18 @@ export default function DayAgenda({
                 accessibilityRole={hayMas ? "button" : undefined}
                 accessibilityLabel={hayMas ? (abierto ? "Ver menos" : "Ver más") : undefined}
                 testID={`agenda-detail-${id}`}
-                style={[styles.card, enCurso && styles.cardNow, !esUltima && styles.cardSpacing]}
+                style={[
+                  styles.card,
+                  traslado && styles.cardTraslado,
+                  enCurso && styles.cardNow,
+                  !esUltima && styles.cardSpacing,
+                ]}
               >
+                {traslado ? (
+                  <Text style={styles.etiquetaTraslado} testID={`agenda-traslado-${id}`}>
+                    TRASLADO
+                  </Text>
+                ) : null}
                 <View style={styles.cardTop}>
                   <View style={[styles.iconBubble, enCurso && styles.iconBubbleNow]}>
                     <FontAwesome6
@@ -156,12 +171,12 @@ export default function DayAgenda({
                     />
                   </View>
                   <Text
-                    numberOfLines={1}
+                    numberOfLines={traslado ? 2 : 1}
                     style={[styles.time, !entrada.start && styles.timeNone]}
                     testID={`agenda-time-${id}`}
                   >
                     {horario}
-                    {entrada.duracion ? <Text style={styles.duration}>{`  ·  ${entrada.duracion}`}</Text> : null}
+                    {entrada.duracion && !traslado ? <Text style={styles.duration}>{`  ·  ${entrada.duracion}`}</Text> : null}
                   </Text>
 
                   {enCurso || siguiente ? (
@@ -225,6 +240,10 @@ export default function DayAgenda({
                   <Text style={styles.note} numberOfLines={abierto ? undefined : 1}>
                     {nota}
                   </Text>
+                ) : null}
+
+                {traslado ? (
+                  <AvisoTraslado traslado={traslado} testID={`agenda-traslado-aviso-${id}`} />
                 ) : null}
 
                 {/* 5) Advertencia de horario aceptada al registrar la actividad */}
@@ -388,6 +407,18 @@ const styles = StyleSheet.create({
   cardNow: {
     borderColor: colors.primary,
     backgroundColor: COLOR_SOFT,
+  },
+  cardTraslado: {
+    borderLeftWidth: 3,
+    borderLeftColor: colors.primary,
+    backgroundColor: COLOR_SOFT,
+  },
+  etiquetaTraslado: {
+    ...textStyles.meta,
+    color: colors.primary,
+    fontWeight: "700",
+    fontSize: 9,
+    letterSpacing: 0.4,
   },
   cardTop: {
     flexDirection: "row",

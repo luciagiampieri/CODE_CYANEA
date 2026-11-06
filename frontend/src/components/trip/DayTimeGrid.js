@@ -4,9 +4,12 @@ import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import { formatDuration, getActivityTimes, getPlaceName, isTodayISO } from "../../utils/agenda";
 import { aHora, aMinutos, calcularHuecosLibres } from "../../utils/huecosLibres";
+import { avisoDeTraslado, textoHorario } from "../../utils/traslados";
 import { colors, radii, spacing, textStyles } from "../../theme/tokens";
+import { AvisoTraslado } from "./TrasladoCard";
 
 const ALTO_HORA = 68; 
+const ALTO_MINIMO_TRASLADO = 58;
 const ALTO_MINIMO = 32; 
 const ANCHO_HORAS = 38;
 const INICIO_SUGERENCIAS = 8 * 60;
@@ -137,6 +140,23 @@ export default function DayTimeGrid({
         </View>
       ) : null}
 
+      {bloques
+        .filter((b) => avisoDeTraslado(b.item.traslado))
+        .map((b) => (
+          <Pressable
+            key={`traslado-aviso-${b.item.id}`}
+            accessibilityLabel={`Editar ${b.item.title}`}
+            disabled={!canEdit}
+            onLongPress={canEdit ? () => onDelete?.(b.item) : undefined}
+            onPress={() => onEdit?.(b.item)}
+          >
+            <Text numberOfLines={1} style={styles.trasladoAvisoNombre}>
+              {b.item.title}
+            </Text>
+            <AvisoTraslado traslado={b.item.traslado} testID={`timegrid-traslado-aviso-${b.item.id}`} />
+          </Pressable>
+        ))}
+
       {enConflicto.length > 0 ? (
         <View style={styles.aviso} testID="timegrid-conflict">
           <View style={styles.avisoHeader}>
@@ -207,7 +227,10 @@ export default function DayTimeGrid({
 
             {bloques.map((b) => {
               const top = ((b.startMin - desde) / 60) * ALTO_HORA;
-              const alto = Math.max(((b.endMin - b.startMin) / 60) * ALTO_HORA - 2, ALTO_MINIMO);
+              const alto = Math.max(
+                ((b.endMin - b.startMin) / 60) * ALTO_HORA - 2,
+                b.item.traslado ? ALTO_MINIMO_TRASLADO : ALTO_MINIMO
+              );
               const ancho = 100 / b.columnas;
               const lineasTitulo = Math.max(
                 1,
@@ -241,6 +264,14 @@ export default function DayTimeGrid({
                       enCurso && { borderColor: tipo.acento, borderWidth: 1.5 },
                     ]}
                   >
+                    {b.item.traslado ? (
+                      <Text
+                        style={[styles.etiquetaTraslado, { color: tipo.texto }]}
+                        testID={`timegrid-traslado-${b.item.id}`}
+                      >
+                        TRASLADO
+                      </Text>
+                    ) : null}
                     <View style={styles.bloqueTitulo}>
                       {letra ? (
                         <View style={[styles.bloqueIcono, { backgroundColor: tipo.acento }]}>
@@ -268,7 +299,11 @@ export default function DayTimeGrid({
                         </View>
                       ) : null}
                     </View>
-                    {alto >= 40 ? (
+                    {b.item.traslado ? (
+                      <Text numberOfLines={1} style={[styles.bloqueHora, { color: tipo.texto }]}>
+                        {textoHorario(b.item.traslado, b.item.horaInicio, b.item.horaFin)}
+                      </Text>
+                    ) : alto >= 40 ? (
                       <Text numberOfLines={1} style={[styles.bloqueHora, { color: tipo.texto }]}>
                         {b.start}
                         {b.tieneFin ? ` – ${b.end}` : ""}
@@ -314,6 +349,18 @@ export default function DayTimeGrid({
 }
 
 const styles = StyleSheet.create({
+  etiquetaTraslado: {
+    ...textStyles.meta,
+    fontWeight: "700",
+    fontSize: 8,
+    letterSpacing: 0.4,
+  },
+  trasladoAvisoNombre: {
+    ...textStyles.meta,
+    color: colors.primary,
+    fontWeight: "600",
+    marginTop: spacing.xs,
+  },
   sinHorarioWrap: { marginBottom: spacing.sm, gap: 4 },
   sinHorarioLabel: { ...textStyles.meta, color: colors.textSecondary, fontSize: 11, fontWeight: "600" },
   sinHorarioFichas: { flexDirection: "row", flexWrap: "wrap", gap: 6 },

@@ -20,6 +20,7 @@ from app.api.routes import (
     planificacion,
     sugerencias,
     suscripciones,
+    traslados,
 )
 
 api_router = APIRouter()
@@ -48,3 +49,4 @@ api_router.include_router(notificaciones.router, prefix="/notificaciones", tags=
 api_router.include_router(checklists.router, prefix="/trips", tags=["checklists"])
 api_router.include_router(planificacion.router, prefix="/trips", tags=["planificacion"])
 api_router.include_router(sugerencias.router, prefix="/trips", tags=["sugerencias"])
+api_router.include_router(traslados.router, prefix="/trips", tags=["traslados"])

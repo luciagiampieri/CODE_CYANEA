@@ -2,6 +2,7 @@
 // Se mantiene fuera de las pantallas para poder probarla sin renderizar nada.
 
 const MINUTOS_HUECO_MINIMO = 30;
+const ULTIMO_MINUTO_DEL_DIA = 23 * 60 + 59;
 
 export function toMinutes(valor) {
   if (typeof valor !== "string") return null;
@@ -43,7 +44,11 @@ export function getActivityTimes(item) {
   }
 
   const startMin = toMinutes(inicio);
-  const endMin = toMinutes(fin);
+  const horaFinMin = toMinutes(fin);
+  // Un traslado que llega otro día ocupa hasta el final del día de salida.
+  const llegaOtroDia =
+    Boolean(item?.traslado) && horaFinMin != null && startMin != null && horaFinMin < startMin;
+  const endMin = llegaOtroDia ? ULTIMO_MINUTO_DEL_DIA : horaFinMin;
 
   return {
     startMin,

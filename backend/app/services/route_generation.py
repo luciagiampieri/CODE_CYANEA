@@ -88,6 +88,9 @@ def _actividades_con_y_sin_ubicacion(
     sin_ubicacion: list[ActividadItinerario] = []
 
     for actividad in dia.Actividades:
+        # Un traslado no es una parada del recorrido del día.
+        if actividad.IdTramoTraslado is not None:
+            continue
         if _resolver_lugar(actividad) is not None:
             con_ubicacion.append(actividad)
         else:

@@ -27,6 +27,21 @@ export function formatDateDisplay(isoDate) {
 
 const MESES_CORTOS = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"];
 
+const DIAS_CORTOS = ["dom", "lun", "mar", "mié", "jue", "vie", "sáb"];
+const DIAS_LARGOS = ["Domingo", "Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"];
+
+// "2026-11-04" -> "mié 4 nov"
+export function formatWeekdayDayMonth(isoDate) {
+  if (!isoDate) return "";
+  return `${DIAS_CORTOS[parseYMD(isoDate).getDay()]} ${formatDayMonth(isoDate)}`;
+}
+
+// "2026-11-04" -> "Miércoles 4 nov"
+export function formatLongWeekdayDayMonth(isoDate) {
+  if (!isoDate) return "";
+  return `${DIAS_LARGOS[parseYMD(isoDate).getDay()]} ${formatDayMonth(isoDate)}`;
+}
+
 // "2026-11-21" -> "21 nov"
 export function formatDayMonth(isoDate) {
   if (!isoDate) return "";

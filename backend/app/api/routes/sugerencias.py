@@ -57,7 +57,9 @@ from app.services.activity_ai.context import (
     calcular_huecos,
     combinar_preferencias,
     hhmm,
+    intervalo_actividad,
     minutos_de,
+    superpone,
     nombres_a_ocultar,
     sanitizar_texto,
 )
@@ -82,6 +84,7 @@ from app.services.notifications import (
     dispatch_trip_notification,
 )
 from app.services.resolucion_votaciones import obtener_o_crear_lugar
+from app.services.traslados import dias_en_viaje, ocupacion_traslados
 from app.services.websocket_manager import manager
 from app.services.trip_access import (
     get_trip_with_relations,
@@ -612,7 +615,7 @@ async def _generar_sugerencias_franja(
 
     actividades_viaje = _actividades_con_lugar(db, [d.IdDiaCronograma for d in viaje.Cronograma])
     actividades_dia = [a for a in actividades_viaje if a.IdDiaCronograma == dia.IdDiaCronograma]
-    ocupados = [(minutos_de(a.HoraInicio), minutos_de(a.HoraFin)) for a in actividades_dia]
+    ocupados = [intervalo_actividad(a) for a in actividades_dia]
 
     huecos = calcular_huecos(franja_inicio, franja_fin, ocupados)
     if not huecos:
@@ -647,7 +650,7 @@ async def _generar_sugerencias_franja(
     existentes_reglas: list[ActividadDia] = []
     for actividad in actividades_dia:
         lugar = _lugar_de(actividad)
-        inicio_a, fin_a = minutos_de(actividad.HoraInicio), minutos_de(actividad.HoraFin)
+        inicio_a, fin_a = intervalo_actividad(actividad)
         existentes_reglas.append(
             ActividadDia(
                 nombre=actividad.Nombre,
@@ -966,7 +969,7 @@ async def aceptar_sugerencia(
             .where(ActividadItinerario.IdDiaCronograma == dia.IdDiaCronograma)
             .order_by(ActividadItinerario.HoraInicio)
         ).all()
-        if actividad.HoraInicio < hora_fin and hora_inicio < actividad.HoraFin
+        if superpone(*intervalo_actividad(actividad), minutos_de(hora_inicio), minutos_de(hora_fin))
     ]
     if superpuestas and not payload.ConfirmarSuperposicion:
         db.rollback() 
@@ -1079,7 +1082,13 @@ def _franjas_libres(db: Session, viaje) -> list:
         ).all():
             actividades_por_dia.setdefault(actividad.IdDiaCronograma, []).append(actividad)
     hoy = datetime.now(_zona_horaria()).date()
-    return detectar_franjas_libres(viaje.Cronograma, actividades_por_dia, hoy)
+    return detectar_franjas_libres(
+        viaje.Cronograma,
+        actividades_por_dia,
+        hoy,
+        ocupacion_traslados(viaje),
+        dias_en_viaje(viaje),
+    )
 
 
 def _max_sugerencias_por_franja() -> int:

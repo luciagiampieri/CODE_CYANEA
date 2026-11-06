@@ -11,7 +11,10 @@ from collections import Counter
 from decimal import Decimal
 from typing import Iterable
 
+from app.models.tramo_traslado_viaje import TIPO_TRAMO_IDA, TIPO_TRAMO_REGRESO
+
 MIN_DURACION_MINUTOS = 30
+ULTIMO_MINUTO_DEL_DIA = 23 * 60 + 59
 
 _EMAIL = re.compile(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+")
 _URL = re.compile(r"(?:https?://|www\.)\S+", re.IGNORECASE)
@@ -40,6 +43,21 @@ def hhmm(minutos: int) -> str:
 
 def minutos_de(hora) -> int:
     return hora.hour * 60 + hora.minute
+
+
+def intervalo_actividad(actividad) -> tuple[int, int]:
+    """Minutos que ocupa una actividad en su día. Un traslado (US 136) puede no tener fin
+    posterior al inicio: la ida ocupa hasta la llegada, el regreso desde la salida y el
+    que llega otro día, hasta el final del día de salida."""
+    inicio, fin = minutos_de(actividad.HoraInicio), minutos_de(actividad.HoraFin)
+    tramo = getattr(actividad, "TramoTraslado", None)
+    if tramo is None:
+        return inicio, fin
+    if tramo.IdTipoTramoTraslado == TIPO_TRAMO_IDA:
+        return 0, fin
+    if tramo.IdTipoTramoTraslado == TIPO_TRAMO_REGRESO or fin <= inicio:
+        return inicio, ULTIMO_MINUTO_DEL_DIA
+    return inicio, fin
 
 
 def superpone(a_inicio: int, a_fin: int, b_inicio: int, b_fin: int) -> bool:

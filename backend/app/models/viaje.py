@@ -91,6 +91,11 @@ class Viaje(Base):
         cascade="all, delete-orphan", 
         order_by="(DestinoViaje.Orden, DestinoViaje.IdDestino)",
     )
+    TramosTraslados = relationship(
+        "TramoTrasladoViaje",
+        back_populates="Viaje",
+        cascade="all, delete-orphan",
+    )
     Documentos = relationship(
         "DocumentoViaje",
         back_populates="Viaje",
