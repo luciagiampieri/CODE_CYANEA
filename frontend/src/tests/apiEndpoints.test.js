@@ -120,6 +120,7 @@ const CASOS = [
   ["getResultadosVotacion", "GET", "/votaciones/2/resultados", [2]],
   ["getProgresoVotacion", "GET", "/votaciones/2/progreso", [2]],
   ["emitirVoto", "POST", "/votaciones/2/votar", [2, [1, 3]], { idPropuestas: [1, 3] }],
+  ["modificarVoto", "PUT", "/votaciones/2/voto", [2, [1, 3]], { idPropuestas: [1, 3] }],
   ["cancelarVotacion", "POST", "/votaciones/2/cancelar", [2], {}],
   ["createActivity", "POST", "/trips/7/days/3/activities?ignorar_advertencia=true", [7, 3, DATOS, { ignorarAdvertencia: true }], DATOS],
   ["updateActivity", "PUT", "/trips/7/days/3/activities/8", [7, 3, 8, DATOS], DATOS],

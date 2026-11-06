@@ -796,8 +796,9 @@ Para retomar o replicar la configuracion de push Android:
 - El envio del correo forma parte de la operacion: si falla, se hace rollback y se responde 502 `INVITATION_EMAIL_FAILED` para poder reintentar. `MAIL_ENABLED=false` no cuenta como falla. La ruta recibe `MailService` por `Depends(get_mail_service)` para poder reemplazarlo en tests
 - Limite `EMAIL_INVITATIONS_DAILY_LIMIT` (20) de invitaciones a correos sin cuenta por viaje y por dia calendario de Argentina, contado sobre `InvitacionesViajes.FechaInvitacion`; al superarlo responde 429 `EMAIL_INVITATION_LIMIT_REACHED`. Tambien se valida al crear el viaje
 - `GET /trips/{trip_id}/invitations/sent` suma las invitaciones por correo sin cuenta asociada (`tipo="correo"`, `email`, estado `pendiente` o `vencida`); al registrarse se muestran como participacion del usuario. En la app se cancelan con `DELETE /external-invitations`. Una invitacion pendiente vencida por fecha no figura en `invitedEmails` del detalle, asi el administrador puede volver a invitar ese correo
+- El enlace del correo es `{MAIL_FRONTEND_BASE_URL}/registro?email=<correo>&invitacion=1` (`InvitationEmailSender`). La ruta `Register` esta mapeada como `registro` en el `linking` de `App.js` y `RegisterScreen` precarga el correo (`route.params.email`) y muestra un aviso si llega `invitacion=1`. El token de `InvitacionesViajes` no viaja en el enlace: la invitacion se vincula por correo al crear la cuenta. Para que el enlace abra la app en produccion, el dominio de `MAIL_FRONTEND_BASE_URL` tiene que estar en los `prefixes` del `linking`
 - Al registrarse por cualquier metodo (correo, Google o Facebook) o al iniciar sesion, `vincular_invitaciones_externas` convierte las invitaciones pendientes del correo en participaciones `invitado`
-- Tests: `backend/tests/test_invitar_por_correo.py` y `frontend/src/tests/SentInvitationsList.test.js`
+- Tests: `backend/tests/test_invitar_por_correo.py`, `frontend/src/tests/SentInvitationsList.test.js` y `frontend/src/tests/RegisterScreenInvitacion.test.js`
 
 ### Navegacion
 
@@ -955,6 +956,11 @@ El flujo minimo actual incluye:
 - El tipo y las propuestas no se pueden modificar después de que exista un
   voto, para conservar la coherencia del histórico de resultados.
 - Eliminar una votación elimina también sus propuestas y votos relacionados.
+- Modificar voto (US 139): `PUT /votaciones/{id}/voto` con `idPropuestas`. Solo cambia el voto propio de quien ya voto, con la votacion abierta y no cancelada (400 si esta cancelada o si todavia no voto). Opcion unica reemplaza; opcion multiple agrega y quita con minimo una seleccion, y las opciones que se mantienen conservan su `FechaVoto`. La seleccion se valida con `_validar_seleccion`, compartida con `emitir_voto`: las propuestas tienen que ser de la votacion.
+- La votacion se bloquea con `with_for_update` durante la modificacion y el cierre se chequea dentro de la misma transaccion: si cerro, responde 409 y se conserva el voto anterior. Asi tampoco se cruza con la resolucion automatica de votaciones de sugerencias (US 91), que aplica igual a esas votaciones.
+- Quien salio o fue expulsado no puede modificar (`require_trip_edit_access`) y su voto queda como historico. Se emite `votacion_actualizada` para el progreso en tiempo real (US 52) y no se notifica a nadie. Si la seleccion no cambia, responde 200 "Tu voto no cambió." sin emitir eventos.
+- Frontend: en el tab Votar de `TripDetailScreen`, "Modificar voto" (estado `modificandoVotoId`) vuelve a mostrar las opciones con el voto actual (`MisPropuestas` del progreso) y guarda con `modificarVoto` de `api.js`. Ante un 409 descarta el progreso guardado y recarga las votaciones para mostrar los resultados finales.
+- Tests: `backend/tests/test_modificar_voto.py`.
 
 Backoffice:
 

@@ -485,6 +485,29 @@ class VotoRequest(BaseModel):
     idPropuestas: List[int]
 
 
+def _validar_seleccion(db: Session, votacion: Votacion, id_propuestas: list[int]) -> list[int]:
+    """Valida la selección de un voto y la devuelve sin repetidos, en el orden recibido."""
+    seleccion = list(dict.fromkeys(id_propuestas))
+
+    if not seleccion:
+        raise HTTPException(status_code=400, detail="Debes seleccionar al menos una propuesta.")
+
+    if _tipo_str(votacion) == "opcion_unica" and len(seleccion) > 1:
+        raise HTTPException(status_code=400, detail="Solo puedes seleccionar una propuesta en esta votación.")
+
+    validas = set(
+        db.scalars(
+            select(Propuesta.IdPropuesta).where(Propuesta.IdVotacion == votacion.IdVotacion)
+        )
+    )
+    if any(id_propuesta not in validas for id_propuesta in seleccion):
+        raise HTTPException(
+            status_code=400,
+            detail="Alguna de las propuestas elegidas no pertenece a esta votación.",
+        )
+    return seleccion
+
+
 @router.post("/{id_votacion}/votar")
 def emitir_voto(
     id_votacion: int,
@@ -521,14 +544,9 @@ def emitir_voto(
     if ya_voto > 0:
         raise HTTPException(status_code=400, detail="Ya has emitido un voto en esta votación.")
 
-    tipo_votacion = _tipo_str(votacion)
-    if tipo_votacion == "opcion_unica" and len(request.idPropuestas) > 1:
-        raise HTTPException(status_code=400, detail="Solo puedes seleccionar una propuesta en esta votación.")
+    seleccion = _validar_seleccion(db, votacion, request.idPropuestas)
 
-    if len(request.idPropuestas) == 0:
-        raise HTTPException(status_code=400, detail="Debes seleccionar al menos una propuesta.")
-
-    for id_propuesta in request.idPropuestas:
+    for id_propuesta in seleccion:
         nuevo_voto = Voto(
             IdUsuario=current_user.IdUsuario,
             IdVotacion=id_votacion,
@@ -545,6 +563,84 @@ def emitir_voto(
     )
 
     return {"detail": "Voto registrado correctamente. ¡Gracias por participar!"}
+
+
+@router.put("/{id_votacion}/voto")
+def modificar_voto(
+    id_votacion: int,
+    request: VotoRequest,
+    background_tasks: BackgroundTasks,
+    current_user: Usuario = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """US 139: el emisor cambia su voto mientras la votación sigue activa.
+
+    La votación se bloquea durante la modificación para que el cierre (o la
+    resolución automática de sugerencias) no la vea a medio cambiar: o queda el
+    voto nuevo completo o se conserva el anterior.
+    """
+    votacion = db.scalar(
+        select(Votacion).where(Votacion.IdVotacion == id_votacion).with_for_update()
+    )
+    if votacion is None:
+        raise HTTPException(status_code=404, detail="La votación no existe.")
+
+    viaje = require_trip_edit_access(
+        get_trip_with_relations(db, votacion.IdViaje),
+        current_user,
+    )
+    require_trip_not_finished(viaje, "las votaciones")
+
+    if votacion.FechaCancelacion is not None:
+        raise HTTPException(status_code=400, detail="La votación fue cancelada.")
+
+    if _ahora_utc() >= _aware(votacion.FechaCierre):
+        raise HTTPException(
+            status_code=409,
+            detail="La votación cerró antes de que se guardara el cambio. Se conservó tu voto anterior.",
+        )
+
+    votos_actuales = db.scalars(
+        select(Voto).where(
+            Voto.IdVotacion == id_votacion,
+            Voto.IdUsuario == current_user.IdUsuario,
+        )
+    ).all()
+    if not votos_actuales:
+        raise HTTPException(
+            status_code=400,
+            detail="Todavía no votaste en esta votación, así que no hay voto para modificar.",
+        )
+
+    seleccion = _validar_seleccion(db, votacion, request.idPropuestas)
+    por_propuesta = {voto.IdPropuesta: voto for voto in votos_actuales}
+
+    if set(seleccion) == set(por_propuesta):
+        db.rollback()
+        return {"detail": "Tu voto no cambió.", "idPropuestas": seleccion}
+
+    for id_propuesta, voto in por_propuesta.items():
+        if id_propuesta not in seleccion:
+            db.delete(voto)
+    for id_propuesta in seleccion:
+        if id_propuesta not in por_propuesta:
+            db.add(
+                Voto(
+                    IdUsuario=current_user.IdUsuario,
+                    IdVotacion=id_votacion,
+                    IdPropuesta=id_propuesta,
+                )
+            )
+
+    db.commit()
+
+    background_tasks.add_task(
+        ws_manager.broadcast,
+        votacion.IdViaje,
+        {"tipo": "votacion_actualizada", "idVotacion": id_votacion},
+    )
+
+    return {"detail": "Tu voto se actualizó correctamente.", "idPropuestas": seleccion}
 
 
 class DesempateRequest(BaseModel):

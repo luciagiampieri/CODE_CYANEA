@@ -1150,6 +1150,18 @@ export async function emitirVoto(idVotacion, idPropuestas) {
   return parseResponse(response, "No se pudo registrar el voto");
 }
 
+export async function modificarVoto(idVotacion, idPropuestas) {
+  const response = await fetch(`${API_BASE_URL}/votaciones/${idVotacion}/voto`, {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+      ...(await authHeaders()),
+    },
+    body: JSON.stringify({ idPropuestas }),
+  });
+  return parseResponse(response, "No se pudo registrar el voto");
+}
+
 export async function cancelarVotacion(idVotacion) {
   const response = await fetch(`${API_BASE_URL}/votaciones/${idVotacion}/cancelar`, {
     method: "POST",

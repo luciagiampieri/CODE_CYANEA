@@ -60,6 +60,8 @@ export default function ResultadosVotacion({
     puedeDesempatar = false,
     eligiendo = false,
     onElegirGanadora,
+    onElegirOpcion,
+    cambiandoVoto = false,
 }) {
     const [detalleVisible, setDetalleVisible] = useState(false);
     if (!resultados) return null;
@@ -68,6 +70,8 @@ export default function ResultadosVotacion({
     const ganadoras = mostrarGanador ? IdPropuestasGanadoras : [];
     const estadoLabel = ESTADO_VOTACION_LABEL[resultados.Estado] || resultados.Estado;
     const esOpcionUnica = resultados.Tipo === "opcion_unica";
+    // US 139: como en WhatsApp, el voto se cambia tocando otra opción.
+    const puedeElegir = typeof onElegirOpcion === "function" && resultados.Estado === "abierta";
     const subtitleText =
         typeof totalParticipantes === "number"
             ? `${TotalVotantes} de ${totalParticipantes} participantes votaron`
@@ -224,17 +228,16 @@ export default function ResultadosVotacion({
                 const esGanadora = ganadoras.includes(r.IdPropuesta);
                 const esMiVoto = MisPropuestas.includes(r.IdPropuesta);
                 const colorAcento = esGanadora ? colors.primary : esMiVoto ? "#FFEC80" : colors.border;
-                return (
-                    <View
-                        key={r.IdPropuesta}
-                        style={[
-                            styles.pill,
-                            {
-                                borderColor: colorAcento,
-                                borderWidth: esGanadora || esMiVoto ? 2 : 1,
-                            },
-                        ]}
-                    >
+                const estiloPill = [
+                    styles.pill,
+                    {
+                        borderColor: colorAcento,
+                        borderWidth: esGanadora || esMiVoto ? 2 : 1,
+                    },
+                    cambiandoVoto && { opacity: 0.6 },
+                ];
+                const contenido = (
+                    <>
                         <View
                             style={[
                                 styles.fill,
@@ -249,12 +252,31 @@ export default function ResultadosVotacion({
                             ]}
                         />
                         <View style={styles.content}>
+                            {puedeElegir ? (
+                                <View
+                                    style={[
+                                        styles.indicador,
+                                        esOpcionUnica ? styles.indicadorUnica : styles.indicadorMultiple,
+                                        esMiVoto && styles.indicadorMarcado,
+                                    ]}
+                                    testID={`indicador-voto-${r.IdPropuesta}`}
+                                >
+                                    {esMiVoto ? (
+                                        <View
+                                            style={[
+                                                styles.indicadorPunto,
+                                                esOpcionUnica ? styles.indicadorPuntoUnica : styles.indicadorPuntoMultiple,
+                                            ]}
+                                        />
+                                    ) : null}
+                                </View>
+                            ) : null}
                             <Text style={{ color: colors.textPrimary, fontWeight: esGanadora ? "800" : "500", flex: 1, marginRight: 8 }}>
                                 {esGanadora ? "🏆 " : ""}
                                 {r.Texto}
                             </Text>
                             <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-                                {esMiVoto && (
+                                {esMiVoto && !puedeElegir && (
                                     <Text style={{ color: "#1E3E7B", fontWeight: "700", fontSize: 12 }}>
                                         ✓ Tu voto
                                     </Text>
@@ -264,27 +286,59 @@ export default function ResultadosVotacion({
                                 </Text>
                             </View>
                         </View>
-                    </View>
+                    </>
+                );
+
+                if (!puedeElegir) {
+                    return (
+                        <View key={r.IdPropuesta} style={estiloPill}>
+                            {contenido}
+                        </View>
+                    );
+                }
+
+                return (
+                    <Pressable
+                        key={r.IdPropuesta}
+                        accessibilityRole={esOpcionUnica ? "radio" : "checkbox"}
+                        accessibilityState={{ checked: esMiVoto, disabled: cambiandoVoto }}
+                        accessibilityHint={
+                            esOpcionUnica
+                                ? "Cambia tu voto a esta opción"
+                                : esMiVoto
+                                ? "Quita esta opción de tu voto"
+                                : "Suma esta opción a tu voto"
+                        }
+                        disabled={cambiandoVoto}
+                        onPress={() => onElegirOpcion(r.IdPropuesta)}
+                        style={({ pressed }) => [...estiloPill, pressed && { opacity: 0.8 }]}
+                        testID={`opcion-voto-${r.IdPropuesta}`}
+                    >
+                        {contenido}
+                    </Pressable>
                 );
             })}
 
             {renderResolucion()}
 
-            <Pressable
-                onPress={() => setDetalleVisible(true)}
-                style={{
-                    flexDirection: "row",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    gap: 6,
-                    paddingVertical: 8,
-                }}
-            >
-                <FontAwesome6 name="eye" size={12} color={colors.primary} />
-                <Text style={{ color: colors.primary, fontWeight: "700", fontSize: 13 }}>
-                    Ver votos
-                </Text>
-            </Pressable>
+            <View style={[styles.pie, puedeElegir && styles.pieConAyuda]}>
+                {puedeElegir ? (
+                    <Text style={styles.ayudaCambio}>
+                        {esOpcionUnica
+                            ? "Tocá otra opción para cambiar tu voto"
+                            : "Tocá una opción para sumarla o quitarla"}
+                    </Text>
+                ) : null}
+                <Pressable
+                    onPress={() => setDetalleVisible(true)}
+                    style={styles.verVotos}
+                >
+                    <FontAwesome6 name="eye" size={12} color={colors.primary} />
+                    <Text style={{ color: colors.primary, fontWeight: "700", fontSize: 13 }}>
+                        Ver votos
+                    </Text>
+                </Pressable>
+            </View>
 
             {detalleVisible && (
                 <Modal
@@ -429,6 +483,56 @@ const styles = StyleSheet.create({
         flexDirection: "row",
         alignItems: "center",
         justifyContent: "space-between",
+    },
+        indicador: {
+        width: 18,
+        height: 18,
+        borderWidth: 2,
+        borderColor: colors.textMuted,
+        marginRight: 10,
+        alignItems: "center",
+        justifyContent: "center",
+        backgroundColor: colors.surface,
+    },
+    indicadorUnica: {
+        borderRadius: 9,
+    },
+    indicadorMultiple: {
+        borderRadius: 4,
+    },
+    indicadorMarcado: {
+        borderColor: colors.accent,
+    },
+    indicadorPunto: {
+        width: 10,
+        height: 10,
+        backgroundColor: colors.accent,
+    },
+    indicadorPuntoUnica: {
+        borderRadius: 5,
+    },
+    indicadorPuntoMultiple: {
+        borderRadius: 2,
+    },
+        pie: {
+        flexDirection: "row",
+        alignItems: "center",
+        justifyContent: "center",
+        gap: 8,
+    },
+    pieConAyuda: {
+        justifyContent: "space-between",
+    },
+    ayudaCambio: {
+        flex: 1,
+        color: colors.textMuted,
+        fontSize: 12,
+    },
+    verVotos: {
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 6,
+        paddingVertical: 8,
     },
     aviso: {
         flexDirection: "row",

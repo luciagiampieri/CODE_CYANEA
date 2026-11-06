@@ -45,6 +45,7 @@ import {
   addTripParticipant,
   onTripFinishedError,
   emitirVoto,
+  modificarVoto,
   cancelarVotacion,
   getCurrentUser,
   getTripSettlement,
@@ -373,6 +374,8 @@ export default function TripDetailScreen({ navigation, route }) {
   const [votandoId, setVotandoId] = useState(null);
   const [cancelandoId, setCancelandoId] = useState(null);
   const [votosSeleccionados, setVotosSeleccionados] = useState({});
+  const [cambiandoVotoId, setCambiandoVotoId] = useState(null);
+  const [modificandoVotoId, setModificandoVotoId] = useState(null);
   const [resultadosPorVotacion, setResultadosPorVotacion] = useState({});
   const votacionesVisibles = useMemo(
     () =>
@@ -3408,6 +3411,8 @@ export default function TripDetailScreen({ navigation, route }) {
                   : new Date(votacion.FechaCierre) < new Date();
                 const finalizada = esCerrada || esCancelada;
                 const mostrarResultados = finalizada || votacion.YaVoto;
+                const puedeCambiarVoto =
+                  votacion.YaVoto && !finalizada && lock.canEdit("votaciones");
                 const opcionesElegidas = votosSeleccionados[votacion.IdVotacion] || [];
                 const enviandoEsteVoto = votandoId === votacion.IdVotacion;
                 const cancelandoEstaVotacion = cancelandoId === votacion.IdVotacion;
@@ -3474,6 +3479,64 @@ export default function TripDetailScreen({ navigation, route }) {
                     );
                   } finally {
                     setVotandoId(null);
+                  }
+                };
+
+                const cambiarVoto = async (idPropuesta) => {
+                  if (!puedeCambiarVoto || cambiandoVotoId) return;
+                  const actuales =
+                    resultadosPorVotacion[votacion.IdVotacion]?.MisPropuestas ?? [];
+
+                  let nuevas;
+                  if (votacion.Tipo === "opcion_unica") {
+                    if (actuales.includes(idPropuesta)) return;
+                    nuevas = [idPropuesta];
+                  } else if (actuales.includes(idPropuesta)) {
+                    if (actuales.length === 1) {
+                      avisar("Atención", "Tenés que dejar al menos una opción elegida.");
+                      return;
+                    }
+                    nuevas = actuales.filter((id) => id !== idPropuesta);
+                  } else {
+                    nuevas = [...actuales, idPropuesta];
+                  }
+
+                  try {
+                    setCambiandoVotoId(votacion.IdVotacion);
+                    await modificarVoto(votacion.IdVotacion, nuevas);
+                  } catch (error) {
+                    if (error?.status === 409) {
+                      // Se descarta el progreso guardado para que se carguen los resultados finales.
+                      setResultadosPorVotacion((prev) => {
+                        const { [votacion.IdVotacion]: _descartado, ...resto } = prev;
+                        return resto;
+                      });
+                      avisar(
+                        "La votación cerró",
+                        error.message ||
+                          "La votación cerró antes de que se guardara el cambio. Se conservó tu voto anterior."
+                      );
+                      loadVotaciones();
+                    } else {
+                      avisar(
+                        "No se pudo cambiar el voto",
+                        error.message || "Ocurrió un error al cambiar tu voto."
+                      );
+                    }
+                    setCambiandoVotoId(null);
+                    return;
+                  }
+
+                  try {
+                    const progreso = await getProgresoVotacion(votacion.IdVotacion);
+                    setResultadosPorVotacion((prev) => ({
+                      ...prev,
+                      [votacion.IdVotacion]: progreso,
+                    }));
+                  } catch {
+                    // El voto ya se guardó; el aviso en tiempo real vuelve a cargar el progreso.
+                  } finally {
+                    setCambiandoVotoId(null);
                   }
                 };
 
@@ -3627,6 +3690,8 @@ export default function TripDetailScreen({ navigation, route }) {
                               mostrarGanador={esCerrada}
                               totalParticipantes={participantItems.length}
                               titulo={votacion.Titulo}
+                              onElegirOpcion={puedeCambiarVoto ? cambiarVoto : undefined}
+                              cambiandoVoto={cambiandoVotoId === votacion.IdVotacion}
                             />
                           );
                         })()
@@ -3699,7 +3764,7 @@ export default function TripDetailScreen({ navigation, route }) {
                         >
                           🚫 Esta votación fue cancelada por su creador.
                         </Text>
-                      ) : esCerrada ? null : votacion.YaVoto ? (
+                      ) : esCerrada || puedeCambiarVoto ? null : votacion.YaVoto ? (
                         <Text
                           style={{
                             color: colors.success,
