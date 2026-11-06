@@ -54,6 +54,7 @@ export default function TripAssistantPanel({
   const [loading, setLoading] = useState(false);
   const [consenting, setConsenting] = useState(false);
   const [error, setError] = useState("");
+  const hasTypingMessage = messages.some((item) => item.isTyping);
 
   const hasConsent = Boolean(currentUser?.consienteAsistenteIA);
   const pendingAction = useMemo(
@@ -89,7 +90,7 @@ export default function TripAssistantPanel({
     }, 18);
 
     return () => clearInterval(timer);
-  }, [messages]);
+  }, [hasTypingMessage]);
 
   async function handleConsent() {
     try {

@@ -1,12 +1,10 @@
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
-import { View } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { Feather } from "@expo/vector-icons";
 
+import FloatingTabBar from "../components/navigation/FloatingTabBar";
 import HomeScreen from "../screens/HomeScreen";
 import MyTripsScreen from "../screens/MyTripsScreen";
 import ProfileScreen from "../screens/ProfileScreen";
-import { colors, radii, spacing, textStyles } from "../theme/tokens";
+import { colors } from "../theme/tokens";
 
 const Tab = createBottomTabNavigator();
 
@@ -28,59 +26,18 @@ const tabs = [
   },
 ];
 
-export default function MainTabs() {
-  const insets = useSafeAreaInsets();
+const ICONOS = Object.fromEntries(tabs.map((tab) => [tab.name, tab.icon]));
 
+export default function MainTabs() {
   return (
     <Tab.Navigator
-      screenOptions={({ route }) => ({
+      tabBar={(props) => <FloatingTabBar {...props} iconos={ICONOS} />}
+      screenOptions={{
         headerShown: false,
-        tabBarActiveTintColor: colors.primary,
-        tabBarInactiveTintColor: colors.textMuted,
-        tabBarStyle: {
-          height: 74 + insets.bottom,
-          paddingTop: 10,
-          paddingBottom: spacing.sm + insets.bottom,
-          backgroundColor: colors.surface,
-          borderTopWidth: 1,
-          borderTopColor: colors.border,
-          shadowColor: colors.shadow,
-          shadowOpacity: 0.08,
-          shadowRadius: 12,
-          shadowOffset: { width: 0, height: -4 },
-          elevation: 10,
-        },
         sceneStyle: {
           backgroundColor: colors.background,
         },
-        tabBarLabelStyle: {
-          ...textStyles.nav,
-          marginTop: 2,
-        },
-        tabBarIcon: ({ color, size, focused }) => {
-          const currentTab = tabs.find((tab) => tab.name === route.name);
-          return (
-            <View
-              style={[
-                {
-                  width: 44,
-                  height: 32,
-                  borderRadius: radii.pill,
-                  alignItems: "center",
-                  justifyContent: "center",
-                },
-                focused && { backgroundColor: "rgba(30, 62, 123, 0.12)" },
-              ]}
-            >
-              <Feather
-                color={color}
-                name={currentTab.icon}
-                size={focused ? size + 1 : size}
-              />
-            </View>
-          );
-        },
-      })}
+      }}
     >
       {tabs.map((tab) => (
         <Tab.Screen
