@@ -36,13 +36,13 @@ import SearchPickerHeader, { SEARCH_PICKER_EDGES } from "../components/ui/Search
 import { appAlert } from "../components/ui/AppDialog";
 import { ICON_OPTIONS, detectIcon } from "../utils/categoriasActividad";
 import { recomendacionDeRespuesta } from "../utils/recomendacionEntradas";
+import { confirmacionDeMovimiento, diasParaMover, etiquetaDia } from "../utils/moverActividad";
 import {
     mostrarAdvertenciaHorario as mostrarAdvertenciaHorarioActividad,
     mostrarConfirmacionTareasEntradas,
     mostrarRecomendacionEntradas,
 } from "../utils/dialogosActividad";
 
-// Mismo celeste suave que el buscador de destinos.
 const COLOR_SOFT = colors.primarySoft ? `${colors.primarySoft}33` : "#eef2ff";
 
 function mostrarAlertaConfirmacion(titulo, mensaje, onAceptar) {
@@ -65,13 +65,15 @@ export default function AddActivityScreen({
     tripId,
     activityToEdit = null,
     onCancelEdit,
+    dias = [],
+    diaActualId = null,
 }) {
-    // Tamaño de la pantalla para que "Validando horarios" la cubra entera y quede centrado.
     const pantalla = useWindowDimensions();
     const [nombre, setNombre] = useState("");
     const [descripcion, setDescripcion] = useState("");
     const [horaInicio, setHoraInicio] = useState("");
     const [horaFin, setHoraFin] = useState("");
+    const [diaDestinoId, setDiaDestinoId] = useState(diaActualId);
 
     const selectorHora = useSelectorHora(commitTime);
 
@@ -97,6 +99,10 @@ export default function AddActivityScreen({
 
     const { scrollRef, fieldY, scrollToField } = useScrollACampo();
 
+    const opcionesDia =
+        activityToEdit && !activityToEdit.traslado ? diasParaMover(dias, diaActualId) : [];
+    const mueveDeDia = Boolean(activityToEdit) && diaDestinoId != null && diaDestinoId !== diaActualId;
+
     useEffect(() => {
         if (!iconoModificadoManual) {
             setIcono(detectIcon(nombre));
@@ -106,6 +112,7 @@ export default function AddActivityScreen({
     useEffect(() => {
         if (!visible) return;
         closingRef.current = false;
+        setDiaDestinoId(diaActualId);
 
         if (activityToEdit) {
             setNombre(activityToEdit.title ?? "");
@@ -133,7 +140,7 @@ export default function AddActivityScreen({
         setLocationQuery("");
         setLocationResults([]);
         setHasSearchedLocations(false);
-    }, [visible, activityToEdit]);
+    }, [visible, activityToEdit, diaActualId]);
 
     useEffect(() => {
         let active = true;
@@ -252,8 +259,6 @@ export default function AddActivityScreen({
         }
     }
 
-    // Web: el <input type="time"> del navegador devuelve "HH:MM". Se guarda tal cual y
-    // las reglas (fin posterior al inicio, 00:00, etc.) se validan al guardar, como antes.
     function handleWebTimeChange(type, value) {
         if (!value || !isValidTime(value)) return;
         if (type === "inicio") setHoraInicio(value);
@@ -305,13 +310,9 @@ export default function AddActivityScreen({
     }
     
     function mostrarAdvertenciaHorario(datos, tareasEntradasAEliminar = []) {
-        // Se reenvía al confirmar para que la advertencia quede marcada en el itinerario.
         const advertenciaHorario = datos.tipo && datos.resumen
             ? { tipo: datos.tipo, resumen: datos.resumen }
             : null;
-        // La recomendación de entradas/reservas llegó con la advertencia: al confirmar el
-        // backend no vuelve a analizar el lugar, así que se muestra esta y se reenvía el
-        // lugar analizado para que no se repita en próximas ediciones.
         mostrarAdvertenciaHorarioActividad(datos, {
             esEdicion: Boolean(activityToEdit),
             onConfirmar: () =>
@@ -330,13 +331,12 @@ export default function AddActivityScreen({
         advertenciaHorario = null,
         googlePlaceIdEntradas = null,
         recomendacionPrevia = null,
-        // Tareas de "Recordármelo" que el usuario aceptó eliminar al cambiar el lugar.
         tareasEntradasAEliminar = [],
+        confirmacionMovimiento = null,
     } = {}) {
         if (submittingRef.current) return;
         submittingRef.current = true;
 
-        // Sin `ignorarAdvertencia` el backend analiza los horarios del lugar y puede demorar unos segundos.
         setAnalizando(!ignorarAdvertencia);
         setSubmitting(true);
         setError("");
@@ -358,6 +358,8 @@ export default function AddActivityScreen({
                     ...(ignorarAdvertencia && advertenciaHorario ? { advertenciaHorario } : {}),
                     ...(ignorarAdvertencia && googlePlaceIdEntradas ? { googlePlaceIdEntradas } : {}),
                     ...(tareasEntradasAEliminar.length > 0 ? { tareasEntradasAEliminar } : {}),
+                    ...(mueveDeDia ? { idDiaDestino: diaDestinoId } : {}),
+                    ...(confirmacionMovimiento ? { confirmacionMovimiento } : {}),
                 },
                 { ignorarAdvertencia }
             );
@@ -366,13 +368,30 @@ export default function AddActivityScreen({
             setAnalizando(false);
             submittingRef.current = false;
 
-            // Cambia el lugar de una actividad con tareas pendientes de "Recordármelo":
-            // no se guardó nada. Si confirma, se reenvía aceptando eliminarlas; si
-            // cancela, el formulario sigue abierto con sus cambios.
+
             if (resultado?.confirmarTareasEntradas === true) {
                 mostrarConfirmacionTareasEntradas(resultado, {
                     onConfirmar: (ids) => enviarActividad({ tareasEntradasAEliminar: ids }),
                 });
+                return;
+            }
+
+            if (resultado?.requiereConfirmacion === true) {
+                appAlert(
+                    "¿Mover la actividad?",
+                    resultado.mensaje,
+                    [
+                        { text: "Cancelar", style: "cancel" },
+                        {
+                            text: "Mover igual",
+                            onPress: () =>
+                                enviarActividad({
+                                    confirmacionMovimiento: confirmacionDeMovimiento(resultado),
+                                }),
+                        },
+                    ],
+                    { tipo: "warning" }
+                );
                 return;
             }
 
@@ -391,27 +410,27 @@ export default function AddActivityScreen({
                 return;
             }
 
-            const mensajeExito = activityToEdit
+            const mensajeExito = mueveDeDia
+                ? "Actividad movida correctamente."
+                : activityToEdit
                 ? "Actividad editada correctamente."
                 : "Actividad registrada correctamente.";
 
-            // Si el sitio oficial confirmó que conviene reservar o comprar entradas, se
-            // informa en el mismo diálogo de confirmación. No bloquea: la actividad ya
-            // quedó guardada y el diálogo ofrece el enlace oficial, "Recordármelo"
-            // (tarea en el checklist) y "Ahora no".
+
             const recomendacionFinal =
                 recomendacionDeRespuesta(resultado) || (ignorarAdvertencia ? recomendacionPrevia : null);
             if (recomendacionFinal) {
-                // La actividad ya está guardada: el formulario se cierra y la
-                // recomendación aparece sobre el itinerario, no sobre el formulario.
                 const recordatorio = {
                     tripId,
                     activityId: resultado?.IdActividad ?? resultado?.idActividad ?? activityToEdit?.id,
                 };
                 resetAndClose();
                 mostrarRecomendacionEntradas(recomendacionFinal, {
-                    // Corto: va en la franja verde, al lado de la cruz para cerrar.
-                    mensajeExito: activityToEdit ? "Actividad editada" : "Actividad registrada",
+                    mensajeExito: mueveDeDia
+                        ? "Actividad movida"
+                        : activityToEdit
+                        ? "Actividad editada"
+                        : "Actividad registrada",
                     recordatorio,
                 });
                 return;
@@ -520,6 +539,45 @@ export default function AddActivityScreen({
                                             value={nombre}
                                         />
                                     </View>
+
+                                    {opcionesDia.length > 1 ? (
+                                        <>
+                                            <Text style={styles.label}>Día</Text>
+                                            <ScrollView
+                                                horizontal
+                                                keyboardShouldPersistTaps="handled"
+                                                showsHorizontalScrollIndicator={false}
+                                                contentContainerStyle={styles.diasFila}
+                                            >
+                                                {opcionesDia.map((dia) => {
+                                                    const activo = dia.dayId === diaDestinoId;
+                                                    return (
+                                                        <Pressable
+                                                            key={dia.dayId}
+                                                            accessibilityRole="button"
+                                                            accessibilityState={{ selected: activo }}
+                                                            accessibilityLabel={`Día ${dia.dayIndex}, ${dia.dayDateText}`}
+                                                            onPress={() => setDiaDestinoId(dia.dayId)}
+                                                            style={[styles.diaChip, activo && styles.diaChipActivo]}
+                                                            testID={`actividad-dia-${dia.dayId}`}
+                                                        >
+                                                            <Text style={[styles.diaChipTexto, activo && styles.diaChipTextoActivo]}>
+                                                                {etiquetaDia(dia.fechaRaw)}
+                                                            </Text>
+                                                            <Text style={[styles.diaChipSub, activo && styles.diaChipTextoActivo]}>
+                                                                Día {dia.dayIndex}
+                                                            </Text>
+                                                        </Pressable>
+                                                    );
+                                                })}
+                                            </ScrollView>
+                                            {mueveDeDia ? (
+                                                <Text style={styles.iconHint}>
+                                                    La actividad se va a mover a este día con el mismo horario.
+                                                </Text>
+                                            ) : null}
+                                        </>
+                                    ) : null}
 
                                     <View style={styles.row}>
                                         <HoraField
@@ -785,6 +843,37 @@ const estilosPropios = StyleSheet.create({
         color: colors.textSecondary,
         marginBottom: spacing.sm,
     },
+    diasFila: {
+        gap: spacing.xs,
+        paddingBottom: spacing.sm,
+    },
+    diaChip: {
+        minWidth: 64,
+        alignItems: "center",
+        paddingVertical: 8,
+        paddingHorizontal: spacing.sm,
+        borderRadius: radii.md,
+        borderWidth: 1,
+        borderColor: colors.border,
+        backgroundColor: colors.surface,
+    },
+    diaChipActivo: {
+        backgroundColor: colors.primary,
+        borderColor: colors.primary,
+    },
+    diaChipTexto: {
+        ...textStyles.bodyStrong,
+        color: colors.primary,
+        fontSize: 14,
+    },
+    diaChipSub: {
+        ...textStyles.meta,
+        color: colors.textSecondary,
+        fontSize: 11,
+    },
+    diaChipTextoActivo: {
+        color: colors.textInverse,
+    },
     analizandoBloque: {
         flexDirection: "row",
         alignItems: "center",
@@ -833,7 +922,6 @@ const estilosPropios = StyleSheet.create({
         ...textStyles.meta,
         color: colors.textSecondary,
     },
-    // Buscador de ubicación: mismo diseño que el buscador de destinos del viaje.
     locationBody: {
         flex: 1,
         minHeight: 0,

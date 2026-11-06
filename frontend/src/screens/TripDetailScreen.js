@@ -66,6 +66,7 @@ import {
   rebuildTripSettlement,
   deleteTrip,
   updateActivity,
+  moveActivity,
   getTripParticipants,
   getExpenseCategories,
   getTripExpenses,
@@ -130,6 +131,7 @@ import { getTripLock } from "../utils/tripLock";
 import { getRouteHint } from "../utils/routeMessages";
 import { formatMoney } from "../utils/money";
 import { centerInScroll } from "../utils/scrollHelpers";
+import { confirmacionDeMovimiento } from "../utils/moverActividad";
 import ActivitySuggestionsScreen from "./ActivitySuggestionsScreen";
 import CompleteFreeDaysScreen from "./CompleteFreeDaysScreen";
 import DaySuggestionsSection from "../components/trip/DaySuggestionsSection";
@@ -355,6 +357,7 @@ export default function TripDetailScreen({ navigation, route }) {
   const [expandedDayId, setExpandedDayId] = useState(
     initialTrip?.cronograma[0]?.IdDiaCronograma ?? initialTrip?.cronograma[0]?.id ?? null
   );
+  const [arrastrandoActividad, setArrastrandoActividad] = useState(false);
 
 
   const initialTabParam = route.params?.initialTab;
@@ -375,7 +378,6 @@ export default function TripDetailScreen({ navigation, route }) {
   const [cancelandoId, setCancelandoId] = useState(null);
   const [votosSeleccionados, setVotosSeleccionados] = useState({});
   const [cambiandoVotoId, setCambiandoVotoId] = useState(null);
-  const [modificandoVotoId, setModificandoVotoId] = useState(null);
   const [resultadosPorVotacion, setResultadosPorVotacion] = useState({});
   const votacionesVisibles = useMemo(
     () =>
@@ -1951,8 +1953,26 @@ export default function TripDetailScreen({ navigation, route }) {
 
     let resultado;
     if (payload.id) {
-      resultado = await updateActivity(trip.id, activityModalDay.id, payload.id, payload, options);
-      if (resultado?.advertencia || resultado?.confirmarTareasEntradas) return resultado;
+      const { idDiaDestino, confirmacionMovimiento, ...datos } = payload;
+      const mueve = Boolean(idDiaDestino) && idDiaDestino !== activityModalDay.id;
+      if (!confirmacionMovimiento) {
+        resultado = await updateActivity(
+          trip.id,
+          activityModalDay.id,
+          datos.id,
+          datos,
+          mueve ? { ignorarAdvertencia: true } : options
+        );
+        if (resultado?.advertencia || resultado?.confirmarTareasEntradas) return resultado;
+      }
+      if (mueve) {
+        const movida = await moveActivity(trip.id, activityModalDay.id, datos.id, {
+          idDiaDestino,
+          ...(confirmacionMovimiento ?? {}),
+        });
+        if (movida?.requiereConfirmacion) return movida;
+        resultado = movida;
+      }
       finalizarEdicionActividad(payload.id);
     } else {
       resultado = await createActivity(trip.id, activityModalDay.id, payload, options);
@@ -1960,6 +1980,49 @@ export default function TripDetailScreen({ navigation, route }) {
     }
     await loadTripDetail();
     return resultado;
+  }
+
+  async function moverActividadArrastrada(diaOrigen, actividad, diaDestino, confirmacion = null) {
+    if (!trip?.id || !lock.canEdit("itinerario")) return;
+    try {
+      const resultado = await moveActivity(trip.id, diaOrigen.dayId, actividad.id, {
+        idDiaDestino: diaDestino.dayId,
+        ...(confirmacion ?? {}),
+      });
+      if (resultado?.requiereConfirmacion) {
+        appAlert(
+          "¿Mover la actividad?",
+          resultado.mensaje,
+          [
+            { text: "Cancelar", style: "cancel" },
+            {
+              text: "Mover igual",
+              onPress: () =>
+                moverActividadArrastrada(
+                  diaOrigen,
+                  actividad,
+                  diaDestino,
+                  confirmacionDeMovimiento(resultado)
+                ),
+            },
+          ],
+          { tipo: "warning" }
+        );
+        return;
+      }
+      await loadTripDetail();
+      appAlert(
+        "Actividad movida",
+        `"${actividad.title}" ahora está el ${diaDestino.dayDateText}.`,
+        undefined,
+        { tipo: "success" }
+      );
+    } catch (error) {
+      avisar(
+        "No se pudo mover la actividad",
+        error.message || "Ocurrió un problema al mover la actividad."
+      );
+    }
   }
 
   async function guardarTraslado(payload) {
@@ -2302,6 +2365,7 @@ export default function TripDetailScreen({ navigation, route }) {
         contentContainerStyle={[styles.scrollContent, { paddingBottom: 132 + keyboardInset }]}
         keyboardShouldPersistTaps="handled"
         ref={scrollRef}
+        scrollEnabled={!arrastrandoActividad}
         showsVerticalScrollIndicator={false}
       >
         <ImageBackground
@@ -3055,6 +3119,13 @@ export default function TripDetailScreen({ navigation, route }) {
               }
               sugerenciasPorDia={sugerenciasPorDia}
               renderEncabezadoDia={(day) => renderTrasladosDelDia(day.dayId)}
+              onMoveActivity={
+                lock.canEdit("itinerario")
+                  ? (diaOrigen, actividad, diaDestino) =>
+                      moverActividadArrastrada(diaOrigen, actividad, diaDestino)
+                  : undefined
+              }
+              onArrastreChange={setArrastrandoActividad}
               onAddActivity={
                 lock.canEdit("itinerario")
                   ? (day) =>
@@ -3506,7 +3577,6 @@ export default function TripDetailScreen({ navigation, route }) {
                     await modificarVoto(votacion.IdVotacion, nuevas);
                   } catch (error) {
                     if (error?.status === 409) {
-                      // Se descarta el progreso guardado para que se carguen los resultados finales.
                       setResultadosPorVotacion((prev) => {
                         const { [votacion.IdVotacion]: _descartado, ...resto } = prev;
                         return resto;
@@ -3534,7 +3604,6 @@ export default function TripDetailScreen({ navigation, route }) {
                       [votacion.IdVotacion]: progreso,
                     }));
                   } catch {
-                    // El voto ya se guardó; el aviso en tiempo real vuelve a cargar el progreso.
                   } finally {
                     setCambiandoVotoId(null);
                   }
@@ -3973,6 +4042,8 @@ export default function TripDetailScreen({ navigation, route }) {
         onCancelEdit={(activityId) => {
           finalizarEdicionActividad(activityId);
         }}
+        dias={itinerarioDias}
+        diaActualId={activityModalDay?.id ?? null}
       />
       <AddTrasladoScreen
         visible={!!trasladoModal}

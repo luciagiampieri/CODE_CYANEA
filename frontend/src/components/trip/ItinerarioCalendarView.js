@@ -1,14 +1,16 @@
 import { FontAwesome6 } from "@expo/vector-icons";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Animated, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 
 import DayTimeGrid from "./DayTimeGrid";
 import DayRouteSection from "./DayRouteSection";
 import DaySuggestionsSection from "./DaySuggestionsSection";
+import useArrastreDia from "../../hooks/useArrastreDia";
 import useResponsive from "../../hooks/useResponsive";
 import { colors, radii, spacing, surfaces, textStyles } from "../../theme/tokens";
 import { calcularActividadesSolapadas } from "../../utils/itinerarioOverlaps";
 import { isTodayISO } from "../../utils/agenda";
+import { diaDestinoDeArrastre, etiquetaArrastre } from "../../utils/moverActividad";
 
 const ANCHO_MINIMO_COLUMNA = 240;
 const MAXIMO_COLUMNAS = 4;
@@ -18,6 +20,7 @@ const DIAS_LARGOS = ["Domingo", "Lunes", "Martes", "Miércoles", "Jueves", "Vier
 const MESES = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"];
 const ANCHO_DIA = 48;
 const SEPARACION_DIA = 6;
+const DEMORA_ARRASTRE_MS = 300;
 
 function fechaLarga(fechaRaw) {
   const fecha = new Date(`${String(fechaRaw ?? "").slice(0, 10)}T12:00:00`);
@@ -35,6 +38,111 @@ function modoPorDefecto(dayId, ruta) {
   return ruta?.modo ?? "walking";
 }
 
+function ActividadColumna({ dia, actividad, seSolapa, onEditActivity, onDeleteActivity, arrastre, anchoPaso }) {
+  const puedeArrastrar = Boolean(arrastre) && !actividad.traslado;
+  const { desplazamiento, arrastrando, pasos, panHandlers, alMantener, alSoltar } = useArrastreDia({
+    anchoPaso,
+    onInicio: () => arrastre?.onInicio?.(),
+    onCambio: (nuevos) => arrastre?.onCambio?.(actividad, nuevos),
+    onSoltar: (resultado, movio) => arrastre?.onSoltar?.(actividad, movio ? resultado : 0),
+  });
+  const destino = arrastrando && arrastre ? arrastre.etiqueta(pasos) : null;
+
+  return (
+    <Animated.View
+      {...(puedeArrastrar ? panHandlers : {})}
+      style={[
+        { transform: [{ translateX: desplazamiento }] },
+        arrastrando && styles.actividadArrastrada,
+      ]}
+    >
+      <Pressable
+        disabled={!onEditActivity}
+        delayLongPress={puedeArrastrar ? DEMORA_ARRASTRE_MS : undefined}
+        onLongPress={puedeArrastrar ? alMantener : undefined}
+        onPressOut={puedeArrastrar ? alSoltar : undefined}
+        onPress={() => onEditActivity?.(dia, actividad)}
+        style={[styles.actividad, seSolapa && styles.actividadSolapada]}
+        testID={`calendar-activity-${actividad.id}`}
+      >
+        <View style={styles.actividadHeaderRow}>
+          <FontAwesome6
+            color={seSolapa ? colors.warning : colors.primary}
+            name={actividad.icon ?? "location-dot"}
+            size={12}
+          />
+          <Text style={styles.actividadHora}>{actividad.time}</Text>
+          {seSolapa ? (
+            <FontAwesome6
+              color={colors.warning}
+              name="triangle-exclamation"
+              size={11}
+            />
+          ) : null}
+        </View>
+        <Text numberOfLines={2} style={styles.actividadTitulo}>
+          {actividad.title}
+        </Text>
+        {seSolapa ? (
+          <Text style={styles.actividadSolapadaTexto}>
+            Se superpone con otra actividad
+          </Text>
+        ) : null}
+        {actividad.advertenciaHorario ? (
+          <Text
+            numberOfLines={2}
+            style={styles.actividadSolapadaTexto}
+            testID={`calendar-schedule-warning-${actividad.id}`}
+          >
+            {actividad.advertenciaHorario}
+          </Text>
+        ) : null}
+
+        {onEditActivity || onDeleteActivity ? (
+          <View style={styles.actividadAcciones}>
+            {onEditActivity ? (
+              <Pressable
+                accessibilityLabel={`Editar ${actividad.title}`}
+                hitSlop={8}
+                onPress={() => onEditActivity(dia, actividad)}
+                style={styles.actividadAccionBoton}
+              >
+                <FontAwesome6 color={colors.primary} name="pen" size={11} />
+              </Pressable>
+            ) : null}
+            {onDeleteActivity ? (
+              <Pressable
+                accessibilityLabel={`Eliminar ${actividad.title}`}
+                hitSlop={8}
+                onPress={() => onDeleteActivity(dia, actividad)}
+                style={styles.actividadAccionBoton}
+              >
+                <FontAwesome6 color={colors.textMuted} name="trash" size={11} />
+              </Pressable>
+            ) : null}
+          </View>
+        ) : null}
+      </Pressable>
+      {destino ? (
+        <View
+          pointerEvents="none"
+          style={[styles.destino, destino.valido ? styles.destinoValido : styles.destinoInvalido]}
+          testID={`calendar-destino-${actividad.id}`}
+        >
+          <FontAwesome6
+            color={colors.textInverse}
+            name={destino.valido ? "calendar-day" : "ban"}
+            size={10}
+          />
+          <Text numberOfLines={1} style={styles.destinoTexto}>
+            {destino.texto}
+          </Text>
+        </View>
+      ) : null}
+    </Animated.View>
+  );
+}
+
 export default function ItinerarioCalendarView({
   dias,
   tripId,
@@ -49,11 +157,14 @@ export default function ItinerarioCalendarView({
   onVerMapa,
   onSuggestGap,
   sugerenciasPorDia = {},
-  // Contenido arriba de las actividades del día (tarjetas de traslados, US 136).
   renderEncabezadoDia,
+  onMoveActivity,
+  onArrastreChange,
 }) {
   const { width } = useResponsive();
   const [diaSeleccionadoId, setDiaSeleccionadoId] = useState(null);
+  const [diaObjetivoId, setDiaObjetivoId] = useState(null);
+  const [anchoColumna, setAnchoColumna] = useState(0);
   const esMobile = width < ANCHO_MOBILE;
   const tiraRef = useRef(null);
   const [anchoTira, setAnchoTira] = useState(0);
@@ -97,6 +208,22 @@ export default function ItinerarioCalendarView({
   function irAlDia(delta) {
     const destino = dias[indiceActual + delta];
     if (destino) setDiaSeleccionadoId(destino.dayId);
+  }
+
+  function arrastrePara(dia) {
+    if (typeof onMoveActivity !== "function") return undefined;
+    return {
+      onInicio: () => onArrastreChange?.(true),
+      onCambio: (actividad, pasos) =>
+        setDiaObjetivoId(diaDestinoDeArrastre(dias, dia.dayId, pasos)?.dayId ?? null),
+      onSoltar: (actividad, pasos) => {
+        setDiaObjetivoId(null);
+        onArrastreChange?.(false);
+        const destino = diaDestinoDeArrastre(dias, dia.dayId, pasos);
+        if (destino) onMoveActivity(dia, actividad, destino);
+      },
+      etiqueta: (pasos) => etiquetaArrastre(dias, dia.dayId, pasos),
+    };
   }
 
   const diasVisibles = esMobile && diaActual ? [diaActual] : dias;
@@ -147,6 +274,7 @@ export default function ItinerarioCalendarView({
         >
           {dias.map((d) => {
             const activo = d.dayId === diaActual?.dayId;
+            const objetivo = d.dayId === diaObjetivoId;
             const { semana, numero } = partesDeFecha(d.fechaRaw);
             const hoy = isTodayISO(d.fechaRaw);
             const cantidad = (d.actividades ?? []).length;
@@ -157,7 +285,8 @@ export default function ItinerarioCalendarView({
                 accessibilityRole="button"
                 accessibilityState={{ selected: activo }}
                 onPress={() => setDiaSeleccionadoId(d.dayId)}
-                style={[styles.tiraDia, activo && styles.tiraDiaActivo]}
+                style={[styles.tiraDia, activo && styles.tiraDiaActivo, objetivo && styles.tiraDiaObjetivo]}
+                testID={`calendar-day-${d.dayId}`}
               >
                 <Text style={[styles.tiraSemana, activo && styles.tiraTextoActivo]}>{semana}</Text>
                 <Text style={[styles.tiraNumero, activo && styles.tiraTextoActivo]}>{numero}</Text>
@@ -175,7 +304,7 @@ export default function ItinerarioCalendarView({
         </ScrollView>
       ) : null}
       <View style={esMobile ? undefined : styles.grid}>
-        {diasVisibles.map((dia) => {
+        {diasVisibles.map((dia, indice) => {
           const solapadas = calcularActividadesSolapadas(dia.actividades);
           const actividadesOrdenadas = [...dia.actividades].sort((a, b) =>
             (a.horaInicio ?? "").localeCompare(b.horaInicio ?? "")
@@ -184,10 +313,19 @@ export default function ItinerarioCalendarView({
             onSuggestGap && Number.isInteger(dia.dayId)
               ? (desde, hasta) => onSuggestGap(dia, desde, hasta)
               : undefined;
+          const arrastre = onEditActivity ? arrastrePara(dia) : undefined;
 
           return (
-            <View key={dia.dayId} style={[styles.celdaWrap, { width: anchoCelda }]}>
-              <View style={styles.celda}>
+            <View
+              key={dia.dayId}
+              onLayout={
+                !esMobile && indice === 0
+                  ? (e) => setAnchoColumna(e.nativeEvent.layout.width)
+                  : undefined
+              }
+              style={[styles.celdaWrap, { width: anchoCelda }]}
+            >
+              <View style={[styles.celda, !esMobile && dia.dayId === diaObjetivoId && styles.celdaObjetivo]}>
                 <View style={styles.celdaHeader}>
                   <View style={styles.celdaIndice}>
                     <Text style={styles.celdaIndiceTexto}>{dia.dayIndex}</Text>
@@ -214,77 +352,21 @@ export default function ItinerarioCalendarView({
                       onDelete={onDeleteActivity ? (item) => onDeleteActivity(dia, item) : undefined}
                       onEdit={onEditActivity ? (item) => onEditActivity(dia, item) : undefined}
                       onSuggestGap={sugerirHueco}
+                      arrastre={arrastre}
                     />
                   ) : actividadesOrdenadas.length > 0 ? (
-                    actividadesOrdenadas.map((actividad) => {
-                      const seSolapa = solapadas.has(actividad.id);
-                      return (
-                        <Pressable
-                          key={actividad.id}
-                          disabled={!onEditActivity}
-                          onPress={() => onEditActivity?.(dia, actividad)}
-                          style={[styles.actividad, seSolapa && styles.actividadSolapada]}
-                        >
-                          <View style={styles.actividadHeaderRow}>
-                            <FontAwesome6
-                              color={seSolapa ? colors.warning : colors.primary}
-                              name={actividad.icon ?? "location-dot"}
-                              size={12}
-                            />
-                            <Text style={styles.actividadHora}>{actividad.time}</Text>
-                            {seSolapa ? (
-                              <FontAwesome6
-                                color={colors.warning}
-                                name="triangle-exclamation"
-                                size={11}
-                              />
-                            ) : null}
-                          </View>
-                          <Text numberOfLines={2} style={styles.actividadTitulo}>
-                            {actividad.title}
-                          </Text>
-                          {seSolapa ? (
-                            <Text style={styles.actividadSolapadaTexto}>
-                              Se superpone con otra actividad
-                            </Text>
-                          ) : null}
-                          {actividad.advertenciaHorario ? (
-                            <Text
-                              numberOfLines={2}
-                              style={styles.actividadSolapadaTexto}
-                              testID={`calendar-schedule-warning-${actividad.id}`}
-                            >
-                              {actividad.advertenciaHorario}
-                            </Text>
-                          ) : null}
-
-                          {onEditActivity || onDeleteActivity ? (
-                            <View style={styles.actividadAcciones}>
-                              {onEditActivity ? (
-                                <Pressable
-                                  accessibilityLabel={`Editar ${actividad.title}`}
-                                  hitSlop={8}
-                                  onPress={() => onEditActivity(dia, actividad)}
-                                  style={styles.actividadAccionBoton}
-                                >
-                                  <FontAwesome6 color={colors.primary} name="pen" size={11} />
-                                </Pressable>
-                              ) : null}
-                              {onDeleteActivity ? (
-                                <Pressable
-                                  accessibilityLabel={`Eliminar ${actividad.title}`}
-                                  hitSlop={8}
-                                  onPress={() => onDeleteActivity(dia, actividad)}
-                                  style={styles.actividadAccionBoton}
-                                >
-                                  <FontAwesome6 color={colors.textMuted} name="trash" size={11} />
-                                </Pressable>
-                              ) : null}
-                            </View>
-                          ) : null}
-                        </Pressable>
-                      );
-                    })
+                    actividadesOrdenadas.map((actividad) => (
+                      <ActividadColumna
+                        key={actividad.id}
+                        dia={dia}
+                        actividad={actividad}
+                        seSolapa={solapadas.has(actividad.id)}
+                        onEditActivity={onEditActivity}
+                        onDeleteActivity={onDeleteActivity}
+                        arrastre={arrastre}
+                        anchoPaso={anchoColumna}
+                      />
+                    ))
                   ) : (
                     <Text style={styles.sinActividades}>Sin actividades agendadas.</Text>
                   )}
@@ -360,11 +442,16 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingVertical: 6,
     borderRadius: radii.md ?? 12,
+    borderWidth: 2,
+    borderColor: "transparent",
     backgroundColor: colors.surfaceAlt,
     gap: 1,
   },
   tiraDiaActivo: {
     backgroundColor: colors.primary,
+  },
+  tiraDiaObjetivo: {
+    borderColor: colors.accentStrong,
   },
   tiraSemana: {
     ...textStyles.meta,
@@ -407,6 +494,11 @@ const styles = StyleSheet.create({
     ...surfaces.card,
     padding: spacing.md,
     flex: 1,
+    borderWidth: 2,
+    borderColor: "transparent",
+  },
+  celdaObjetivo: {
+    borderColor: colors.accentStrong,
   },
   celdaHeader: {
     flexDirection: "row",
@@ -453,6 +545,11 @@ const styles = StyleSheet.create({
     borderLeftColor: colors.primary,
     padding: spacing.xs,
   },
+  actividadArrastrada: {
+    zIndex: 20,
+    elevation: 20,
+    opacity: 0.95,
+  },
   actividadSolapada: {
     borderLeftColor: colors.warning,
     backgroundColor: colors.warningSurface,
@@ -487,6 +584,28 @@ const styles = StyleSheet.create({
   },
   actividadAccionBoton: {
     padding: 2,
+  },
+  destino: {
+    position: "absolute",
+    top: -26,
+    left: 0,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: radii.pill ?? 999,
+  },
+  destinoValido: {
+    backgroundColor: colors.primary,
+  },
+  destinoInvalido: {
+    backgroundColor: colors.textMuted,
+  },
+  destinoTexto: {
+    color: colors.textInverse,
+    fontSize: 11,
+    fontWeight: "700",
   },
   sinActividades: {
     ...textStyles.meta,

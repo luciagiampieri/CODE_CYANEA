@@ -9,7 +9,7 @@ import binascii
 from fastapi import APIRouter, Depends, HTTPException, status, Query, File, UploadFile
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.orm import object_session, Session, selectinload
 
 from app.api.deps import get_current_user
@@ -25,6 +25,7 @@ from app.models.participante_viaje import ParticipanteViaje
 from app.models.rol_participante import RolParticipante
 from app.models.dia_cronograma import DiaCronograma
 from app.models.actividad_itinerario import ActividadItinerario
+from app.models.recordatorio_actividad_notificado import RecordatorioActividadNotificado
 from app.models.usuario import Usuario
 from app.models.viaje import Viaje
 from app.models.destino_viaje import DestinoViaje
@@ -33,10 +34,12 @@ from app.models.lugar_interes import LugarInteres
 from app.models.notificacion import Notificacion
 from app.schemas.trip import (
     ActividadCreate,
+    ActividadMover,
     ActividadRead,
     ActividadUbicacionCreate,
     ActividadUpdate,
     AdvertenciaHorario,
+    ConfirmacionMoverActividad,
     ConfirmacionTareasEntradas,
     RecomendacionEntradas,
     DocumentoReservaResumen,
@@ -101,6 +104,7 @@ from app.services.cover_ai import (
     generate_cover_image,
 )
 from app.services.activity_analysis_service import analizar_horario_actividad
+from app.services.activity_ai.context import intervalo_actividad, minutos_de, superpone
 from app.services.entradas_ai import EvaluacionEntradas, evaluar_entradas, normalizar_place_id
 from app.services import invitaciones_correo, tareas_entradas, traslados as servicio_traslados
 from app.services.cupos_viajes import require_trip_capacity
@@ -1611,6 +1615,196 @@ async def update_activity(
             data={
                 "eventType": "activity_updated",
                 "dayId": dia.IdDiaCronograma,
+                "activityId": actividad.IdActividad,
+            },
+        ),
+    )
+
+    return resultado
+
+
+def _error_mover(codigo_http: int, mensaje: str, codigo: str) -> HTTPException:
+    return HTTPException(status_code=codigo_http, detail=mensaje, headers={"X-Error-Code": codigo})
+
+
+def _mensaje_confirmacion_mover(
+    destino: DiaCronograma, superpuestas: list[str], advertencia: AdvertenciaHorario | None
+) -> str:
+    partes = []
+    if superpuestas:
+        partes.append(
+            f"El {destino.Fecha.strftime('%d/%m')} ya tiene {', '.join(superpuestas)} en ese horario."
+        )
+    if advertencia is not None and advertencia.mensaje:
+        partes.append(advertencia.mensaje)
+    partes.append("¿Querés moverla igual?")
+    return " ".join(partes)
+
+
+@router.patch(
+    "/{trip_id}/days/{day_id}/activities/{activity_id}/mover",
+    response_model=ActividadRead | ConfirmacionMoverActividad,
+)
+async def move_activity(
+    trip_id: int,
+    day_id: int,
+    activity_id: int,
+    payload: ActividadMover,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> ActividadRead | ConfirmacionMoverActividad:
+    viaje = require_trip_edit_access(get_trip_with_relations(db, trip_id), current_user)
+    require_trip_not_finished(viaje, "el itinerario")
+
+    origen = db.scalar(
+        select(DiaCronograma).where(
+            DiaCronograma.IdDiaCronograma == day_id,
+            DiaCronograma.IdViaje == viaje.IdViaje,
+        )
+    )
+    if origen is None:
+        raise HTTPException(status_code=404, detail="El día del cronograma no existe en este viaje.")
+
+    actividad = db.scalar(
+        select(ActividadItinerario).where(
+            ActividadItinerario.IdActividad == activity_id,
+            ActividadItinerario.IdDiaCronograma == origen.IdDiaCronograma,
+        )
+    )
+    if actividad is None:
+        raise HTTPException(status_code=404, detail="La actividad no existe en este día del itinerario.")
+
+    if actividad.IdTramoTraslado is not None:
+        raise _error_mover(
+            status.HTTP_409_CONFLICT,
+            "Los traslados no se mueven de día: su fecha sale del recorrido del viaje.",
+            "TRANSFER_CANNOT_MOVE",
+        )
+
+    if payload.idDiaDestino == origen.IdDiaCronograma:
+        raise _error_mover(
+            status.HTTP_400_BAD_REQUEST,
+            "La actividad ya está en ese día.",
+            "ACTIVITY_SAME_DAY",
+        )
+
+    destino = db.scalar(
+        select(DiaCronograma).where(
+            DiaCronograma.IdDiaCronograma == payload.idDiaDestino,
+            DiaCronograma.IdViaje == viaje.IdViaje,
+        )
+    )
+    if destino is None:
+        raise _error_mover(
+            status.HTTP_404_NOT_FOUND,
+            "El día elegido no existe en este viaje.",
+            "DAY_NOT_FOUND",
+        )
+
+    if destino.Fecha < date.today():
+        raise _error_mover(
+            status.HTTP_400_BAD_REQUEST,
+            "No se puede mover una actividad a un día que ya pasó.",
+            "DAY_IN_PAST",
+        )
+
+    editor = manager.obtener_usuario_editando(trip_id, activity_id)
+    if editor is not None and editor != current_user.IdUsuario:
+        raise _error_mover(
+            status.HTTP_409_CONFLICT,
+            "Otra persona está editando esta actividad. Probá de nuevo en unos minutos.",
+            "ACTIVITY_BEING_EDITED",
+        )
+
+    inicio, fin = minutos_de(actividad.HoraInicio), minutos_de(actividad.HoraFin)
+    superpuestas = [
+        otra.Nombre
+        for otra in db.scalars(
+            select(ActividadItinerario)
+            .where(ActividadItinerario.IdDiaCronograma == destino.IdDiaCronograma)
+            .order_by(ActividadItinerario.HoraInicio)
+        ).all()
+        if superpone(*intervalo_actividad(otra), inicio, fin)
+    ]
+
+    tipo_advertencia = actividad.TipoAdvertenciaHorario
+    texto_advertencia = actividad.AdvertenciaHorario
+    advertencia: AdvertenciaHorario | None = None
+    aviso_horario = None
+    if payload.advertenciaHorario is not None:
+        tipo_advertencia = payload.advertenciaHorario.tipo
+        texto_advertencia = payload.advertenciaHorario.resumen.strip()
+    else:
+        analisis = await analizar_horario_actividad(
+            db=db,
+            nombre_actividad=actividad.Nombre,
+            fecha=destino.Fecha,
+            hora_inicio=actividad.HoraInicio,
+            hora_fin=actividad.HoraFin,
+            id_lugar_interes=_id_lugar_actividad(actividad),
+            destinos=_destinos_contexto(viaje),
+            contexto_lugar={},
+        )
+        if analisis.get("advertencia"):
+            advertencia = AdvertenciaHorario(**_respuesta_advertencia(analisis))
+        else:
+            tipo_advertencia = texto_advertencia = None
+            aviso_horario = analisis.get("aviso")
+
+    superpuestas_sin_confirmar = [] if payload.confirmarSuperposicion else superpuestas
+    if advertencia is not None or superpuestas_sin_confirmar:
+        return ConfirmacionMoverActividad(
+            mensaje=_mensaje_confirmacion_mover(destino, superpuestas_sin_confirmar, advertencia),
+            superpuestas=superpuestas_sin_confirmar,
+            advertencia=advertencia,
+        )
+
+    origen.Actividades.remove(actividad)
+    destino.Actividades.append(actividad)
+    actividad.TipoAdvertenciaHorario = tipo_advertencia
+    actividad.AdvertenciaHorario = texto_advertencia
+    db.execute(
+        delete(RecordatorioActividadNotificado).where(
+            RecordatorioActividadNotificado.IdActividad == actividad.IdActividad
+        )
+    )
+
+    db.commit()
+    db.refresh(actividad)
+
+    resultado = _build_actividad_read(
+        actividad,
+        tareas_entradas.resumen_tareas_read(tareas_entradas.tareas_pendientes(db, actividad.IdActividad)),
+    )
+
+    await manager.broadcast(
+        trip_id,
+        {
+            "tipo": "actividad_movida",
+            "idDiaOrigen": origen.IdDiaCronograma,
+            "idDiaCronograma": destino.IdDiaCronograma,
+            "actividad": resultado.model_dump(by_alias=True),
+        },
+    )
+    resultado.avisoHorario = aviso_horario
+
+    await _sincronizar_y_notificar_ruta(db, origen, trip_id)
+    await _sincronizar_y_notificar_ruta(db, destino, trip_id)
+    await dispatch_trip_notification(
+        db,
+        TripNotificationEvent(
+            notification_type=NotificationType.CAMBIO_VIAJE,
+            tipo="actividad_movida",
+            titulo=f"Actividad movida en {viaje.Titulo}",
+            mensaje=(
+                f"{_actor_display_name(current_user)} movió {actividad.Nombre} "
+                f"al {destino.Fecha.strftime('%d/%m')}."
+            ),
+            id_viaje=trip_id,
+            id_usuario_actor=current_user.IdUsuario,
+            data={
+                "eventType": "activity_updated",
+                "dayId": destino.IdDiaCronograma,
                 "activityId": actividad.IdActividad,
             },
         ),

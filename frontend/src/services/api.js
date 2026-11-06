@@ -526,7 +526,6 @@ export async function getAvailablePlans() {
   return parseResponse(response, "No se pudieron obtener los planes vigentes.");
 }
 
-// US 116: suscripción al plan Pro con Mercado Pago.
 export async function getSubscriptionSummary() {
   const response = await fetch(`${API_BASE_URL}/users/me/suscripcion/resumen`, {
     headers: await authHeaders(), cache: "no-store",
@@ -557,7 +556,6 @@ export async function getSubscriptionManagement() {
   return parseResponse(response, "No se pudo obtener tu suscripción.");
 }
 
-// US 120: historial de pagos de la suscripción del usuario autenticado.
 export async function getSubscriptionPayments() {
   const response = await fetch(`${API_BASE_URL}/users/me/suscripcion/pagos`, {
     headers: await authHeaders(), cache: "no-store",
@@ -1209,6 +1207,30 @@ export async function updateActivity(tripId, dayId, activityId, payload, options
   return parseResponse(response, "No se pudo actualizar la actividad");
 }
 
+export async function moveActivity(
+  tripId,
+  dayId,
+  activityId,
+  { idDiaDestino, confirmarSuperposicion = false, advertenciaHorario = null } = {}
+) {
+  const response = await fetch(
+    `${API_BASE_URL}/trips/${tripId}/days/${dayId}/activities/${activityId}/mover`,
+    {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+        ...(await authHeaders()),
+      },
+      body: JSON.stringify({
+        idDiaDestino,
+        confirmarSuperposicion,
+        ...(advertenciaHorario ? { advertenciaHorario } : {}),
+      }),
+    }
+  );
+  return parseResponse(response, "No se pudo mover la actividad");
+}
+
 
 export async function deleteActivity(tripId, dayId, activityId, { confirmarEliminarTareas = false } = {}) {
   const query = confirmarEliminarTareas ? "?confirmar_eliminar_tareas=true" : "";
@@ -1295,7 +1317,6 @@ export async function uploadTripDocument(
   idCategoriaDocumento,
   nombreArchivo,
   esPublico,
-  // Tarea del checklist desde la que se sube (las entradas, el pasaje, la reserva).
   idChecklist = null
 ) {
   const token = await getStoredToken();
@@ -1557,8 +1578,6 @@ export async function toggleChecklistCompletada(tripId, checklistId, completada)
   return parseResponse(response, "No se pudo actualizar el estado de la tarea");
 }
 
-// Después de marcar una tarea como hecha: si es de compra o reserva, sugiere subir
-// las entradas o la reserva ({ sugerir, titulo, mensaje, IdCategoriaDocumento, ... }).
 export async function getSugerenciaDocumentoTarea(tripId, checklistId) {
   const response = await fetch(
     `${API_BASE_URL}/trips/${tripId}/checklists/${checklistId}/sugerencia-documento`,

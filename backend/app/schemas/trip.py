@@ -175,6 +175,19 @@ class ConfirmacionTareasEntradas(BaseModel):
     tareas: list[TareaEntradasResumen]
 
 
+class ActividadMover(BaseModel):
+    idDiaDestino: int = Field(..., gt=0)
+    confirmarSuperposicion: bool = False
+    advertenciaHorario: AdvertenciaHorarioAceptada | None = None
+
+
+class ConfirmacionMoverActividad(BaseModel):
+    requiereConfirmacion: bool = True
+    mensaje: str
+    superpuestas: list[str] = Field(default_factory=list)
+    advertencia: AdvertenciaHorario | None = None
+
+
 class RutaDiariaRead(BaseModel):
     idRutaDiaria: int = Field(..., alias="IdRutaDiaria")
     idDiaCronograma: int = Field(..., alias="IdDiaCronograma")
