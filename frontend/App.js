@@ -42,6 +42,7 @@ const linkingConfig = {
   prefixes: ["cyanea://", "http://127.0.0.1:8081", "http://localhost:8081"],
   config: {
     screens: {
+      Register: "registro",
       EmailConfirmado: "email-confirmado",
       ResendConfirmation: "reenviar-confirmacion",
       UnirseViaje: "unirse/:invitationToken",

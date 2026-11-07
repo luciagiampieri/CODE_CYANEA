@@ -45,6 +45,7 @@ import {
   addTripParticipant,
   onTripFinishedError,
   emitirVoto,
+  modificarVoto,
   cancelarVotacion,
   getCurrentUser,
   getTripSettlement,
@@ -65,6 +66,7 @@ import {
   rebuildTripSettlement,
   deleteTrip,
   updateActivity,
+  moveActivity,
   getTripParticipants,
   getExpenseCategories,
   getTripExpenses,
@@ -133,6 +135,7 @@ import { isTodayISO, resumenDelDia } from "../utils/agenda";
 import { getTripLock } from "../utils/tripLock";
 import { formatMoney } from "../utils/money";
 import { centerInScroll } from "../utils/scrollHelpers";
+import { confirmacionDeMovimiento } from "../utils/moverActividad";
 import ActivitySuggestionsScreen from "./ActivitySuggestionsScreen";
 import CompleteFreeDaysScreen from "./CompleteFreeDaysScreen";
 import DaySuggestionsSection from "../components/trip/DaySuggestionsSection";
@@ -360,6 +363,7 @@ export default function TripDetailScreen({ navigation, route }) {
   const [expandedDayId, setExpandedDayId] = useState(
     initialTrip?.cronograma[0]?.IdDiaCronograma ?? initialTrip?.cronograma[0]?.id ?? null
   );
+  const [arrastrandoActividad, setArrastrandoActividad] = useState(false);
 
 
   const initialTabParam = route.params?.initialTab;
@@ -379,6 +383,7 @@ export default function TripDetailScreen({ navigation, route }) {
   const [votandoId, setVotandoId] = useState(null);
   const [cancelandoId, setCancelandoId] = useState(null);
   const [votosSeleccionados, setVotosSeleccionados] = useState({});
+  const [cambiandoVotoId, setCambiandoVotoId] = useState(null);
   const [resultadosPorVotacion, setResultadosPorVotacion] = useState({});
   const votacionesVisibles = useMemo(
     () =>
@@ -1721,13 +1726,17 @@ export default function TripDetailScreen({ navigation, route }) {
 
   function handleCancelSentInvitation(invitation) {
     if (!lock.canEdit("participantes") || !trip?.id) return;
+    const porCorreo = invitation.tipo === "correo";
+    const destinatario = porCorreo ? invitation.email : `@${invitation.nombreUsuario}`;
     confirmar(
       "Cancelar invitación",
-      `¿Seguro que querés cancelar la invitación de @${invitation.nombreUsuario}?`,
+      `¿Seguro que querés cancelar la invitación de ${destinatario}?`,
       async () => {
         try {
           setMutatingParticipants(true);
-          const resultado = await cancelSentInvitation(trip.id, invitation.userId);
+          const resultado = porCorreo
+            ? await removeTripExternalInvitation(trip.id, invitation.email)
+            : await cancelSentInvitation(trip.id, invitation.userId);
           avisar("Invitación cancelada", resultado?.message || "Invitación cancelada correctamente");
           await loadTripDetail();
         } catch (error) {
@@ -1849,10 +1858,13 @@ export default function TripDetailScreen({ navigation, route }) {
     try {
       setMutatingParticipants(true);
       setParticipantMessage("");
-      await addTripParticipant(trip.id, payload);
+      const resultado = await addTripParticipant(trip.id, payload);
       setParticipantSearch("");
       setUserOptions([]);
-      if (payload.userId && isAdmin) setGroupView("invitaciones");
+      if (isAdmin) setGroupView("invitaciones");
+      if (payload.email) {
+        avisar("Invitación enviada", resultado?.message || "La invitación se envió correctamente.");
+      }
       await loadTripDetail();
     } catch (error) {
       setParticipantMessage(error.message || "No se pudo agregar el participante.");
@@ -1966,8 +1978,26 @@ export default function TripDetailScreen({ navigation, route }) {
 
     let resultado;
     if (payload.id) {
-      resultado = await updateActivity(trip.id, activityModalDay.id, payload.id, payload, options);
-      if (resultado?.advertencia || resultado?.confirmarTareasEntradas) return resultado;
+      const { idDiaDestino, confirmacionMovimiento, ...datos } = payload;
+      const mueve = Boolean(idDiaDestino) && idDiaDestino !== activityModalDay.id;
+      if (!confirmacionMovimiento) {
+        resultado = await updateActivity(
+          trip.id,
+          activityModalDay.id,
+          datos.id,
+          datos,
+          mueve ? { ignorarAdvertencia: true } : options
+        );
+        if (resultado?.advertencia || resultado?.confirmarTareasEntradas) return resultado;
+      }
+      if (mueve) {
+        const movida = await moveActivity(trip.id, activityModalDay.id, datos.id, {
+          idDiaDestino,
+          ...(confirmacionMovimiento ?? {}),
+        });
+        if (movida?.requiereConfirmacion) return movida;
+        resultado = movida;
+      }
       finalizarEdicionActividad(payload.id);
     } else {
       resultado = await createActivity(trip.id, activityModalDay.id, payload, options);
@@ -1975,6 +2005,49 @@ export default function TripDetailScreen({ navigation, route }) {
     }
     await loadTripDetail();
     return resultado;
+  }
+
+  async function moverActividadArrastrada(diaOrigen, actividad, diaDestino, confirmacion = null) {
+    if (!trip?.id || !lock.canEdit("itinerario")) return;
+    try {
+      const resultado = await moveActivity(trip.id, diaOrigen.dayId, actividad.id, {
+        idDiaDestino: diaDestino.dayId,
+        ...(confirmacion ?? {}),
+      });
+      if (resultado?.requiereConfirmacion) {
+        appAlert(
+          "¿Mover la actividad?",
+          resultado.mensaje,
+          [
+            { text: "Cancelar", style: "cancel" },
+            {
+              text: "Mover igual",
+              onPress: () =>
+                moverActividadArrastrada(
+                  diaOrigen,
+                  actividad,
+                  diaDestino,
+                  confirmacionDeMovimiento(resultado)
+                ),
+            },
+          ],
+          { tipo: "warning" }
+        );
+        return;
+      }
+      await loadTripDetail();
+      appAlert(
+        "Actividad movida",
+        `"${actividad.title}" ahora está el ${diaDestino.dayDateText}.`,
+        undefined,
+        { tipo: "success" }
+      );
+    } catch (error) {
+      avisar(
+        "No se pudo mover la actividad",
+        error.message || "Ocurrió un problema al mover la actividad."
+      );
+    }
   }
 
   async function guardarTraslado(payload) {
@@ -2403,6 +2476,7 @@ export default function TripDetailScreen({ navigation, route }) {
         contentContainerStyle={[styles.scrollContent, { paddingBottom: 132 + keyboardInset }]}
         keyboardShouldPersistTaps="handled"
         ref={scrollRef}
+        scrollEnabled={!arrastrandoActividad}
         showsVerticalScrollIndicator={false}
       >
         <ImageBackground
@@ -3058,6 +3132,13 @@ export default function TripDetailScreen({ navigation, route }) {
               }
               sugerenciasPorDia={sugerenciasPorDia}
               renderEncabezadoDia={(day) => renderTrasladosDelDia(day.dayId)}
+              onMoveActivity={
+                lock.canEdit("itinerario")
+                  ? (diaOrigen, actividad, diaDestino) =>
+                      moverActividadArrastrada(diaOrigen, actividad, diaDestino)
+                  : undefined
+              }
+              onArrastreChange={setArrastrandoActividad}
               onAddActivity={
                 lock.canEdit("itinerario")
                   ? (day) =>
@@ -3414,6 +3495,8 @@ export default function TripDetailScreen({ navigation, route }) {
                   : new Date(votacion.FechaCierre) < new Date();
                 const finalizada = esCerrada || esCancelada;
                 const mostrarResultados = finalizada || votacion.YaVoto;
+                const puedeCambiarVoto =
+                  votacion.YaVoto && !finalizada && lock.canEdit("votaciones");
                 const opcionesElegidas = votosSeleccionados[votacion.IdVotacion] || [];
                 const enviandoEsteVoto = votandoId === votacion.IdVotacion;
                 const cancelandoEstaVotacion = cancelandoId === votacion.IdVotacion;
@@ -3480,6 +3563,62 @@ export default function TripDetailScreen({ navigation, route }) {
                     );
                   } finally {
                     setVotandoId(null);
+                  }
+                };
+
+                const cambiarVoto = async (idPropuesta) => {
+                  if (!puedeCambiarVoto || cambiandoVotoId) return;
+                  const actuales =
+                    resultadosPorVotacion[votacion.IdVotacion]?.MisPropuestas ?? [];
+
+                  let nuevas;
+                  if (votacion.Tipo === "opcion_unica") {
+                    if (actuales.includes(idPropuesta)) return;
+                    nuevas = [idPropuesta];
+                  } else if (actuales.includes(idPropuesta)) {
+                    if (actuales.length === 1) {
+                      avisar("Atención", "Tenés que dejar al menos una opción elegida.");
+                      return;
+                    }
+                    nuevas = actuales.filter((id) => id !== idPropuesta);
+                  } else {
+                    nuevas = [...actuales, idPropuesta];
+                  }
+
+                  try {
+                    setCambiandoVotoId(votacion.IdVotacion);
+                    await modificarVoto(votacion.IdVotacion, nuevas);
+                  } catch (error) {
+                    if (error?.status === 409) {
+                      setResultadosPorVotacion((prev) => {
+                        const { [votacion.IdVotacion]: _descartado, ...resto } = prev;
+                        return resto;
+                      });
+                      avisar(
+                        "La votación cerró",
+                        error.message ||
+                          "La votación cerró antes de que se guardara el cambio. Se conservó tu voto anterior."
+                      );
+                      loadVotaciones();
+                    } else {
+                      avisar(
+                        "No se pudo cambiar el voto",
+                        error.message || "Ocurrió un error al cambiar tu voto."
+                      );
+                    }
+                    setCambiandoVotoId(null);
+                    return;
+                  }
+
+                  try {
+                    const progreso = await getProgresoVotacion(votacion.IdVotacion);
+                    setResultadosPorVotacion((prev) => ({
+                      ...prev,
+                      [votacion.IdVotacion]: progreso,
+                    }));
+                  } catch {
+                  } finally {
+                    setCambiandoVotoId(null);
                   }
                 };
 
@@ -3633,6 +3772,8 @@ export default function TripDetailScreen({ navigation, route }) {
                               mostrarGanador={esCerrada}
                               totalParticipantes={participantItems.length}
                               titulo={votacion.Titulo}
+                              onElegirOpcion={puedeCambiarVoto ? cambiarVoto : undefined}
+                              cambiandoVoto={cambiandoVotoId === votacion.IdVotacion}
                             />
                           );
                         })()
@@ -3705,7 +3846,7 @@ export default function TripDetailScreen({ navigation, route }) {
                         >
                           🚫 Esta votación fue cancelada por su creador.
                         </Text>
-                      ) : esCerrada ? null : votacion.YaVoto ? (
+                      ) : esCerrada || puedeCambiarVoto ? null : votacion.YaVoto ? (
                         <Text
                           style={{
                             color: colors.success,
@@ -3914,6 +4055,8 @@ export default function TripDetailScreen({ navigation, route }) {
         onCancelEdit={(activityId) => {
           finalizarEdicionActividad(activityId);
         }}
+        dias={itinerarioDias}
+        diaActualId={activityModalDay?.id ?? null}
       />
       <AddTrasladoScreen
         visible={!!trasladoModal}

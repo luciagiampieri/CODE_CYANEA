@@ -150,6 +150,7 @@ MAIL_FROM_EMAIL=no-reply@cyanea.local
 MAIL_FROM_NAME=Cyanea
 MAIL_REPLY_TO=
 MAIL_FRONTEND_BASE_URL=http://127.0.0.1:8081
+EMAIL_INVITATIONS_DAILY_LIMIT=20
 ```
 
 Levantar backend:
@@ -533,7 +534,7 @@ Reglas vigentes para la HU de balance y liquidacion:
 - Lista: `AccesosDestino` (chips que desplazan al encabezado con `centerInScroll`) y `EncabezadoDestino` por seccion, sobre el fondo de la pantalla, con foto de 44 px y numero de orden; los dias sin destino tienen encabezado gris sin foto y no tienen chip de acceso. `MarcaLlegada` ("Llegás a B · 08:00") abre el dia de llegada en la lista
 - Dia de traslado con traslado agendado: lo que empieza antes de la hora de salida es del destino de salida y todo lo demas, del de llegada; lo que empieza durante el viaje va primero en la zona de llegada con "Se superpone con el traslado". La regla esta en `separarActividadesDia` (frontend) y `traslados.separar_actividades_dia` (backend) y debe coincidir. `DayAgenda` recibe `separacion` y dibuja `ZonaDestino` ("hasta las 10:30"), `TarjetaViaje` y `ZonaDestino` ("desde las 16:30"): las zonas se muestran aunque esten vacias y sin "Ver N más"; dentro de la zona las actividades se unen con la misma fila de linea y chip de horas libres que un dia normal, con `LineaPunteada` en el color del destino al 35 % (el suave no se ve sobre la zona), y no hay linea entre zona y tarjeta del viaje. Sin traslado agendado no hay zonas y `TrasladoCard` avisa "Al agendarlo, las actividades se separan por destino"
 - `TarjetaViaje` (lista) y `TarjetaViajeGrilla` (dentro de `DayTimeGrid`) dibujan los traslados entre destinos validos con los datos de `dia.viaje`; tocarlas abre la edicion. El dia de salida con noches en viaje usa la misma tarjeta ("Sale hoy", "Llega el lun 9"), unida con linea punteada y sin zonas. Ida, regreso, no validos y sin fecha mantienen la tarjeta de traslado. Como la tarjeta no tiene tacho, "Eliminar traslado" esta en `AddTrasladoScreen` al editar
-- Calendario: `RecorridoCalendario` reemplaza chips y tira: un tramo por destino de ancho proporcional a sus noches (el del dia elegido con opacidad completa, los demas al 30 %; tocarlo elige el primer dia del destino) y la tira de dias con un punto por destino, dos en el traslado y gris en viaje o sin destino. Sin destinos el punto indica si el dia tiene actividades. Debajo, fecha larga, "Dia N · X actividades" y el chip. Se navega por la tira y los tramos, sin flechas
+- Calendario: `RecorridoCalendario` reemplaza chips y tira: un tramo por destino de ancho proporcional a sus noches (el del dia elegido con opacidad completa, los demas al 30 %; tocarlo elige el primer dia del destino) y la tira de dias con un punto por destino, dos en el traslado y gris en viaje o sin destino. Sin destinos el punto indica si el dia tiene actividades. Debajo, fecha larga, "Dia N · X actividades" y el chip. Se navega por la tira y los tramos, sin flechas. Mientras se arrastra una actividad, `diaObjetivoId` resalta el dia destino en la tira
 - `DayTimeGrid` recibe `franjas` y `viaje`. `dia.franjas` da fondo `colorTinteDeDestino` (6 %, de borde a borde, detras de las horas) y una etiqueta flotante blanca con foto: "En <destino>" en el dia de traslado y "Llegan a B · 07:00" en el dia de llegada, que sin traslado agendado lleva solo el tinte. Con `revisarHorario` no hay franjas. El viaje va como tarjeta blanca con linea vertical degradada, hasta el final del dia si llega otro dia; si dura menos de 112 px de alto, version compacta en una linea. Los bloques de actividades conservan sus colores por tipo
 - Web: la lista se ve igual en cualquier ancho y el calendario angosto, igual que en el celular. En web ancha las celdas no cambian: solo suman los tramos arriba y el chip en cada celda
 - Fotos: el detalle no trae foto. `useFotosDestinos` usa `fotoDeDestino` de `utils/fotoDestino.js` (compartido con `EditTripScreen`), que hace hasta 2 llamadas a Google por destino y guarda el resultado en memoria durante la sesion; solo corre con recorrido armado. Sin foto, `FotoDestino` muestra un pin, igual que `RecorridoViaje`
@@ -541,6 +542,17 @@ Reglas vigentes para la HU de balance y liquidacion:
 - Contrato: `Cronograma[].Rutas` con `IdDestino` y `NombreDestino`; `Ruta` se mantiene para APKs anteriores. `RutaGeneradaResponse` y los eventos `ruta_generada` y `ruta_actualizada` suman `rutas`. `DayRouteSection` es la unica seccion de ruta. En un dia normal no cambia. En un dia de traslado agendado cada destino tiene su ruta ("Ruta en B · km · min", "Ver mapa") y su selector con boton de regenerar, en su color: en la lista al pie de su zona (`renderPieZona` y prop `destino`) y en el calendario debajo de la grilla. `POST /route` acepta `idDestino` opcional, que recalcula solo esa ruta con su modo; sin `modo`, cada ruta conserva el suyo, asi que sincronizar no los iguala
 - Tiempo real: `viaje_actualizado` recarga el detalle y todo se recalcula
 - Tests: `backend/tests/test_itinerario_destinos.py`; frontend `DestinosDias.test.js`, `ItinerarioDestinos.test.js`, `FormularioHoja.test.js`, `routeMessages.test.js` y la seccion US 136 de `TripDetailScreen.test.js`
+
+## Mover actividades de dia
+
+- Contrato: `PATCH /trips/{trip_id}/days/{day_id}/activities/{activity_id}/mover` con `idDiaDestino`, `confirmarSuperposicion` y `advertenciaHorario`. Lo puede usar cualquier participante con acceso de edicion, con el viaje no finalizado. Conserva horario y datos de la actividad
+- Errores con `X-Error-Code`: `TRANSFER_CANNOT_MOVE` (los traslados no se mueven), `ACTIVITY_SAME_DAY`, `DAY_NOT_FOUND`, `DAY_IN_PAST` y `ACTIVITY_BEING_EDITED`
+- Se vuelven a validar los horarios del lugar para el nuevo dia. Si hay advertencia o superposicion sin confirmar no se mueve nada y se responde `requiereConfirmacion` con `mensaje`; la app pregunta y reenvia con `confirmacionDeMovimiento` de `utils/moverActividad.js`
+- Al mover se borran los registros de `RecordatoriosActividadesNotificados` para que la actividad vuelva a recordarse, se emite `actividad_movida`, se sincronizan las rutas del dia de origen y del de destino y se notifica con `dispatch_trip_notification` (`CAMBIO_VIAJE`)
+- Hay dos caminos: el selector de dia de `AddActivityScreen` al editar (ofrece el dia actual y los futuros con `diasParaMover`) y el arrastre en el calendario. El arrastre existe solo en `DayTimeGrid` y en `ActividadColumna` de `ItinerarioCalendarView`, no en `DayAgenda`
+- Arrastre: `hooks/useArrastreDia.js` combina pulsacion larga (300 ms) y `PanResponder`, igual que `useArrastre` del recorrido. Cada paso es un dia: `PASO_ARRASTRE` (72 px) en mobile y el ancho de columna en web ancha. `etiquetaArrastre` muestra el dia destino y `diaDestinoDeArrastre` descarta los dias pasados o fuera del viaje. `onArrastreChange` bloquea el scroll de `TripDetailScreen` mientras se arrastra
+- En `DayTimeGrid`, mantener apretado y soltar sin mover sigue eliminando la actividad. Los traslados y la tarjeta del viaje (US 138) no se arrastran
+- Tests: `backend/tests/test_mover_actividad.py` y `frontend/src/tests/MoverActividad.test.js`
 
 ## Categorias de actividades
 
@@ -733,7 +745,7 @@ Para retomar o replicar la configuracion de push Android:
 - Evitar hardcodear colores, radios o espaciados por componente si ya existe token equivalente
 - Los módulos de infraestructura nativa con dependencias exclusivas de dispositivo, como SQLite offline, deben resolverse con archivos por plataforma (`*.native.js` / `*.web.js`) para no romper el bundle web
 - Los contenedores con area segura deben importar `SafeAreaView` desde `react-native-safe-area-context`, no desde `react-native`, para evitar la API deprecada en Expo/React Native
-- La barra inferior de `MainTabs` usa `useSafeAreaInsets`: suma `insets.bottom` tanto a su altura base de 74 como al padding inferior `spacing.sm`, para mantener los botones por encima de la navegacion del sistema (gestos o tres botones) sin reducir el espacio de los tabs. No reemplazar estos valores por medidas fijas ni agregar otro padding inferior global que duplique el area segura.
+- La barra inferior de `MainTabs` es `components/navigation/FloatingTabBar.js`: una pildora flotante de alto `ALTO_BARRA_TABS` (68) y hasta 480 px de ancho, separada del borde por `Math.max(insets.bottom, spacing.sm)` para quedar por encima de la navegacion del sistema (gestos o tres botones). Lo que flota sobre un tab, como el FAB de `HomeScreen`, se ubica con `useEspacioBarraTabs()`. Dentro de los tabs `ScreenContainer` no aplica el area segura inferior (`BottomTabBarHeightContext`), salvo que reciba `edges`. No reemplazar estos valores por medidas fijas ni agregar otro padding inferior global que duplique el area segura. Tests: `frontend/src/tests/FloatingTabBar.test.js`
 - La interfaz activa toma como referencia una app de viajes mobile-first con header azul profundo, superficies marfil y tarjetas con imagen protagonista
 - Usar serif editorial para wordmark de marca, titulos grandes de pantalla, nombres de viajes y valores KPI
 - Usar sans para labels, formularios, navegacion, metadata, tabs y acciones
@@ -806,6 +818,18 @@ Para retomar o replicar la configuracion de push Android:
 - Se puede volver a invitar a un usuario cuya participacion este en `cancelada`, `rechazado`, `expulsado` o `salio`: el backend la reactiva como `invitado` y limpia `FechaRespuesta` (`ESTADOS_REINVITABLES` y `_reinvitar_participante` en `backend/app/api/routes/trips.py`). La misma regla aplica al invitar por `userId` y por `email`
 - `invitado` o `aceptado` siguen respondiendo 409 ("El usuario ya está agregado al viaje")
 - En el frontend, `SentInvitationsList` muestra "Volver a invitar" en las invitaciones rechazadas (prop `onResend`); `TripDetailScreen` pide confirmacion y reutiliza `addTripParticipant`
+
+#### Invitacion por correo electronico (US 134)
+
+- `POST /trips/{trip_id}/participants` con `email`: solo el administrador y solo en viajes `activo` no finalizados (409 `TRIP_NOT_ACTIVE` o `TRIP_FINISHED`). El formato se valida con `normalizar_email` de `schemas/trip.py` (422)
+- Si el correo es de una cuenta registrada, se trata igual que la invitacion por `userId` (US 09): participacion `invitado` y aviso `NotificationType.INVITACION_VIAJE` (tipo interno `invitacion_viaje`, preferencia "cambios del viaje"). La invitacion por `userId` tambien notifica
+- Si no hay cuenta, `services/invitaciones_correo.py` crea o reutiliza la fila de `InvitacionesViajes` (unica por viaje y correo): las vencidas o canceladas se renuevan con token y vencimiento nuevos (7 dias); una pendiente vigente responde 409 `INVITATION_ALREADY_PENDING`
+- El envio del correo forma parte de la operacion: si falla, se hace rollback y se responde 502 `INVITATION_EMAIL_FAILED` para poder reintentar. `MAIL_ENABLED=false` no cuenta como falla. La ruta recibe `MailService` por `Depends(get_mail_service)` para poder reemplazarlo en tests
+- Limite `EMAIL_INVITATIONS_DAILY_LIMIT` (20) de invitaciones a correos sin cuenta por viaje y por dia calendario de Argentina, contado sobre `InvitacionesViajes.FechaInvitacion`; al superarlo responde 429 `EMAIL_INVITATION_LIMIT_REACHED`. Tambien se valida al crear el viaje
+- `GET /trips/{trip_id}/invitations/sent` suma las invitaciones por correo sin cuenta asociada (`tipo="correo"`, `email`, estado `pendiente` o `vencida`); al registrarse se muestran como participacion del usuario. En la app se cancelan con `DELETE /external-invitations`. Una invitacion pendiente vencida por fecha no figura en `invitedEmails` del detalle, asi el administrador puede volver a invitar ese correo
+- El enlace del correo es `{MAIL_FRONTEND_BASE_URL}/registro?email=<correo>&invitacion=1` (`InvitationEmailSender`). La ruta `Register` esta mapeada como `registro` en el `linking` de `App.js` y `RegisterScreen` precarga el correo (`route.params.email`) y muestra un aviso si llega `invitacion=1`. El token de `InvitacionesViajes` no viaja en el enlace: la invitacion se vincula por correo al crear la cuenta. Para que el enlace abra la app en produccion, el dominio de `MAIL_FRONTEND_BASE_URL` tiene que estar en los `prefixes` del `linking`
+- Al registrarse por cualquier metodo (correo, Google o Facebook) o al iniciar sesion, `vincular_invitaciones_externas` convierte las invitaciones pendientes del correo en participaciones `invitado`
+- Tests: `backend/tests/test_invitar_por_correo.py`, `frontend/src/tests/SentInvitationsList.test.js` y `frontend/src/tests/RegisterScreenInvitacion.test.js`
 
 ### Navegacion
 
@@ -963,6 +987,11 @@ El flujo minimo actual incluye:
 - El tipo y las propuestas no se pueden modificar después de que exista un
   voto, para conservar la coherencia del histórico de resultados.
 - Eliminar una votación elimina también sus propuestas y votos relacionados.
+- Modificar voto (US 139): `PUT /votaciones/{id}/voto` con `idPropuestas`. Solo cambia el voto propio de quien ya voto, con la votacion abierta y no cancelada (400 si esta cancelada o si todavia no voto). Opcion unica reemplaza; opcion multiple agrega y quita con minimo una seleccion, y las opciones que se mantienen conservan su `FechaVoto`. La seleccion se valida con `_validar_seleccion`, compartida con `emitir_voto`: las propuestas tienen que ser de la votacion.
+- La votacion se bloquea con `with_for_update` durante la modificacion y el cierre se chequea dentro de la misma transaccion: si cerro, responde 409 y se conserva el voto anterior. Asi tampoco se cruza con la resolucion automatica de votaciones de sugerencias (US 91), que aplica igual a esas votaciones.
+- Quien salio o fue expulsado no puede modificar (`require_trip_edit_access`) y su voto queda como historico. Se emite `votacion_actualizada` para el progreso en tiempo real (US 52) y no se notifica a nadie. Si la seleccion no cambia, responde 200 "Tu voto no cambió." sin emitir eventos.
+- Frontend: como en WhatsApp, el voto se cambia tocando una opcion de los resultados mientras la votacion esta abierta. `ResultadosVotacion` recibe `onElegirOpcion` y `cambiandoVoto`, solo vuelve tocables las opciones si la votacion esta `abierta` y llega `onElegirOpcion`, y en ese caso muestra el circulo (opcion unica) o el cuadrado (multiple) marcado en el voto propio y la ayuda "Tocá otra opción para cambiar tu voto" junto a "Ver votos". `TripDetailScreen` (`cambiarVoto`) arma la nueva seleccion desde `MisPropuestas`: en opcion unica reemplaza y en multiple suma o quita, sin dejar el voto vacio. Llama a `modificarVoto` de `api.js` y recarga el progreso, sin dialogo de exito. Ante un 409 descarta el progreso guardado y recarga las votaciones para mostrar los resultados finales.
+- Tests: `backend/tests/test_modificar_voto.py` y `frontend/src/tests/ResultadosVotacion.test.js`.
 
 Backoffice:
 

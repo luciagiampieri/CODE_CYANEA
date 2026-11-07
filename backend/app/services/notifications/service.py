@@ -22,13 +22,12 @@ class NotificationType(StrEnum):
     RECORDATORIO_RESERVA = "recordatorio_reserva"
     PARTICIPANTE_EXPULSADO = "participante_expulsado"
     INVITACION_CANCELADA = "invitacion_cancelada"
+    INVITACION_VIAJE = "invitacion_viaje"
     GASTO_MODIFICADO = "gasto_modificado"
     LIQUIDACION_ACTUALIZADA = "liquidacion_actualizada"
     TRANSFERENCIA_INFORMADA = "transferencia_informada"
     TRANSFERENCIA_RECHAZADA = "transferencia_rechazada"
-    # Tareas del checklist creadas con "Recordármelo" (comprar entradas o reservar).
     TAREA_RESERVA_ENTRADAS = "tarea_reserva_entradas"
-    # US 103: el viaje finalizó; invita a revisar la liquidación.
     VIAJE_FINALIZADO = "viaje_finalizado"
 
 
@@ -60,17 +59,15 @@ class NotificationService:
         NotificationType.NUEVO_GASTO: "RecibeEmailsNuevosGastos",
         NotificationType.GASTO_MODIFICADO: "RecibeEmailsNuevosGastos",
         NotificationType.RECORDATORIO_DEUDA: "RecibeEmailsRecordatoriosDeuda",
-        # Cambios de a quién transferir: misma preferencia que los recordatorios de deuda.
         NotificationType.LIQUIDACION_ACTUALIZADA: "RecibeEmailsRecordatoriosDeuda",
         NotificationType.TRANSFERENCIA_INFORMADA: "RecibeEmailsRecordatoriosDeuda",
         NotificationType.TRANSFERENCIA_RECHAZADA: "RecibeEmailsRecordatoriosDeuda",
         NotificationType.RECORDATORIO_ACTIVIDAD: "RecibeEmailsRecordatoriosActividad",
         NotificationType.RECORDATORIO_RESERVA: "RecibeEmailsRecordatoriosReserva",
-        # Misma preferencia que los recordatorios de reservas.
         NotificationType.TAREA_RESERVA_ENTRADAS: "RecibeEmailsRecordatoriosReserva",
         NotificationType.PARTICIPANTE_EXPULSADO: "RecibeEmailsCambiosViaje",
         NotificationType.INVITACION_CANCELADA: "RecibeEmailsCambiosViaje",
-        # Invita a saldar deudas: misma preferencia que los recordatorios de deuda.
+        NotificationType.INVITACION_VIAJE: "RecibeEmailsCambiosViaje",
         NotificationType.VIAJE_FINALIZADO: "RecibeEmailsRecordatoriosDeuda",
     }
     _push_preferences = {
@@ -88,6 +85,7 @@ class NotificationService:
         NotificationType.TAREA_RESERVA_ENTRADAS: "RecibePushRecordatoriosReserva",
         NotificationType.PARTICIPANTE_EXPULSADO: "RecibePushCambiosViaje",
         NotificationType.INVITACION_CANCELADA: "RecibePushCambiosViaje",
+        NotificationType.INVITACION_VIAJE: "RecibePushCambiosViaje",
         NotificationType.VIAJE_FINALIZADO: "RecibePushRecordatoriosDeuda",
     }
 

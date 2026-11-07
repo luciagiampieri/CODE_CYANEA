@@ -1,8 +1,12 @@
+import { useContext } from "react";
 import { StyleSheet, View } from "react-native";
+import { BottomTabBarHeightContext } from "@react-navigation/bottom-tabs";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import useResponsive from "../../hooks/useResponsive";
 import { colors, layout, spacing } from "../../theme/tokens";
+
+const BORDES_EN_TABS = ["top", "left", "right"];
 
 export default function ScreenContainer({
   children,
@@ -10,14 +14,13 @@ export default function ScreenContainer({
   fullWidth = false,
   contentStyle,
   style,
-  // Bordes donde se respeta el área segura. Los buscadores a pantalla completa
-  // omiten "top" porque su encabezado azul ya cubre la barra de estado.
   edges,
 }) {
   const { contentWidth } = useResponsive();
+  const enTabs = useContext(BottomTabBarHeightContext) !== undefined;
 
   return (
-    <SafeAreaView style={[styles.safeArea, style]} edges={edges}>
+    <SafeAreaView style={[styles.safeArea, style]} edges={edges ?? (enTabs ? BORDES_EN_TABS : undefined)}>
       <View style={styles.outer}>
         <View
           style={[

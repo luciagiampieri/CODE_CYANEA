@@ -33,3 +33,15 @@ jest.mock('expo-font', () => {
     useFonts: jest.fn(() => [true, null]),
   };
 });
+
+jest.mock("@react-navigation/bottom-tabs", () => {
+  const React = require("react");
+  const BottomTabBarHeightContext = React.createContext(undefined);
+  const Navigator = ({ children }) => React.createElement(React.Fragment, null, children);
+  const Screen = () => null;
+
+  return {
+    BottomTabBarHeightContext,
+    createBottomTabNavigator: jest.fn(() => ({ Navigator, Screen })),
+  };
+});

@@ -84,6 +84,7 @@ function PuntosDia({ dia, activo }) {
 export default function RecorridoCalendario({
   dias,
   diaActual,
+  diaObjetivoId = null,
   accesos,
   conTira = true,
   onElegirDia,
@@ -128,7 +129,11 @@ export default function RecorridoCalendario({
                 accessibilityRole="button"
                 accessibilityState={{ selected: activo }}
                 onPress={() => onElegirDia?.(dia)}
-                style={[styles.dia, activo && styles.diaActivo]}
+                style={[
+                  styles.dia,
+                  activo && styles.diaActivo,
+                  dia.dayId === diaObjetivoId && styles.diaObjetivo,
+                ]}
               >
                 <Text style={[styles.semana, activo && styles.textoActivo]}>{semana}</Text>
                 <Text style={[styles.numero, activo && styles.textoActivo]}>{numero}</Text>
@@ -192,11 +197,16 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingVertical: 6,
     borderRadius: radii.sm,
+    borderWidth: 2,
+    borderColor: "transparent",
     backgroundColor: colors.surfaceMuted,
     gap: 1,
   },
   diaActivo: {
     backgroundColor: colors.primary,
+  },
+  diaObjetivo: {
+    borderColor: colors.accentStrong,
   },
   semana: {
     ...textStyles.meta,

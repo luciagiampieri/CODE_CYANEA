@@ -23,6 +23,7 @@ import {
   getTripStartKey,
 } from "../utils/tripPhase";
 import { getCurrentUser, getTrips, getNotifications, getPendingInvitations, getNotificationsSocketUrl } from "../services/api";
+import { useEspacioBarraTabs } from "../components/navigation/FloatingTabBar";
 
 import {
   colors,
@@ -92,6 +93,7 @@ export default function HomeScreen({ navigation }) {
   const [currentUser, setCurrentUser] = useState(null);
   const [notificationBadgeCount, setNotificationBadgeCount] = useState(0);
   const { isTablet, isDesktop } = useResponsive();
+  const espacioBarra = useEspacioBarraTabs();
 
   const loadData = useCallback(async () => {
     try {
@@ -119,9 +121,7 @@ export default function HomeScreen({ navigation }) {
       }
     }, []);
   
-  // Se recarga cada vez que la pantalla vuelve a tener foco (por ejemplo, al
-  // volver de aceptar/rechazar una invitación, o de expulsar/salir de un
-  // viaje) para que ni la lista de viajes ni el badge queden desactualizados.
+
   useFocusEffect(
     useCallback(() => {
       loadData();
@@ -171,8 +171,7 @@ export default function HomeScreen({ navigation }) {
     };
   }, [loadNotificationBadge]);
 
-  // Misma lógica que Mis viajes (utils/tripPhase): acá solo se muestran los
-  // viajes en curso y los próximos.
+
   const decoratedTrips = useMemo(() => {
     const today = getTodayIso();
     const nextTripId = getNextTripId(trips, today);
@@ -183,10 +182,8 @@ export default function HomeScreen({ navigation }) {
       .sort((a, b) => {
         if (a.phase !== b.phase) return PHASE_ORDER[a.phase] - PHASE_ORDER[b.phase];
         if (a.phase === "en_curso") {
-          // en curso: el que termina antes, primero
           return (getTripEndKey(a.trip) ?? "9999").localeCompare(getTripEndKey(b.trip) ?? "9999");
         }
-        // próximos: el que arranca antes, primero
         return (getTripStartKey(a.trip) ?? "9999").localeCompare(getTripStartKey(b.trip) ?? "9999");
       })
       .map(({ trip, phase }) => {
@@ -222,7 +219,10 @@ export default function HomeScreen({ navigation }) {
 
   return (
     <ScreenContainer fullWidth padded={false}>
-      <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        contentContainerStyle={[styles.scrollContent, { paddingBottom: espacioBarra + 96 }]}
+        showsVerticalScrollIndicator={false}
+      >
         <View style={styles.header}>
           <View style={styles.topRow}>
             <View>
@@ -280,7 +280,10 @@ export default function HomeScreen({ navigation }) {
           )}
         </View>
       </ScrollView>
-      <Pressable onPress={() => navigation.navigate("NuevoViaje")} style={({ pressed }) => [styles.fab, pressed && styles.fabPressed]}>
+      <Pressable
+        onPress={() => navigation.navigate("NuevoViaje")}
+        style={({ pressed }) => [styles.fab, { bottom: espacioBarra }, pressed && styles.fabPressed]}
+      >
         <FontAwesome6 name="plus" size={28} color={colors.primary} />
       </Pressable>
     </ScreenContainer>
@@ -288,9 +291,7 @@ export default function HomeScreen({ navigation }) {
 }
 
 const styles = StyleSheet.create({
-  scrollContent: {
-    paddingBottom: 148,
-  },
+  scrollContent: {},
   header: {
     backgroundColor: colors.background,
     paddingHorizontal: spacing.lg,
@@ -384,7 +385,6 @@ const styles = StyleSheet.create({
   fab: {
     position: "absolute",
     right: spacing.xl,
-    bottom: spacing.lg,
     width: 64,
     height: 64,
     borderRadius: 32,

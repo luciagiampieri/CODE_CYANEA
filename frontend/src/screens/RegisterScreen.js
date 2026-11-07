@@ -30,16 +30,22 @@ const API_BASE = process.env.EXPO_PUBLIC_API_BASE_URL ?? "http://localhost:8000/
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const PASSWORD_REGEX = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0-9]).{8,}$/;
 
-export default function RegisterScreen({ navigation }) {
-  const [form, setForm] = useState({
+function emailDeInvitacion(valor) {
+  return typeof valor === "string" ? valor.trim().toLowerCase() : "";
+}
+
+export default function RegisterScreen({ navigation, route }) {
+  const desdeInvitacion =
+    route?.params?.invitacion === "1" || route?.params?.invitacion === true;
+  const [form, setForm] = useState(() => ({
     nombre: "",
     apellido: "",
     nombreUsuario: "",
-    email: "",
+    email: emailDeInvitacion(route?.params?.email),
     password: "",
     confirmarPassword: "",
     aceptaTerminos: false,
-  });
+  }));
   const [errors, setErrors] = useState({});
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
@@ -128,6 +134,15 @@ export default function RegisterScreen({ navigation }) {
             <AuthSwitch active="register" onChange={(key) => key === "login" && navigation.navigate("Login")} />
 
             <View style={styles.form}>
+              {desdeInvitacion ? (
+                <View style={styles.inviteBox} testID="register-invitacion-aviso">
+                  <FontAwesome6 color={colors.primary} name="envelope-open-text" size={14} />
+                  <Text style={styles.inviteText}>
+                    Te invitaron a un viaje. Creá tu cuenta con este correo y la invitación va a aparecer en tus notificaciones.
+                  </Text>
+                </View>
+              ) : null}
+
               <View style={styles.row}>
                 <Field label="Nombre" value={form.nombre} onChangeText={(value) => setField("nombre", value)} error={errors.nombre} testID="register-nombre-input" />
                 <Field label="Apellido" value={form.apellido} onChangeText={(value) => setField("apellido", value)} error={errors.apellido} testID="register-apellido-input" />
@@ -311,6 +326,20 @@ const styles = StyleSheet.create({
   },
   form: {
     marginTop: spacing.xl,
+  },
+  inviteBox: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: spacing.sm,
+    backgroundColor: colors.surfaceAlt,
+    borderRadius: radii.md,
+    padding: spacing.md,
+    marginBottom: spacing.md,
+  },
+  inviteText: {
+    ...textStyles.meta,
+    color: colors.textPrimary,
+    flex: 1,
   },
   row: {
     flexDirection: Platform.OS === "web" ? "row" : "column",

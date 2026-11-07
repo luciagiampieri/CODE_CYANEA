@@ -46,6 +46,7 @@ class Settings(BaseSettings):
     mail_reply_to: str | None = None
     mail_frontend_base_url: str = "http://127.0.0.1:8081"
     brevo_api_key: str | None = None
+    email_invitations_daily_limit: int = Field(default=20, ge=1)
 
     # Push notifications
     push_enabled: bool = True
@@ -101,7 +102,6 @@ class Settings(BaseSettings):
 
     # Recomendación de entradas y reservas de actividades (sitio oficial + Gemini)
     ai_entradas_enabled: bool = True
-    # Vacíos: se usan AI_RECEIPT_MODEL y AI_RECEIPT_FALLBACK_MODEL.
     ai_entradas_model: str | None = None
     ai_entradas_fallback_model: str | None = None
     ai_entradas_timeout_seconds: float = 12.0
@@ -133,25 +133,14 @@ class Settings(BaseSettings):
 
     expense_edit_lock_ttl_seconds: int = 120
 
-    # Suscripción al plan Pro con Mercado Pago (US 116). Sin access token la
-    # contratación responde 503 PAYMENT_GATEWAY_UNAVAILABLE.
     mercadopago_access_token: str | None = None
-    # Clave secreta de Webhooks ("Tus integraciones" > Webhooks). Sin clave las
-    # notificaciones no se pueden verificar y se rechazan (US 117), salvo que se
-    # habilite MERCADOPAGO_WEBHOOK_ALLOW_UNSIGNED, pensado solo para desarrollo local.
     mercadopago_webhook_secret: str | None = None
     mercadopago_webhook_allow_unsigned: bool = False
     mercadopago_api_url: str = "https://api.mercadopago.com"
     mercadopago_timeout_seconds: float = 15.0
-    # URL https pública a la que Mercado Pago devuelve al usuario. Vacía: se usa
-    # {API_BASE_URL}/pagos/mercadopago/retorno, que redirige a la app.
     mercadopago_back_url: str | None = None
-    # Destino final del retorno: deep link de la app (o la URL web del frontend).
     mercadopago_app_return_url: str = "cyanea://suscripcion/retorno"
-    # Usuario de prueba comprador para el sandbox: si se informa, se usa como
-    # payer_email en lugar del correo del viajero. Dejar vacío en producción.
     mercadopago_test_payer_email: str | None = None
-    # Días que una renovación puede quedar en "pendiente_pago" antes de vencer (US 117).
     subscription_pending_payment_days: int = Field(default=3, ge=1)
 
     model_config = SettingsConfigDict(

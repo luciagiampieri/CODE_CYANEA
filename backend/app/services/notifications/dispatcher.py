@@ -27,7 +27,6 @@ logger = logging.getLogger(__name__)
 _EMAIL_TEMPLATE_HTML = "trip_event_notification.html"
 _EMAIL_TEMPLATE_TEXT = "trip_event_notification.txt"
 
-# Etiqueta que encabeza el correo según el tipo de notificación (US 60).
 _EMAIL_EVENT_LABELS = {
     NotificationType.NUEVA_ACTIVIDAD: "Nueva actividad",
     NotificationType.CAMBIO_VIAJE: "Cambio en el viaje",
@@ -43,6 +42,7 @@ _EMAIL_EVENT_LABELS = {
     NotificationType.TAREA_RESERVA_ENTRADAS: "Reservas y entradas",
     NotificationType.PARTICIPANTE_EXPULSADO: "Cambio en el viaje",
     NotificationType.INVITACION_CANCELADA: "Invitación cancelada",
+    NotificationType.INVITACION_VIAJE: "Invitación a un viaje",
     NotificationType.VIAJE_FINALIZADO: "Viaje finalizado",
 }
 
@@ -56,8 +56,6 @@ class TripNotificationEvent:
     id_viaje: int
     id_usuario_actor: int | None = None
     data: dict[str, Any] = field(default_factory=dict)
-    # Si es False, el push no incluye tripId y al tocarlo no se abre el viaje
-    # (por ejemplo, cuando el destinatario ya no tiene acceso a ese viaje).
     abre_viaje: bool = True
 
 

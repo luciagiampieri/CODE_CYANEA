@@ -1,8 +1,9 @@
 import { useMemo } from "react";
 import { FontAwesome6 } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { Animated, Pressable, StyleSheet, Text, View } from "react-native";
 
+import useArrastreDia from "../../hooks/useArrastreDia";
 import { formatDuration, getActivityTimes, getPlaceName, isTodayISO } from "../../utils/agenda";
 import { aHora, aMinutos, calcularHuecosLibres } from "../../utils/huecosLibres";
 import { avisoDeTraslado, textoHorario } from "../../utils/traslados";
@@ -18,6 +19,8 @@ const ALTO_MINIMO = 32;
 const ANCHO_HORAS = 38;
 const INICIO_SUGERENCIAS = 8 * 60;
 const FIN_SUGERENCIAS = 23 * 60;
+const PASO_ARRASTRE = 72;
+const DEMORA_ARRASTRE_MS = 300;
 
 const TIPOS = {
   comida: { acento: "#D97706", fondo: "rgba(217,119,6,0.14)", texto: "#92400E", iconos: ["utensils", "mug-hot", "burger", "pizza-slice", "wine-glass", "martini-glass", "ice-cream", "bowl-food", "cake-candles", "beer-mug-empty"] },
@@ -141,6 +144,151 @@ function acomodar(items) {
   return resultado;
 }
 
+function BloqueActividad({
+  bloque,
+  desde,
+  letra,
+  esHoy,
+  minutosAhora,
+  canEdit,
+  onEdit,
+  onDelete,
+  arrastre,
+}) {
+  const { item } = bloque;
+  const puedeArrastrar = canEdit && Boolean(arrastre) && !item.traslado;
+  const { desplazamiento, arrastrando, pasos, panHandlers, alMantener, alSoltar } = useArrastreDia({
+    anchoPaso: PASO_ARRASTRE,
+    onInicio: () => arrastre?.onInicio?.(),
+    onCambio: (nuevos) => arrastre?.onCambio?.(item, nuevos),
+    onSoltar: (resultado, movio) => {
+      arrastre?.onSoltar?.(item, movio ? resultado : 0);
+      if (!movio) onDelete?.(item);
+    },
+  });
+
+  const top = ((bloque.startMin - desde) / 60) * ALTO_HORA;
+  const alto = Math.max(
+    ((bloque.endMin - bloque.startMin) / 60) * ALTO_HORA - 2,
+    item.traslado ? ALTO_MINIMO_TRASLADO : ALTO_MINIMO
+  );
+  const ancho = 100 / bloque.columnas;
+  const lineasTitulo = Math.max(
+    1,
+    Math.min(4, Math.floor((alto - 14 - (alto >= 40 ? 15 : 0)) / 16))
+  );
+  const tipo = tipoDe(item.icon);
+  const pasada = esHoy && bloque.endMin <= minutosAhora;
+  const enCurso = esHoy && bloque.startMin <= minutosAhora && minutosAhora < bloque.endMin;
+  const lugar = alto >= 66 && bloque.columnas === 1 ? getPlaceName(item) : null;
+  const destino = arrastrando && arrastre ? arrastre.etiqueta(pasos) : null;
+
+  return (
+    <Animated.View
+      {...(puedeArrastrar ? panHandlers : {})}
+      style={[
+        styles.bloque,
+        { top, height: alto, left: `${bloque.col * ancho}%`, width: `${ancho}%` },
+        pasada && !arrastrando && styles.bloquePasado,
+        arrastrando && styles.bloqueArrastrado,
+        { transform: [{ translateX: desplazamiento }] },
+      ]}
+    >
+      <Pressable
+        accessibilityLabel={`${item.title}, ${bloque.start}${bloque.end ? ` a ${bloque.end}` : ""}${
+          item.advertenciaHorario ? `. Advertencia: ${item.advertenciaHorario}` : ""
+        }`}
+        disabled={!canEdit}
+        delayLongPress={puedeArrastrar ? DEMORA_ARRASTRE_MS : undefined}
+        onLongPress={canEdit ? (puedeArrastrar ? alMantener : () => onDelete?.(item)) : undefined}
+        onPressOut={puedeArrastrar ? alSoltar : undefined}
+        onPress={() => onEdit?.(item)}
+        style={styles.bloquePresionable}
+        testID={`timegrid-block-${item.id}`}
+      >
+        <View
+          style={[
+            styles.bloqueInterior,
+            { backgroundColor: tipo.fondo, borderLeftColor: tipo.acento },
+            enCurso && { borderColor: tipo.acento, borderWidth: 1.5 },
+          ]}
+        >
+          {item.traslado ? (
+            <Text
+              style={[styles.etiquetaTraslado, { color: tipo.texto }]}
+              testID={`timegrid-traslado-${item.id}`}
+            >
+              TRASLADO
+            </Text>
+          ) : null}
+          <View style={styles.bloqueTitulo}>
+            {letra ? (
+              <View style={[styles.bloqueIcono, { backgroundColor: tipo.acento }]}>
+                <Text style={styles.letraTexto}>{letra}</Text>
+              </View>
+            ) : (
+              <View style={[styles.bloqueIcono, { backgroundColor: tipo.acento }]}>
+                <FontAwesome6 color="#fff" name={item.icon ?? "location-dot"} size={9} />
+              </View>
+            )}
+            <Text numberOfLines={lineasTitulo} style={[styles.bloqueTexto, { color: tipo.texto }]}>
+              {item.title}
+            </Text>
+            {item.advertenciaHorario ? (
+              <FontAwesome6
+                color={colors.warning}
+                name="triangle-exclamation"
+                size={10}
+                testID={`timegrid-schedule-warning-${item.id}`}
+              />
+            ) : null}
+            {enCurso && bloque.columnas === 1 ? (
+              <View style={[styles.etiqueta, { backgroundColor: tipo.acento }]}>
+                <Text style={styles.etiquetaTexto}>AHORA</Text>
+              </View>
+            ) : null}
+          </View>
+          {item.traslado ? (
+            <Text numberOfLines={1} style={[styles.bloqueHora, { color: tipo.texto }]}>
+              {textoHorario(item.traslado, item.horaInicio, item.horaFin)}
+            </Text>
+          ) : alto >= 40 ? (
+            <Text numberOfLines={1} style={[styles.bloqueHora, { color: tipo.texto }]}>
+              {bloque.start}
+              {bloque.tieneFin ? ` – ${bloque.end}` : ""}
+              {bloque.tieneFin && bloque.columnas === 1 ? ` · ${formatDuration(bloque.endMin - bloque.startMin)}` : ""}
+            </Text>
+          ) : null}
+          {lugar ? (
+            <View style={styles.bloqueLugar}>
+              <FontAwesome6 color={tipo.texto} name="location-dot" size={9} />
+              <Text numberOfLines={1} style={[styles.bloqueHora, { color: tipo.texto, flexShrink: 1 }]}>
+                {lugar}
+              </Text>
+            </View>
+          ) : null}
+        </View>
+      </Pressable>
+      {destino ? (
+        <View
+          pointerEvents="none"
+          style={[styles.destino, destino.valido ? styles.destinoValido : styles.destinoInvalido]}
+          testID={`timegrid-destino-${item.id}`}
+        >
+          <FontAwesome6
+            color={colors.textInverse}
+            name={destino.valido ? "calendar-day" : "ban"}
+            size={10}
+          />
+          <Text numberOfLines={1} style={styles.destinoTexto}>
+            {destino.texto}
+          </Text>
+        </View>
+      ) : null}
+    </Animated.View>
+  );
+}
+
 
 export default function DayTimeGrid({
   actividades = [],
@@ -154,6 +302,7 @@ export default function DayTimeGrid({
   franjas = null,
   // Traslado entre destinos del día, que se dibuja como tarjeta del viaje.
   viaje = null,
+  arrastre,
 }) {
   const esHoy = isTodayISO(fecha);
 
@@ -206,6 +355,8 @@ export default function DayTimeGrid({
 
   const horas = [];
   for (let m = desde; m < hasta; m += 60) horas.push(m);
+
+  const puedeArrastrar = canEdit && Boolean(arrastre);
 
   return (
     <View>
@@ -331,22 +482,13 @@ export default function DayTimeGrid({
             })}
 
             {bloques.map((b) => {
-              const top = ((b.startMin - desde) / 60) * ALTO_HORA;
-              const alto = Math.max(
-                ((b.endMin - b.startMin) / 60) * ALTO_HORA - 2,
-                b.item.traslado ? ALTO_MINIMO_TRASLADO : ALTO_MINIMO
-              );
-              const ancho = 100 / b.columnas;
-              const lineasTitulo = Math.max(
-                1,
-                Math.min(4, Math.floor((alto - 14 - (alto >= 40 ? 15 : 0)) / 16))
-              );
-              const letra = letraDe[b.item.id];
-              const tipo = tipoDe(b.item.icon);
-              const pasada = esHoy && b.endMin <= minutosAhora;
-              const enCurso = esHoy && b.startMin <= minutosAhora && minutosAhora < b.endMin;
-              const lugar = alto >= 66 && b.columnas === 1 ? getPlaceName(b.item) : null;
               if (viaje?.item === b.item) {
+                const top = ((b.startMin - desde) / 60) * ALTO_HORA;
+                const alto = Math.max(
+                  ((b.endMin - b.startMin) / 60) * ALTO_HORA - 2,
+                  b.item.traslado ? ALTO_MINIMO_TRASLADO : ALTO_MINIMO
+                );
+                const ancho = 100 / b.columnas;
                 return (
                   <Pressable
                     key={b.item.id}
@@ -365,84 +507,18 @@ export default function DayTimeGrid({
                 );
               }
               return (
-                <Pressable
+                <BloqueActividad
                   key={b.item.id}
-                  accessibilityLabel={`${b.item.title}, ${b.start}${b.end ? ` a ${b.end}` : ""}${
-                    b.item.advertenciaHorario ? `. Advertencia: ${b.item.advertenciaHorario}` : ""
-                  }`}
-                  disabled={!canEdit}
-                  onLongPress={canEdit ? () => onDelete?.(b.item) : undefined}
-                  onPress={() => onEdit?.(b.item)}
-                  style={[
-                    styles.bloque,
-                    { top, height: alto, left: `${b.col * ancho}%`, width: `${ancho}%` },
-                    pasada && styles.bloquePasado,
-                  ]}
-                  testID={`timegrid-block-${b.item.id}`}
-                >
-                  <View
-                    style={[
-                      styles.bloqueInterior,
-                      { backgroundColor: tipo.fondo, borderLeftColor: tipo.acento },
-                      enCurso && { borderColor: tipo.acento, borderWidth: 1.5 },
-                    ]}
-                  >
-                    {b.item.traslado ? (
-                      <Text
-                        style={[styles.etiquetaTraslado, { color: tipo.texto }]}
-                        testID={`timegrid-traslado-${b.item.id}`}
-                      >
-                        TRASLADO
-                      </Text>
-                    ) : null}
-                    <View style={styles.bloqueTitulo}>
-                      {letra ? (
-                        <View style={[styles.bloqueIcono, { backgroundColor: tipo.acento }]}>
-                          <Text style={styles.letraTexto}>{letra}</Text>
-                        </View>
-                      ) : (
-                        <View style={[styles.bloqueIcono, { backgroundColor: tipo.acento }]}>
-                          <FontAwesome6 color="#fff" name={b.item.icon ?? "location-dot"} size={9} />
-                        </View>
-                      )}
-                      <Text numberOfLines={lineasTitulo} style={[styles.bloqueTexto, { color: tipo.texto }]}>
-                        {b.item.title}
-                      </Text>
-                      {b.item.advertenciaHorario ? (
-                        <FontAwesome6
-                          color={colors.warning}
-                          name="triangle-exclamation"
-                          size={10}
-                          testID={`timegrid-schedule-warning-${b.item.id}`}
-                        />
-                      ) : null}
-                      {enCurso && b.columnas === 1 ? (
-                        <View style={[styles.etiqueta, { backgroundColor: tipo.acento }]}>
-                          <Text style={styles.etiquetaTexto}>AHORA</Text>
-                        </View>
-                      ) : null}
-                    </View>
-                    {b.item.traslado ? (
-                      <Text numberOfLines={1} style={[styles.bloqueHora, { color: tipo.texto }]}>
-                        {textoHorario(b.item.traslado, b.item.horaInicio, b.item.horaFin)}
-                      </Text>
-                    ) : alto >= 40 ? (
-                      <Text numberOfLines={1} style={[styles.bloqueHora, { color: tipo.texto }]}>
-                        {b.start}
-                        {b.tieneFin ? ` – ${b.end}` : ""}
-                        {b.tieneFin && b.columnas === 1 ? ` · ${formatDuration(b.endMin - b.startMin)}` : ""}
-                      </Text>
-                    ) : null}
-                    {lugar ? (
-                      <View style={styles.bloqueLugar}>
-                        <FontAwesome6 color={tipo.texto} name="location-dot" size={9} />
-                        <Text numberOfLines={1} style={[styles.bloqueHora, { color: tipo.texto, flexShrink: 1 }]}>
-                          {lugar}
-                        </Text>
-                      </View>
-                    ) : null}
-                  </View>
-                </Pressable>
+                  bloque={b}
+                  desde={desde}
+                  letra={letraDe[b.item.id]}
+                  esHoy={esHoy}
+                  minutosAhora={minutosAhora}
+                  canEdit={canEdit}
+                  onEdit={onEdit}
+                  onDelete={onDelete}
+                  arrastre={arrastre}
+                />
               );
             })}
           </View>
@@ -475,7 +551,11 @@ export default function DayTimeGrid({
         </Pressable>
       ) : null}
       {canEdit && bloques.length > 0 ? (
-        <Text style={styles.ayuda}>Tocá un bloque para editarlo · mantenelo apretado para eliminarlo</Text>
+        <Text style={styles.ayuda}>
+          {puedeArrastrar
+            ? "Tocá un bloque para editarlo · mantenelo apretado para eliminarlo o deslizalo hacia un costado para cambiarlo de día"
+            : "Tocá un bloque para editarlo · mantenelo apretado para eliminarlo"}
+        </Text>
       ) : null}
     </View>
   );
@@ -622,7 +702,9 @@ const styles = StyleSheet.create({
   huecoPresionado: { opacity: 0.75 },
   huecoTexto: { ...textStyles.meta, color: colors.primary, fontSize: 12, fontWeight: "700" },
   bloque: { position: "absolute", paddingRight: 3, paddingBottom: 2 },
+  bloquePresionable: { flex: 1 },
   bloquePasado: { opacity: 0.55 },
+  bloqueArrastrado: { zIndex: 20, elevation: 20, opacity: 0.95 },
   bloqueInterior: {
     flex: 1,
     borderLeftWidth: 4,
@@ -639,6 +721,20 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+  destino: {
+    position: "absolute",
+    top: -26,
+    left: 0,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: radii.pill ?? 999,
+  },
+  destinoValido: { backgroundColor: colors.primary },
+  destinoInvalido: { backgroundColor: colors.textMuted },
+  destinoTexto: { color: colors.textInverse, fontSize: 11, fontWeight: "700" },
   aviso: {
     marginBottom: spacing.sm,
     padding: spacing.sm,
