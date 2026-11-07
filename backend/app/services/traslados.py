@@ -361,6 +361,47 @@ def mensaje_superposicion(superpuestas: Sequence[ActividadItinerario]) -> str:
     return f"{inicio} mientras viajan: {detalle}."
 
 
+@dataclass(frozen=True)
+class SeparacionDia:
+    """Día de traslado sin noches en viaje. Sin traslado agendado no hay hora de salida,
+    así que las actividades quedan sin repartir."""
+
+    tramo: EstadoTramo
+    agendado: bool
+    antes: list[ActividadItinerario]
+    despues: list[ActividadItinerario]
+
+
+def separar_actividades_dia(viaje: Viaje, dia) -> SeparacionDia | None:
+    """Reparte las actividades de un día de traslado entre los dos destinos: lo que empieza
+    antes de la salida es del destino de salida y el resto, del de llegada. Devuelve None si
+    el día no es de traslado. Misma regla que `separarActividadesDia` del frontend."""
+    tramo = next(
+        (
+            estado
+            for estado in estados_tramos(viaje)
+            if estado.tipo == TIPO_TRAMO_ENTRE_DESTINOS
+            and estado.validez == VALIDO
+            and estado.mismo_dia
+            and estado.fecha_salida == dia.Fecha
+        ),
+        None,
+    )
+    if tramo is None:
+        return None
+    if tramo.actividad is None:
+        return SeparacionDia(tramo, False, [], [])
+
+    salida = tramo.actividad.HoraInicio
+    comunes = _actividades_comunes(dia)
+    return SeparacionDia(
+        tramo,
+        True,
+        [a for a in comunes if a.HoraInicio < salida],
+        [a for a in comunes if a.HoraInicio >= salida],
+    )
+
+
 def fila_del_tramo(db: Session, viaje: Viaje, estado: EstadoTramo) -> TramoTrasladoViaje:
     if estado.fila is not None:
         return estado.fila

@@ -2,12 +2,21 @@
  * Piezas compartidas por AddActivityScreen y AddTrasladoScreen.
  */
 import { Keyboard, Platform } from "react-native";
-import { act, fireEvent, render, renderHook } from "@testing-library/react-native";
+import { act, fireEvent, render, renderHook, waitFor } from "@testing-library/react-native";
 
+import FotoDestino from "../components/ui/FotoDestino";
 import HoraField from "../components/ui/HoraField";
 import OptionSheet from "../components/ui/OptionSheet";
 import SelectField from "../components/ui/SelectField";
 import { useSelectorHora } from "../components/ui/SelectorHora";
+import useFotosDestinos from "../hooks/useFotosDestinos";
+import { resolveDestination } from "../services/api";
+import { fotoDeDestino, limpiarFotosDestinos } from "../utils/fotoDestino";
+
+jest.mock("../services/api", () => ({
+  resolveDestination: jest.fn(),
+  searchDestinations: jest.fn(),
+}));
 
 const opciones = [
   { name: "plane", label: "Avión" },
@@ -155,5 +164,63 @@ describe("HoraField compacto", () => {
     await fireEvent.press(getByLabelText("Hora de salida"));
 
     expect(onPress).toHaveBeenCalled();
+  });
+});
+
+describe("fotos de los destinos", () => {
+  const destino = { name: "Roma", country: "Italia", placeId: "abc" };
+
+  beforeEach(() => {
+    limpiarFotosDestinos();
+    resolveDestination.mockReset();
+  });
+
+  it("pide una sola vez la foto de cada destino", async () => {
+    resolveDestination.mockResolvedValue({ imageUrl: "roma.jpg" });
+
+    expect(await fotoDeDestino(destino)).toBe("roma.jpg");
+    expect(await fotoDeDestino(destino)).toBe("roma.jpg");
+
+    expect(resolveDestination).toHaveBeenCalledTimes(1);
+  });
+
+  it("si el destino ya trae foto no la pide", async () => {
+    expect(await fotoDeDestino({ ...destino, imageUrl: "propia.jpg" })).toBe("propia.jpg");
+
+    expect(resolveDestination).not.toHaveBeenCalled();
+  });
+
+  it("si falla la vuelve a pedir", async () => {
+    resolveDestination.mockRejectedValueOnce(new Error("Sin conexión"));
+    resolveDestination.mockResolvedValueOnce({ imageUrl: "roma.jpg" });
+
+    expect(await fotoDeDestino(destino)).toBeNull();
+    expect(await fotoDeDestino(destino)).toBe("roma.jpg");
+  });
+
+  it("el hook devuelve las fotos por nombre", async () => {
+    resolveDestination.mockResolvedValue({ imageUrl: "roma.jpg" });
+
+    const { result } = await renderHook(() => useFotosDestinos([destino], true));
+
+    await waitFor(() => expect(result.current).toEqual({ Roma: "roma.jpg" }));
+  });
+
+  it("inactivo no pide nada", async () => {
+    await renderHook(() => useFotosDestinos([destino], false));
+
+    expect(resolveDestination).not.toHaveBeenCalled();
+  });
+
+  it("muestra el pin si no hay foto", async () => {
+    const utils = await render(<FotoDestino tamano={26} />);
+
+    expect(utils.getByTestId("foto-destino-vacia")).toBeTruthy();
+  });
+
+  it("muestra el número de orden si lo recibe", async () => {
+    const utils = await render(<FotoDestino numero={2} color="#000" />);
+
+    expect(utils.getByText("2")).toBeTruthy();
   });
 });

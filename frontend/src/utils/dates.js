@@ -36,6 +36,13 @@ export function formatWeekdayDayMonth(isoDate) {
   return `${DIAS_CORTOS[parseYMD(isoDate).getDay()]} ${formatDayMonth(isoDate)}`;
 }
 
+// "2026-11-04" -> "mié 4"
+export function formatWeekdayDay(isoDate) {
+  if (!isoDate) return "";
+  const fecha = parseYMD(isoDate);
+  return `${DIAS_CORTOS[fecha.getDay()]} ${fecha.getDate()}`;
+}
+
 // "2026-11-04" -> "Miércoles 4 nov"
 export function formatLongWeekdayDayMonth(isoDate) {
   if (!isoDate) return "";

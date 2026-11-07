@@ -1119,7 +1119,7 @@ def test_la_ruta_del_dia_ignora_los_traslados(client, db_session, master_data, a
     dia = db_session.get(DiaCronograma, ida["idDiaCronograma"])
     db_session.refresh(dia)
 
-    con_lugar, sin_lugar = route_generation._actividades_con_y_sin_ubicacion(dia)
+    con_lugar, sin_lugar = route_generation._actividades_con_y_sin_ubicacion(dia.Actividades)
 
     assert con_lugar == []
     assert [a.Nombre for a in sin_lugar] == ["Museo"]

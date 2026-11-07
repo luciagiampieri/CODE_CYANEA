@@ -1,34 +1,28 @@
 import { FontAwesome6 } from "@expo/vector-icons";
-import { useEffect, useMemo, useRef, useState } from "react";
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { useMemo, useState } from "react";
+import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import DayTimeGrid from "./DayTimeGrid";
+import ChipDia from "./ChipDia";
 import DayRouteSection from "./DayRouteSection";
+import RecorridoCalendario from "./RecorridoCalendario";
+import { TIPOS_DIA, chipDelDiaCalendario } from "../../utils/destinosDias";
 import DaySuggestionsSection from "./DaySuggestionsSection";
 import useResponsive from "../../hooks/useResponsive";
 import { colors, radii, spacing, surfaces, textStyles } from "../../theme/tokens";
 import { calcularActividadesSolapadas } from "../../utils/itinerarioOverlaps";
-import { isTodayISO } from "../../utils/agenda";
+import { resumenDelDia, isTodayISO } from "../../utils/agenda";
 
 const ANCHO_MINIMO_COLUMNA = 240;
 const MAXIMO_COLUMNAS = 4;
 const ANCHO_MOBILE = 768;
-const DIAS_SEMANA = ["DOM", "LUN", "MAR", "MIE", "JUE", "VIE", "SAB"];
 const DIAS_LARGOS = ["Domingo", "Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"];
 const MESES = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"];
-const ANCHO_DIA = 48;
-const SEPARACION_DIA = 6;
 
 function fechaLarga(fechaRaw) {
   const fecha = new Date(`${String(fechaRaw ?? "").slice(0, 10)}T12:00:00`);
   if (Number.isNaN(fecha.getTime())) return "";
   return `${DIAS_LARGOS[fecha.getDay()]} ${fecha.getDate()} de ${MESES[fecha.getMonth()]}`;
-}
-
-function partesDeFecha(fechaRaw) {
-  const fecha = new Date(`${String(fechaRaw ?? "").slice(0, 10)}T12:00:00`);
-  if (Number.isNaN(fecha.getTime())) return { semana: "", numero: "" };
-  return { semana: DIAS_SEMANA[fecha.getDay()], numero: String(fecha.getDate()) };
 }
 
 function modoPorDefecto(dayId, ruta) {
@@ -51,12 +45,17 @@ export default function ItinerarioCalendarView({
   sugerenciasPorDia = {},
   // Contenido arriba de las actividades del día (tarjetas de traslados, US 136).
   renderEncabezadoDia,
+  // Accesos por destino; null si el itinerario no muestra destinos (US 138).
+  accesos = null,
+  // Ruta de cada destino en un día de traslado: su modo, su generación y su mapa.
+  generandoDestino = null,
+  resolverModoDestino,
+  onCambiarModoDestino,
+  onVerMapaDestino,
 }) {
   const { width } = useResponsive();
   const [diaSeleccionadoId, setDiaSeleccionadoId] = useState(null);
   const esMobile = width < ANCHO_MOBILE;
-  const tiraRef = useRef(null);
-  const [anchoTira, setAnchoTira] = useState(0);
 
   const columnas = useMemo(() => {
     const anchoDisponible = Math.max(width - spacing.lg * 2, ANCHO_MINIMO_COLUMNA);
@@ -75,14 +74,6 @@ export default function ItinerarioCalendarView({
     );
   }, [dias, diaSeleccionadoId]);
 
-  const indiceActual = diaActual && dias ? dias.findIndex((d) => d.dayId === diaActual.dayId) : -1;
-
-  useEffect(() => {
-    if (!esMobile || indiceActual < 0 || !anchoTira) return;
-    const x = indiceActual * (ANCHO_DIA + SEPARACION_DIA) - (anchoTira - ANCHO_DIA) / 2;
-    tiraRef.current?.scrollTo?.({ x: Math.max(0, x), animated: true });
-  }, [esMobile, indiceActual, anchoTira]);
-
   if (!dias || dias.length === 0) {
     return (
       <View style={styles.sectionCard}>
@@ -94,85 +85,24 @@ export default function ItinerarioCalendarView({
     );
   }
 
-  function irAlDia(delta) {
-    const destino = dias[indiceActual + delta];
-    if (destino) setDiaSeleccionadoId(destino.dayId);
-  }
-
   const diasVisibles = esMobile && diaActual ? [diaActual] : dias;
+
+  function irAlDestino(acceso) {
+    const dia = dias.find((d) => String(d.fechaRaw ?? "").slice(0, 10) === acceso.primeraFecha);
+    if (dia) setDiaSeleccionadoId(dia.dayId);
+  }
 
   return (
     <View>
-      {esMobile && diaActual ? (
-        <View style={styles.selectorHeader}>
-          <Pressable
-            accessibilityLabel="Día anterior"
-            disabled={indiceActual <= 0}
-            hitSlop={8}
-            onPress={() => irAlDia(-1)}
-            style={[styles.flecha, indiceActual <= 0 && styles.flechaOff]}
-            testID="calendar-prev"
-          >
-            <FontAwesome6 color={colors.primary} name="chevron-left" size={13} />
-          </Pressable>
-          <View style={styles.selectorCentro}>
-            <Text numberOfLines={1} style={styles.selectorFecha}>
-              {fechaLarga(diaActual.fechaRaw) || diaActual.dayDateText}
-            </Text>
-            <Text style={styles.selectorSub}>
-              Día {diaActual.dayIndex} de {dias.length}
-              {isTodayISO(diaActual.fechaRaw) ? " · Hoy" : ""}
-            </Text>
-          </View>
-          <Pressable
-            accessibilityLabel="Día siguiente"
-            disabled={indiceActual >= dias.length - 1}
-            hitSlop={8}
-            onPress={() => irAlDia(1)}
-            style={[styles.flecha, indiceActual >= dias.length - 1 && styles.flechaOff]}
-            testID="calendar-next"
-          >
-            <FontAwesome6 color={colors.primary} name="chevron-right" size={13} />
-          </Pressable>
-        </View>
-      ) : null}
-      {esMobile ? (
-        <ScrollView
-          ref={tiraRef}
-          contentContainerStyle={styles.tira}
-          horizontal
-          onLayout={(e) => setAnchoTira(e.nativeEvent.layout.width)}
-          showsHorizontalScrollIndicator={false}
-          style={styles.tiraScroll}
-        >
-          {dias.map((d) => {
-            const activo = d.dayId === diaActual?.dayId;
-            const { semana, numero } = partesDeFecha(d.fechaRaw);
-            const hoy = isTodayISO(d.fechaRaw);
-            const cantidad = (d.actividades ?? []).length;
-            return (
-              <Pressable
-                key={d.dayId}
-                accessibilityLabel={`Día ${d.dayIndex}, ${cantidad} ${cantidad === 1 ? "actividad" : "actividades"}`}
-                accessibilityRole="button"
-                accessibilityState={{ selected: activo }}
-                onPress={() => setDiaSeleccionadoId(d.dayId)}
-                style={[styles.tiraDia, activo && styles.tiraDiaActivo]}
-              >
-                <Text style={[styles.tiraSemana, activo && styles.tiraTextoActivo]}>{semana}</Text>
-                <Text style={[styles.tiraNumero, activo && styles.tiraTextoActivo]}>{numero}</Text>
-                <View
-                  style={[
-                    styles.tiraPunto,
-                    cantidad > 0 && styles.tiraPuntoLleno,
-                    activo && cantidad > 0 && styles.tiraPuntoActivo,
-                    hoy && !activo && styles.tiraPuntoHoy,
-                  ]}
-                />
-              </Pressable>
-            );
-          })}
-        </ScrollView>
+      {esMobile || accesos ? (
+        <RecorridoCalendario
+          accesos={accesos}
+          conTira={esMobile}
+          diaActual={diaActual}
+          dias={dias}
+          onElegirDestino={irAlDestino}
+          onElegirDia={(dia) => setDiaSeleccionadoId(dia.dayId)}
+        />
       ) : null}
       <View style={esMobile ? undefined : styles.grid}>
         {diasVisibles.map((dia) => {
@@ -187,21 +117,42 @@ export default function ItinerarioCalendarView({
 
           return (
             <View key={dia.dayId} style={[styles.celdaWrap, { width: anchoCelda }]}>
-              <View style={styles.celda}>
-                <View style={styles.celdaHeader}>
-                  <View style={styles.celdaIndice}>
-                    <Text style={styles.celdaIndiceTexto}>{dia.dayIndex}</Text>
+              <View
+                style={[
+                  styles.celda,
+                  dia.infoDestino?.tipo === TIPOS_DIA.EN_VIAJE && styles.celdaEnViaje,
+                ]}
+              >
+                {esMobile ? (
+                  <View style={styles.diaHeader}>
+                    <View style={styles.celdaTituloWrap}>
+                      <Text style={styles.diaFecha}>
+                        {fechaLarga(dia.fechaRaw) || dia.dayDateText}
+                      </Text>
+                      <Text style={styles.diaResumen}>
+                        Día {dia.dayIndex} · {resumenDelDia(dia.actividades)}
+                        {isTodayISO(dia.fechaRaw) ? " · Hoy" : ""}
+                      </Text>
+                    </View>
+                    <ChipDia alto={28} chip={chipDelDiaCalendario(dia.infoDestino)} />
                   </View>
-                  <View style={styles.celdaTituloWrap}>
-                    <Text numberOfLines={1} style={styles.celdaTitulo}>
-                      {dia.dayDateTextCorta || dia.dayDateText}
-                    </Text>
-                    <Text style={styles.celdaSubtitulo}>
-                      Día {dia.dayIndex}
-                      {isTodayISO(dia.fechaRaw) ? " · Hoy" : ""}
-                    </Text>
+                ) : (
+                  <View style={styles.celdaHeader}>
+                    <View style={styles.celdaIndice}>
+                      <Text style={styles.celdaIndiceTexto}>{dia.dayIndex}</Text>
+                    </View>
+                    <View style={styles.celdaTituloWrap}>
+                      <Text numberOfLines={1} style={styles.celdaTitulo}>
+                        {dia.dayDateTextCorta || dia.dayDateText}
+                      </Text>
+                      <Text style={styles.celdaSubtitulo}>
+                        Día {dia.dayIndex}
+                        {isTodayISO(dia.fechaRaw) ? " · Hoy" : ""}
+                      </Text>
+                      <ChipDia chip={chipDelDiaCalendario(dia.infoDestino)} />
+                    </View>
                   </View>
-                </View>
+                )}
 
                 <View style={styles.celdaAgenda}>
                   {renderEncabezadoDia?.(dia)}
@@ -210,6 +161,8 @@ export default function ItinerarioCalendarView({
                       actividades={dia.actividades}
                       canEdit={Boolean(onEditActivity)}
                       fecha={dia.fechaRaw}
+                      franjas={dia.franjas}
+                      viaje={dia.viaje}
                       onAdd={onAddActivity ? () => onAddActivity(dia) : undefined}
                       onDelete={onDeleteActivity ? (item) => onDeleteActivity(dia, item) : undefined}
                       onEdit={onEditActivity ? (item) => onEditActivity(dia, item) : undefined}
@@ -307,6 +260,22 @@ export default function ItinerarioCalendarView({
                     dayId={dia.dayId}
                     actividades={dia.actividades ?? []}
                     ruta={dia.ruta}
+                    rutas={dia.rutas}
+                    infoDestino={dia.infoDestino}
+                    separacion={dia.separacion}
+                    generandoDestino={generandoDestino}
+                    modoDeDestino={(idDestino, ruta) =>
+                      resolverModoDestino?.(dia.dayId, ruta, idDestino)
+                    }
+                    onCambiarModoDestino={(idDestino, modo) =>
+                      onCambiarModoDestino?.(dia.dayId, idDestino, modo)
+                    }
+                    onGenerarDestino={
+                      onGenerarRuta
+                        ? (idDestino, modo) => onGenerarRuta(dia.dayId, modo, idDestino)
+                        : undefined
+                    }
+                    onVerMapaDestino={onVerMapaDestino}
                     canEdit={typeof onGenerarRuta === "function"}
                     modoSeleccionado={resolverModo(dia.dayId, dia.ruta)}
                     generando={generandoRutaDayId === dia.dayId}
@@ -327,74 +296,20 @@ export default function ItinerarioCalendarView({
 }
 
 const styles = StyleSheet.create({
-  tiraScroll: {
-    flexGrow: 0,
-    marginBottom: spacing.xs,
-  },
-  tira: {
-    gap: SEPARACION_DIA,
-    paddingHorizontal: spacing.xs,
-    paddingVertical: spacing.xxs,
-  },
-  selectorHeader: {
+  diaHeader: {
     flexDirection: "row",
     alignItems: "center",
     gap: spacing.sm,
-    paddingHorizontal: spacing.xs,
-    marginBottom: spacing.xs,
+    marginBottom: spacing.sm,
   },
-  selectorCentro: { flex: 1, alignItems: "center" },
-  selectorFecha: { ...textStyles.bodyStrong, color: colors.primary, fontSize: 15 },
-  selectorSub: { ...textStyles.meta, color: colors.textSecondary, fontSize: 11 },
-  flecha: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: colors.surfaceAlt,
+  diaFecha: {
+    ...textStyles.bodyStrong,
+    fontSize: 17,
+    color: colors.primary,
   },
-  flechaOff: { opacity: 0.35 },
-  tiraDia: {
-    width: ANCHO_DIA,
-    alignItems: "center",
-    paddingVertical: 6,
-    borderRadius: radii.md ?? 12,
-    backgroundColor: colors.surfaceAlt,
-    gap: 1,
-  },
-  tiraDiaActivo: {
-    backgroundColor: colors.primary,
-  },
-  tiraSemana: {
+  diaResumen: {
     ...textStyles.meta,
     color: colors.textSecondary,
-    fontSize: 10,
-    fontWeight: "600",
-  },
-  tiraNumero: {
-    ...textStyles.bodyStrong,
-    color: colors.primary,
-    fontSize: 17,
-  },
-  tiraTextoActivo: {
-    color: colors.textInverse,
-  },
-  tiraPunto: {
-    width: 5,
-    height: 5,
-    borderRadius: 3,
-    backgroundColor: "transparent",
-    marginTop: 2,
-  },
-  tiraPuntoLleno: {
-    backgroundColor: colors.primary,
-  },
-  tiraPuntoActivo: {
-    backgroundColor: colors.textInverse,
-  },
-  tiraPuntoHoy: {
-    backgroundColor: colors.warning,
   },
   grid: {
     flexDirection: "row",
@@ -407,6 +322,12 @@ const styles = StyleSheet.create({
     ...surfaces.card,
     padding: spacing.md,
     flex: 1,
+  },
+  celdaEnViaje: {
+    backgroundColor: colors.surfaceMuted,
+    borderWidth: 1,
+    borderStyle: "dashed",
+    borderColor: colors.borderStrong,
   },
   celdaHeader: {
     flexDirection: "row",

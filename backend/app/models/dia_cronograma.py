@@ -22,9 +22,14 @@ class DiaCronograma(Base):
         order_by="ActividadItinerario.HoraInicio",
     )
 
-    Ruta = relationship(
-    "RutaDiaria",
-    back_populates="DiaCronograma",
-    uselist=False,
-    cascade="all, delete-orphan",
+    Rutas = relationship(
+        "RutaDiaria",
+        back_populates="DiaCronograma",
+        cascade="all, delete-orphan",
+        order_by="RutaDiaria.IdRutaDiaria",
     )
+
+    @property
+    def Ruta(self):
+        """Primera ruta del día; un día de traslado puede tener una por destino."""
+        return self.Rutas[0] if self.Rutas else None

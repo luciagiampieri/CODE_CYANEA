@@ -82,6 +82,7 @@ export default function AddTrasladoScreen({
   nombreAdministrador = "",
   onCambiarRecorrido,
   onSubmit,
+  onEliminar,
   onClose,
 }) {
   // Al cerrar, el padre limpia las props: se conservan para que la hoja no cambie mientras baja.
@@ -289,8 +290,7 @@ export default function AddTrasladoScreen({
                       <Text style={styles.label}>Tramo del recorrido</Text>
                       {sinTramosLibres ? (
                         <Text style={styles.ayuda} testID="traslado-sin-tramos">
-                          No hay tramos libres en el recorrido. Eliminá este traslado desde el
-                          itinerario.
+                          No hay tramos libres en el recorrido. Podés eliminar este traslado.
                         </Text>
                       ) : (
                         <SelectField
@@ -376,6 +376,18 @@ export default function AddTrasladoScreen({
                     onPress={() => guardar()}
                     style={styles.submitButton}
                   />
+
+                  {actividadEditada && onEliminar ? (
+                    <Pressable
+                      accessibilityRole="button"
+                      hitSlop={8}
+                      onPress={onEliminar}
+                      style={styles.eliminar}
+                      testID="traslado-eliminar"
+                    >
+                      <Text style={styles.eliminarTexto}>Eliminar traslado</Text>
+                    </Pressable>
+                  ) : null}
                 </View>
               </ScrollView>
             ) : null}
@@ -411,6 +423,14 @@ const styles = {
     titleFlexible: {
       flex: 1,
       marginRight: spacing.sm,
+    },
+    eliminar: {
+      alignSelf: "center",
+      paddingVertical: spacing.xs,
+    },
+    eliminarTexto: {
+      ...textStyles.bodyStrong,
+      color: colors.danger,
     },
     ayuda: {
       ...textStyles.meta,

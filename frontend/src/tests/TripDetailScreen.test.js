@@ -413,6 +413,50 @@ describe("US 136 - Agendar traslados", () => {
     });
   }
 
+  test("CP11: la lista agrupa los días por destino, con sus accesos", async () => {
+    getTripDetail.mockResolvedValue({
+      ...viaje,
+      status: "activo",
+      startDate: "2099-12-01",
+      endDate: "2099-12-03",
+      admin: { id: 1, nombreCompleto: "Ana Gómez" },
+      destinations: [
+        { id: 1, name: "Bariloche", noches: 1, nochesEnViaje: 0 },
+        { id: 2, name: "Mendoza", noches: 1, nochesEnViaje: 0 },
+      ],
+      cronograma: [
+        { id: 11, indiceDia: 1, fecha: "2099-12-01", actividades: [] },
+        { id: 12, indiceDia: 2, fecha: "2099-12-02", actividades: [] },
+        { id: 13, indiceDia: 3, fecha: "2099-12-03", actividades: [] },
+      ],
+    });
+
+    const utils = await abrirItinerario();
+
+    expect(await utils.findByTestId("accesos-destino")).toBeTruthy();
+    expect(utils.getByTestId("encabezado-destino-0")).toBeTruthy();
+    expect(utils.getByTestId("encabezado-destino-1")).toBeTruthy();
+    expect(utils.getByText("Día 1 · Sin actividades")).toBeTruthy();
+    expect(utils.queryByText(/Estás en/)).toBeNull();
+    // Solo llevan chip el día de traslado y el último día.
+    expect(utils.getAllByTestId("chip-dia")).toHaveLength(2);
+    expect(utils.getByText("Último día")).toBeTruthy();
+  });
+
+  test("CP14: un viaje de un destino sigue como antes", async () => {
+    getTripDetail.mockResolvedValue({
+      ...viaje,
+      status: "activo",
+      destinations: [{ id: 1, name: "Mendoza", noches: null, nochesEnViaje: 0 }],
+    });
+
+    const utils = await abrirItinerario();
+
+    expect(await utils.findByText(/^Día 1 ·/)).toBeTruthy();
+    expect(utils.queryByTestId("accesos-destino")).toBeNull();
+    expect(utils.queryByText(/Estás en/)).toBeNull();
+  });
+
   test("Mostrar quita el ocultamiento y recarga el viaje", async () => {
     conTramoOculto();
     const utils = await abrirItinerario();

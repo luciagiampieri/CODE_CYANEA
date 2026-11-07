@@ -1,5 +1,5 @@
 
-import { getRouteHint } from "../utils/routeMessages";
+import { MENSAJE_TRASLADO_SIN_AGENDAR, faltanActividadesEnDestino, getRouteHintDelDia, getRouteHint } from "../utils/routeMessages";
 
 describe("getRouteHint", () => {
   it("no muestra mensaje si el día ya tiene ruta", () => {
@@ -30,5 +30,21 @@ describe("getRouteHint", () => {
         getRouteHint({ hasRoute: false, activitiesWithLocation: cantidad, canEdit: false })
       ).toBe("Todavía no hay un recorrido generado para este día.");
     }
+  });
+});
+
+describe("getRouteHintDelDia", () => {
+  it("sin el traslado agendado invita a agendarlo", () => {
+    expect(getRouteHintDelDia({ sinAgendar: true })).toBe(MENSAJE_TRASLADO_SIN_AGENDAR);
+  });
+
+  it("avisa el destino al que le faltan actividades", () => {
+    expect(faltanActividadesEnDestino("Mendoza")).toBe(
+      "En Mendoza faltan actividades con ubicación para armar la ruta."
+    );
+  });
+
+  it("un día normal usa el mensaje de siempre", () => {
+    expect(getRouteHintDelDia({ hasRoute: true })).toBeNull();
   });
 });

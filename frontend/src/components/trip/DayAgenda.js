@@ -3,6 +3,9 @@ import { FontAwesome6 } from "@expo/vector-icons";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import GapSuggestChip from "./GapSuggestChip";
+import LineaPunteada from "../ui/LineaPunteada";
+import TarjetaViaje from "./TarjetaViaje";
+import ZonaDestino from "./ZonaDestino";
 import { AvisoTraslado } from "./TrasladoCard";
 import { buildAgenda, getPlaceName, isTodayISO } from "../../utils/agenda";
 import { aHora, aMinutos } from "../../utils/huecosLibres";
@@ -10,6 +13,7 @@ import { textoHorario } from "../../utils/traslados";
 import { colors, radii, spacing, textStyles } from "../../theme/tokens";
 
 const COLOR_SOFT = colors.primarySoft ? `${colors.primarySoft}33` : "#eef2ff";
+const COLOR_ADD = colors.primarySoft ? `${colors.primarySoft}14` : "#f5f7fb";
 const COLOR_DANGER = colors.danger || "#FF3B30";
 const COLOR_WARNING = colors.warning || "#B45309";
 
@@ -34,6 +38,12 @@ export default function DayAgenda({
   onSuggestGap,
   // Entradas o reservas subidas desde las tareas de "Recordármelo" de la actividad.
   onAbrirDocumento,
+  // Día de traslado agendado: actividades por destino con el traslado en el medio (US 138).
+  separacion = null,
+  // Traslado entre destinos del día, que se dibuja como tarjeta del viaje.
+  viaje = null,
+  // Contenido al pie de cada zona: "salida" o "llegada".
+  renderPieZona,
 }) {
   const [mostrarTodas, setMostrarTodas] = useState(false);
   const [detallesAbiertos, setDetallesAbiertos] = useState({});
@@ -72,7 +82,7 @@ export default function DayAgenda({
   const minutosAhora = ahora.getHours() * 60 + ahora.getMinutes();
   const puedeSugerir = canEdit && typeof onSuggestGap === "function";
 
-  const ocultas = Math.max(0, agenda.length - ACTIVIDADES_INICIALES);
+  const ocultas = separacion ? 0 : Math.max(0, agenda.length - ACTIVIDADES_INICIALES);
   const visibles = mostrarTodas || ocultas === 0 ? agenda : agenda.slice(0, ACTIVIDADES_INICIALES);
 
   const finUltima = agenda.reduce((maximo, entrada) => {
@@ -87,214 +97,260 @@ export default function DayAgenda({
     (ocultas === 0 || mostrarTodas) &&
     minutosHuecoFinal >= MINUTOS_MINIMOS_HUECO;
 
-  return (
-    <View>
-      {visibles.map((entrada, posicion) => {
-        const { item } = entrada;
-        const id = item.id ?? posicion;
-        const titulo = item.title ?? item.Titulo ?? "Actividad sin nombre";
-        const nota = item.note ?? item.Notas ?? "";
-        const lugar = getPlaceName(item);
-        const esUltima = posicion === visibles.length - 1;
-        const hayMas = titulo.length > TITULO_LARGO || nota.length > NOTA_LARGA;
-        const abierto = Boolean(detallesAbiertos[id]);
-        const enCurso = entrada.estado === "ahora";
-        const siguiente = entrada.estado === "siguiente";
-        const pasada = entrada.estado === "pasada";
+  const renderLista = (lista, zona = null) =>
+    lista.map((entrada, posicion) => renderEntrada(entrada, posicion, lista, zona));
 
-        const traslado = item.traslado;
+  const grupos = separacion
+    ? {
+        antes: agenda.filter((entrada) => separacion.antes.includes(entrada.item)),
+        despues: agenda.filter((entrada) => separacion.despues.includes(entrada.item)),
+      }
+    : null;
 
-        let horario = "Sin horario";
-        if (traslado) horario = textoHorario(traslado, item.horaInicio, item.horaFin);
-        else if (entrada.start && entrada.end) horario = `${entrada.start} – ${entrada.end}`;
-        else if (entrada.start) horario = `Desde las ${entrada.start}`;
+  function renderEntrada(entrada, posicion, lista, zona = null) {
+      const { item } = entrada;
+      const id = item.id ?? posicion;
+      const titulo = item.title ?? item.Titulo ?? "Actividad sin nombre";
+      const nota = item.note ?? item.Notas ?? "";
+      const lugar = getPlaceName(item);
+      const hayMas = titulo.length > TITULO_LARGO || nota.length > NOTA_LARGA;
+      const abierto = Boolean(detallesAbiertos[id]);
+      const enCurso = entrada.estado === "ahora";
+      const siguiente = entrada.estado === "siguiente";
+      const pasada = entrada.estado === "pasada";
 
-        const anterior = posicion > 0 ? agenda[posicion - 1] : null;
-        const huecoDesdeMin = aMinutos(anterior?.end);
-        const huecoHastaMin = aMinutos(entrada.start);
-        const huecoMinutos =
-          huecoDesdeMin != null && huecoHastaMin != null ? huecoHastaMin - huecoDesdeMin : 0;
-        const huecoPasado = hoy && huecoHastaMin != null && huecoHastaMin <= minutosAhora;
-        const sugerirHueco =
-          puedeSugerir && huecoMinutos > 0 && !huecoPasado
-            ? () => onSuggestGap(anterior.end, entrada.start)
-            : undefined;
+      const traslado = item.traslado;
+      const superpuestaAlTraslado = separacion?.superpuestas.includes(item);
 
-        return (
-          <View key={id}>
-            {entrada.huecoLibre ? (
-              <View style={styles.row}>
-                <View style={styles.rail}>
-                  <View style={styles.railLine} />
-                </View>
-                <GapSuggestChip
-                  etiqueta={`${entrada.huecoLibre} libres`}
-                  minutos={huecoMinutos}
-                  onPress={sugerirHueco}
-                  textStyle={styles.gapText}
-                  style={styles.gapChip}
-                  testID={`agenda-gap-${id}`}
-                />
-              </View>
-            ) : null}
+      let horario = "Sin horario";
+      if (traslado) horario = textoHorario(traslado, item.horaInicio, item.horaFin);
+      else if (entrada.start && entrada.end) horario = `${entrada.start} – ${entrada.end}`;
+      else if (entrada.start) horario = `Desde las ${entrada.start}`;
 
-            <View style={[styles.row, pasada && styles.rowPast]} testID={`agenda-item-${id}`}>
-              <View style={styles.rail}>
-                <View style={[styles.dot, enCurso && styles.dotNow, siguiente && styles.dotNext]} />
-                {!esUltima ? <View style={styles.railLine} /> : null}
-              </View>
+      const anterior = posicion > 0 ? lista[posicion - 1] : null;
+      const huecoDesdeMin = aMinutos(anterior?.end);
+      const huecoHastaMin = aMinutos(entrada.start);
+      const huecoMinutos =
+        huecoDesdeMin != null && huecoHastaMin != null ? huecoHastaMin - huecoDesdeMin : 0;
+      const huecoPasado = hoy && huecoHastaMin != null && huecoHastaMin <= minutosAhora;
+      const sugerirHueco =
+        puedeSugerir && huecoMinutos > 0 && !huecoPasado
+          ? () => onSuggestGap(anterior.end, entrada.start)
+          : undefined;
+      const chipHueco = entrada.huecoLibre ? (
+        <GapSuggestChip
+          etiqueta={`${entrada.huecoLibre} libres`}
+          minutos={huecoMinutos}
+          onPress={sugerirHueco}
+          textStyle={styles.gapText}
+          style={styles.gapChip}
+          testID={`agenda-gap-${id}`}
+        />
+      ) : null;
 
-              <Pressable
-                disabled={!hayMas}
-                onPress={() => setDetallesAbiertos((actual) => ({ ...actual, [id]: !actual[id] }))}
-                accessibilityRole={hayMas ? "button" : undefined}
-                accessibilityLabel={hayMas ? (abierto ? "Ver menos" : "Ver más") : undefined}
-                testID={`agenda-detail-${id}`}
-                style={[
-                  styles.card,
-                  traslado && styles.cardTraslado,
-                  enCurso && styles.cardNow,
-                  !esUltima && styles.cardSpacing,
-                ]}
+      return (
+        <View key={id}>
+          {posicion > 0 ? (
+            <View style={styles.conector} testID={`agenda-conector-${id}`}>
+              <LineaPunteada color={zona?.linea} style={styles.conectorLinea} />
+              {chipHueco}
+            </View>
+          ) : null}
+
+          {viaje?.item === item ? (
+            <TarjetaViaje
+              viaje={viaje}
+              onPress={canEdit ? () => onEdit?.(item) : undefined}
+            />
+          ) : (
+          <View
+                style={pasada && styles.rowPast}
+                testID={`agenda-item-${id}`}
               >
-                {traslado ? (
-                  <Text style={styles.etiquetaTraslado} testID={`agenda-traslado-${id}`}>
-                    TRASLADO
-                  </Text>
-                ) : null}
-                <View style={styles.cardTop}>
-                  <View style={[styles.iconBubble, enCurso && styles.iconBubbleNow]}>
-                    <FontAwesome6
-                      name={item.icon ?? "location-dot"}
-                      size={11}
-                      color={enCurso ? colors.textInverse : colors.primary}
-                    />
-                  </View>
-                  <Text
-                    numberOfLines={traslado ? 2 : 1}
-                    style={[styles.time, !entrada.start && styles.timeNone]}
-                    testID={`agenda-time-${id}`}
-                  >
-                    {horario}
-                    {entrada.duracion && !traslado ? <Text style={styles.duration}>{`  ·  ${entrada.duracion}`}</Text> : null}
-                  </Text>
-
-                  {enCurso || siguiente ? (
-                    <View style={[styles.badge, enCurso ? styles.badgeNow : styles.badgeNext]}>
-                      <Text style={[styles.badgeText, enCurso && styles.badgeTextNow]}>
-                        {enCurso ? "EN CURSO" : "SIGUIENTE"}
-                      </Text>
-                    </View>
-                  ) : null}
-
-                  <View style={styles.spacer} />
-
-                  {hayMas ? (
-                    <FontAwesome6
-                      name={abierto ? "chevron-up" : "chevron-down"}
-                      size={10}
-                      color={colors.textMuted}
-                    />
-                  ) : null}
-
-                  {canEdit ? (
-                    <View style={styles.actions}>
-                      <Pressable
-                        onPress={() => onEdit?.(item)}
-                        hitSlop={8}
-                        style={({ pressed }) => [styles.actionButton, pressed && styles.pressed]}
-                        accessibilityRole="button"
-                        accessibilityLabel={`Editar ${titulo}`}
-                        testID={`agenda-edit-${id}`}
-                      >
-                        <FontAwesome6 name="pen" size={12} color={colors.primary} />
-                      </Pressable>
-                      <Pressable
-                        onPress={() => onDelete?.(item)}
-                        hitSlop={8}
-                        style={({ pressed }) => [styles.actionButton, pressed && styles.pressed]}
-                        accessibilityRole="button"
-                        accessibilityLabel={`Eliminar ${titulo}`}
-                        testID={`agenda-delete-${id}`}
-                      >
-                        <FontAwesome6 name="trash" size={12} color={COLOR_DANGER} />
-                      </Pressable>
-                    </View>
-                  ) : null}
+            <Pressable
+              disabled={!hayMas}
+              onPress={() => setDetallesAbiertos((actual) => ({ ...actual, [id]: !actual[id] }))}
+              accessibilityRole={hayMas ? "button" : undefined}
+              accessibilityLabel={hayMas ? (abierto ? "Ver menos" : "Ver más") : undefined}
+              testID={`agenda-detail-${id}`}
+              style={[
+                styles.card,
+                zona && styles.cardZona,
+                traslado && styles.cardTraslado,
+                siguiente && styles.cardNext,
+                enCurso && styles.cardNow,
+              ]}
+            >
+              {traslado ? (
+                <Text style={styles.etiquetaTraslado} testID={`agenda-traslado-${id}`}>
+                  TRASLADO
+                </Text>
+              ) : null}
+              <View style={styles.cardTop}>
+                <View style={[styles.iconBubble, enCurso && styles.iconBubbleNow]}>
+                  <FontAwesome6
+                    name={item.icon ?? "location-dot"}
+                    size={11}
+                    color={enCurso ? colors.textInverse : colors.primary}
+                  />
                 </View>
-
-                <Text style={styles.title} numberOfLines={abierto ? undefined : 2}>
-                  {titulo}
+                <Text
+                  numberOfLines={traslado ? 2 : 1}
+                  style={[styles.time, !entrada.start && styles.timeNone]}
+                  testID={`agenda-time-${id}`}
+                >
+                  {horario}
+                  {entrada.duracion && !traslado ? <Text style={styles.duration}>{`  ·  ${entrada.duracion}`}</Text> : null}
                 </Text>
 
-                {lugar ? (
-                  <View style={styles.metaRow}>
-                    <FontAwesome6 name="location-dot" size={10} color={colors.textMuted} />
-                    <Text style={styles.metaText} numberOfLines={1}>
-                      {lugar}
-                    </Text>
+                {enCurso ? (
+                  <View style={[styles.badge, styles.badgeNow]}>
+                    <Text style={[styles.badgeText, styles.badgeTextNow]}>EN CURSO</Text>
                   </View>
                 ) : null}
 
-                {nota ? (
-                  <Text style={styles.note} numberOfLines={abierto ? undefined : 1}>
-                    {nota}
-                  </Text>
+                <View style={styles.spacer} />
+
+                {hayMas ? (
+                  <FontAwesome6
+                    name={abierto ? "chevron-up" : "chevron-down"}
+                    size={10}
+                    color={colors.textMuted}
+                  />
                 ) : null}
 
-                {traslado ? (
-                  <AvisoTraslado traslado={traslado} testID={`agenda-traslado-aviso-${id}`} />
-                ) : null}
-
-                {/* 5) Advertencia de horario aceptada al registrar la actividad */}
-                {item.advertenciaHorario ? (
-                  <View style={styles.metaRow} testID={`agenda-schedule-warning-${id}`}>
-                    <FontAwesome6 name="clock" size={10} color={COLOR_WARNING} />
-                    <Text
-                      style={[styles.metaText, styles.warningText]}
-                      numberOfLines={abierto ? undefined : 2}
-                      accessibilityLabel={`Advertencia de horario: ${item.advertenciaHorario}`}
+                {canEdit ? (
+                  <View style={styles.actions}>
+                    <Pressable
+                      onPress={() => onEdit?.(item)}
+                      hitSlop={8}
+                      style={({ pressed }) => [styles.actionButton, pressed && styles.pressed]}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Editar ${titulo}`}
+                      testID={`agenda-edit-${id}`}
                     >
-                      {item.advertenciaHorario}
-                    </Text>
+                      <FontAwesome6 name="pen" size={12} color={colors.primary} />
+                    </Pressable>
+                    <Pressable
+                      onPress={() => onDelete?.(item)}
+                      hitSlop={8}
+                      style={({ pressed }) => [styles.actionButton, pressed && styles.pressed]}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Eliminar ${titulo}`}
+                      testID={`agenda-delete-${id}`}
+                    >
+                      <FontAwesome6 name="trash" size={12} color={COLOR_DANGER} />
+                    </Pressable>
                   </View>
                 ) : null}
+              </View>
 
-                {entrada.seSuperpone ? (
-                  <View style={styles.metaRow}>
-                    <FontAwesome6 name="triangle-exclamation" size={10} color={COLOR_WARNING} />
-                    <Text style={[styles.metaText, styles.warningText]} numberOfLines={1}>
-                      Se superpone con la anterior
-                    </Text>
-                  </View>
-                ) : null}
+              <Text style={styles.title} numberOfLines={abierto ? undefined : 2}>
+                {titulo}
+              </Text>
 
-                {(item.documentosReserva || []).map((documento) => (
-                  <Pressable
-                    key={documento.idDocumento}
-                    onPress={() => onAbrirDocumento?.(documento)}
-                    disabled={!onAbrirDocumento}
-                    hitSlop={6}
-                    accessibilityRole="button"
-                    accessibilityLabel={`Abrir ${documento.nombreArchivo}`}
-                    testID={`agenda-documento-${documento.idDocumento}`}
-                    style={({ pressed }) => [styles.metaRow, pressed && styles.pressed]}
+              {lugar ? (
+                <View style={styles.metaRow}>
+                  <FontAwesome6 name="location-dot" size={10} color={colors.textMuted} />
+                  <Text style={styles.metaText} numberOfLines={1}>
+                    {lugar}
+                  </Text>
+                </View>
+              ) : null}
+
+              {nota ? (
+                <Text style={styles.note} numberOfLines={abierto ? undefined : 1}>
+                  {nota}
+                </Text>
+              ) : null}
+
+              {traslado ? (
+                <AvisoTraslado traslado={traslado} testID={`agenda-traslado-aviso-${id}`} />
+              ) : null}
+
+              {/* 5) Advertencia de horario aceptada al registrar la actividad */}
+              {item.advertenciaHorario ? (
+                <View style={styles.metaRow} testID={`agenda-schedule-warning-${id}`}>
+                  <FontAwesome6 name="clock" size={10} color={COLOR_WARNING} />
+                  <Text
+                    style={[styles.metaText, styles.warningText]}
+                    numberOfLines={abierto ? undefined : 2}
+                    accessibilityLabel={`Advertencia de horario: ${item.advertenciaHorario}`}
                   >
-                    <FontAwesome6 name="paperclip" size={10} color={colors.primary} />
-                    <Text style={[styles.metaText, styles.documentoText]} numberOfLines={1}>
-                      {documento.nombreArchivo}
-                    </Text>
-                  </Pressable>
-                ))}
-              </Pressable>
-            </View>
+                    {item.advertenciaHorario}
+                  </Text>
+                </View>
+              ) : null}
+
+              {entrada.seSuperpone || superpuestaAlTraslado ? (
+                <View style={styles.metaRow}>
+                  <FontAwesome6 name="triangle-exclamation" size={10} color={COLOR_WARNING} />
+                  <Text style={[styles.metaText, styles.warningText]} numberOfLines={1}>
+                    {superpuestaAlTraslado
+                      ? "Se superpone con el traslado"
+                      : "Se superpone con la anterior"}
+                  </Text>
+                </View>
+              ) : null}
+
+              {(item.documentosReserva || []).map((documento) => (
+                <Pressable
+                  key={documento.idDocumento}
+                  onPress={() => onAbrirDocumento?.(documento)}
+                  disabled={!onAbrirDocumento}
+                  hitSlop={6}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Abrir ${documento.nombreArchivo}`}
+                  testID={`agenda-documento-${documento.idDocumento}`}
+                  style={({ pressed }) => [styles.metaRow, pressed && styles.pressed]}
+                >
+                  <FontAwesome6 name="paperclip" size={10} color={colors.primary} />
+                  <Text style={[styles.metaText, styles.documentoText]} numberOfLines={1}>
+                    {documento.nombreArchivo}
+                  </Text>
+                </Pressable>
+              ))}
+            </Pressable>
           </View>
-        );
-      })}
+          )}
+        </View>
+      );
+  }
+
+  return (
+    <View>
+      {separacion ? (
+        <>
+          <ZonaDestino
+            destino={separacion.salida}
+            etiqueta={`hasta las ${separacion.traslado.horaInicio}`}
+            testID="zona-salida"
+          >
+            {renderLista(grupos.antes, separacion.salida)}
+            {renderPieZona?.("salida")}
+          </ZonaDestino>
+          {viaje ? (
+            <TarjetaViaje
+              conMargen
+              viaje={viaje}
+              onPress={canEdit ? () => onEdit?.(viaje.item) : undefined}
+            />
+          ) : null}
+          <ZonaDestino
+            destino={separacion.llegada}
+            etiqueta={`desde las ${separacion.traslado.horaFin}`}
+            testID="zona-llegada"
+          >
+            {renderLista(grupos.despues, separacion.llegada)}
+            {renderPieZona?.("llegada")}
+          </ZonaDestino>
+        </>
+      ) : (
+        renderLista(visibles)
+      )}
 
       {mostrarHuecoFinal ? (
         <View style={[styles.row, styles.gapFinalRow]}>
-          <View style={styles.rail} />
           <GapSuggestChip
             etiqueta={`Libre desde las ${aHora(inicioHuecoFinal)}`}
             minutos={minutosHuecoFinal}
@@ -336,8 +392,6 @@ export default function DayAgenda({
   );
 }
 
-const RIEL = 14;
-const PUNTO = 10;
 const BURBUJA = 24;
 
 const styles = StyleSheet.create({
@@ -351,33 +405,6 @@ const styles = StyleSheet.create({
   rowPast: {
     opacity: 0.55,
   },
-  rail: {
-    width: RIEL,
-    alignItems: "center",
-  },
-  railLine: {
-    flex: 1,
-    width: 2,
-    marginVertical: 2,
-    borderRadius: 1,
-    backgroundColor: colors.border,
-  },
-  dot: {
-    width: PUNTO,
-    height: PUNTO,
-    borderRadius: PUNTO / 2,
-    marginTop: 14,
-    backgroundColor: colors.surface,
-    borderWidth: 2,
-    borderColor: colors.border,
-  },
-  dotNow: {
-    backgroundColor: colors.primary,
-    borderColor: colors.primary,
-  },
-  dotNext: {
-    borderColor: colors.primary,
-  },
   iconBubble: {
     width: BURBUJA,
     height: BURBUJA,
@@ -390,9 +417,6 @@ const styles = StyleSheet.create({
     backgroundColor: colors.primary,
   },
   card: {
-    flex: 1,
-    minWidth: 0,
-    marginLeft: spacing.xs,
     paddingVertical: 7,
     paddingHorizontal: spacing.sm + 2,
     borderRadius: radii.md,
@@ -401,12 +425,35 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surface,
     gap: 2,
   },
-  cardSpacing: {
-    marginBottom: 6,
+  cardNext: {
+    borderColor: colors.primary,
   },
   cardNow: {
     borderColor: colors.primary,
     backgroundColor: COLOR_SOFT,
+  },
+  conector: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    minHeight: 18,
+    paddingVertical: 2,
+  },
+  conectorLinea: {
+    minHeight: 18,
+    marginVertical: -2,
+    marginLeft: spacing.sm + 2 + BURBUJA / 2,
+    marginRight: spacing.xxs,
+  },
+  cardZona: {
+    borderWidth: 0,
+    borderRadius: 14,
+    backgroundColor: colors.surface,
+    shadowColor: colors.shadow,
+    shadowOpacity: 0.05,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 1,
   },
   cardTraslado: {
     borderLeftWidth: 3,
@@ -546,8 +593,8 @@ const styles = StyleSheet.create({
     borderRadius: radii.md,
     borderWidth: 1.5,
     borderStyle: "dashed",
-    borderColor: colors.primary,
-    backgroundColor: COLOR_SOFT,
+    borderColor: colors.borderStrong,
+    backgroundColor: COLOR_ADD,
   },
   addText: {
     ...textStyles.bodyStrong,

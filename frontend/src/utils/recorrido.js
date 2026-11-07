@@ -17,7 +17,7 @@ export function textoNoches(cantidad) {
   return `${cantidad} ${cantidad === 1 ? "noche" : "noches"}`;
 }
 
-function sumarDias(isoDate, dias) {
+export function sumarDias(isoDate, dias) {
   const fecha = parseYMD(isoDate);
   fecha.setDate(fecha.getDate() + dias);
   return toYMD(fecha);

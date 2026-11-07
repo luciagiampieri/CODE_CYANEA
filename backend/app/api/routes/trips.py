@@ -113,7 +113,8 @@ try:
         RutaProviderError,
         RutaValidationError,
         RutaModoInvalidoError,
-        generar_ruta_diaria,
+        descartar_rutas_desactualizadas,
+        generar_rutas_dia,
         sincronizar_ruta_tras_cambio_actividad,
     )
     from app.schemas.trip import (
@@ -138,8 +139,13 @@ except (ImportError, ModuleNotFoundError):
     class RutaModoInvalidoError(Exception):
         """Modo de viaje inválido (fallback sin servicio de rutas)."""
 
-    async def generar_ruta_diaria(db: Session, dia: DiaCronograma, modo: str | None = None):
+    async def generar_rutas_dia(
+        db: Session, dia: DiaCronograma, modo: str | None = None, id_destino: int | None = None
+    ):
         raise RutaProviderError("La generación de rutas no está disponible.")
+
+    def descartar_rutas_desactualizadas(viaje: Viaje) -> None:
+        return None
 
     async def sincronizar_ruta_tras_cambio_actividad(db: Session, dia: DiaCronograma):
         return None
@@ -154,10 +160,12 @@ except (ImportError, ModuleNotFoundError):
     class RutaGeneradaResponse(BaseModel):
         message: str
         ruta: RutaDiariaRead | None = None
+        rutas: list[RutaDiariaRead] = Field(default_factory=list)
         actividadesExcluidas: list[ActividadExcluidaRead] = Field(default_factory=list)
 
     class RutaGenerarRequest(BaseModel):
         modo: str = "walking"
+        idDestino: int | None = None
 
 
 router = APIRouter()
@@ -440,6 +448,10 @@ async def _sincronizar_y_notificar_ruta(db: Session, dia: DiaCronograma, trip_id
             "tipo": "ruta_actualizada",
             "idDiaCronograma": dia.IdDiaCronograma,
             "ruta": ruta_read.model_dump(by_alias=True),
+            "rutas": [
+                RutaDiariaRead.model_validate(ruta).model_dump(by_alias=True)
+                for ruta in resultado_ruta["rutas"]
+            ],
             "actividadesExcluidas": [
                 {"idActividad": a.IdActividad, "nombre": a.Nombre}
                 for a in resultado_ruta["actividadesExcluidas"]
@@ -624,6 +636,7 @@ def _build_trip_detail(
                     )
                 ],
                 Ruta=RutaDiariaRead.model_validate(dia.Ruta) if getattr(dia, "Ruta", None) else None,
+                Rutas=[RutaDiariaRead.model_validate(ruta) for ruta in dia.Rutas],
             )
             for dia in (viaje.Cronograma or [])
         ],
@@ -1125,6 +1138,7 @@ async def update_trip(
     db.flush()
 
     servicio_traslados.sincronizar_traslados(db, viaje)
+    descartar_rutas_desactualizadas(viaje)
 
     for dia in dias_afectados:
         db.delete(dia)
@@ -1668,7 +1682,9 @@ async def generate_route(
         raise HTTPException(status_code=404, detail="El día del cronograma no existe en este viaje.")
 
     try:
-        ruta, excluidas = await generar_ruta_diaria(db, dia, modo=payload.modo)
+        rutas, excluidas = await generar_rutas_dia(
+            db, dia, modo=payload.modo, id_destino=payload.idDestino
+        )
     except RutaValidationError as exc:
         raise HTTPException(status_code=422, detail=exc.message) from exc
     except RutaModoInvalidoError as exc:
@@ -1678,7 +1694,8 @@ async def generate_route(
 
     resultado = RutaGeneradaResponse(
         message="La ruta se generó correctamente.",
-        ruta=RutaDiariaRead.model_validate(ruta),
+        ruta=RutaDiariaRead.model_validate(rutas[0]),
+        rutas=[RutaDiariaRead.model_validate(ruta) for ruta in rutas],
         actividadesExcluidas=[
             ActividadExcluidaRead(idActividad=a.IdActividad, nombre=a.Nombre) for a in excluidas
         ],
@@ -1688,6 +1705,7 @@ async def generate_route(
         "tipo": "ruta_generada",
         "idDiaCronograma": dia.IdDiaCronograma,
         "ruta": resultado.ruta.model_dump(by_alias=True),
+        "rutas": [ruta.model_dump(by_alias=True) for ruta in resultado.rutas],
     })
 
     return resultado

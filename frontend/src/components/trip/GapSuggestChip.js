@@ -38,9 +38,6 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     paddingHorizontal: spacing.sm,
     borderRadius: radii.pill,
-    borderWidth: 1,
-    borderStyle: "dashed",
-    borderColor: colors.accentStrong,
     backgroundColor: colors.accentMuted,
   },
   texto: {
