@@ -124,6 +124,7 @@ import useResponsive from "../hooks/useResponsive";
 import useConexion from "../hooks/useConexion";
 import ItinerarioViewToggle from "../components/trip/ItinerarioViewToggle";
 import ItinerarioCalendarView from "../components/trip/ItinerarioCalendarView";
+import ExportarItinerarioModal from "../components/trip/ExportarItinerarioModal";
 import { buildRouteMarkers } from "../utils/routeMarkers";
 import DayAgenda from "../components/trip/DayAgenda";
 import { isTodayISO, resumenDelDia } from "../utils/agenda";
@@ -442,6 +443,7 @@ export default function TripDetailScreen({ navigation, route }) {
   const [sugerenciasFranja, setSugerenciasFranja] = useState(null);
   const [showSugerenciasModal, setShowSugerenciasModal] = useState(false);
   const [showDiasLibresModal, setShowDiasLibresModal] = useState(false);
+  const [showExportar, setShowExportar] = useState(false);
 
   const cargarSugerencias = useCallback(async () => {
     if (!trip?.id) return;
@@ -2352,6 +2354,7 @@ export default function TripDetailScreen({ navigation, route }) {
   const etiquetaExplorar = lock.canEdit("itinerario") ? "Explorar lugares" : "Ver mapa del viaje";
   const puedeGuardarOffline =
     offlineDisponible() && !trip?.hasLeft && String(trip?.status ?? "").toLowerCase() === "activo";
+  const puedeExportar = !sinConexion && String(trip?.status ?? "").toLowerCase() !== "cancelado";
 
 
   return (
@@ -3165,6 +3168,25 @@ export default function TripDetailScreen({ navigation, route }) {
                   : undefined
               }
             />
+          ) : null}
+
+          {activeTab === "itinerario" && puedeExportar && itinerarioDias.length > 0 ? (
+            <Pressable
+              accessibilityLabel="Exportar itinerario en PDF o calendario"
+              accessibilityRole="button"
+              onPress={() => setShowExportar(true)}
+              style={({ pressed }) => [styles.exportarBoton, pressed && styles.exportarBotonPressed]}
+              testID="exportar-itinerario"
+            >
+              <View style={styles.exportarBotonIzquierda}>
+                <FontAwesome6 name="download" size={17} color={colors.primary} />
+                <View>
+                  <Text style={styles.exportarBotonTexto}>Exportar itinerario</Text>
+                  <Text style={styles.exportarBotonDetalle}>PDF o calendario</Text>
+                </View>
+              </View>
+              <FontAwesome6 name="chevron-right" size={14} color={colors.primary} />
+            </Pressable>
           ) : null}
 
           {/* TAB 2: GASTOS */}
@@ -4065,6 +4087,13 @@ export default function TripDetailScreen({ navigation, route }) {
         tripTitle={trip?.title}
         onClose={() => setShowDiasLibresModal(false)}
         onGenerado={cargarSugerencias}
+      />
+      <ExportarItinerarioModal
+        visible={showExportar}
+        onClose={() => setShowExportar(false)}
+        tripId={trip?.id}
+        tripTitle={trip?.title}
+        dias={itinerarioDias}
       />
       <ActivitySuggestionsScreen
         visible={showSugerenciasModal}
@@ -5490,6 +5519,38 @@ const styles = StyleSheet.create({
   },
   itinerarioHeaderSoloToggle: {
     justifyContent: "flex-end",
+  },
+  exportarBoton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginTop: spacing.xs,
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.lg,
+    borderRadius: radii.lg || 16,
+    borderWidth: 1.5,
+    borderColor: colors.primary,
+    backgroundColor: colors.background,
+  },
+  exportarBotonPressed: {
+    backgroundColor: colors.surfaceAlt,
+  },
+  exportarBotonIzquierda: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.md,
+  },
+  exportarBotonTexto: {
+    ...textStyles.bodyStrong,
+    color: colors.primary,
+    fontSize: 15,
+  },
+  exportarBotonDetalle: {
+    ...textStyles.meta,
+    color: colors.primary,
+    opacity: 0.75,
+    fontSize: 12,
+    marginTop: 2,
   },
   exploreTile: {
     width: 64,

@@ -2055,3 +2055,54 @@ export async function createVotacionDesdeSugerencias(payload) {
   });
   return parseResponse(response, "No se pudo crear la votación");
 }
+
+function zonaHorariaLocal() {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || null;
+  } catch {
+    return null;
+  }
+}
+
+export async function exportItinerary(tripId, { formato = "pdf", dias = [], nombreArchivo } = {}) {
+  const params = new URLSearchParams({ formato });
+  dias.forEach((idDia) => params.append("dias", String(idDia)));
+  const zonaHoraria = zonaHorariaLocal();
+  if (zonaHoraria) params.set("zonaHoraria", zonaHoraria);
+
+  const url = `${API_BASE_URL}/trips/${tripId}/itinerario/exportar?${params.toString()}`;
+  const nombre = nombreArchivo || `Itinerario.${formato}`;
+  const mensajeError = "No se pudo exportar el itinerario";
+
+  if (Platform.OS === "web") {
+    const response = await fetch(url, { headers: await authHeaders(), cache: "no-store" });
+    if (!response.ok) return parseResponse(response, mensajeError);
+
+    const blob = await response.blob();
+    const objectUrl = URL.createObjectURL(blob);
+    const link = window.document.createElement("a");
+    link.href = objectUrl;
+    link.download = nombre;
+    window.document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+    return { uri: objectUrl, nombre, formato };
+  }
+
+  const carpeta = new Directory(Paths.cache, "exportaciones");
+  if (!carpeta.exists) carpeta.create();
+  const destino = new File(carpeta, nombre);
+
+  try {
+    const archivo = await File.downloadFileAsync(url, destino, {
+      headers: await authHeaders(),
+      idempotent: true,
+    });
+    return { uri: archivo.uri, nombre, formato };
+  } catch {
+    const response = await fetch(url, { headers: await authHeaders() });
+    if (!response.ok) return parseResponse(response, mensajeError);
+    throw new Error(`${mensajeError}. Intentá de nuevo.`);
+  }
+}

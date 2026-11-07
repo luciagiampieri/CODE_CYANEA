@@ -21,6 +21,7 @@ from app.api.routes import (
     sugerencias,
     suscripciones,
     traslados,
+    exportar_itinerario,
 )
 
 api_router = APIRouter()
@@ -50,3 +51,5 @@ api_router.include_router(checklists.router, prefix="/trips", tags=["checklists"
 api_router.include_router(planificacion.router, prefix="/trips", tags=["planificacion"])
 api_router.include_router(sugerencias.router, prefix="/trips", tags=["sugerencias"])
 api_router.include_router(traslados.router, prefix="/trips", tags=["traslados"])
+api_router.include_router(exportar_itinerario.router, prefix="/trips", tags=["trips"])
+    

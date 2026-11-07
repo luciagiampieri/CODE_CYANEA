@@ -26,7 +26,10 @@ dependencies = [
   "httpx",
   "requests>=2.31.0",
   "pycountry",
-  "supabase>=2.31.0"
+  "supabase>=2.31.0",
+  "reportlab>=4.2",
+  "timezonefinder>=6.5",
+  "tzdata"
 ]
 
 [project.optional-dependencies]

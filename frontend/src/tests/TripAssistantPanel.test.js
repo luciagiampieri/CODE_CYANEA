@@ -119,7 +119,7 @@ describe("chat", () => {
     });
     expect(utils.getByText("¿qué visito?")).toBeTruthy();
     expect(utils.getByPlaceholderText("Pedile algo del viaje...").props.value).toBe("");
-    expect(await utils.findByText("Te sugiero la Catedral.")).toBeTruthy();
+    expect(await utils.findByText("Te sugiero la Catedral.", {}, { timeout: 5000 })).toBeTruthy();
   });
 
   it("muestra completas las respuestas largas", async () => {

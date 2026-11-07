@@ -1,6 +1,8 @@
 const fs = require("fs");
 const path = require("path");
 
+const PLUGINS_REQUERIDOS = ["expo-sharing"];
+
 function configurarGoogleMapsAndroid(plugins) {
   const googleMapsAndroidApiKey = process.env.GOOGLE_MAPS_ANDROID_API_KEY;
 
@@ -20,10 +22,12 @@ function configurarGoogleMapsAndroid(plugins) {
   });
 }
 
-// google-services.json solo hace falta para compilar la app de Android con
-// notificaciones push (EAS lo provee con la variable GOOGLE_SERVICES_JSON).
-// Si el archivo no existe, se quita de la configuración: así Expo Go y la
-// versión web funcionan sin él y sin advertencias.
+function agregarPluginsRequeridos(plugins) {
+  const nombres = new Set(plugins.map((plugin) => (Array.isArray(plugin) ? plugin[0] : plugin)));
+  return [...plugins, ...PLUGINS_REQUERIDOS.filter((nombre) => !nombres.has(nombre))];
+}
+
+
 module.exports = ({ config }) => {
   const googleServicesFile = process.env.GOOGLE_SERVICES_JSON ?? "./google-services.json";
   const existeArchivo = fs.existsSync(path.resolve(__dirname, googleServicesFile));
@@ -33,6 +37,6 @@ module.exports = ({ config }) => {
   return {
     ...config,
     android: existeArchivo ? { ...config.android, googleServicesFile } : androidSinArchivo,
-    plugins: configurarGoogleMapsAndroid(config.plugins),
+    plugins: agregarPluginsRequeridos(configurarGoogleMapsAndroid(config.plugins)),
   };
 };
