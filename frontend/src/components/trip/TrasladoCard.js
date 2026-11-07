@@ -5,6 +5,7 @@ import { colors, radii, spacing, textStyles } from "../../theme/tokens";
 import {
   ESTADOS_TRAMO,
   avisoDeTraslado,
+  separaPorDestino,
   subtextoTarjeta,
   textoOculto,
   tituloTarjeta,
@@ -50,6 +51,9 @@ export default function TrasladoCard({ tramo, onAgendar, onOcultar, onMostrar })
       <View style={styles.textos}>
         <Text style={styles.titulo}>{tituloTarjeta(tramo)}</Text>
         <Text style={styles.subtexto}>{subtextoTarjeta(tramo)}</Text>
+        {separaPorDestino(tramo) ? (
+          <Text style={styles.subtexto}>Al agendarlo, las actividades se separan por destino</Text>
+        ) : null}
         <Pressable
           accessibilityRole="button"
           accessibilityLabel="Ocultar"

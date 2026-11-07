@@ -81,6 +81,10 @@ async def _sincronizar_y_notificar_ruta(db: Session, dia: DiaCronograma, trip_id
             "tipo": "ruta_actualizada",
             "idDiaCronograma": dia.IdDiaCronograma,
             "ruta": ruta_read.model_dump(by_alias=True),
+            "rutas": [
+                RutaDiariaRead.model_validate(ruta).model_dump(by_alias=True)
+                for ruta in resultado_ruta["rutas"]
+            ],
             "actividadesExcluidas": [
                 {"idActividad": a.IdActividad, "nombre": a.Nombre}
                 for a in resultado_ruta["actividadesExcluidas"]

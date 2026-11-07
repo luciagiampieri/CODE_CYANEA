@@ -287,14 +287,14 @@ export async function getTripDetail(tripId) {
   return parseResponse(response, "No se pudo obtener el detalle del viaje");
 }
 
-export async function generateTripRoute(tripId, dayId, modo = "walking") {
+export async function generateTripRoute(tripId, dayId, modo = "walking", idDestino = null) {
   const response = await fetch(`${API_BASE_URL}/trips/${tripId}/days/${dayId}/route`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       ...(await authHeaders()),
     },
-    body: JSON.stringify({ modo }),
+    body: JSON.stringify(idDestino ? { modo, idDestino } : { modo }),
   });
   return parseResponse(response, "No se pudo generar la ruta");
 }

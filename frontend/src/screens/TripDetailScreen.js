@@ -1,7 +1,7 @@
 import { FontAwesome6 } from "@expo/vector-icons";
 import * as Clipboard from "expo-clipboard";
 import { LinearGradient } from "expo-linear-gradient";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useFocusEffect } from "@react-navigation/native";
 import {
   ActivityIndicator,
@@ -92,7 +92,7 @@ import {
   toggleChecklistCompletada,
   getActivitySuggestions,
 } from "../services/api";
-import { colors, radii, spacing, surfaces, textStyles } from "../theme/tokens";
+import { colorDeDestino, colorSuaveDeDestino, colors, radii, spacing, surfaces, textStyles } from "../theme/tokens";
 
 import {
   guardarParticipantesEnCache,
@@ -110,6 +110,12 @@ import {
 
 import AddActivityScreen from "./AddActivityScreen";
 import AddTrasladoScreen from "./AddTrasladoScreen";
+import AccesosDestino from "../components/trip/AccesosDestino";
+import DayRouteSection from "../components/trip/DayRouteSection";
+import EncabezadoDestino, { MarcaLlegada } from "../components/trip/EncabezadoDestino";
+import ChipDia from "../components/trip/ChipDia";
+import useFotosDestinos from "../hooks/useFotosDestinos";
+import { TIPOS_DIA, agregarDestinosADias, chipDelDia } from "../utils/destinosDias";
 import TrasladoCard from "../components/trip/TrasladoCard";
 import { refDeTramo, tramosDelDia, tramosSinAgendar } from "../utils/traslados";
 import AddGastoScreen from "./AddGastoScreen";
@@ -129,7 +135,6 @@ import { buildRouteMarkers } from "../utils/routeMarkers";
 import DayAgenda from "../components/trip/DayAgenda";
 import { isTodayISO, resumenDelDia } from "../utils/agenda";
 import { getTripLock } from "../utils/tripLock";
-import { getRouteHint } from "../utils/routeMessages";
 import { formatMoney } from "../utils/money";
 import { centerInScroll } from "../utils/scrollHelpers";
 import { confirmacionDeMovimiento } from "../utils/moverActividad";
@@ -217,6 +222,8 @@ function normalizeRuta(raw) {
     duracionSegundos: raw.duracionSegundos ?? raw.DuracionSegundos ?? 0,
     idsActividadesOrdenadas: raw.idsActividadesOrdenadas ?? raw.IdsActividadesOrdenadas ?? [],
     polilineaCodificada: raw.polilineaCodificada ?? raw.PolilineaCodificada ?? null,
+    idDestino: raw.idDestino ?? raw.IdDestino ?? null,
+    nombreDestino: raw.nombreDestino ?? raw.NombreDestino ?? null,
   };
 }
 
@@ -1360,7 +1367,10 @@ export default function TripDetailScreen({ navigation, route }) {
             if (mensaje.tipo === "edicion_concedida") {
               const actividadPendiente = pendingEditRef.current;
               if (actividadPendiente?.activity?.traslado) {
-                setTrasladoModal({ actividad: actividadPendiente.activity });
+                setTrasladoModal({
+                  actividad: actividadPendiente.activity,
+                  dayId: actividadPendiente.id,
+                });
                 pendingEditRef.current = null;
               } else if (actividadPendiente) {
                 setActivityModalDay(actividadPendiente);
@@ -1510,10 +1520,26 @@ export default function TripDetailScreen({ navigation, route }) {
         dayDateTextCorta: formatDayDateCorta(fechaRaw),
         actividades,
         ruta: normalizeRuta(day.ruta ?? day.Ruta ?? null),
+        rutas: (day.rutas ?? day.Rutas ?? []).map(normalizeRuta),
       };
     });
   }, [trip?.cronograma, trip?.startDate, trip?.endDate]);
 
+
+  const recorridoArmado =
+    (trip?.destinations?.length ?? 0) > 1 &&
+    trip.destinations.every((destino) => destino.noches !== null && destino.noches !== undefined);
+  const fotosDestinos = useFotosDestinos(trip?.destinations, recorridoArmado);
+
+  const itinerarioConDestinos = useMemo(
+    () =>
+      agregarDestinosADias(itinerarioDias, trip?.destinations ?? [], trip?.startDate, trip?.endDate, {
+        tramos: trip?.traslados,
+        fotos: fotosDestinos,
+      }),
+    [itinerarioDias, trip?.destinations, trip?.startDate, trip?.endDate, trip?.traslados, fotosDestinos]
+  );
+  const accesosDestino = itinerarioConDestinos.accesos;
 
   const diaParaSugerir = useMemo(() => {
     const hoy = hoyLocalISO();
@@ -2050,9 +2076,46 @@ export default function TripDetailScreen({ navigation, route }) {
     }
   }
 
+  function eliminarTraslado() {
+    const { actividad, dayId } = trasladoModal;
+    handleDeleteActivity(
+      dayId,
+      actividad.id,
+      actividad.title,
+      actividad.tareasEntradasPendientes,
+      cerrarTraslado
+    );
+  }
+
   function cambiarRecorrido() {
     cerrarTraslado();
     navigation.navigate("EditarViaje", { tripId: trip.id, initialTab: "destinations" });
+  }
+
+  function irAlDestino(acceso) {
+    const dia = itinerarioConDestinos.dias.find(
+      (item) => itinerarioConDestinos.encabezados[item.dayId]?.indice === acceso.indice
+    );
+    const encabezado = dia ? encabezadoRefs.current[dia.dayId] : null;
+    if (scrollRef.current && encabezado) {
+      centerInScroll(scrollRef.current, encabezado, { align: "top", margin: spacing.sm });
+    }
+  }
+
+  function renderInicioDelDia(day) {
+    const indice = day.infoDestino?.indices[0];
+    return (
+      <>
+        {day.marcaLlegada ? (
+          <MarcaLlegada
+            texto={day.marcaLlegada}
+            color={colorDeDestino(indice)}
+            fondo={colorSuaveDeDestino(indice)}
+          />
+        ) : null}
+        {renderTrasladosDelDia(day.dayId)}
+      </>
+    );
   }
 
   function renderTrasladosDelDia(dayId) {
@@ -2126,10 +2189,12 @@ export default function TripDetailScreen({ navigation, route }) {
   const [activityFeedback, setActivityFeedback] = useState(null);
   const [displayedFeedback, setDisplayedFeedback] = useState(null);
   const [generandoRutaDayId, setGenerandoRutaDayId] = useState(null);
+  const [generandoDestino, setGenerandoDestino] = useState(null);
   const [mapaModalData, setMapaModalData] = useState(null);
   const [modoTransporteDayId, setModoTransporteDayId] = useState({});
 
   const dayCardRefs = useRef({});
+  const encabezadoRefs = useRef({});
 
   function handleToggleDay(dayId, isExpanded) {
     if (isExpanded) {
@@ -2147,22 +2212,49 @@ export default function TripDetailScreen({ navigation, route }) {
     }, 200);
   }
 
-  const MODOS_RUTA = [
-    { valor: "walking", label: "Caminando", icono: "person-walking" },
-    { valor: "driving", label: "Auto", icono: "car" },
-    { valor: "bicycling", label: "Bici", icono: "person-biking" },
-  ];
-
   function resolverModoDelDia(dayId, ruta) {
     return modoTransporteDayId[dayId] ?? ruta?.modo ?? "walking";
   }
 
-  async function handleGenerarRuta(dayId, modo) {
+  // Un día de traslado tiene un modo por destino.
+  function resolverModoDestino(dayId, ruta, idDestino) {
+    return modoTransporteDayId[`${dayId}-${idDestino}`] ?? ruta?.modo ?? "walking";
+  }
+
+  function cambiarModoDestino(dayId, idDestino, modo) {
+    setModoTransporteDayId((current) => ({ ...current, [`${dayId}-${idDestino}`]: modo }));
+  }
+
+  function propsRutaDelDia(day) {
+    return {
+      dayId: day.dayId,
+      actividades: day.actividades,
+      ruta: day.ruta,
+      rutas: day.rutas,
+      infoDestino: day.infoDestino,
+      separacion: day.separacion,
+      canEdit: lock.canEdit("itinerario"),
+      modoSeleccionado: resolverModoDelDia(day.dayId, day.ruta),
+      generando: generandoRutaDayId === day.dayId,
+      onCambiarModo: (modo) =>
+        setModoTransporteDayId((current) => ({ ...current, [day.dayId]: modo })),
+      onGenerar: (modo) => handleGenerarRuta(day.dayId, modo),
+      onVerMapa: setMapaModalData,
+      modoDeDestino: (idDestino, ruta) => resolverModoDestino(day.dayId, ruta, idDestino),
+      generandoDestino,
+      onCambiarModoDestino: (idDestino, modo) => cambiarModoDestino(day.dayId, idDestino, modo),
+      onGenerarDestino: (idDestino, modo) => handleGenerarRuta(day.dayId, modo, idDestino),
+      onVerMapaDestino: setMapaModalData,
+    };
+  }
+
+  async function handleGenerarRuta(dayId, modo, idDestino = null) {
     if (!trip?.id || !lock.canEdit("itinerario") || generandoRutaDayId) return;
 
     setGenerandoRutaDayId(dayId);
+    setGenerandoDestino(idDestino);
     try {
-      const resultado = await generateTripRoute(trip.id, dayId, modo);
+      const resultado = await generateTripRoute(trip.id, dayId, modo, idDestino);
       const recargaOk = await loadTripDetail();
 
       if (!recargaOk) {
@@ -2192,6 +2284,7 @@ export default function TripDetailScreen({ navigation, route }) {
       });
     } finally {
       setGenerandoRutaDayId(null);
+      setGenerandoDestino(null);
     }
   }
 
@@ -2244,19 +2337,37 @@ export default function TripDetailScreen({ navigation, route }) {
     }
   }
 
-  function handleDeleteActivity(dayId, activityId, activityTitle, tareasPendientes = []) {
+  function handleDeleteActivity(
+    dayId,
+    activityId,
+    activityTitle,
+    tareasPendientes = [],
+    alEliminar
+  ) {
     if (!lock.canEdit("itinerario")) return;
-    confirmarBorradoActividad(dayId, activityId, activityTitle, tareasPendientes);
+    confirmarBorradoActividad(dayId, activityId, activityTitle, tareasPendientes, alEliminar);
   }
 
-  function confirmarBorradoActividad(dayId, activityId, activityTitle, tareasPendientes = []) {
+  function confirmarBorradoActividad(
+    dayId,
+    activityId,
+    activityTitle,
+    tareasPendientes = [],
+    alEliminar
+  ) {
     const conTareas = Array.isArray(tareasPendientes) && tareasPendientes.length > 0;
     const mensaje =
       `Se va a eliminar "${activityTitle}" del itinerario.` +
       avisoTareasAlEliminar(tareasPendientes) +
       " Esta acción no se puede deshacer.";
     const eliminar = () =>
-      ejecutarBorradoActividad(dayId, activityId, activityTitle, { confirmarEliminarTareas: conTareas });
+      ejecutarBorradoActividad(
+        dayId,
+        activityId,
+        activityTitle,
+        { confirmarEliminarTareas: conTareas },
+        alEliminar
+      );
 
     appAlert(
       "¿Eliminar actividad?",
@@ -2272,14 +2383,15 @@ export default function TripDetailScreen({ navigation, route }) {
     );
   }
 
-  async function ejecutarBorradoActividad(dayId, activityId, title, opciones = {}) {
+  async function ejecutarBorradoActividad(dayId, activityId, title, opciones = {}, alEliminar) {
     try {
       await deleteActivity(trip.id, dayId, activityId, opciones);
       await loadTripDetail();
+      alEliminar?.();
       mostrarAlertaConfirmacion("Éxito", `"${title}" se eliminó correctamente.`);
     } catch (error) {
       if (error?.detalle?.codigo === "confirmar_tareas_entradas") {
-        confirmarBorradoActividad(dayId, activityId, title, error.detalle.tareas);
+        confirmarBorradoActividad(dayId, activityId, title, error.detalle.tareas, alEliminar);
         return;
       }
       mostrarAlertaConfirmacion("Error", error.message || "Ocurrió un problema al intentar eliminar la actividad.");
@@ -2837,23 +2949,54 @@ export default function TripDetailScreen({ navigation, route }) {
             </>
           ) : null}
 
+          {activeTab === "itinerario" && itinerarioView === "timeline" && accesosDestino ? (
+            <AccesosDestino accesos={accesosDestino} onPress={irAlDestino} />
+          ) : null}
+
           {activeTab === "itinerario" && itinerarioView === "timeline" ? (
-            itinerarioDias.length > 0 ? (
-              itinerarioDias.map((day) => {
-                const { dayId, dayIndex, dayDateText, fechaRaw, actividades, ruta } = day;
+            itinerarioConDestinos.dias.length > 0 ? (
+              itinerarioConDestinos.dias.map((day) => {
+                const {
+                  dayId,
+                  dayIndex,
+                  dayDateText,
+                  fechaRaw,
+                  actividades,
+                  ruta,
+                  rutas,
+                  infoDestino,
+                  separacion,
+                } = day;
+                const encabezado = itinerarioConDestinos.encabezados[dayId];
+                const chipDia = chipDelDia(infoDestino);
                 const isExpanded = expandedDayId === dayId;
                 const esHoy = isTodayISO(fechaRaw);
                 const puedeSugerirEnDia =
                   lock.canEdit("itinerario") && Number.isInteger(dayId);
 
                 return (
+                  <Fragment key={dayId}>
+                  {encabezado ? (
+                    <View
+                      collapsable={false}
+                      ref={(node) => {
+                        encabezadoRefs.current[dayId] = node;
+                      }}
+                    >
+                      <EncabezadoDestino encabezado={encabezado} />
+                    </View>
+                  ) : null}
                   <View
-                    key={dayId}
                     collapsable={false}
                     ref={(node) => {
                       dayCardRefs.current[dayId] = node;
                     }}
-                    style={[styles.dayCard, !isExpanded && styles.dayCardCompact]}
+                    style={[
+                      styles.dayCard,
+                      !isExpanded && styles.dayCardCompact,
+                      infoDestino?.tipo === TIPOS_DIA.EN_VIAJE && styles.dayCardEnViaje,
+                    ]}
+                    testID={`itinerario-dia-${dayId}`}
                   >
                     <Pressable
                       onPress={() => handleToggleDay(dayId, isExpanded)}
@@ -2886,6 +3029,11 @@ export default function TripDetailScreen({ navigation, route }) {
                         <Text style={styles.daySubtitle}>
                           Día {dayIndex} · {resumenDelDia(actividades)}
                         </Text>
+                        {chipDia ? (
+                          <View style={styles.dayChip}>
+                            <ChipDia chip={chipDia} />
+                          </View>
+                        ) : null}
                       </View>
                       <FontAwesome6
                         color={colors.textSecondary}
@@ -2896,10 +3044,15 @@ export default function TripDetailScreen({ navigation, route }) {
 
                     {isExpanded ? (
                       <View style={styles.dayAgenda}>
-                        {renderTrasladosDelDia(dayId)}
+                        {renderInicioDelDia(day)}
                         <DayAgenda
                           actividades={actividades}
                           fecha={fechaRaw}
+                          separacion={separacion}
+                          viaje={day.viaje}
+                          renderPieZona={(clave) => (
+                            <DayRouteSection {...propsRutaDelDia(day)} destino={clave} />
+                          )}
                           canEdit={lock.canEdit("itinerario")}
                           onAdd={() =>
                             setActivityModalDay({
@@ -2948,155 +3101,11 @@ export default function TripDetailScreen({ navigation, route }) {
                           onIrAVotar={() => setActiveTab("votar")}
                         />
 
-                        {(() => {
-                          const actividadesConUbicacion = actividades.filter(
-                            (item) => item.idLugarInteres || item.lugarInteres
-                          );
-                          const puedeGenerarRuta = actividadesConUbicacion.length >= 2;
-                          const generando = generandoRutaDayId === dayId;
-                          const routeMarkers = buildRouteMarkers(actividades, ruta);
-                          const modoSeleccionado = resolverModoDelDia(dayId, ruta);
-                          const routeHint = getRouteHint({
-                            hasRoute: Boolean(ruta),
-                            activitiesWithLocation: actividadesConUbicacion.length,
-                            canEdit: lock.canEdit("itinerario"),
-                          });
-                          const puedeEditarRuta = puedeGenerarRuta && lock.canEdit("itinerario");
-                          const destacarAccion = !ruta || modoSeleccionado !== ruta.modo;
-                          const mostrarCabecera = Boolean(ruta) || puedeEditarRuta;
-
-                          if (!mostrarCabecera && !routeHint) return null;
-
-                          return (
-                            <View style={styles.routeSection}>
-                              {mostrarCabecera ? (
-                                <View style={styles.routeHeaderRow}>
-                                  <View style={styles.routeHeaderLeft}>
-                                    <FontAwesome6
-                                      color={colors.textSecondary}
-                                      name="route"
-                                      size={12}
-                                    />
-                                    <Text style={styles.routeHeaderText}>
-                                      {ruta
-                                        ? `Ruta · ${(ruta.distanciaMetros / 1000).toFixed(1)} km · ${Math.round(
-                                            ruta.duracionSegundos / 60
-                                          )} min`
-                                        : "Ruta del día"}
-                                    </Text>
-                                  </View>
-                                  {ruta?.polilineaCodificada ? (
-                                    <Pressable
-                                      accessibilityRole="button"
-                                      hitSlop={8}
-                                      onPress={() =>
-                                        setMapaModalData({
-                                          dayId,
-                                          ruta,
-                                          routeMarkers,
-                                          actividadesConUbicacion,
-                                        })
-                                      }
-                                      style={styles.routeMapToggle}
-                                    >
-                                      <FontAwesome6
-                                        color={colors.primary}
-                                        name="map-location-dot"
-                                        size={12}
-                                      />
-                                      <Text style={styles.routeMapToggleText}>Ver mapa</Text>
-                                    </Pressable>
-                                  ) : null}
-                                </View>
-                              ) : null}
-
-                              {routeHint ? (
-                                <Text style={styles.routeHint}>{routeHint}</Text>
-                              ) : null}
-
-                              {puedeEditarRuta ? (
-                                <View style={styles.routeControls}>
-                                  <View style={styles.segmented}>
-                                    {MODOS_RUTA.map((modo) => {
-                                      const active = modo.valor === modoSeleccionado;
-                                      return (
-                                        <Pressable
-                                          key={modo.valor}
-                                          accessibilityRole="button"
-                                          accessibilityState={{ selected: active, disabled: generando }}
-                                          disabled={generando}
-                                          onPress={() =>
-                                            setModoTransporteDayId((current) => ({
-                                              ...current,
-                                              [dayId]: modo.valor,
-                                            }))
-                                          }
-                                          style={[
-                                            styles.segmentItem,
-                                            active && styles.segmentItemActive,
-                                          ]}
-                                        >
-                                          <FontAwesome6
-                                            color={active ? colors.textInverse : colors.primary}
-                                            name={modo.icono}
-                                            size={11}
-                                          />
-                                          <Text
-                                            style={[
-                                              styles.segmentText,
-                                              active && styles.segmentTextActive,
-                                            ]}
-                                          >
-                                            {modo.label}
-                                          </Text>
-                                        </Pressable>
-                                      );
-                                    })}
-                                  </View>
-
-                                  <Pressable
-                                    accessibilityRole="button"
-                                    accessibilityLabel={ruta ? "Regenerar ruta" : "Generar ruta"}
-                                    disabled={generando}
-                                    onPress={() => handleGenerarRuta(dayId, modoSeleccionado)}
-                                    style={[
-                                      styles.routeAction,
-                                      destacarAccion && styles.routeActionDestacada,
-                                      generando && styles.routeActionDisabled,
-                                    ]}
-                                    testID={`route-action-${dayId}`}
-                                  >
-                                    {generando ? (
-                                      <ActivityIndicator
-                                        color={destacarAccion ? colors.textInverse : colors.primary}
-                                        size="small"
-                                      />
-                                    ) : (
-                                      <FontAwesome6
-                                        color={destacarAccion ? colors.textInverse : colors.primary}
-                                        name={ruta ? "arrows-rotate" : "route"}
-                                        size={13}
-                                      />
-                                    )}
-                                    {!ruta && !generando ? (
-                                      <Text
-                                        style={[
-                                          styles.routeActionText,
-                                          styles.routeActionTextDestacada,
-                                        ]}
-                                      >
-                                        Generar
-                                      </Text>
-                                    ) : null}
-                                  </Pressable>
-                                </View>
-                              ) : null}
-                            </View>
-                          );
-                        })()}
+                        {separacion ? null : <DayRouteSection {...propsRutaDelDia(day)} />}
                       </View>
                     ) : null}
                   </View>
+                  </Fragment>
                 );
               })
             ) : (
@@ -3111,8 +3120,13 @@ export default function TripDetailScreen({ navigation, route }) {
 
           {activeTab === "itinerario" && itinerarioView === "calendario" ? (
             <ItinerarioCalendarView
-              dias={itinerarioDias}
+              dias={itinerarioConDestinos.dias}
+              accesos={accesosDestino}
               generandoRutaDayId={generandoRutaDayId}
+              generandoDestino={generandoDestino}
+              resolverModoDestino={resolverModoDestino}
+              onCambiarModoDestino={cambiarModoDestino}
+              onVerMapaDestino={setMapaModalData}
               onGenerarRuta={lock.canEdit("itinerario") ? handleGenerarRuta : undefined}
               onSuggestGap={
                 lock.canEdit("itinerario")
@@ -4079,6 +4093,7 @@ export default function TripDetailScreen({ navigation, route }) {
         nombreAdministrador={trip?.admin?.nombreCompleto ?? ""}
         onCambiarRecorrido={cambiarRecorrido}
         onSubmit={guardarTraslado}
+        onEliminar={eliminarTraslado}
         onClose={cerrarTraslado}
       />
       <CompleteFreeDaysScreen
@@ -4890,6 +4905,15 @@ const styles = StyleSheet.create({
     ...surfaces.card,
     padding: spacing.lg,
   },
+  dayCardEnViaje: {
+    backgroundColor: colors.surfaceMuted,
+    borderWidth: 1,
+    borderStyle: "dashed",
+    borderColor: colors.borderStrong,
+  },
+  dayChip: {
+    marginTop: spacing.xxs,
+  },
   dayCardCompact: {
     paddingVertical: spacing.md,
   },
@@ -4954,103 +4978,6 @@ const styles = StyleSheet.create({
     borderTopColor: colors.border,
     paddingTop: spacing.md,
     gap: spacing.md,
-  },
-  routeSection: {
-    paddingTop: spacing.sm,
-    borderTopWidth: 1,
-    borderTopColor: colors.border,
-    gap: spacing.sm,
-  },
-  routeHeaderRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: spacing.sm,
-  },
-  routeHeaderLeft: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing.xs,
-    flexShrink: 1,
-  },
-  routeHeaderText: {
-    ...textStyles.meta,
-    color: colors.textSecondary,
-  },
-  routeMapToggle: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing.xxs,
-  },
-  routeMapToggleText: {
-    ...textStyles.meta,
-    color: colors.primary,
-    fontWeight: "600",
-  },
-  routeHint: {
-    ...textStyles.meta,
-    color: colors.textMuted,
-  },
-  routeControls: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing.xs,
-  },
-  segmented: {
-    flex: 1,
-    flexDirection: "row",
-    padding: 3,
-    borderRadius: radii.pill,
-    backgroundColor: colors.surfaceAlt,
-  },
-  segmentItem: {
-    flex: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 4,
-    paddingVertical: 6,
-    borderRadius: radii.pill,
-  },
-  segmentItemActive: {
-    backgroundColor: colors.primary,
-  },
-  segmentText: {
-    ...textStyles.meta,
-    color: colors.primary,
-    fontWeight: "600",
-    fontSize: 12,
-  },
-  segmentTextActive: {
-    color: colors.textInverse,
-  },
-  routeAction: {
-    minWidth: 36,
-    height: 36,
-    paddingHorizontal: spacing.sm,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 4,
-    borderRadius: radii.pill,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.surface,
-  },
-  routeActionDestacada: {
-    backgroundColor: colors.primary,
-    borderColor: colors.primary,
-  },
-  routeActionDisabled: {
-    opacity: 0.6,
-  },
-  routeActionText: {
-    ...textStyles.meta,
-    fontWeight: "600",
-    color: colors.primary,
-  },
-  routeActionTextDestacada: {
-    color: colors.textInverse,
   },
   sectionStack: {
     gap: spacing.md,

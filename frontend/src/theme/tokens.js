@@ -43,6 +43,10 @@ export function colorSuaveDeDestino(index) {
   return `${colorDeDestino(index)}1a`;
 }
 
+export function colorTinteDeDestino(index) {
+  return `${colorDeDestino(index)}0f`;
+}
+
 export const spacing = {
   xxs: 4,
   xs: 8,

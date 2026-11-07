@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, status
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user
+from app.api.routes.trips import _sincronizar_y_notificar_ruta
 from app.db.session import get_db
 from app.models.actividad_itinerario import ActividadItinerario
 from app.models.dia_cronograma import DiaCronograma
@@ -89,6 +90,8 @@ async def _avisar(
         "idDiaCronograma": actividad.IdDiaCronograma,
         "idActividad": actividad.IdActividad,
     })
+    # El traslado define qué actividades van en la ruta de cada destino.
+    await _sincronizar_y_notificar_ruta(db, actividad.DiaCronograma, viaje.IdViaje)
     actor = nombre_para_otros(usuario) or usuario.NombreUsuario
     await dispatch_trip_notification(
         db,

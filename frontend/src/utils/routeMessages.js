@@ -26,3 +26,14 @@ export function getRouteHint({ hasRoute, activitiesWithLocation = 0, canEdit = f
 
   return `Todavía no hay recorrido para este día. Agregá al menos ${MIN_ACTIVIDADES_PARA_RUTA} actividades con ubicación para poder generarlo.`;
 }
+
+export const MENSAJE_TRASLADO_SIN_AGENDAR = "Agendá el traslado para calcular la ruta de cada destino.";
+
+// Día de traslado sin el traslado agendado: no hay rutas hasta poder separar los destinos.
+export function getRouteHintDelDia({ sinAgendar, ...resto }) {
+  return sinAgendar ? MENSAJE_TRASLADO_SIN_AGENDAR : getRouteHint(resto);
+}
+
+export function faltanActividadesEnDestino(nombre) {
+  return `En ${nombre} faltan actividades con ubicación para armar la ruta.`;
+}

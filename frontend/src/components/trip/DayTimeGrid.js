@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import { FontAwesome6 } from "@expo/vector-icons";
+import { LinearGradient } from "expo-linear-gradient";
 import { Animated, Pressable, StyleSheet, Text, View } from "react-native";
 
 import useArrastreDia from "../../hooks/useArrastreDia";
@@ -8,9 +9,12 @@ import { aHora, aMinutos, calcularHuecosLibres } from "../../utils/huecosLibres"
 import { avisoDeTraslado, textoHorario } from "../../utils/traslados";
 import { colors, radii, spacing, textStyles } from "../../theme/tokens";
 import { AvisoTraslado } from "./TrasladoCard";
+import FotoDestino from "../ui/FotoDestino";
 
 const ALTO_HORA = 68; 
 const ALTO_MINIMO_TRASLADO = 58;
+const ALTO_TARJETA_VIAJE = 112;
+const ULTIMO_MINUTO = 23 * 60 + 59;
 const ALTO_MINIMO = 32; 
 const ANCHO_HORAS = 38;
 const INICIO_SUGERENCIAS = 8 * 60;
@@ -31,6 +35,89 @@ function tipoDe(icono) {
   return clave
     ? TIPOS[clave]
     : { acento: colors.primary, fondo: colors.surfaceAlt, texto: colors.primary };
+}
+
+function posicionDeFranja(franja, desde, hasta) {
+  const inicio = franja.desde ?? desde;
+  const fin = franja.hasta ?? hasta;
+  return {
+    top: ((inicio - desde) / 60) * ALTO_HORA,
+    height: Math.max(0, ((fin - inicio) / 60) * ALTO_HORA),
+  };
+}
+
+function EtiquetaFranja({ franja, top }) {
+  return (
+    <View
+      pointerEvents="none"
+      style={[styles.etiquetaFranja, { top: top + 4 }]}
+      testID={`timegrid-etiqueta-${franja.clave}`}
+    >
+      <FotoDestino uri={franja.destino.foto} tamano={16} radio={8} />
+      <Text style={[styles.etiquetaFranjaTexto, { color: franja.destino.color }]}>
+        {franja.etiqueta}
+      </Text>
+    </View>
+  );
+}
+
+// Traslado entre destinos: la línea del viaje une la salida con la llegada. Si dura poco no
+// entra todo, y va en una línea para no tapar lo que sigue.
+function TarjetaViajeGrilla({ viaje, alto }) {
+  const { item, salida, llegada, duracion, otroDia } = viaje;
+  const textoLlegada = otroDia
+    ? `llega ${llegada.fecha}, ${llegada.hora}`
+    : `llega ${llegada.hora}`;
+
+  if (alto < ALTO_TARJETA_VIAJE) {
+    return (
+      <View style={[styles.viaje, styles.viajeCompacto]} testID="timegrid-viaje-compacto">
+        <View style={styles.viajeTitulo}>
+          <FontAwesome6 color={colors.primary} name={item.icon ?? "route"} size={12} />
+          <Text numberOfLines={1} style={styles.viajeNombre}>
+            {item.title}
+          </Text>
+        </View>
+        <Text numberOfLines={1} style={styles.viajeTexto}>
+          {`Sale ${salida.hora} · ${textoLlegada}`}
+        </Text>
+      </View>
+    );
+  }
+
+  return (
+    <View style={styles.viaje} testID="timegrid-viaje">
+      <View style={styles.viajeTitulo}>
+        <FontAwesome6 color={colors.primary} name={item.icon ?? "route"} size={13} />
+        <Text numberOfLines={1} style={styles.viajeNombre}>
+          {item.title}
+        </Text>
+      </View>
+      <View style={styles.viajeCuerpo}>
+        <View style={styles.viajeRiel}>
+          <View style={[styles.viajePunto, { backgroundColor: salida.color }]} />
+          <LinearGradient
+            colors={[salida.color, llegada.color]}
+            end={{ x: 0, y: 1 }}
+            start={{ x: 0, y: 0 }}
+            style={styles.viajeLinea}
+          />
+          <View style={[styles.viajePunto, { backgroundColor: llegada.color }]} />
+        </View>
+        <View style={styles.viajeParadas}>
+          <Text numberOfLines={1} style={styles.viajeTexto}>
+            <Text style={[styles.viajeLugar, { color: salida.color }]}>{salida.nombre}</Text>
+            {` · sale ${salida.hora}`}
+          </Text>
+          {duracion ? <Text style={styles.viajeTexto}>{`${duracion} de viaje`}</Text> : null}
+          <Text numberOfLines={1} style={styles.viajeTexto}>
+            <Text style={[styles.viajeLugar, { color: llegada.color }]}>{llegada.nombre}</Text>
+            {` · ${textoLlegada}`}
+          </Text>
+        </View>
+      </View>
+    </View>
+  );
 }
 
 function acomodar(items) {
@@ -211,6 +298,10 @@ export default function DayTimeGrid({
   onEdit,
   onDelete,
   onSuggestGap,
+  // Tinte y etiqueta de cada franja horaria según el destino (US 138).
+  franjas = null,
+  // Traslado entre destinos del día, que se dibuja como tarjeta del viaje.
+  viaje = null,
   arrastre,
 }) {
   const esHoy = isTodayISO(fecha);
@@ -224,7 +315,8 @@ export default function DayTimeGrid({
         sin.push(item);
         return;
       }
-      const fin = endMin ?? startMin + 45;
+      // Si llega otro día, el viaje ocupa hasta el final del día de salida.
+      const fin = viaje?.item === item && viaje.otroDia ? ULTIMO_MINUTO : endMin ?? startMin + 45;
       conHorario.push({ item, startMin, endMin: fin, start, end, tieneFin: endMin != null });
     });
 
@@ -235,7 +327,7 @@ export default function DayTimeGrid({
     const d = Math.max(0, Math.floor(minInicio / 60) - 1) * 60;
     const h = Math.min(24, Math.ceil(maxFin / 60) + 1) * 60;
     return { bloques: acomodar(conHorario), sinHorario: sin, desde: d, hasta: h };
-  }, [actividades]);
+  }, [actividades, viaje]);
 
   const ahora = new Date();
   const minutosAhora = ahora.getHours() * 60 + ahora.getMinutes();
@@ -342,6 +434,19 @@ export default function DayTimeGrid({
 
       {bloques.length > 0 ? (
         <View style={[styles.grilla, { height: ((hasta - desde) / 60) * ALTO_HORA }]} testID="timegrid">
+          {(franjas ?? []).map((franja) => (
+            <View
+              key={franja.clave}
+              pointerEvents="none"
+              style={[
+                styles.franja,
+                posicionDeFranja(franja, desde, hasta),
+                { backgroundColor: franja.destino.tinte },
+              ]}
+              testID={`timegrid-franja-${franja.clave}`}
+            />
+          ))}
+
           {horas.map((m) => (
             <View key={m} style={[styles.fila, { top: ((m - desde) / 60) * ALTO_HORA }]}>
               <Text style={styles.hora}>{String(m / 60).padStart(2, "0")}:00</Text>
@@ -376,21 +481,57 @@ export default function DayTimeGrid({
               );
             })}
 
-            {bloques.map((b) => (
-              <BloqueActividad
-                key={b.item.id}
-                bloque={b}
-                desde={desde}
-                letra={letraDe[b.item.id]}
-                esHoy={esHoy}
-                minutosAhora={minutosAhora}
-                canEdit={canEdit}
-                onEdit={onEdit}
-                onDelete={onDelete}
-                arrastre={arrastre}
+            {bloques.map((b) => {
+              if (viaje?.item === b.item) {
+                const top = ((b.startMin - desde) / 60) * ALTO_HORA;
+                const alto = Math.max(
+                  ((b.endMin - b.startMin) / 60) * ALTO_HORA - 2,
+                  b.item.traslado ? ALTO_MINIMO_TRASLADO : ALTO_MINIMO
+                );
+                const ancho = 100 / b.columnas;
+                return (
+                  <Pressable
+                    key={b.item.id}
+                    accessibilityLabel={`${b.item.title}, sale ${viaje.salida.hora}, llega ${viaje.llegada.hora}`}
+                    disabled={!canEdit}
+                    onLongPress={canEdit ? () => onDelete?.(b.item) : undefined}
+                    onPress={() => onEdit?.(b.item)}
+                    style={[
+                      styles.bloque,
+                      { top, height: alto, left: `${b.col * ancho}%`, width: `${ancho}%` },
+                    ]}
+                    testID={`timegrid-block-${b.item.id}`}
+                  >
+                    <TarjetaViajeGrilla alto={alto} viaje={viaje} />
+                  </Pressable>
+                );
+              }
+              return (
+                <BloqueActividad
+                  key={b.item.id}
+                  bloque={b}
+                  desde={desde}
+                  letra={letraDe[b.item.id]}
+                  esHoy={esHoy}
+                  minutosAhora={minutosAhora}
+                  canEdit={canEdit}
+                  onEdit={onEdit}
+                  onDelete={onDelete}
+                  arrastre={arrastre}
+                />
+              );
+            })}
+          </View>
+
+          {(franjas ?? [])
+            .filter((franja) => franja.etiqueta)
+            .map((franja) => (
+              <EtiquetaFranja
+                key={franja.clave}
+                franja={franja}
+                top={posicionDeFranja(franja, desde, hasta).top}
               />
             ))}
-          </View>
 
           {mostrarAhora ? (
             <View pointerEvents="none" style={[styles.ahora, { top: ((minutosAhora - desde) / 60) * ALTO_HORA }]}>
@@ -421,6 +562,92 @@ export default function DayTimeGrid({
 }
 
 const styles = StyleSheet.create({
+  franja: {
+    position: "absolute",
+    left: -spacing.md,
+    right: -spacing.md,
+  },
+  etiquetaFranja: {
+    position: "absolute",
+    left: ANCHO_HORAS,
+    height: 24,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    paddingHorizontal: spacing.xs,
+    borderRadius: radii.pill,
+    backgroundColor: colors.surface,
+    shadowColor: colors.shadow,
+    shadowOpacity: 0.12,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 2,
+  },
+  etiquetaFranjaTexto: {
+    ...textStyles.meta,
+    fontSize: 11,
+    fontWeight: "700",
+  },
+  viaje: {
+    flex: 1,
+    gap: spacing.xs,
+    padding: spacing.sm,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+    shadowColor: colors.shadow,
+    shadowOpacity: 0.08,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 2,
+  },
+  viajeCompacto: {
+    gap: 2,
+    paddingVertical: 6,
+  },
+  viajeTitulo: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.xs,
+  },
+  viajeNombre: {
+    ...textStyles.bodyStrong,
+    flexShrink: 1,
+    fontSize: 14,
+    color: colors.primary,
+  },
+  viajeCuerpo: {
+    flex: 1,
+    flexDirection: "row",
+    gap: spacing.sm,
+  },
+  viajeRiel: {
+    width: 10,
+    alignItems: "center",
+  },
+  viajePunto: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+  },
+  viajeLinea: {
+    flex: 1,
+    width: 3,
+  },
+  viajeParadas: {
+    flex: 1,
+    minWidth: 0,
+    justifyContent: "space-between",
+  },
+  viajeTexto: {
+    ...textStyles.meta,
+    fontSize: 12,
+    color: colors.textSecondary,
+  },
+  viajeLugar: {
+    fontWeight: "700",
+  },
   etiquetaTraslado: {
     ...textStyles.meta,
     fontWeight: "700",

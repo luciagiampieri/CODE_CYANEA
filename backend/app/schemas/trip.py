@@ -197,6 +197,9 @@ class RutaDiariaRead(BaseModel):
     duracionSegundos: int = Field(..., alias="DuracionSegundos")
     idsActividadesOrdenadas: list[int] = Field(..., alias="IdsActividadesOrdenadas")
     fechaGeneracion: datetime = Field(..., alias="FechaGeneracion")
+    # Solo en un día de traslado sin noches en viaje, que tiene una ruta por destino.
+    idDestino: int | None = Field(None, alias="IdDestino")
+    nombreDestino: str | None = Field(None, alias="NombreDestino")
 
     class Config:
         from_attributes = True
@@ -211,11 +214,14 @@ class ActividadExcluidaRead(BaseModel):
 class RutaGeneradaResponse(BaseModel):
     message: str
     ruta: RutaDiariaRead
+    rutas: list[RutaDiariaRead] = Field(default_factory=list)
     actividadesExcluidas: list[ActividadExcluidaRead] = Field(default_factory=list)
 
 
 class RutaGenerarRequest(BaseModel):
     modo: str = Field(default="walking")
+    # Día de traslado: recalcula solo la ruta de ese destino, con su modo.
+    idDestino: int | None = None
 
     @field_validator("modo")
     @classmethod
@@ -233,7 +239,9 @@ class DiaCronogramaRead(BaseModel):
     fecha: date = Field(..., alias="Fecha")
     indiceDia: int = Field(..., alias="IndiceDia")
     actividades: list[ActividadRead] = Field(default_factory=list, alias="Actividades")
+    # `Ruta` es la primera de `Rutas`, para las versiones anteriores de la app.
     ruta: RutaDiariaRead | None = Field(None, alias="Ruta")
+    rutas: list[RutaDiariaRead] = Field(default_factory=list, alias="Rutas")
 
     class Config:
         from_attributes = True

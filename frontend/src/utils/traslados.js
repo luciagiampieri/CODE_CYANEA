@@ -131,6 +131,11 @@ export function avisoDeTraslado(traslado) {
   return null;
 }
 
+// Un tramo entre destinos del mismo día reparte las actividades de ese día.
+export function separaPorDestino(tramo) {
+  return tramo.tipo === TIPOS_TRAMO.ENTRE_DESTINOS && !llegaOtroDia(tramo);
+}
+
 export function tramosSinAgendar(tramos = []) {
   return tramos.filter(
     (tramo) => tramo.validez === VALIDEZ.VALIDO && tramo.estado !== ESTADOS_TRAMO.AGENDADO

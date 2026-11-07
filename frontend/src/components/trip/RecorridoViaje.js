@@ -21,6 +21,8 @@ import {
   spacing,
   textStyles,
 } from "../../theme/tokens";
+import FotoDestino from "../ui/FotoDestino";
+import LineaPunteada from "../ui/LineaPunteada";
 import { formatDateRangeShort } from "../../utils/dates";
 import {
   MODOS_RECORRIDO,
@@ -123,24 +125,6 @@ function BarraRecorrido({ segmentos }) {
           ]}
         />
       ))}
-    </View>
-  );
-}
-
-function FotoDestino({ uri, numero, color }) {
-  const [uriFallida, setUriFallida] = useState(null);
-  return (
-    <View style={styles.foto}>
-      {!uri || uri === uriFallida ? (
-        <View style={[styles.fotoImagen, styles.fotoVacia]}>
-          <FontAwesome6 name="location-dot" size={16} color={colors.primary} />
-        </View>
-      ) : (
-        <Image source={{ uri }} style={styles.fotoImagen} onError={() => setUriFallida(uri)} />
-      )}
-      <View style={[styles.orden, { backgroundColor: color }]}>
-        <Text style={styles.ordenTexto}>{numero}</Text>
-      </View>
     </View>
   );
 }
@@ -304,25 +288,11 @@ function CajitaDestino({
   );
 }
 
-const PUNTOS_LINEA = Array.from({ length: 16 }, (_, punto) => punto);
-
-function LineaPunteada() {
-  return (
-    <View style={styles.linea}>
-      <View style={styles.lineaPuntos}>
-        {PUNTOS_LINEA.map((punto) => (
-          <View key={punto} style={styles.lineaPunto} />
-        ))}
-      </View>
-    </View>
-  );
-}
-
 function FilaTraslado({ tramo, destino, siguiente, armado, onCambiar }) {
   const nochesEnViaje = destino.nochesEnViaje ?? 0;
   return (
     <View style={styles.traslado}>
-      <LineaPunteada />
+      <LineaPunteada style={styles.linea} />
       <FontAwesome6
         name={nochesEnViaje > 0 ? "moon" : "arrow-right"}
         size={11}
@@ -546,39 +516,6 @@ const styles = StyleSheet.create({
     web: { cursor: "grab", userSelect: "none" },
     default: {},
   }),
-  foto: {
-    width: TAMANO_FOTO,
-    height: TAMANO_FOTO,
-  },
-  fotoImagen: {
-    width: TAMANO_FOTO,
-    height: TAMANO_FOTO,
-    borderRadius: radii.sm,
-    backgroundColor: colors.surfaceMuted,
-  },
-  fotoVacia: {
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: COLOR_SOFT,
-  },
-  orden: {
-    position: "absolute",
-    top: -6,
-    left: -6,
-    width: 22,
-    height: 22,
-    borderRadius: 11,
-    borderWidth: 2,
-    borderColor: colors.surface,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  ordenTexto: {
-    color: colors.textInverse,
-    fontSize: 11,
-    lineHeight: 13,
-    fontWeight: "700",
-  },
   identidad: {
     flex: 1,
     minWidth: 0,
@@ -635,23 +572,9 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.xs,
   },
   linea: {
-    alignSelf: "stretch",
-    width: 2,
     marginVertical: -spacing.xs,
     marginLeft: PADDING_CAJITA + 14,
     marginRight: spacing.xxs,
-    overflow: "hidden",
-  },
-  lineaPuntos: {
-    position: "absolute",
-    top: 2,
-    gap: 3,
-  },
-  lineaPunto: {
-    width: 2,
-    height: 2,
-    borderRadius: 1,
-    backgroundColor: colors.borderStrong,
   },
   trasladoTexto: {
     ...textStyles.meta,

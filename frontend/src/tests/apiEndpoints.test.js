@@ -125,6 +125,8 @@ const CASOS = [
   ["createActivity", "POST", "/trips/7/days/3/activities?ignorar_advertencia=true", [7, 3, DATOS, { ignorarAdvertencia: true }], DATOS],
   ["updateActivity", "PUT", "/trips/7/days/3/activities/8", [7, 3, 8, DATOS], DATOS],
   ["deleteActivity", "DELETE", "/trips/7/days/3/activities/8?confirmar_eliminar_tareas=true", [7, 3, 8, { confirmarEliminarTareas: true }]],
+  ["generateTripRoute", "POST", "/trips/7/days/3/route", [7, 3, "driving"], { modo: "driving" }],
+  ["generateTripRoute", "POST", "/trips/7/days/3/route", [7, 3, "driving", 20], { modo: "driving", idDestino: 20 }],
   ["createTransfer", "POST", "/trips/7/traslados", [7, DATOS], DATOS],
   ["updateTransfer", "PUT", "/trips/7/traslados/8", [7, 8, DATOS], DATOS],
   ["hideTransfer", "POST", "/trips/7/traslados/ocultar", [7, { tipo: "ida" }, false], { tramo: { tipo: "ida" }, oculto: false }],

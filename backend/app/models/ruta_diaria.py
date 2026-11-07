@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import DateTime, Float, ForeignKey, Integer, JSON, String, func
+from sqlalchemy import DateTime, Float, ForeignKey, Index, Integer, JSON, String, func, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.session import Base
@@ -8,6 +8,25 @@ from app.db.session import Base
 
 class RutaDiaria(Base):
     __tablename__ = "RutasDiarias"
+    # Un día normal tiene una sola ruta, sin destino. Un día de traslado sin noches en viaje
+    # tiene hasta dos: una por cada destino, porque los dos no se unen (US 138).
+    __table_args__ = (
+        Index(
+            "UX_RutasDiarias_Dia",
+            "IdDiaCronograma",
+            unique=True,
+            postgresql_where=text('"IdDestino" IS NULL'),
+            sqlite_where=text('"IdDestino" IS NULL'),
+        ),
+        Index(
+            "UX_RutasDiarias_Dia_Destino",
+            "IdDiaCronograma",
+            "IdDestino",
+            unique=True,
+            postgresql_where=text('"IdDestino" IS NOT NULL'),
+            sqlite_where=text('"IdDestino" IS NOT NULL'),
+        ),
+    )
 
     IdRutaDiaria: Mapped[int] = mapped_column(primary_key=True)
     IdDiaCronograma: Mapped[int] = mapped_column(
@@ -16,8 +35,11 @@ class RutaDiaria(Base):
             name="FK_RutasDiarias_DiasCronogramas_IdDiaCronograma",
             ondelete="CASCADE",
         ),
-        unique=True,
         nullable=False,
+    )
+    IdDestino: Mapped[int | None] = mapped_column(
+        ForeignKey("Destinos.IdDestino", name="FK_RutasDiarias_Destinos_IdDestino"),
+        nullable=True,
     )
     Modo: Mapped[str] = mapped_column(
         String(20), nullable=False, server_default="walking"
@@ -34,4 +56,9 @@ class RutaDiaria(Base):
         nullable=False,
     )
 
-    DiaCronograma = relationship("DiaCronograma", back_populates="Ruta")
+    DiaCronograma = relationship("DiaCronograma", back_populates="Rutas")
+    Destino = relationship("Destino")
+
+    @property
+    def NombreDestino(self) -> str | None:
+        return self.Destino.Nombre if self.Destino else None

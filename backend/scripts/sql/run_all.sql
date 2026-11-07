@@ -26,3 +26,4 @@
 \i 024_periodo_pagos_suscripciones.sql
 \i 025_recorrido_destinos_viajes.sql
 \i 026_traslados_viajes.sql
+\i 027_rutas_por_destino.sql

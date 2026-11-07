@@ -444,6 +444,21 @@ describe("US 136 - AddTrasladoScreen", () => {
       });
     });
 
+    it("ofrece eliminar el traslado solo al editar", async () => {
+      const onEliminar = jest.fn();
+      const utils = await renderizar({ tramo: null, actividad, onEliminar });
+
+      await fireEvent.press(utils.getByText("Eliminar traslado"));
+
+      expect(onEliminar).toHaveBeenCalled();
+    });
+
+    it("al agendar no ofrece eliminar", async () => {
+      const utils = await renderizar({ onEliminar: jest.fn() });
+
+      expect(utils.queryByText("Eliminar traslado")).toBeNull();
+    });
+
     it("CP9: un no válido exige elegir un tramo libre", async () => {
       const noValido = {
         ...actividad,
