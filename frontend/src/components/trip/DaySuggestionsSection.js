@@ -37,7 +37,7 @@ export default function DaySuggestionsSection({ tripId, dia, sugerencias = [], c
   function abrir() {
     if (!navigation) return;
     navigation.navigate("SugerenciasDia", {
-      tripId,
+      tripId: tripId ?? trip?.id ?? trip?.IdViaje,
       trip,
       tripTitle: trip?.title ?? trip?.Titulo ?? "",
       canPropose,

@@ -71,15 +71,14 @@ function formatDateRange(trip) {
 }
 
 function sortByPhase(a, b) {
-    if (a.phase === "en_curso") {
-      return (a.endDate ?? Infinity) - (b.endDate ?? Infinity); // termina antes, primero
-    }
-    if (a.phase === "proximo") {
-      return (a.startDate ?? Infinity) - (b.startDate ?? Infinity); // arranca antes, primero
-    }
-    // pasado: más reciente primero
-    return (b.endDate ?? 0) - (a.endDate ?? 0);
+  if (a.phase === "en_curso") {
+    return (a.endTime ?? Infinity) - (b.endTime ?? Infinity);
   }
+  if (a.phase === "proximo") {
+    return (a.startTime ?? Infinity) - (b.startTime ?? Infinity); 
+  }
+  return (b.endTime ?? 0) - (a.endTime ?? 0);
+}
 
 function normalizeTrip(trip) {
   const destinations = trip.destinations || trip.Destinations || [];
@@ -98,8 +97,10 @@ function normalizeTrip(trip) {
     status: (trip.status || trip.Estado || "planificando").toLowerCase(),
     image: trip.image || null,
     dateLabel: formatDateRange(trip),
-    startDate: startDateStr ? new Date(startDateStr) : null,
-    endDate: endDateStr ? new Date(endDateStr) : null,
+    startDate: startDateStr,
+    endDate: endDateStr,
+    startTime: startDateStr ? new Date(startDateStr).getTime() : null,
+    endTime: endDateStr ? new Date(endDateStr).getTime() : null,
     travelersCount: participants.length,
     budgetProgress: trip.budgetProgress ?? null,
     hasLeft: trip.hasLeft ?? trip.HasLeft ?? false,
@@ -111,8 +112,7 @@ export default function MyTripsScreen({ navigation }) {
   const [activeFilter, setActiveFilter] = useState("todos");
   const { isTablet, isDesktop } = useResponsive();
 
-  // Se recarga cada vez que la pestaña vuelve a tener foco (igual que Home), así
-  // un viaje recién creado, editado o abandonado no queda desactualizado acá.
+
   useFocusEffect(
     useCallback(() => {
       let activo = true;
@@ -129,8 +129,7 @@ export default function MyTripsScreen({ navigation }) {
     }, [])
   );
 
-  // La fase se calcula con los datos crudos del backend (fechas "YYYY-MM-DD"),
-  // con la misma lógica que Home (utils/tripPhase).
+
   const decoratedTrips = useMemo(() => {
     const today = getTodayIso();
     return trips.map((trip) => ({

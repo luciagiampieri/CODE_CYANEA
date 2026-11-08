@@ -65,7 +65,8 @@ function franjaSolicitada(sugerencia) {
 }
 
 export default function DaySuggestionsScreen({ navigation, route }) {
-  const { tripId, trip, tripTitle, dia, canPropose = false } = route.params ?? {};
+  const { trip, tripTitle, dia, canPropose = false } = route.params ?? {};
+  const tripId = route.params?.tripId ?? trip?.id ?? trip?.IdViaje;
 
   const [sugerencias, setSugerencias] = useState([]);
   const [cargando, setCargando] = useState(true);
@@ -87,7 +88,12 @@ export default function DaySuggestionsScreen({ navigation, route }) {
 
   const cargar = useCallback(
     async ({ silencioso = false } = {}) => {
-      if (!tripId) return;
+      if (!tripId || dia?.dayId == null) {
+        setCargando(false);
+        setRefrescando(false);
+        setError("No se encontró el día. Volvé al itinerario y abrí las sugerencias de nuevo.");
+        return;
+      }
       if (!silencioso) setCargando(true);
       setError("");
       try {

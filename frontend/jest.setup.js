@@ -21,9 +21,7 @@ jest.mock("expo-sqlite", () => ({
   })),
 }));
 
-// Los tests no necesitan cargar fuentes reales. Sin este mock, los íconos de
-// @expo/vector-icons intentan cargar su fuente al montarse y, desde el SDK 58,
-// fallan con "Module X is missing from the asset registry".
+
 jest.mock('expo-font', () => {
   const actual = jest.requireActual('expo-font');
   return {
@@ -45,3 +43,9 @@ jest.mock("@react-navigation/bottom-tabs", () => {
     createBottomTabNavigator: jest.fn(() => ({ Navigator, Screen })),
   };
 });
+
+jest.mock("./src/components/profile/MapaPaises", () => ({
+  __esModule: true,
+  default: () => null,
+  banderaDe: () => null,
+}));

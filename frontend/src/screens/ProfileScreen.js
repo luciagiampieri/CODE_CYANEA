@@ -12,11 +12,12 @@ import {
 import { FontAwesome6 } from "@expo/vector-icons";
 
 import ScreenContainer from "../components/layout/ScreenContainer";
+import { useEspacioBarraTabs } from "../components/navigation/FloatingTabBar";
+import MapaPaises, { banderaDe } from "../components/profile/MapaPaises";
 import Avatar from "../components/ui/Avatar";
 import EmptyState from "../components/ui/EmptyState";
 import IconCircleButton from "../components/ui/IconCircleButton";
 import PrimaryButton from "../components/ui/PrimaryButton";
-import SectionCard from "../components/ui/SectionCard";
 import { UsageMeter } from "../components/plans/AccountUsage";
 import useResponsive from "../hooks/useResponsive";
 import {
@@ -26,7 +27,8 @@ import {
   getPaisesVisitados,
   getTrips,
 } from "../services/api";
-import { colors, radii, spacing, surfaces, textStyles } from "../theme/tokens";
+import { getTodayIso } from "../utils/dates";
+import { colorDeDestino, colors, radii, spacing, textStyles } from "../theme/tokens";
 
 const initialProfile = {
   id: null,
@@ -37,56 +39,76 @@ const initialProfile = {
   fotoUrl: "",
 };
 
-const COUNTRY_CODES = {
-  argentina: "ar",
-  brasil: "br",
-  chile: "cl",
-  uruguay: "uy",
-  paraguay: "py",
-  bolivia: "bo",
-  peru: "pe",
-  "perú": "pe",
-  colombia: "co",
-  ecuador: "ec",
-  mexico: "mx",
-  "méxico": "mx",
-  espana: "es",
-  "españa": "es",
-  francia: "fr",
-  italia: "it",
-  portugal: "pt",
-  alemania: "de",
-  "estados unidos": "us",
-  japon: "jp",
-  "japón": "jp",
-};
+const TOTAL_PAISES_MUNDO = 195;
+const MAX_VIAJES_ANTERIORES = 6;
+const MS_POR_DIA = 24 * 60 * 60 * 1000;
 
-function flagImageUrlFor(country) {
-  const code = COUNTRY_CODES[country.trim().toLowerCase()];
-  return code ? `https://flagcdn.com/h80/${code}.png` : null;
+function fechaISO(valor) {
+  return valor ? String(valor).slice(0, 10) : "";
+}
+
+function diasEntre(desdeIso, hastaIso) {
+  const desde = new Date(`${desdeIso}T00:00:00`);
+  const hasta = new Date(`${hastaIso}T00:00:00`);
+  return Math.round((hasta - desde) / MS_POR_DIA);
+}
+
+function plural(cantidad, singular, pluralTexto) {
+  return `${cantidad} ${cantidad === 1 ? singular : pluralTexto}`;
 }
 
 function formatFechaCorta(fechaIso) {
   if (!fechaIso) return "";
-  const fecha = new Date(`${fechaIso}T00:00:00`);
+  const fecha = new Date(`${fechaISO(fechaIso)}T00:00:00`);
   return fecha.toLocaleDateString("es-AR", { day: "2-digit", month: "short" });
 }
 
+function formatMesAnio(fechaIso) {
+  if (!fechaIso) return "";
+  const fecha = new Date(`${fechaISO(fechaIso)}T00:00:00`);
+  return fecha.toLocaleDateString("es-AR", { month: "short", year: "numeric" });
+}
+
+function textoCuentaRegresiva(startDate) {
+  const dias = diasEntre(getTodayIso(), fechaISO(startDate));
+  if (dias <= 0) return "Arranca hoy";
+  if (dias === 1) return "Arranca mañana";
+  return `Faltan ${dias} días`;
+}
+
+function textoNoches(startDate, endDate) {
+  if (!startDate || !endDate) return null;
+  const noches = Math.max(0, diasEntre(fechaISO(startDate), fechaISO(endDate)));
+  return plural(noches, "noche", "noches");
+}
+
 function calcularProximoViaje(viajes) {
-  const hoy = new Date();
-  hoy.setHours(0, 0, 0, 0);
+  const hoy = getTodayIso();
   let proximo = null;
 
   for (const viaje of viajes) {
-    if (viaje.status === "activo" && viaje.startDate) {
-      const inicio = new Date(`${viaje.startDate}T00:00:00`);
-      if (inicio >= hoy && (!proximo || inicio < new Date(`${proximo.startDate}T00:00:00`))) {
-        proximo = viaje;
-      }
+    const inicio = fechaISO(viaje.startDate);
+    if (viaje.status === "activo" && inicio && inicio >= hoy) {
+      if (!proximo || inicio < fechaISO(proximo.startDate)) proximo = viaje;
     }
   }
 
   return proximo;
+}
+
+function calcularViajesAnteriores(viajes) {
+  const hoy = getTodayIso();
+  return viajes
+    .filter((viaje) => {
+      const estado = String(viaje.status ?? "").toLowerCase();
+      return (
+        viaje.endDate &&
+        fechaISO(viaje.endDate) < hoy &&
+        estado !== "cancelado" &&
+        estado !== "eliminado"
+      );
+    })
+    .sort((a, b) => fechaISO(b.endDate).localeCompare(fechaISO(a.endDate)));
 }
 
 export function calcularEstadisticas(viajes, idUsuarioActual, year, hoy = new Date()) {
@@ -95,7 +117,7 @@ export function calcularEstadisticas(viajes, idUsuarioActual, year, hoy = new Da
   const filtrados = viajes.filter((viaje) => {
     if (!viaje.startDate) return year == null;
 
-    const inicio = new Date(`${viaje.startDate}T00:00:00`);
+    const inicio = new Date(`${fechaISO(viaje.startDate)}T00:00:00`);
     return inicio <= fechaHoy && (year == null || inicio.getFullYear() === year);
   });
 
@@ -122,7 +144,156 @@ export function calcularEstadisticas(viajes, idUsuarioActual, year, hoy = new Da
   };
 }
 
-function PlanCard({ consumo, navigation }) {
+function Seccion({ titulo, detalle, grande, children, testID }) {
+  return (
+    <View style={[styles.card, grande && styles.cardGrande]} testID={testID}>
+      <View style={styles.seccionHeader}>
+        <Text style={[styles.seccionTitulo, grande && styles.seccionTituloGrande]}>{titulo}</Text>
+        {detalle ? (
+          <Text style={[styles.seccionDetalle, grande && styles.textoGrande]}>{detalle}</Text>
+        ) : null}
+      </View>
+      {children}
+    </View>
+  );
+}
+
+function ProfileHeader({
+  profile,
+  nombreCompleto,
+  loading,
+  consumo,
+  esPro,
+  estadisticas,
+  portada,
+  isTablet,
+  grande,
+  navigation,
+}) {
+  const avatarSize = grande ? 136 : isTablet ? 108 : 84;
+
+  return (
+    <View style={[styles.headerCard, isTablet && styles.headerCardTablet]}>
+      <View style={[styles.cover, isTablet && styles.coverTablet, grande && styles.coverGrande]}>
+        {portada ? (
+          <>
+            <Image source={{ uri: portada }} style={StyleSheet.absoluteFill} />
+            <View style={styles.coverOverlay} />
+          </>
+        ) : null}
+        <View style={styles.coverActions}>
+          <IconCircleButton
+            icon="gear"
+            onPress={() => navigation.navigate("Configuracion")}
+            tone="surface"
+            testID="profile-settings-button"
+            accessibilityLabel="Configuración"
+          />
+        </View>
+      </View>
+
+      <View style={[styles.headerBody, grande && styles.headerBodyGrande]}>
+        <View style={[styles.avatarRow, { marginTop: -(avatarSize / 2 + 4) }]}>
+          <View style={styles.avatarRing}>
+            <Avatar imageUrl={profile.fotoUrl} name={nombreCompleto || "?"} size={avatarSize} />
+          </View>
+          <Pressable
+            onPress={() => navigation.navigate("EditarPerfil")}
+            style={({ pressed }) => [styles.editButton, grande && styles.editButtonGrande, pressed && styles.pressed]}
+            testID="profile-edit-button"
+            accessibilityRole="button"
+          >
+            <FontAwesome6 name="pen" size={grande ? 14 : 12} color={colors.primary} />
+            <Text style={[styles.editText, grande && styles.textoGrande]}>Editar perfil</Text>
+          </Pressable>
+        </View>
+
+        <View style={styles.nameRow}>
+          <Text
+            style={[styles.name, isTablet && styles.nameTablet, grande && styles.nameGrande]}
+            numberOfLines={1}
+          >
+            {loading ? " " : nombreCompleto || "Sin nombre"}
+          </Text>
+          {consumo ? (
+            <Text style={[styles.badge, esPro && styles.badgePro]} testID="profile-plan-badge">
+              {esPro ? "Pro" : "Gratuito"}
+            </Text>
+          ) : null}
+        </View>
+        {profile.nombreUsuario ? (
+          <Text style={[styles.username, grande && styles.textoGrande]}>@{profile.nombreUsuario}</Text>
+        ) : null}
+      </View>
+    </View>
+  );
+}
+
+function NextTripCard({ viaje, horizontal, grande, navigation }) {
+  const destino = viaje.destinations?.length
+    ? viaje.destinations.map((item) => item.name).join(" · ")
+    : null;
+  const noches = textoNoches(viaje.startDate, viaje.endDate);
+
+  return (
+    <Pressable
+      onPress={() => navigation.navigate("TripDetail", { tripId: viaje.id, trip: viaje })}
+      style={({ pressed }) => [
+        styles.card,
+        styles.nextTrip,
+        horizontal && styles.nextTripRow,
+        grande && styles.nextTripRowGrande,
+        pressed && styles.pressed,
+      ]}
+      testID="profile-next-trip"
+    >
+      {viaje.image ? (
+        <Image
+          source={{ uri: viaje.image }}
+          style={[
+            styles.nextTripImage,
+            horizontal && styles.nextTripImageRow,
+            grande && styles.nextTripImageGrande,
+          ]}
+        />
+      ) : (
+        <View
+          style={[
+            styles.nextTripImage,
+            horizontal && styles.nextTripImageRow,
+            grande && styles.nextTripImageGrande,
+            styles.imageFallback,
+          ]}
+        >
+          <FontAwesome6 name="plane" size={28} color={colors.primary} />
+        </View>
+      )}
+      <View style={[styles.nextTripInfo, grande && styles.nextTripInfoGrande]}>
+        <Text style={[styles.nextTripLabel, grande && styles.nextTripLabelGrande]}>
+          Próximo viaje · {textoCuentaRegresiva(viaje.startDate)}
+        </Text>
+        <Text style={[styles.nextTripTitle, grande && styles.nextTripTitleGrande]} numberOfLines={1}>
+          {viaje.title}
+        </Text>
+        {destino ? (
+          <Text style={[styles.nextTripDestino, grande && styles.textoGrande]} numberOfLines={1}>
+            {destino}
+          </Text>
+        ) : null}
+        <Text style={[styles.nextTripFechas, grande && styles.textoGrande]}>
+          {formatFechaCorta(viaje.startDate)} al {formatFechaCorta(viaje.endDate)}
+          {noches ? ` · ${noches}` : ""}
+        </Text>
+        <View style={styles.nextTripCta}>
+          <Text style={[styles.link, grande && styles.textoGrande]}>Ver viaje</Text>
+          <FontAwesome6 name="arrow-right" size={12} color={colors.primary} />
+        </View>
+      </View>
+    </Pressable>
+  );
+}
+
+function PlanCard({ consumo, grande, navigation }) {
   const conocido = Boolean(consumo);
   const esPro = consumo?.planActual === "pro";
   let boton = { label: "Ver plan y suscripción", destino: "MiSuscripcion" };
@@ -133,30 +304,31 @@ function PlanCard({ consumo, navigation }) {
   }
 
   return (
-    <SectionCard label="Tu plan" padded testID="profile-plan-card">
+    <Seccion
+      titulo="Tu plan"
+      detalle={conocido ? (esPro ? "Pro" : "Gratuito") : null}
+      grande={grande}
+      testID="profile-plan-card"
+    >
       {conocido ? (
-        <View style={styles.planHeader}>
-          <View style={[styles.planIcon, esPro && styles.planIconPro]}>
-            <FontAwesome6 name={esPro ? "crown" : "suitcase-rolling"} size={16} color={colors.primary} />
+        <View style={styles.planMeters}>
+          <View style={styles.meterRow}>
+            <UsageMeter titulo="Viajes activos que administrás" uso={consumo.viajesActivos} testID="profile-uso-viajes" />
           </View>
-          <Text style={styles.planName}>{esPro ? "Pro" : "Gratuito"}</Text>
+          <View style={styles.meterRow}>
+            <UsageMeter titulo="Escaneos de comprobantes del mes" uso={consumo.escaneosMensuales} testID="profile-uso-escaneos" />
+          </View>
         </View>
-      ) : null}
-      {conocido ? (
-        <>
-          <UsageMeter titulo="Viajes activos que administrás" uso={consumo.viajesActivos} testID="profile-uso-viajes" />
-          <UsageMeter titulo="Escaneos de comprobantes del mes" uso={consumo.escaneosMensuales} testID="profile-uso-escaneos" />
-        </>
       ) : (
         <Text style={styles.mutedText}>No pudimos cargar el consumo de tu plan.</Text>
       )}
       <PrimaryButton
         label={boton.label}
-        variant={esPro || !conocido ? "secondary" : undefined}
+        variant="secondary"
         onPress={() => navigation.navigate(boton.destino)}
         testID="profile-plan-button"
       />
-    </SectionCard>
+    </Seccion>
   );
 }
 
@@ -195,22 +367,25 @@ function LogroCard({ logro }) {
   );
 }
 
-function LogrosSection({ logros }) {
+function LogrosSection({ logros, grande }) {
   if (!logros?.length) return null;
   const obtenidos = logros.filter((logro) => logro.obtenido).length;
   return (
-    <SectionCard label="Logros" padded testID="profile-logros">
-      <Text style={styles.mutedText}>
-        {obtenidos === 0
-          ? "Completá metas usando Cyanea con tu grupo."
-          : `${obtenidos} de ${logros.length} logros obtenidos`}
-      </Text>
+    <Seccion
+      titulo="Logros"
+      detalle={`${obtenidos} de ${logros.length}`}
+      grande={grande}
+      testID="profile-logros"
+    >
+      {obtenidos === 0 ? (
+        <Text style={styles.mutedText}>Completá metas usando Cyanea con tu grupo.</Text>
+      ) : null}
       <View style={styles.logrosGrid}>
         {logros.map((logro) => (
           <LogroCard key={logro.id} logro={logro} />
         ))}
       </View>
-    </SectionCard>
+    </Seccion>
   );
 }
 
@@ -223,7 +398,9 @@ export default function ProfileScreen({ navigation }) {
   const [loading, setLoading] = useState(true);
   const [statusMessage, setStatusMessage] = useState("");
   const [selectedYear, setSelectedYear] = useState(null);
-  const { isDesktop } = useResponsive();
+  const { isTablet, isDesktop } = useResponsive();
+  const espacioBarraTabs = useEspacioBarraTabs();
+  const grande = false;
 
   useFocusEffect(
     useCallback(() => {
@@ -275,29 +452,37 @@ export default function ProfileScreen({ navigation }) {
   const sinViajes = trips.length === 0;
 
   const proximoViaje = useMemo(() => calcularProximoViaje(trips), [trips]);
+  const viajesAnteriores = useMemo(() => calcularViajesAnteriores(trips), [trips]);
+  const portada = proximoViaje?.image ?? viajesAnteriores.find((viaje) => viaje.image)?.image ?? null;
 
   const aniosDisponibles = useMemo(() => {
     const anios = new Set();
-    const hoy = new Date();
-    hoy.setHours(0, 0, 0, 0);
-
+    const hoy = getTodayIso();
     for (const viaje of trips) {
-      if (viaje.startDate) {
-        const inicio = new Date(`${viaje.startDate}T00:00:00`);
-        if (inicio <= hoy) anios.add(inicio.getFullYear());
-      }
+      const inicio = fechaISO(viaje.startDate);
+      if (inicio && inicio <= hoy) anios.add(Number(inicio.slice(0, 4)));
     }
     return Array.from(anios).sort((a, b) => b - a);
   }, [trips]);
 
+  const estadisticasTotales = useMemo(
+    () => calcularEstadisticas(trips, profile.id, null),
+    [trips, profile.id]
+  );
   const estadisticasAnio = useMemo(
     () => calcularEstadisticas(trips, profile.id, selectedYear),
     [trips, profile.id, selectedYear]
   );
 
-  const destinoLabel = proximoViaje?.destinations?.length
-    ? proximoViaje.destinations.map((destino) => destino.name).join(" · ")
-    : proximoViaje?.title;
+  const porcentajeMundo = (paises.length / TOTAL_PAISES_MUNDO) * 100;
+  const porcentajeTexto =
+    porcentajeMundo > 0 && porcentajeMundo < 1 ? "menos del 1%" : `${Math.round(porcentajeMundo)}%`;
+  const columnasViajes = isTablet ? 3 : 2;
+  const maxVisibles = Math.min(viajesAnteriores.length, MAX_VIAJES_ANTERIORES);
+  const cantidadVisibles =
+    maxVisibles >= columnasViajes
+      ? Math.floor(maxVisibles / columnasViajes) * columnasViajes
+      : maxVisibles;
 
   const primerViaje = sinViajes ? (
     <EmptyState
@@ -311,51 +496,25 @@ export default function ProfileScreen({ navigation }) {
   ) : null;
 
   const proximo = !sinViajes ? (
-    <View style={styles.sectionBlock}>
-      <Text style={styles.sectionLabel}>Próximo viaje</Text>
-      {proximoViaje ? (
-        <Pressable
-          onPress={() =>
-            navigation.navigate("TripDetail", { tripId: proximoViaje.id, trip: proximoViaje })
-          }
-          style={({ pressed }) => [styles.nextTripCard, pressed && styles.pressed]}
-          testID="profile-next-trip"
-        >
-          {proximoViaje.image ? (
-            <Image source={{ uri: proximoViaje.image }} style={styles.nextTripImage} />
-          ) : (
-            <View style={[styles.nextTripImage, styles.nextTripImageFallback]}>
-              <FontAwesome6 name="plane" size={22} color={colors.primary} />
-            </View>
-          )}
-          <View style={styles.nextTripInfo}>
-            <Text style={styles.nextTripTitle} numberOfLines={1}>
-              {proximoViaje.title}
-            </Text>
-            {destinoLabel ? (
-              <Text style={styles.nextTripDestino} numberOfLines={1}>
-                {destinoLabel}
-              </Text>
-            ) : null}
-            <Text style={styles.nextTripFechas}>
-              {formatFechaCorta(proximoViaje.startDate)} al {formatFechaCorta(proximoViaje.endDate)}
-            </Text>
-          </View>
+    proximoViaje ? (
+      <NextTripCard
+        viaje={proximoViaje}
+        horizontal={isTablet}
+        grande={grande}
+        navigation={navigation}
+      />
+    ) : (
+      <View style={[styles.card, styles.inlineEmpty]}>
+        <Text style={styles.mutedText}>Todavía no tenés un próximo viaje planeado.</Text>
+        <Pressable onPress={() => navigation.navigate("NuevoViaje")} hitSlop={8}>
+          <Text style={styles.link}>Crear viaje</Text>
         </Pressable>
-      ) : (
-        <View style={styles.inlineEmpty}>
-          <Text style={styles.mutedText}>Todavía no tenés un próximo viaje planeado.</Text>
-          <Pressable onPress={() => navigation.navigate("NuevoViaje")} hitSlop={8}>
-            <Text style={styles.link}>Crear viaje</Text>
-          </Pressable>
-        </View>
-      )}
-    </View>
+      </View>
+    )
   ) : null;
 
   const resumen = !sinViajes ? (
-    <View style={styles.sectionBlock}>
-      <Text style={styles.sectionLabel}>Resumen anual</Text>
+    <Seccion titulo="Tus números" grande={grande}>
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.yearPillsRow}>
         {[null, ...aniosDisponibles].map((anio) => {
           const activo = selectedYear === anio;
@@ -373,33 +532,46 @@ export default function ProfileScreen({ navigation }) {
         })}
       </ScrollView>
       <View style={styles.yearStatsRow}>
-        <View style={styles.yearStatCard}>
-          <FontAwesome6 name="suitcase-rolling" size={18} color={colors.primary} />
-          <Text style={styles.yearStatValue} testID="profile-stat-viajes">{estadisticasAnio.totalViajes}</Text>
+        <View style={[styles.yearStatCard, grande && styles.yearStatCardGrande]}>
+          <Text style={[styles.yearStatValue, grande && styles.yearStatValueGrande]} testID="profile-stat-viajes">
+            {estadisticasAnio.totalViajes}
+          </Text>
           <Text style={styles.yearStatLabel}>Viajes</Text>
         </View>
-        <View style={styles.yearStatCard}>
-          <FontAwesome6 name="earth-americas" size={18} color={colors.primary} />
-          <Text style={styles.yearStatValue} testID="profile-stat-paises">{estadisticasAnio.totalPaises}</Text>
+        <View style={[styles.yearStatCard, grande && styles.yearStatCardGrande]}>
+          <Text style={[styles.yearStatValue, grande && styles.yearStatValueGrande]} testID="profile-stat-paises">
+            {estadisticasAnio.totalPaises}
+          </Text>
           <Text style={styles.yearStatLabel}>Países</Text>
         </View>
-        <View style={styles.yearStatCard}>
-          <FontAwesome6 name="user-group" size={18} color={colors.primary} />
-          <Text style={styles.yearStatValue} testID="profile-stat-amigos">{estadisticasAnio.totalAmigos}</Text>
+        <View style={[styles.yearStatCard, grande && styles.yearStatCardGrande]}>
+          <Text style={[styles.yearStatValue, grande && styles.yearStatValueGrande]} testID="profile-stat-amigos">
+            {estadisticasAnio.totalAmigos}
+          </Text>
           <Text style={styles.yearStatLabel}>Amigos</Text>
         </View>
       </View>
-    </View>
+    </Seccion>
   ) : null;
 
   const pasaporte = !sinViajes ? (
-    <View style={styles.sectionBlock}>
-      <Text style={styles.sectionLabel}>Países visitados</Text>
-      <View style={styles.passportContainer}>
-        {paises.length > 0 ? (
+    <Seccion
+      titulo="Tu pasaporte"
+      detalle={`${paises.length} de ${TOTAL_PAISES_MUNDO} países`}
+      grande={grande}
+    >
+      <MapaPaises paises={paises} />
+      {paises.length > 0 ? (
+        <>
+          <View style={styles.mundoPista}>
+            <View style={[styles.mundoBarra, { width: `${Math.max(2, porcentajeMundo)}%` }]} />
+          </View>
+          <Text style={[styles.mutedText, grande && styles.textoGrande]}>
+            Conociste el {porcentajeTexto} del mundo
+          </Text>
           <View style={styles.passportGrid}>
             {paises.map((pais) => {
-              const flagUrl = flagImageUrlFor(pais);
+              const flagUrl = banderaDe(pais);
               return (
                 <View key={pais} style={styles.stamp}>
                   {flagUrl ? (
@@ -414,88 +586,128 @@ export default function ProfileScreen({ navigation }) {
               );
             })}
           </View>
-        ) : (
-          <Text style={styles.mutedText}>
-            Cuando termine tu primer viaje, sus países van a aparecer acá.
-          </Text>
-        )}
-      </View>
-    </View>
+        </>
+      ) : (
+        <Text style={styles.mutedText}>
+          Cuando termine tu primer viaje, sus países van a aparecer acá.
+        </Text>
+      )}
+    </Seccion>
   ) : null;
 
-  const plan = <PlanCard consumo={consumo} navigation={navigation} />;
-  const seccionLogros = <LogrosSection logros={logros} />;
+  const anteriores = !sinViajes ? (
+    <Seccion
+      titulo="Viajes anteriores"
+      detalle={
+        viajesAnteriores.length > cantidadVisibles
+          ? `${cantidadVisibles} de ${viajesAnteriores.length}`
+          : null
+      }
+      grande={grande}
+    >
+      {viajesAnteriores.length > 0 ? (
+        <View style={styles.tripGrid}>
+          {viajesAnteriores.slice(0, cantidadVisibles).map((viaje, indice) => (
+            <View
+              key={viaje.id ?? indice}
+              style={[styles.tripGridItem, { width: `${100 / columnasViajes}%` }]}
+            >
+              <Pressable
+                onPress={() => navigation.navigate("TripDetail", { tripId: viaje.id, trip: viaje })}
+                style={({ pressed }) => [pressed && styles.pressed]}
+                testID={`profile-past-trip-${viaje.id}`}
+              >
+                {viaje.image ? (
+                  <Image
+                    source={{ uri: viaje.image }}
+                    style={[styles.tripThumb, grande && styles.tripThumbGrande]}
+                  />
+                ) : (
+                  <View
+                    style={[
+                      styles.tripThumb,
+                      grande && styles.tripThumbGrande,
+                      { backgroundColor: `${colorDeDestino(indice)}22` },
+                    ]}
+                  >
+                    <FontAwesome6 name="map-location-dot" size={22} color={colorDeDestino(indice)} />
+                  </View>
+                )}
+                <Text style={[styles.tripThumbTitle, grande && styles.textoGrande]} numberOfLines={1}>
+                  {viaje.title}
+                </Text>
+                <Text style={styles.tripThumbFecha}>{formatMesAnio(viaje.endDate)}</Text>
+              </Pressable>
+            </View>
+          ))}
+        </View>
+      ) : (
+        <Text style={styles.mutedText}>Cuando termine tu primer viaje lo vas a ver acá.</Text>
+      )}
+    </Seccion>
+  ) : null;
+
+  const plan = <PlanCard consumo={consumo} grande={grande} navigation={navigation} />;
+  const seccionLogros = <LogrosSection logros={logros} grande={grande} />;
 
   return (
     <ScreenContainer fullWidth padded={false}>
-      <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-        <View style={[styles.header, isDesktop && styles.headerDesktop]}>
-          <View style={styles.headerRow}>
-            <Avatar imageUrl={profile.fotoUrl} name={nombreCompleto || "?"} size={72} />
-            <View style={styles.headerText}>
-              <Text style={styles.name} numberOfLines={1}>
-                {loading ? " " : nombreCompleto || "Sin nombre"}
-              </Text>
-              {profile.nombreUsuario ? (
-                <Text style={styles.username}>@{profile.nombreUsuario}</Text>
-              ) : null}
-              <View style={styles.headerMeta}>
-                {consumo ? (
-                  <Text style={[styles.badge, esPro && styles.badgePro]} testID="profile-plan-badge">
-                    {esPro ? "Pro" : "Gratuito"}
-                  </Text>
-                ) : null}
-                <Pressable
-                  onPress={() => navigation.navigate("EditarPerfil")}
-                  style={({ pressed }) => [styles.editButton, pressed && styles.pressed]}
-                  testID="profile-edit-button"
-                  accessibilityRole="button"
-                >
-                  <FontAwesome6 name="pen" size={11} color={colors.primary} />
-                  <Text style={styles.editText}>Editar perfil</Text>
-                </Pressable>
-              </View>
-            </View>
-            <IconCircleButton
-              icon="gear"
-              onPress={() => navigation.navigate("Configuracion")}
-              tone="surface"
-              style={styles.settingsButton}
-              testID="profile-settings-button"
-              accessibilityLabel="Configuración"
-            />
-          </View>
-        </View>
+      <ScrollView
+        contentContainerStyle={{ paddingBottom: espacioBarraTabs + spacing.lg }}
+        showsVerticalScrollIndicator={false}
+      >
+        <View
+          style={[
+            styles.contenedor,
+            isTablet && styles.contenedorTablet,
+            isDesktop && styles.contenedorDesktop,
+          ]}
+        >
+          <ProfileHeader
+            profile={profile}
+            nombreCompleto={nombreCompleto}
+            loading={loading}
+            consumo={consumo}
+            esPro={esPro}
+            estadisticas={estadisticasTotales}
+            portada={portada}
+            isTablet={isTablet}
+            grande={grande}
+            navigation={navigation}
+          />
 
-        <View style={[styles.body, isDesktop && styles.bodyDesktop]}>
-          {loading ? (
-            <View style={styles.loadingBlock}>
-              <ActivityIndicator color={colors.primary} size="large" />
-            </View>
-          ) : isDesktop ? (
-            <View style={styles.columns}>
-              <View style={styles.columnLeft}>
-                {seccionLogros}
-                {plan}
+          <View style={[styles.body, isTablet && styles.bodyTablet]}>
+            {loading ? (
+              <View style={styles.loadingBlock}>
+                <ActivityIndicator color={colors.primary} size="large" />
               </View>
-              <View style={styles.columnRight}>
+            ) : isDesktop ? (
+              <View style={styles.columns}>
+                <View style={styles.columnMain}>
+                  {primerViaje}
+                  {proximo}
+                  {pasaporte}
+                  {anteriores}
+                  {seccionLogros}
+                </View>
+                <View style={styles.columnSide}>
+                  {resumen}
+                  {plan}
+                </View>
+              </View>
+            ) : (
+              <View style={styles.stack}>
                 {primerViaje}
                 {proximo}
                 {resumen}
                 {pasaporte}
+                {anteriores}
+                {seccionLogros}
+                {plan}
               </View>
-            </View>
-          ) : (
-            <View style={styles.stack}>
-              {primerViaje}
-              {proximo}
-              {seccionLogros}
-              {resumen}
-              {pasaporte}
-              {plan}
-            </View>
-          )}
-          {statusMessage ? <Text style={styles.statusText}>{statusMessage}</Text> : null}
+            )}
+            {statusMessage ? <Text style={styles.statusText}>{statusMessage}</Text> : null}
+          </View>
         </View>
       </ScrollView>
     </ScreenContainer>
@@ -503,42 +715,119 @@ export default function ProfileScreen({ navigation }) {
 }
 
 const styles = StyleSheet.create({
-  scrollContent: {
-    paddingBottom: spacing.xxxl,
-  },
-  header: {
-    paddingHorizontal: spacing.lg,
-    paddingTop: spacing.xl,
-  },
-  headerDesktop: {
-    maxWidth: 1000,
+  contenedor: {
     width: "100%",
     alignSelf: "center",
   },
-  headerRow: {
+  contenedorDesktop: {
+    paddingHorizontal: spacing.xxl,
+  },
+  contenedorTablet: {
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.lg,
+  },
+  pressed: {
+    opacity: 0.75,
+  },
+  textoGrande: {
+    fontSize: 16,
+  },
+
+  headerCard: {
+    backgroundColor: colors.surface,
+    borderBottomWidth: 1,
+    borderColor: colors.border,
+    overflow: "hidden",
+  },
+  headerCardTablet: {
+    borderWidth: 1,
+    borderRadius: radii.md,
+  },
+  cover: {
+    height: 120,
+    backgroundColor: colors.primary,
+  },
+  coverTablet: {
+    height: 180,
+  },
+  coverGrande: {
+    height: 260,
+  },
+  coverOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: colors.overlay,
+  },
+  coverActions: {
+    position: "absolute",
+    top: spacing.sm,
+    right: spacing.sm,
+  },
+  headerBody: {
+    paddingHorizontal: spacing.lg,
+    paddingBottom: spacing.lg,
+    gap: 4,
+  },
+  headerBodyGrande: {
+    paddingHorizontal: spacing.xl,
+    paddingBottom: spacing.xl,
+    gap: 6,
+  },
+  avatarRow: {
+    flexDirection: "row",
+    alignItems: "flex-end",
+    justifyContent: "space-between",
+    marginBottom: spacing.xs,
+  },
+  avatarRing: {
+    borderWidth: 4,
+    borderColor: colors.surface,
+    borderRadius: radii.pill,
+    backgroundColor: colors.surface,
+  },
+  editButton: {
     flexDirection: "row",
     alignItems: "center",
-    gap: spacing.md,
+    gap: 6,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
+    borderRadius: radii.pill,
+    borderWidth: 1,
+    borderColor: colors.borderStrong,
+    backgroundColor: colors.surface,
   },
-  headerText: {
-    flex: 1,
-    gap: 2,
+  editButtonGrande: {
+    paddingHorizontal: spacing.md,
+    paddingVertical: 10,
   },
-  name: {
-    ...textStyles.tripTitle,
+  editText: {
+    ...textStyles.meta,
     color: colors.primary,
-    fontSize: 22,
+    fontWeight: "700",
+    fontSize: 13,
   },
-  username: {
-    ...textStyles.body,
-    color: colors.textSecondary,
-  },
-  headerMeta: {
+  nameRow: {
     flexDirection: "row",
     alignItems: "center",
     flexWrap: "wrap",
     gap: spacing.xs,
-    marginTop: spacing.xxs,
+  },
+  name: {
+    ...textStyles.tripTitle,
+    color: colors.primary,
+    fontSize: 24,
+    flexShrink: 1,
+  },
+  nameTablet: {
+    fontSize: 30,
+    lineHeight: 36,
+  },
+  nameGrande: {
+    fontSize: 40,
+    lineHeight: 48,
+  },
+  username: {
+    ...textStyles.meta,
+    color: colors.textSecondary,
   },
   badge: {
     ...textStyles.label,
@@ -556,35 +845,14 @@ const styles = StyleSheet.create({
     backgroundColor: colors.accent,
     color: colors.primaryStrong,
   },
-  editButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    paddingHorizontal: 10,
-    paddingVertical: 3,
-    borderRadius: radii.pill,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.surface,
-  },
-  editText: {
-    ...textStyles.meta,
-    color: colors.primary,
-    fontWeight: "700",
-    fontSize: 12,
-  },
-  settingsButton: {
-    alignSelf: "flex-start",
-  },
+
   body: {
-    paddingHorizontal: spacing.lg,
-    paddingTop: spacing.lg,
-    gap: spacing.lg,
+    paddingHorizontal: spacing.md,
+    paddingTop: spacing.md,
   },
-  bodyDesktop: {
-    maxWidth: 1000,
-    width: "100%",
-    alignSelf: "center",
+  bodyTablet: {
+    paddingHorizontal: 0,
+    paddingTop: spacing.lg,
   },
   loadingBlock: {
     paddingVertical: spacing.xxxl,
@@ -595,48 +863,261 @@ const styles = StyleSheet.create({
     alignItems: "flex-start",
     gap: spacing.lg,
   },
-  columnLeft: {
-    flex: 1,
+  columnMain: {
+    flex: 2,
+    minWidth: 0,
     gap: spacing.lg,
   },
-  columnRight: {
-    flex: 1.5,
+  columnSide: {
+    flex: 1,
+    minWidth: 0,
     gap: spacing.lg,
   },
   stack: {
-    gap: spacing.lg,
+    gap: spacing.md,
   },
-  sectionBlock: {
+
+  card: {
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radii.md,
+    padding: spacing.md,
     gap: spacing.sm,
   },
-  sectionLabel: {
-    ...textStyles.sectionLabel,
-    color: colors.textMuted,
-    fontSize: 11,
-    letterSpacing: 0.8,
-    marginLeft: 4,
+  cardGrande: {
+    padding: spacing.lg,
+    gap: spacing.md,
   },
-  planHeader: {
+  seccionHeader: {
     flexDirection: "row",
-    alignItems: "center",
-    gap: spacing.sm,
+    alignItems: "baseline",
+    justifyContent: "space-between",
+    gap: spacing.xs,
   },
-  planIcon: {
-    width: 36,
-    height: 36,
-    borderRadius: radii.xs,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: colors.surfaceAlt,
-  },
-  planIconPro: {
-    backgroundColor: colors.accent,
-  },
-  planName: {
+  seccionTitulo: {
     ...textStyles.bodyStrong,
     color: colors.primary,
-    fontSize: 20,
+    fontSize: 17,
   },
+  seccionTituloGrande: {
+    fontSize: 21,
+  },
+  seccionDetalle: {
+    ...textStyles.meta,
+    color: colors.textSecondary,
+    fontSize: 13,
+  },
+
+  nextTrip: {
+    padding: 0,
+    gap: 0,
+    overflow: "hidden",
+  },
+  nextTripRow: {
+    flexDirection: "row",
+    minHeight: 160,
+  },
+  nextTripRowGrande: {
+    minHeight: 220,
+  },
+  nextTripImage: {
+    width: "100%",
+    height: 160,
+  },
+  nextTripImageRow: {
+    width: 220,
+    height: "auto",
+    alignSelf: "stretch",
+  },
+  nextTripImageGrande: {
+    width: 320,
+  },
+  imageFallback: {
+    backgroundColor: colors.surfaceAlt,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  nextTripInfo: {
+    flex: 1,
+    padding: spacing.md,
+    gap: 3,
+    justifyContent: "center",
+  },
+  nextTripInfoGrande: {
+    padding: spacing.xl,
+    gap: 6,
+  },
+  nextTripLabel: {
+    ...textStyles.label,
+    fontSize: 11,
+    color: colors.primarySoft,
+  },
+  nextTripLabelGrande: {
+    fontSize: 13,
+  },
+  nextTripTitle: {
+    ...textStyles.tripTitle,
+    color: colors.primary,
+    fontSize: 22,
+    lineHeight: 28,
+  },
+  nextTripTitleGrande: {
+    fontSize: 32,
+    lineHeight: 38,
+  },
+  nextTripDestino: {
+    ...textStyles.meta,
+    color: colors.textSecondary,
+  },
+  nextTripFechas: {
+    ...textStyles.meta,
+    color: colors.textMuted,
+  },
+  nextTripCta: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    marginTop: spacing.xs,
+  },
+  inlineEmpty: {
+    gap: spacing.xs,
+  },
+  link: {
+    ...textStyles.meta,
+    color: colors.primary,
+    fontWeight: "700",
+  },
+
+  mundoPista: {
+    height: 8,
+    borderRadius: radii.pill,
+    overflow: "hidden",
+    backgroundColor: colors.surfaceAlt,
+  },
+  mundoBarra: {
+    height: "100%",
+    borderRadius: radii.pill,
+    backgroundColor: colors.primary,
+  },
+  passportGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: spacing.xs,
+    marginTop: spacing.xxs,
+  },
+  stamp: {
+    width: 88,
+    alignItems: "center",
+    gap: 4,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.xs,
+    borderRadius: radii.sm,
+    backgroundColor: colors.background,
+  },
+  stampFlagImage: {
+    width: 40,
+    height: 28,
+    borderRadius: 4,
+    borderWidth: 1,
+    borderColor: colors.surfaceAlt,
+  },
+  stampLabel: {
+    ...textStyles.meta,
+    color: colors.textPrimary,
+    textAlign: "center",
+    fontSize: 13,
+  },
+
+  tripGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    marginHorizontal: -6,
+  },
+  tripGridItem: {
+    padding: 6,
+  },
+  tripThumb: {
+    width: "100%",
+    height: 100,
+    borderRadius: radii.sm,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  tripThumbGrande: {
+    height: 160,
+  },
+  tripThumbTitle: {
+    ...textStyles.meta,
+    color: colors.textPrimary,
+    fontWeight: "700",
+    marginTop: 6,
+  },
+  tripThumbFecha: {
+    ...textStyles.meta,
+    color: colors.textMuted,
+    fontSize: 12,
+  },
+
+  yearPillsRow: {
+    flexDirection: "row",
+    gap: spacing.xs,
+    paddingBottom: 2,
+  },
+  yearPill: {
+    paddingVertical: 6,
+    paddingHorizontal: 14,
+    borderRadius: radii.pill,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+  },
+  yearPillActive: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
+  },
+  yearPillText: {
+    ...textStyles.meta,
+    color: colors.textSecondary,
+    fontWeight: "600",
+  },
+  yearPillTextActive: {
+    color: colors.textInverse,
+  },
+  yearStatsRow: {
+    flexDirection: "row",
+    gap: spacing.xs,
+  },
+  yearStatCard: {
+    flex: 1,
+    alignItems: "center",
+    paddingVertical: spacing.sm,
+    borderRadius: radii.sm,
+    backgroundColor: colors.background,
+  },
+  yearStatCardGrande: {
+    paddingVertical: spacing.md,
+  },
+  yearStatValue: {
+    ...textStyles.kpiValue,
+    color: colors.primary,
+  },
+  yearStatValueGrande: {
+    fontSize: 30,
+  },
+  yearStatLabel: {
+    ...textStyles.meta,
+    color: colors.textSecondary,
+    fontSize: 12,
+  },
+
+  planMeters: {
+    gap: spacing.md,
+  },
+  meterRow: {
+    flexDirection: "row",
+  },
+
   logrosGrid: {
     flexDirection: "row",
     flexWrap: "wrap",
@@ -713,138 +1194,7 @@ const styles = StyleSheet.create({
     borderRadius: 4,
     backgroundColor: colors.primarySoft,
   },
-  nextTripCard: {
-    ...surfaces.card,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing.md,
-    padding: spacing.sm,
-  },
-  pressed: {
-    opacity: 0.75,
-  },
-  nextTripImage: {
-    width: 64,
-    height: 64,
-    borderRadius: radii.sm,
-  },
-  nextTripImageFallback: {
-    backgroundColor: colors.surfaceAlt,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  nextTripInfo: {
-    flex: 1,
-    gap: 2,
-  },
-  nextTripTitle: {
-    ...textStyles.body,
-    color: colors.primary,
-    fontWeight: "700",
-  },
-  nextTripDestino: {
-    ...textStyles.meta,
-    color: colors.textSecondary,
-  },
-  nextTripFechas: {
-    ...textStyles.meta,
-    color: colors.textMuted,
-  },
-  inlineEmpty: {
-    padding: spacing.md,
-    gap: spacing.xs,
-    borderRadius: radii.md,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.surface,
-  },
-  link: {
-    ...textStyles.meta,
-    color: colors.primary,
-    fontWeight: "700",
-    textDecorationLine: "underline",
-  },
-  passportContainer: {
-    backgroundColor: colors.surface,
-    borderRadius: radii.md,
-    borderWidth: 1,
-    borderColor: colors.border,
-    padding: spacing.sm,
-  },
-  passportGrid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: spacing.sm,
-  },
-  stamp: {
-    width: 84,
-    alignItems: "center",
-    gap: 4,
-    paddingVertical: spacing.sm,
-    paddingHorizontal: spacing.xs,
-    borderRadius: radii.sm,
-    backgroundColor: colors.background,
-  },
-  stampFlagImage: {
-    width: 40,
-    height: 28,
-    borderRadius: 4,
-    borderWidth: 1,
-    borderColor: colors.surfaceAlt,
-  },
-  stampLabel: {
-    ...textStyles.meta,
-    color: colors.textPrimary,
-    textAlign: "center",
-  },
-  yearPillsRow: {
-    flexDirection: "row",
-    gap: spacing.xs,
-    paddingBottom: 2,
-  },
-  yearPill: {
-    paddingVertical: 6,
-    paddingHorizontal: 14,
-    borderRadius: radii.pill,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.surface,
-  },
-  yearPillActive: {
-    backgroundColor: colors.primary,
-    borderColor: colors.primary,
-  },
-  yearPillText: {
-    ...textStyles.meta,
-    color: colors.textSecondary,
-    fontWeight: "600",
-  },
-  yearPillTextActive: {
-    color: colors.textInverse,
-  },
-  yearStatsRow: {
-    flexDirection: "row",
-    gap: spacing.sm,
-  },
-  yearStatCard: {
-    flex: 1,
-    alignItems: "center",
-    gap: 4,
-    paddingVertical: spacing.md,
-    borderRadius: radii.md,
-    backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  yearStatValue: {
-    ...textStyles.tripTitle,
-    color: colors.primary,
-    fontSize: 20,
-  },
-  yearStatLabel: {
-    ...textStyles.meta,
-    color: colors.primary,
-  },
+
   mutedText: {
     ...textStyles.meta,
     color: colors.textMuted,
@@ -852,5 +1202,6 @@ const styles = StyleSheet.create({
   statusText: {
     ...textStyles.body,
     color: colors.danger,
+    marginTop: spacing.md,
   },
 });

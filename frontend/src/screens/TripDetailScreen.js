@@ -167,6 +167,15 @@ function tabValida(tab) {
   return tabs.some((t) => t.id === tab) ? tab : "resumen";
 }
 
+
+function fechaISO(valor) {
+  if (!valor) return "";
+  if (valor instanceof Date) {
+    return Number.isNaN(valor.getTime()) ? "" : valor.toISOString().slice(0, 10);
+  }
+  return String(valor).slice(0, 10);
+}
+
 function normalizeTrip(raw) {
   if (!raw) return null;
   const destinationNames =
@@ -183,8 +192,8 @@ function normalizeTrip(raw) {
     hasLeft: raw.hasLeft ?? raw.HasLeft ?? false,
     infoEditableUntil: raw.infoEditableUntil ?? null,
     currency: raw.currency ?? raw.Moneda ?? "EUR",
-    startDate: raw.startDate ?? raw.FechaInicio ?? "",
-    endDate: raw.endDate ?? raw.FechaFin ?? "",
+    startDate: fechaISO(raw.startDate ?? raw.FechaInicio),
+    endDate: fechaISO(raw.endDate ?? raw.FechaFin),
     participantUserIds: raw.participantUserIds ?? [],
     invitedEmails: raw.invitedEmails ?? [],
     participants: raw.participants ?? [],
@@ -2216,7 +2225,6 @@ export default function TripDetailScreen({ navigation, route }) {
     return modoTransporteDayId[dayId] ?? ruta?.modo ?? "walking";
   }
 
-  // Un día de traslado tiene un modo por destino.
   function resolverModoDestino(dayId, ruta, idDestino) {
     return modoTransporteDayId[`${dayId}-${idDestino}`] ?? ruta?.modo ?? "walking";
   }
@@ -3792,6 +3800,7 @@ export default function TripDetailScreen({ navigation, route }) {
                           return (
                             <ResultadosVotacion
                               resultados={resultado}
+                              votacion={votacion}
                               mostrarGanador={esCerrada}
                               totalParticipantes={participantItems.length}
                               titulo={votacion.Titulo}
