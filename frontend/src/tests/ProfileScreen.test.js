@@ -27,6 +27,19 @@ jest.mock("../hooks/useResponsive", () => ({
   default: () => ({ isDesktop: false }),
 }));
 
+
+jest.mock("../components/profile/MapaPaises", () => {
+  const CODIGOS = { argentina: "ar", brasil: "br" };
+  return {
+    __esModule: true,
+    default: () => null,
+    banderaDe: (nombre) => {
+      const codigo = CODIGOS[String(nombre ?? "").toLowerCase()];
+      return codigo ? `https://flagcdn.com/h80/${codigo}.png` : null;
+    },
+  };
+});
+
 function viaje(overrides = {}) {
   return {
     id: 1,
@@ -85,9 +98,9 @@ describe("calcularEstadisticas", () => {
 
   it("con year=null, cuenta los viajes ya iniciados y también los que no tienen fecha", () => {
     const viajes = [
-      viaje({ id: 1, startDate: "2026-05-01" }), // ya empezó
-      viaje({ id: 2, startDate: "2026-07-01" }), // todavía no empieza
-      viaje({ id: 3, startDate: null }), // sin fecha
+      viaje({ id: 1, startDate: "2026-05-01" }), 
+      viaje({ id: 2, startDate: "2026-07-01" }),
+      viaje({ id: 3, startDate: null }),
     ];
 
     const stats = calcularEstadisticas(viajes, 99, null, hoy);
@@ -99,8 +112,8 @@ describe("calcularEstadisticas", () => {
     const viajes = [
       viaje({ id: 1, startDate: "2025-05-01" }),
       viaje({ id: 2, startDate: "2026-05-01" }),
-      viaje({ id: 3, startDate: "2026-08-01" }), // 2026 pero futuro
-      viaje({ id: 4, startDate: null }), // se excluye cuando hay year
+      viaje({ id: 3, startDate: "2026-08-01" }), 
+      viaje({ id: 4, startDate: null }), 
     ];
 
     const stats = calcularEstadisticas(viajes, 99, 2026, hoy);
@@ -116,7 +129,7 @@ describe("calcularEstadisticas", () => {
 
     const stats = calcularEstadisticas(viajes, 1, null, hoy);
 
-    expect(stats.totalAmigos).toBe(3); // 2, 3, 4
+    expect(stats.totalAmigos).toBe(3); 
   });
 
   it("cuenta países únicos across varios viajes, ignorando destinos sin country", () => {
@@ -135,7 +148,7 @@ describe("calcularEstadisticas", () => {
 
     const stats = calcularEstadisticas(viajes, 99, null, hoy);
 
-    expect(stats.totalPaises).toBe(2); // argentina, brasil
+    expect(stats.totalPaises).toBe(2); 
   });
 
   it("con una lista vacía de viajes, devuelve todo en cero", () => {
@@ -234,7 +247,7 @@ describe("ProfileScreen", () => {
     usuarioAda();
     api.getPaisesVisitados.mockResolvedValueOnce({ paises: [] });
     api.getTrips.mockResolvedValueOnce([
-      viaje({ id: 5, startDate: "2026-01-01" }), // ya pasó
+      viaje({ id: 5, startDate: "2026-01-01" }), 
     ]);
 
     const { getByText } = await render(
@@ -337,14 +350,14 @@ describe("ProfileScreen", () => {
       <ProfileScreen navigation={{ navigate: jest.fn() }} />
     );
 
-    // "Todos": ambos viajes ya empezaron -> 2 viajes
+
     expect(getByTestId("profile-stat-viajes").props.children).toBe(2);
 
     await act(async () => {
       fireEvent.press(getByText("2025"));
     });
 
-    // Filtrado a 2025: 1 solo viaje
+
     expect(getByTestId("profile-stat-viajes").props.children).toBe(1);
   });
 
@@ -407,7 +420,7 @@ describe("ProfileScreen", () => {
     );
 
     expect(getByTestId("profile-logros")).toBeTruthy();
-    expect(getByText("1 de 2 logros obtenidos")).toBeTruthy();
+    expect(getByText("1 de 2")).toBeTruthy();
     expect(getByTestId("logro-primer_viaje")).toBeTruthy();
     expect(getByText("Logro completo")).toBeTruthy();
     expect(getByText("Te faltan 2 países")).toBeTruthy();
