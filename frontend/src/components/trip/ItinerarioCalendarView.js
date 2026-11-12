@@ -28,10 +28,6 @@ function fechaLarga(fechaRaw) {
   return `${DIAS_LARGOS[fecha.getDay()]} ${fecha.getDate()} de ${MESES[fecha.getMonth()]}`;
 }
 
-function modoPorDefecto(dayId, ruta) {
-  return ruta?.modo ?? "walking";
-}
-
 function ActividadColumna({ dia, actividad, seSolapa, onEditActivity, onDeleteActivity, arrastre, anchoPaso }) {
   const puedeArrastrar = Boolean(arrastre) && !actividad.traslado;
   const { desplazamiento, arrastrando, pasos, panHandlers, alMantener, alSoltar } = useArrastreDia({
@@ -140,21 +136,20 @@ function ActividadColumna({ dia, actividad, seSolapa, onEditActivity, onDeleteAc
 export default function ItinerarioCalendarView({
   dias,
   tripId,
+  tripTitle = "",
   canPropose = false,
   onEditActivity,
   onDeleteActivity,
   onAddActivity,
   onGenerarRuta,
   generandoRutaDayId = null,
-  resolverModo = modoPorDefecto,
+  resolverModo,
   onCambiarModo,
   onVerMapa,
   onSuggestGap,
   sugerenciasPorDia = {},
   renderEncabezadoDia,
-  // Accesos por destino; null si el itinerario no muestra destinos (US 138).
   accesos = null,
-  // Ruta de cada destino en un día de traslado: su modo, su generación y su mapa.
   generandoDestino = null,
   resolverModoDestino,
   onCambiarModoDestino,
@@ -166,6 +161,7 @@ export default function ItinerarioCalendarView({
   const [diaSeleccionadoId, setDiaSeleccionadoId] = useState(null);
   const [diaObjetivoId, setDiaObjetivoId] = useState(null);
   const [anchoColumna, setAnchoColumna] = useState(0);
+  const [modosElegidos, setModosElegidos] = useState({});
   const esMobile = width < ANCHO_MOBILE;
 
   const columnas = useMemo(() => {
@@ -194,6 +190,29 @@ export default function ItinerarioCalendarView({
         </Text>
       </View>
     );
+  }
+
+  function modoDelDia(dayId, ruta) {
+    return modosElegidos[dayId] ?? resolverModo?.(dayId, ruta) ?? ruta?.modo ?? "walking";
+  }
+
+  function cambiarModo(dayId, modo) {
+    setModosElegidos((prev) => ({ ...prev, [dayId]: modo }));
+    onCambiarModo?.(dayId, modo);
+  }
+
+  function modoDelDestino(dayId, idDestino, ruta) {
+    return (
+      modosElegidos[`${dayId}-${idDestino}`] ??
+      resolverModoDestino?.(dayId, ruta, idDestino) ??
+      ruta?.modo ??
+      "walking"
+    );
+  }
+
+  function cambiarModoDestino(dayId, idDestino, modo) {
+    setModosElegidos((prev) => ({ ...prev, [`${dayId}-${idDestino}`]: modo }));
+    onCambiarModoDestino?.(dayId, idDestino, modo);
   }
 
   function arrastrePara(dia) {
@@ -333,6 +352,7 @@ export default function ItinerarioCalendarView({
 
                   <DaySuggestionsSection
                     tripId={tripId}
+                    tripTitle={tripTitle}
                     dia={dia}
                     sugerencias={sugerenciasPorDia?.[dia.dayId] ?? []}
                     canPropose={canPropose}
@@ -347,10 +367,10 @@ export default function ItinerarioCalendarView({
                     separacion={dia.separacion}
                     generandoDestino={generandoDestino}
                     modoDeDestino={(idDestino, ruta) =>
-                      resolverModoDestino?.(dia.dayId, ruta, idDestino)
+                      modoDelDestino(dia.dayId, idDestino, ruta)
                     }
                     onCambiarModoDestino={(idDestino, modo) =>
-                      onCambiarModoDestino?.(dia.dayId, idDestino, modo)
+                      cambiarModoDestino(dia.dayId, idDestino, modo)
                     }
                     onGenerarDestino={
                       onGenerarRuta
@@ -359,9 +379,9 @@ export default function ItinerarioCalendarView({
                     }
                     onVerMapaDestino={onVerMapaDestino}
                     canEdit={typeof onGenerarRuta === "function"}
-                    modoSeleccionado={resolverModo(dia.dayId, dia.ruta)}
+                    modoSeleccionado={modoDelDia(dia.dayId, dia.ruta)}
                     generando={generandoRutaDayId === dia.dayId}
-                    onCambiarModo={(modo) => onCambiarModo?.(dia.dayId, modo)}
+                    onCambiarModo={(modo) => cambiarModo(dia.dayId, modo)}
                     onGenerar={
                       onGenerarRuta ? (modo) => onGenerarRuta(dia.dayId, modo) : undefined
                     }

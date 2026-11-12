@@ -42,6 +42,12 @@ import TermsAcceptanceGate from "../components/legal/TermsAcceptanceGate";
 
 const Stack = createNativeStackNavigator();
 
+
+function idDelViaje(params) {
+  const id = params?.tripId ?? params?.trip?.id ?? params?.trip?.IdViaje;
+  return id != null ? String(id) : undefined;
+}
+
 export default function AppNavigator() {
   const { token, isLoading, pendingInvitation } = useAuth();
   useEffect(() => {
@@ -181,10 +187,7 @@ export default function AppNavigator() {
           <Stack.Screen
             name="TripDetail"
             component={TripDetailScreen}
-            getId={({ params }) => {
-              const id = params?.trip?.id ?? params?.trip?.IdViaje;
-              return id != null ? String(id) : undefined;
-            }}
+            getId={({ params }) => idDelViaje(params)}
             options={{
               headerShown: false,
               gestureEnabled: true,

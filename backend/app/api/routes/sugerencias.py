@@ -128,7 +128,9 @@ SUGGESTION_ALREADY_ACCEPTED = "SUGGESTION_ALREADY_ACCEPTED"
 
 
 PATRON_FOTO = re.compile(r"^places/[A-Za-z0-9_-]+/photos/[A-Za-z0-9_-]+$")
+PATRON_PLACE_ID = re.compile(r"^[A-Za-z0-9_-]+$")
 URL_FOTO_GOOGLE = "https://places.googleapis.com/v1/{nombre}/media"
+URL_DETALLE_LUGAR = "https://places.googleapis.com/v1/places/{place_id}"
 
 MENSAJE_SIN_PREFERENCIAS = (
     "Ningún participante configuró sus preferencias de planificación. Podés continuar y "
@@ -426,6 +428,66 @@ def obtener_contexto_sugerencias(
     )
 
 
+def _es_error_temporal(status_code: int) -> bool:
+    """Errores de Google que no dicen nada sobre la referencia (límite de uso o caída)."""
+    return status_code == 429 or status_code >= 500
+
+
+async def _descargar_foto(client: httpx.AsyncClient, referencia: str) -> tuple[Response | None, int]:
+    """Descarga la foto de Google. Devuelve la respuesta lista para el front (o None si
+    Google no devolvió una imagen) y el status que respondió Google."""
+    respuesta = await client.get(
+        URL_FOTO_GOOGLE.format(nombre=referencia),
+        params={"maxWidthPx": 800},
+        headers={"X-Goog-Api-Key": settings.google_maps_api_key},
+    )
+    tipo = respuesta.headers.get("content-type", "")
+    if respuesta.status_code == 200 and tipo.startswith("image/"):
+        return (
+            Response(
+                content=respuesta.content,
+                media_type=tipo,
+                headers={"Cache-Control": "private, max-age=86400"},
+            ),
+            200,
+        )
+    return None, respuesta.status_code
+
+
+async def _foto_actual_del_lugar(
+    client: httpx.AsyncClient, google_place_id: str | None
+) -> tuple[bool, str | None]:
+    """Pide a Google la referencia de foto vigente del lugar.
+
+    Devuelve (consulta_ok, referencia):
+    - (False, None): no se pudo consultar; no hay que tocar lo guardado.
+    - (True, None): el lugar ya no tiene fotos.
+    - (True, referencia): la referencia vigente."""
+    place_id = str(google_place_id or "").removeprefix("google:").strip()
+    if not PATRON_PLACE_ID.match(place_id):
+        return False, None
+
+    respuesta = await client.get(
+        URL_DETALLE_LUGAR.format(place_id=place_id),
+        headers={
+            "X-Goog-Api-Key": settings.google_maps_api_key,
+            "X-Goog-FieldMask": "photos",
+        },
+    )
+    if respuesta.status_code != 200:
+        return False, None
+    try:
+        fotos = respuesta.json().get("photos") or []
+    except ValueError:
+        return False, None
+
+    nombre = next(
+        (f.get("name") for f in fotos if PATRON_FOTO.match(str(f.get("name") or ""))),
+        None,
+    )
+    return True, nombre
+
+
 @router.get("/{trip_id}/sugerencias-actividades/{sugerencia_id}/foto")
 async def obtener_foto_sugerencia(
     trip_id: int,
@@ -433,38 +495,68 @@ async def obtener_foto_sugerencia(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
 ):
-    """Foto del lugar sugerido, servida por proxy propio: la API key de Google no sale del backend."""
+    """Foto del lugar sugerido, servida por proxy propio: la API key de Google no sale del backend.
+
+    Las referencias de foto de Google vencen con el tiempo. Si la guardada ya no sirve, se pide
+    la vigente con el GooglePlaceId (que es estable) y se guarda. Si el lugar ya no tiene fotos,
+    se borra la referencia para que la sugerencia deje de informar `TieneFoto`."""
     require_trip_access(get_trip_with_relations(db, trip_id), current_user)
-    referencia = db.scalar(
-        select(SugerenciaActividad.FotoReferencia).where(
+    sugerencia = db.scalar(
+        select(SugerenciaActividad).where(
             SugerenciaActividad.IdSugerenciaActividad == sugerencia_id,
             SugerenciaActividad.IdViaje == trip_id,
         )
     )
-    if not referencia or not PATRON_FOTO.match(referencia) or not settings.google_maps_api_key:
+    if sugerencia is None or not sugerencia.FotoReferencia or not settings.google_maps_api_key:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Foto no disponible")
 
     try:
         async with httpx.AsyncClient(timeout=10.0, follow_redirects=True) as client:
-            respuesta = await client.get(
-                URL_FOTO_GOOGLE.format(nombre=referencia),
-                params={"maxWidthPx": 800},
-                headers={"X-Goog-Api-Key": settings.google_maps_api_key},
+            if PATRON_FOTO.match(sugerencia.FotoReferencia):
+                foto, estado = await _descargar_foto(client, sugerencia.FotoReferencia)
+                if foto is not None:
+                    return foto
+                if _es_error_temporal(estado):
+                    logger.warning(
+                        "Google respondió %s al pedir la foto de la sugerencia %s",
+                        estado,
+                        sugerencia_id,
+                    )
+                    raise HTTPException(
+                        status_code=status.HTTP_502_BAD_GATEWAY, detail="Foto no disponible"
+                    )
+                logger.info(
+                    "La referencia de foto de la sugerencia %s ya no es válida (Google respondió %s); se renueva",
+                    sugerencia_id,
+                    estado,
+                )
+
+            consulta_ok, referencia_nueva = await _foto_actual_del_lugar(
+                client, sugerencia.GooglePlaceId
             )
+            if not consulta_ok:
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Foto no disponible")
+
+            if referencia_nueva is None:
+                sugerencia.FotoReferencia = None
+                db.commit()
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Foto no disponible")
+
+            foto, estado = await _descargar_foto(client, referencia_nueva)
+            if foto is None:
+                logger.warning(
+                    "Google respondió %s a la referencia renovada de la sugerencia %s",
+                    estado,
+                    sugerencia_id,
+                )
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Foto no disponible")
+
+            sugerencia.FotoReferencia = referencia_nueva
+            db.commit()
+            return foto
     except httpx.HTTPError as error:
         logger.warning("No se pudo descargar la foto de la sugerencia %s: %s", sugerencia_id, error)
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Foto no disponible")
-
-    tipo = respuesta.headers.get("content-type", "")
-    if respuesta.status_code != 200 or not tipo.startswith("image/"):
-        logger.warning("Google respondió %s al pedir la foto de la sugerencia %s", respuesta.status_code, sugerencia_id)
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Foto no disponible")
-
-    return Response(
-        content=respuesta.content,
-        media_type=tipo,
-        headers={"Cache-Control": "private, max-age=86400"},
-    )
 
 
 @router.post(

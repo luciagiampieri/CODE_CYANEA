@@ -208,6 +208,17 @@ function normalizeTrip(raw) {
   };
 }
 
+
+function tripInicialDesdeParams(params) {
+  const trip = params?.trip;
+  if (trip && typeof trip === "object") return normalizeTrip(trip);
+  const id = Number(params?.tripId);
+  if (Number.isInteger(id) && id > 0) {
+    return normalizeTrip({ id, title: "", destination: "" });
+  }
+  return null;
+}
+
 function formatHeroDate(trip) {
   if (!trip.startDate || !trip.endDate) return "Fechas por definir";
   const start = new Date(trip.startDate);
@@ -364,7 +375,15 @@ async function cargarCategoriasActivas(cargar) {
 }
 
 export default function TripDetailScreen({ navigation, route }) {
-  const initialTrip = normalizeTrip(route.params?.trip);
+  const [initialTrip] = useState(() => tripInicialDesdeParams(route.params));
+
+  useEffect(() => {
+    if (!initialTrip?.id) return;
+    const yaEsta =
+      route.params?.trip === undefined && String(route.params?.tripId) === String(initialTrip.id);
+    if (!yaEsta) navigation.setParams?.({ trip: undefined, tripId: initialTrip.id });
+  }, []);
+
   const { width, isTablet } = useResponsive();
   const [trip, setTrip] = useState(initialTrip);
   const [sinConexion, setSinConexion] = useState(false);
@@ -2194,7 +2213,6 @@ export default function TripDetailScreen({ navigation, route }) {
     );
   }
 
-  const [activityToDelete, setActivityToDelete] = useState(null);
   const [activityFeedback, setActivityFeedback] = useState(null);
   const [displayedFeedback, setDisplayedFeedback] = useState(null);
   const [generandoRutaDayId, setGenerandoRutaDayId] = useState(null);
@@ -2225,6 +2243,10 @@ export default function TripDetailScreen({ navigation, route }) {
     return modoTransporteDayId[dayId] ?? ruta?.modo ?? "walking";
   }
 
+  function cambiarModoDelDia(dayId, modo) {
+    setModoTransporteDayId((current) => ({ ...current, [dayId]: modo }));
+  }
+
   function resolverModoDestino(dayId, ruta, idDestino) {
     return modoTransporteDayId[`${dayId}-${idDestino}`] ?? ruta?.modo ?? "walking";
   }
@@ -2244,8 +2266,7 @@ export default function TripDetailScreen({ navigation, route }) {
       canEdit: lock.canEdit("itinerario"),
       modoSeleccionado: resolverModoDelDia(day.dayId, day.ruta),
       generando: generandoRutaDayId === day.dayId,
-      onCambiarModo: (modo) =>
-        setModoTransporteDayId((current) => ({ ...current, [day.dayId]: modo })),
+      onCambiarModo: (modo) => cambiarModoDelDia(day.dayId, modo),
       onGenerar: (modo) => handleGenerarRuta(day.dayId, modo),
       onVerMapa: setMapaModalData,
       modoDeDestino: (idDestino, ruta) => resolverModoDestino(day.dayId, ruta, idDestino),
@@ -2402,23 +2423,6 @@ export default function TripDetailScreen({ navigation, route }) {
         confirmarBorradoActividad(dayId, activityId, title, error.detalle.tareas, alEliminar);
         return;
       }
-      mostrarAlertaConfirmacion("Error", error.message || "Ocurrió un problema al intentar eliminar la actividad.");
-    }
-  }
-
-  async function handleConfirmDeleteActivity() {
-    if (!trip?.id || !lock.canEdit("itinerario") || !activityToDelete) return;
-    const { dayId, activityId, title, tareasEntradasPendientes } = activityToDelete;
-    setActivityToDelete(null);
-
-    try {
-      await deleteActivity(trip.id, dayId, activityId, {
-        confirmarEliminarTareas: (tareasEntradasPendientes || []).length > 0,
-      });
-      await loadTripDetail();
-
-      mostrarAlertaConfirmacion("Éxito", `"${title}" se eliminó correctamente.`);
-    } catch (error) {
       mostrarAlertaConfirmacion("Error", error.message || "Ocurrió un problema al intentar eliminar la actividad.");
     }
   }
@@ -3102,6 +3106,7 @@ export default function TripDetailScreen({ navigation, route }) {
                         {/* SUGERENCIAS */}
                         <DaySuggestionsSection
                           tripId={trip?.id}
+                          tripTitle={trip?.title}
                           dia={day}
                           sugerencias={sugerenciasPorDia[dayId] ?? []}
                           canPropose={lock.canEdit("votaciones")}
@@ -3129,9 +3134,15 @@ export default function TripDetailScreen({ navigation, route }) {
           {activeTab === "itinerario" && itinerarioView === "calendario" ? (
             <ItinerarioCalendarView
               dias={itinerarioConDestinos.dias}
+              tripId={trip?.id}
+              tripTitle={trip?.title}
+              canPropose={lock.canEdit("votaciones")}
               accesos={accesosDestino}
               generandoRutaDayId={generandoRutaDayId}
               generandoDestino={generandoDestino}
+              resolverModo={resolverModoDelDia}
+              onCambiarModo={cambiarModoDelDia}
+              onVerMapa={setMapaModalData}
               resolverModoDestino={resolverModoDestino}
               onCambiarModoDestino={cambiarModoDestino}
               onVerMapaDestino={setMapaModalData}
@@ -4838,17 +4849,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
     gap: spacing.sm,
-  },
-  freeDaysBanner: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing.sm,
-    paddingVertical: spacing.sm,
-    paddingHorizontal: spacing.md,
-    borderRadius: radii.lg || 16,
-    backgroundColor: "#fdf3d6",
-    borderWidth: 1,
-    borderColor: colors.accent,
   },
   exploreIconRound: {
     width: 36,

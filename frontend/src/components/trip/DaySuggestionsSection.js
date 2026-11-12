@@ -1,5 +1,5 @@
 import { FontAwesome6 } from "@expo/vector-icons";
-import { NavigationContext, NavigationRouteContext } from "@react-navigation/native";
+import { NavigationContext } from "@react-navigation/native";
 import { useContext } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
@@ -24,22 +24,26 @@ function textoResumen({ pendientes, enVotacion }) {
   return partes.join(" · ");
 }
 
-export default function DaySuggestionsSection({ tripId, dia, sugerencias = [], canPropose = false }) {
+export default function DaySuggestionsSection({
+  tripId,
+  tripTitle = "",
+  dia,
+  sugerencias = [],
+  canPropose = false,
+}) {
   const navigation = useContext(NavigationContext);
-  const route = useContext(NavigationRouteContext);
 
   if (!sugerencias.length) return null;
 
   const totales = contarPorEstado(sugerencias);
   const resumen = textoResumen(totales);
-  const trip = route?.params?.trip ?? null;
 
   function abrir() {
-    if (!navigation) return;
+    if (!navigation || !tripId) return;
     navigation.navigate("SugerenciasDia", {
-      tripId: tripId ?? trip?.id ?? trip?.IdViaje,
-      trip,
-      tripTitle: trip?.title ?? trip?.Titulo ?? "",
+      tripId,
+      dayId: dia.dayId,
+      tripTitle,
       canPropose,
       dia: {
         dayId: dia.dayId,

@@ -1,144 +1,129 @@
-# Cyanea — Gestión integral de viajes grupales
+# Cyanea - Gestión Integral de Viajes Grupales
 
 > *"Muchas manos, un único destino"*
 
-**Cyanea** es una plataforma colaborativa (mobile y web) que centraliza la planificación, organización y ejecución de viajes en grupo: itinerario, gastos compartidos y liquidación, votaciones, documentos, checklists, exploración de lugares y un asistente de planificación con IA.
+**Cyanea** es una plataforma colaborativa (móvil y web) para organizar viajes en grupo. Centraliza en un solo lugar el itinerario, los gastos, los documentos y las decisiones del grupo, que normalmente quedan repartidos entre WhatsApp y planillas de cálculo.
 
 Proyecto Final de la carrera **Ingeniería en Sistemas de Información** — **Universidad Tecnológica Nacional, Facultad Regional Córdoba (UTN FRC)**.
 
+🌐 **App:** https://code-cyanea.fafafacultad.workers.dev
+🔌 **API:** https://cyanea-production.up.railway.app/api/v1
+
 ---
 
-## 🔗 Demo
+## Funcionalidades
 
-- **Web:** https://code-cyanea.fafafacultad.workers.dev/
-- **Android (APK)**
-- **API docs:**: https://cyanea-production.up.railway.app/docs
-
-> El modo offline (SQLite) y los mapas nativos están disponibles solo en la app Android.
+- **Viajes y grupo:** viajes con uno o varios destinos, reparto de noches y traslados; invitaciones por usuario, correo o link; transferencia de la administración.
+- **Itinerario:** vista timeline y calendario, actividades arrastrables entre días, sugerencias de actividades con IA, rutas diarias a pie, en auto o en bici con mapa interactivo y exportación a PDF o calendario.
+- **Exploración de lugares:** búsqueda de lugares de interés con Google Places y recomendaciones según la zona visible del mapa.
+- **Gastos:** gastos individuales o divididos (igualitario o personalizado), comprobantes adjuntos, balances por participante y plan de liquidación con transferencias.
+- **Votaciones:** decisiones grupales de opción única o múltiple, con fecha de cierre y resultados.
+- **Documentos y checklist:** repositorio de documentos por categoría (con guardado offline), información relevante y tareas del grupo.
+- **Tiempo real y notificaciones:** cambios sincronizados por WebSocket y notificaciones por email según las preferencias de cada usuario.
+- **Autenticación:** registro con email y confirmación, más login con Google y Facebook.
 
 ## Stack
 
 | Capa | Tecnología |
 |---|---|
-| Frontend | Expo (SDK 58) + React Native + React Navigation + Expo Web |
+| Frontend | Expo + React Native + React Navigation (mobile y web) |
 | Backend | FastAPI + SQLAlchemy + Alembic |
 | Base de datos | PostgreSQL |
-| Offline (mobile) | SQLite |
-| Storage | Supabase Storage (fotos de perfil) |
+| Storage | Supabase Storage (fotos de perfil y documentos) |
 | Integraciones | Google Places / Google Maps |
-
-Requisitos locales: **Python 3.12**, **Node.js >= 20.19.4** (lo exige Expo) y **PostgreSQL 16** o compatible.
-
-## Despliegue
-
-- Frontend web → Cloudflare Workers
-- Backend + PostgreSQL → Railway
-- APK Android → <EAS Build / GitHub Releases>
+| Deploy | Frontend en Cloudflare Workers · Backend en Railway |
 
 ## Estructura
 
-```text
+```
 CODE_CYANEA/
-├─ backend/                 API FastAPI
-│  ├─ app/                  rutas, modelos, schemas, servicios y templates de mail
-│  ├─ alembic/              migraciones de base de datos
-│  ├─ scripts/              utilidades (crear admin, confirmar usuario, SQL manual)
-│  └─ tests/                tests de integración (pytest)
-├─ frontend/                app Expo única para Android, iOS y web
-│  └─ src/                  screens, components, services, hooks, theme, tests
-├─ docs/                    guías de testing
-├─ .github/workflows/       CI: tests de backend y frontend en cada push/PR
-├─ docker-compose.yml       PostgreSQL + backend + Mailpit para desarrollo
-└─ AGENTS.md                convenciones técnicas y decisiones de arquitectura
+├─ backend/
+│  ├─ app/               # api/routes, models, schemas, services, db
+│  ├─ alembic/           # migraciones
+│  ├─ scripts/sql/       # scripts SQL y datos maestros
+│  ├─ tests/             # tests de integración (pytest)
+│  └─ pyproject.toml
+├─ frontend/
+│  └─ src/               # screens, components, navigation, services, theme
+├─ .github/workflows/    # CI: tests del backend en cada push/PR
+├─ docker-compose.yml    # PostgreSQL + backend + Mailpit
+├─ AGENTS.md             # convenciones y decisiones técnicas
+└─ README.md
 ```
 
 ## Arranque local
 
+Requisitos: Python 3.12, Node.js ≥ 20.19.4 y PostgreSQL 16.
+
 ### Backend
 
+**Windows**
 ```powershell
 cd backend
 python -m venv .venv
 .venv\Scripts\activate
 pip install -e .[dev]
-copy .env.example .env          # completar DATABASE_URL y credenciales
-alembic upgrade head
-.venv\Scripts\python.exe -m uvicorn app.main:app --host 127.0.0.1 --port 8000
+copy .env.example .env
+python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
 ```
 
-- API: `http://127.0.0.1:8000` · Swagger: `http://127.0.0.1:8000/docs` · Health: `GET /health`
-- Todas las variables disponibles están documentadas en [`backend/.env.example`](backend/.env.example).
-- Para crear un administrador del backoffice: `python -m scripts.crear_admin_sistema`.
+**Linux / macOS**
+```bash
+cd backend
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -e ".[dev]"
+cp .env.example .env
+python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
+```
 
 ### Frontend
 
-```powershell
+```bash
 cd frontend
-copy .env.example .env          # EXPO_PUBLIC_API_BASE_URL apunta al backend
 npm install
-npm run web                     # http://localhost:8081
+cp .env.example .env      # en Windows: copy .env.example .env
+npm run web
 ```
 
-Otros comandos: `npm run start`, `npm run android`, `npm run web:clear`.
-
-Valor de `EXPO_PUBLIC_API_BASE_URL` según dónde corre la app:
-
-| Entorno | URL |
-|---------|-----|
-| Web local | `http://127.0.0.1:8000/api/v1` |
-| Emulador Android | `http://10.0.2.2:8000/api/v1` |
-
-### Con Docker (alternativa)
-
-```powershell
-docker compose up --build
+Variable necesaria en `frontend/.env`:
+```
+EXPO_PUBLIC_API_BASE_URL=http://127.0.0.1:8000/api/v1
 ```
 
-Levanta PostgreSQL, el backend (aplica migraciones al iniciar) y [Mailpit](http://localhost:8025) para ver los correos de desarrollo. Requiere `backend/.env`; los puertos y credenciales de Postgres se pueden ajustar con un `.env` en la raíz.
+### Con Docker
+
+`docker-compose.yml` levanta **PostgreSQL, el backend y Mailpit** (servidor de correo de prueba). El frontend se corre aparte con `npm run web`.
+
+```bash
+cp backend/.env.example backend/.env   # obligatorio antes de levantar
+docker compose up
+```
+
+### Servicios locales
+
+| Servicio | URL |
+|---|---|
+| Frontend web | http://localhost:8081 |
+| Backend | http://127.0.0.1:8000 |
+| Swagger (docs API) | http://127.0.0.1:8000/docs |
+| Mailpit (correos de prueba) | http://localhost:8025 |
 
 ## Tests
 
-```powershell
-# Backend: SQLite en memoria, no necesita Postgres
+El backend tiene tests de integración con `pytest` sobre SQLite en memoria, así que no hace falta Postgres. La estrategia completa está en [`backend/TESTING.md`](backend/TESTING.md).
+
+```bash
 cd backend
-.venv\Scripts\python.exe -m pytest -v
-.venv\Scripts\python.exe -m pytest --cov=app --cov-report=term-missing
-
-# Frontend: jest-expo + Testing Library
-cd frontend
-npm test
-npm run test:coverage           # falla si la cobertura baja del piso configurado
+python -m pytest -v
+python -m pytest --cov=app --cov-report=term-missing   # con cobertura
 ```
 
-GitHub Actions corre ambas suites en cada push y pull request. Las estrategias y patrones de testing están en [`docs/testing-backend.md`](docs/testing-backend.md) y [`docs/testing-frontend.md`](docs/testing-frontend.md).
+Los tests corren automáticamente en cada push y PR con GitHub Actions (`.github/workflows/backend-tests.yml`).
 
-## Builds y despliegue
+## Documentación para colaboradores
 
-- **Backend**: imagen Docker definida en [`backend/Dockerfile`](backend/Dockerfile) (desplegada en Railway); ejecuta `alembic upgrade head` antes de iniciar uvicorn.
-- **Web**: `npx expo export --platform web` genera `frontend/dist`, que se publica con Cloudflare Workers ([`frontend/wrangler.jsonc`](frontend/wrangler.jsonc)).
-- **Mobile**: EAS Build, proyecto `@lcorrea87s-team/cyanea`, perfiles `development` y `production` en [`frontend/eas.json`](frontend/eas.json).
+Antes de trabajar en el proyecto, leer:
 
-### Notificaciones push en Android
-
-Usan Expo Push sobre FCM V1 (proyecto Firebase `cyanea-8aba1`, package `com.ticigaticasteam.cyanea`).
-
-- `frontend/google-services.json` **no se versiona**: cada integrante lo descarga desde Firebase (ver `frontend/google-services.example.json`). Sin ese archivo la app funciona igual en Expo Go y web, pero sin push.
-- Las credenciales FCM se administran en EAS: `npx eas-cli credentials -p android` (con `$env:NODE_OPTIONS="--use-system-ca"` si la red usa certificados propios).
-- Si cambia `extra.eas.projectId`, cada dispositivo debe regenerar su token push (desactivar y activar push en la app).
-
-### Repositorio dentro de OneDrive
-
-Si Gradle falla con errores de permisos o rutas largas, compilar con carpetas locales fuera de OneDrive:
-
-```powershell
-$env:CYANEA_ANDROID_BUILD_ROOT="$env:TEMP\cyanea-android-build"
-$env:GRADLE_USER_HOME="X:\cyfb\gradle-home"
-```
-
-## Seguridad
-
-Nunca versionar `.env`, `google-services.json`, `GoogleService-Info.plist`, service accounts de Firebase ni claves de firma. Los ejemplos de configuración (`*.example*`) solo llevan valores ficticios.
-
-## Para colaboradores
-
-Antes de proponer o implementar cambios, leer [`AGENTS.md`](AGENTS.md): concentra las convenciones de nombres (dominio en español), reglas de base de datos, contratos de cada historia de usuario y criterios de frontend. Toda decisión técnica nueva se documenta ahí en el mismo trabajo.
+- [`AGENTS.md`](AGENTS.md): convenciones de naming, reglas de base de datos, estructura y criterios de frontend.
+- [`backend/TESTING.md`](backend/TESTING.md): estrategia de testing del backend.

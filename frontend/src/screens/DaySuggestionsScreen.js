@@ -16,7 +16,7 @@ import ScreenHeader from "../components/ui/ScreenHeader";
 import AcceptSuggestionModal from "../components/trip/AcceptSuggestionModal";
 import SuggestionCompactCard from "../components/trip/SuggestionCompactCard";
 import { appAlert } from "../components/ui/AppDialog";
-import { discardActivitySuggestion, getActivitySuggestions } from "../services/api";
+import { discardActivitySuggestion, getActivitySuggestions, getTripDetail } from "../services/api";
 import { colors, radii, spacing, textStyles } from "../theme/tokens";
 import ActivitySuggestionsScreen from "./ActivitySuggestionsScreen";
 import ProposeSuggestionsVoteScreen from "./ProposeSuggestionsVoteScreen";
@@ -31,6 +31,55 @@ function hhmm(valor) {
 function aMinutos(valor) {
   const [h, m] = hhmm(valor).split(":").map(Number);
   return h * 60 + m;
+}
+
+function aNumero(valor) {
+  if (valor === null || valor === undefined || valor === "") return null;
+  const numero = Number(valor);
+  return Number.isFinite(numero) ? numero : null;
+}
+
+function formatearFechaDia(fechaRaw) {
+  if (!fechaRaw) return "";
+  const fecha = new Date(fechaRaw);
+  if (Number.isNaN(fecha.getTime())) return "";
+  const texto = new Intl.DateTimeFormat("es-AR", {
+    weekday: "long",
+    day: "2-digit",
+    month: "long",
+    timeZone: "UTC",
+  }).format(fecha);
+  return texto.replace(/(\p{L})\p{L}*/gu, (palabra) =>
+    palabra.charAt(0).toLocaleUpperCase("es-AR") + palabra.slice(1).toLocaleLowerCase("es-AR")
+  );
+}
+
+function normalizarActividad(act) {
+  const horaInicio = (act.horaInicio ?? act.HoraInicio)?.slice(0, 5);
+  const horaFin = (act.horaFin ?? act.HoraFin)?.slice(0, 5);
+  return {
+    id: act.idActividad ?? act.IdActividad,
+    idLugarInteres: act.idLugarInteres ?? act.IdLugarInteres ?? null,
+    lugarInteres: act.lugarInteres ?? act.LugarInteres ?? null,
+    horaInicio,
+    horaFin,
+    time: `${horaInicio} - ${horaFin}`,
+    title: act.nombre ?? act.Nombre,
+    note: act.descripcion ?? act.Descripcion,
+    icon: act.icono ?? act.Icono ?? "location-dot",
+    traslado: act.traslado ?? act.Traslado ?? null,
+  };
+}
+
+function normalizarDia(crudo, posicion) {
+  const fechaRaw = crudo.fecha ?? crudo.Fecha;
+  return {
+    dayId: aNumero(crudo.id ?? crudo.IdDiaCronograma),
+    dayIndex: crudo.indiceDia ?? crudo.IndiceDia ?? posicion + 1,
+    fechaRaw,
+    dayDateText: formatearFechaDia(fechaRaw),
+    actividades: (crudo.actividades ?? crudo.Actividades ?? []).map(normalizarActividad),
+  };
 }
 
 function esPendiente(sugerencia) {
@@ -65,8 +114,18 @@ function franjaSolicitada(sugerencia) {
 }
 
 export default function DaySuggestionsScreen({ navigation, route }) {
-  const { trip, tripTitle, dia, canPropose = false } = route.params ?? {};
-  const tripId = route.params?.tripId ?? trip?.id ?? trip?.IdViaje;
+  const params = route.params ?? {};
+  const trip = params.trip && typeof params.trip === "object" ? params.trip : null;
+  const diaParam = params.dia && typeof params.dia === "object" ? params.dia : null;
+  const tripId = aNumero(params.tripId ?? trip?.id ?? trip?.IdViaje);
+  const dayId = aNumero(params.dayId ?? diaParam?.dayId);
+  const canPropose = params.canPropose === true || params.canPropose === "true";
+
+  const [dia, setDia] = useState(diaParam);
+  const [tripTitle, setTripTitle] = useState(() => {
+    const titulo = params.tripTitle ?? trip?.title ?? trip?.Titulo ?? "";
+    return typeof titulo === "string" ? titulo : "";
+  });
 
   const [sugerencias, setSugerencias] = useState([]);
   const [cargando, setCargando] = useState(true);
@@ -86,9 +145,39 @@ export default function DaySuggestionsScreen({ navigation, route }) {
 
   const yaCargoRef = useRef(false);
 
+  useEffect(() => {
+    if (tripId == null || dayId == null) return;
+    if (params.trip === undefined && params.dia === undefined) return;
+    navigation.setParams?.({ trip: undefined, dia: undefined, tripId, dayId });
+  }, []);
+
+  useEffect(() => {
+    if (dia || tripId == null || dayId == null) return undefined;
+    let cancelado = false;
+    getTripDetail(tripId)
+      .then((detalle) => {
+        if (cancelado || !detalle) return;
+        const cronograma = detalle.cronograma ?? detalle.Cronograma ?? detalle.dias ?? [];
+        const posicion = cronograma.findIndex(
+          (item) => aNumero(item.id ?? item.IdDiaCronograma) === dayId
+        );
+        if (posicion >= 0) setDia(normalizarDia(cronograma[posicion], posicion));
+        setTripTitle((actual) => actual || detalle.title || detalle.Titulo || "");
+      })
+      .catch(() => {});
+    return () => {
+      cancelado = true;
+    };
+  }, [dia, tripId, dayId]);
+
+  const diaEfectivo = useMemo(
+    () => dia ?? (dayId != null ? { dayId, actividades: [] } : null),
+    [dia, dayId]
+  );
+
   const cargar = useCallback(
     async ({ silencioso = false } = {}) => {
-      if (!tripId || dia?.dayId == null) {
+      if (tripId == null || dayId == null) {
         setCargando(false);
         setRefrescando(false);
         setError("No se encontró el día. Volvé al itinerario y abrí las sugerencias de nuevo.");
@@ -99,7 +188,7 @@ export default function DaySuggestionsScreen({ navigation, route }) {
       try {
         const data = await getActivitySuggestions(tripId);
         setSugerencias(
-          (Array.isArray(data) ? data : []).filter((s) => s.IdDiaCronograma === dia?.dayId)
+          (Array.isArray(data) ? data : []).filter((s) => s.IdDiaCronograma === dayId)
         );
       } catch (err) {
         setError(err.message || "No se pudieron cargar las sugerencias.");
@@ -108,7 +197,7 @@ export default function DaySuggestionsScreen({ navigation, route }) {
         setRefrescando(false);
       }
     },
-    [tripId, dia?.dayId]
+    [tripId, dayId]
   );
 
   useFocusEffect(
@@ -147,19 +236,42 @@ export default function DaySuggestionsScreen({ navigation, route }) {
 
   const diasParaSheet = useMemo(
     () =>
-      dia
+      diaEfectivo
         ? [
             {
-              dayId: dia.dayId,
-              dayIndex: dia.dayIndex,
-              fechaRaw: dia.fechaRaw,
-              dayDateText: dia.dayDateText,
-              actividades: dia.actividades ?? [],
+              dayId: diaEfectivo.dayId,
+              dayIndex: diaEfectivo.dayIndex,
+              fechaRaw: diaEfectivo.fechaRaw,
+              dayDateText: diaEfectivo.dayDateText,
+              actividades: diaEfectivo.actividades ?? [],
             },
           ]
         : [],
-    [dia]
+    [diaEfectivo]
   );
+
+  const subtitulo = [
+    dia?.dayIndex != null ? `Día ${dia.dayIndex}` : null,
+    dia?.dayDateText || null,
+    tripTitle || null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+
+
+  function volverAlViaje() {
+    const estado = navigation.getState?.();
+    const anterior = estado?.routes?.[estado.index - 1];
+    if (anterior && anterior.name !== "TripDetail" && tripId != null) {
+      if (typeof navigation.replace === "function") {
+        navigation.replace("TripDetail", { tripId });
+      } else {
+        navigation.navigate("TripDetail", { tripId });
+      }
+      return;
+    }
+    navigation.goBack();
+  }
 
   function abrirRegenerar(franja) {
     setFranjaRegenerar(franja ?? franjaParaRegenerar);
@@ -170,7 +282,6 @@ export default function DaySuggestionsScreen({ navigation, route }) {
     appAlert(titulo, mensaje);
   }
 
-  // Mensaje de confirmación posterior al descarte, con acceso directo a regenerar.
   function avisarDescarte(franja) {
     const mensaje = "La sugerencia se descartó y dejó de mostrarse.";
     appAlert("Sugerencia descartada", `${mensaje} ¿Querés buscar otras opciones para la misma franja?`, [
@@ -198,7 +309,6 @@ export default function DaySuggestionsScreen({ navigation, route }) {
     }
   }
 
-  // US 88: la actividad ya se creó; la sugerencia pasa a "Aceptada" y deja de listarse.
   function handleAceptada(resultado) {
     const id = sugerenciaAceptando?.IdSugerenciaActividad;
     setSugerenciaAceptando(null);
@@ -246,9 +356,9 @@ export default function DaySuggestionsScreen({ navigation, route }) {
   }
 
   function irAVotar() {
-    if (trip) {
+    if (tripId != null) {
       navigation.navigate("TripDetail", {
-        trip,
+        tripId,
         initialTab: "votar",
         notificationTarget: { origen: "sugerencias-dia" },
       });
@@ -336,7 +446,7 @@ export default function DaySuggestionsScreen({ navigation, route }) {
               </Text>
             </Pressable>
           ) : null}
-          <Pressable onPress={() => navigation.goBack()} style={styles.botonSecundario}>
+          <Pressable onPress={volverAlViaje} style={styles.botonSecundario}>
             <Text style={styles.botonSecundarioTexto}>Volver al itinerario</Text>
           </Pressable>
         </View>
@@ -394,8 +504,8 @@ export default function DaySuggestionsScreen({ navigation, route }) {
     <ScreenContainer fullWidth padded={false}>
       <ScreenHeader
         title="Sugerencias del día"
-        subtitle={`Día ${dia?.dayIndex}${dia?.dayDateText ? ` · ${dia.dayDateText}` : ""}${tripTitle ? ` · ${tripTitle}` : ""}`}
-        onBack={() => navigation.goBack()}
+        subtitle={subtitulo}
+        onBack={volverAlViaje}
         backTestID="sugerencias-dia-volver"
       />
 
@@ -460,7 +570,7 @@ export default function DaySuggestionsScreen({ navigation, route }) {
         visible={mostrarSheet}
         onClose={() => setMostrarSheet(false)}
         tripId={tripId}
-        dia={dia}
+        dia={diaEfectivo}
         franja={franjaVotacion}
         sugerencias={elegidas}
         onCreada={handleCreada}
@@ -479,13 +589,13 @@ export default function DaySuggestionsScreen({ navigation, route }) {
         tripId={tripId}
         tripTitle={tripTitle}
         dias={diasParaSheet}
-        initialDayId={dia?.dayId}
+        initialDayId={dayId}
         initialFranja={franjaRegenerar}
         onClose={() => setMostrarRegenerar(false)}
         onGenerado={() => cargar({ silencioso: true })}
         onCrearManual={() => {
           setMostrarRegenerar(false);
-          navigation.goBack();
+          volverAlViaje();
         }}
       />
     </ScreenContainer>

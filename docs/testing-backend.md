@@ -10,21 +10,33 @@ no en funciones puras separadas.
 
 No apuntamos a 100% de cobertura. Priorizamos:
 1. Autenticación y control de acceso (quién puede hacer qué).
-2. Validaciones de negocio con reglas no triviales (divisn de gastos, fechas
+2. Validaciones de negocio con reglas no triviales (división de gastos, fechas
    de votaciones, plazos de edición de viajes).
 3. Casos "felices" de cada endpoint principal, para detectar regresiones.
 
 ## Cómo correr los tests
 
+Windows:
 ```bash
 cd backend
 .venv\Scripts\python.exe -m pytest -v
 ```
 
-Con cobertura:
+Linux / macOS:
 ```bash
-.venv\Scripts\python.exe -m pytest --cov=app --cov-report=term-missing
+cd backend
+source .venv/bin/activate
+python -m pytest -v
 ```
+
+Con cobertura (en cualquier sistema, con el entorno activado):
+```bash
+python -m pytest --cov=app --cov-report=term-missing
+```
+
+Los tests corren automáticamente en cada push y pull request con GitHub Actions
+(`.github/workflows/backend-tests.yml`). El frontend tiene su propio workflow y
+su propia guía (`frontend/TESTING.md`).
 
 ## Decisiones técnicas
 
@@ -128,11 +140,18 @@ rápido y aísla los tests de auth de los tests de negocio.
 
 ## Pendiente / fuera de alcance por ahora
 
-- Eliminar y editar gastos: no implementado todavía en el backend (no hay
-  endpoint), por lo tanto no hay tests. Agregar cuando se implemente la
-  funcionalidad.
-- Tests end-to-end (frontend + backend integrados): fuera de alcance de este
-  sprint, se prioriza cobertura de backend.
+- **Editar y eliminar gastos:** los endpoints ya están implementados y los usa
+  el frontend (permisos del creador o del pagador actual, conservación o
+  borrado del comprobante adjunto, bloqueo de edición concurrente), pero
+  todavía no tienen tests. Es la prioridad siguiente: involucra dinero y
+  reglas de permisos.
+- **Foto de sugerencias de actividades:** el proxy
+  `GET /trips/{id}/sugerencias-actividades/{id}/foto` renueva la referencia
+  de foto de Google cuando vence y la borra si el lugar ya no tiene fotos.
+  Falta testearlo mockeando `httpx` (foto vigente, referencia vencida
+  renovada, lugar sin fotos, error temporal de Google que no toca lo guardado).
+- Tests end-to-end (frontend + backend integrados): fuera de alcance, se
+  prioriza cobertura de backend y de frontend por separado.
 - Reconexión del WebSocket ante desconexiones y múltiples conexiones
   simultáneas (más de dos) al mismo viaje: se probó el caso de una conexión
   adicional recibiendo el broadcast, pero no escenarios con "n" clientes.

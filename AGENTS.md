@@ -12,31 +12,31 @@ Regla permanente:
 
 Cyanea es una aplicacion para organizacion colaborativa de viajes grupales.
 
-Alcance actual del MVP:
+Alcance implementado:
 
-- Creacion de viajes
-- Incorporacion de participantes registrados
-- Invitaciones externas por correo
-- Estructura base para viajes, usuarios, participaciones e invitaciones
-- Frontend unico con Expo para mobile y web
-- Backend FastAPI
-- Persistencia en PostgreSQL
+- autenticacion con email (con confirmacion) y login social con Google y Facebook
+- viajes con uno o varios destinos, reparto de noches y traslados
+- participantes, invitaciones por usuario, correo o link, y transferencia de administracion
+- itinerario (timeline y calendario), sugerencias con IA, rutas diarias y exportacion
+- exploracion de lugares con Google Places
+- gastos, liquidacion y transferencias
+- votaciones
+- documentos, informacion relevante y checklist
+- notificaciones por email y sincronizacion en tiempo real por WebSocket
+- consulta offline del itinerario y documentos guardados
 
-Fuera de alcance por ahora:
+Fuera de alcance:
 
-- Pagos reales
-- Venta de pasajes o reservas
-- Integraciones externas complejas
+- pagos reales
+- venta de pasajes o reservas
 
 ## Stack tecnologico
 
-- Frontend activo: Expo (React Native + react-native-web)
+- Frontend: Expo + React Native + React Navigation + Expo Web
 - Backend: FastAPI + SQLAlchemy + Alembic
 - Base de datos: PostgreSQL
-- Entorno local esperado:
-  - Python 3.12
-  - Node.js 20
-  - PostgreSQL 16 o compatible
+- Storage: Supabase Storage
+- Deploy: frontend en Cloudflare Workers, backend en Railway
 
 Nota de entorno actual:
 
