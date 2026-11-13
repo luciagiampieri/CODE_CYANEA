@@ -29,6 +29,7 @@ import PrimaryButton from "../components/ui/PrimaryButton";
 import CurrencySelector from "../components/trip/CurrencySelector";
 import ReceiptScanButton from "../components/trip/ReceiptScanButton";
 import PossibleDuplicateExpenseModal from "../components/trip/PossibleDuplicateExpenseModal";
+import { textoCotizacion } from "../components/trip/ExpenseDetailModal";
 
 import {
   getExpenseCategories,
@@ -80,6 +81,17 @@ function getIniciales(persona) {
 
 function fmt(numero) {
   return Number(numero || 0).toFixed(2);
+}
+
+function fmtMonto(numero) {
+  return Number(numero || 0).toLocaleString("es-AR", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+}
+
+function fechaCotizacionTexto(fecha) {
+  return fecha ? formatDateDisplay(String(fecha).slice(0, 10)) : "";
 }
 
 function esErrorDeRed(error) {
@@ -278,6 +290,62 @@ function SummaryRow({ caption, leading, value, placeholder = false, sub, subTone
   );
 }
 
+function VistaPreviaConversion({ estado, monedaOrigen, monedaDestino, monto, montoConvertido, fecha }) {
+  const tasa = monto > 0 && montoConvertido > 0 ? montoConvertido / monto : null;
+  const textoTasa = tasa
+    ? textoCotizacion({ TipoCambio: tasa, MonedaOriginal: monedaOrigen, MonedaViaje: monedaDestino })
+    : null;
+  const fechaTexto = fechaCotizacionTexto(fecha);
+
+  return (
+    <View style={styles.previewConversion} testID="preview-conversion">
+      <View style={styles.advertenciaRow}>
+        <FontAwesome6 name="money-bill-transfer" size={13} color={colors.primary} />
+        <Text style={styles.previewTitulo}>
+          Se convierte a la moneda del viaje ({monedaDestino})
+        </Text>
+      </View>
+
+      {estado === "cargando" ? (
+        <View style={styles.previewCargando}>
+          <ActivityIndicator size="small" color={colors.primary} />
+          <Text style={styles.previewDetalle}>Calculando la conversión...</Text>
+        </View>
+      ) : null}
+
+      {estado === "ok" ? (
+        <>
+          <Text style={styles.previewMonto} testID="preview-conversion-monto">
+            {monedaOrigen} {fmtMonto(monto)} = {monedaDestino} {fmtMonto(montoConvertido)}
+          </Text>
+          {textoTasa ? (
+            <Text style={styles.previewDetalle} testID="preview-conversion-tasa">
+              {textoTasa}
+            </Text>
+          ) : null}
+          <Text style={styles.previewDetalle}>
+            Tipo de cambio de referencia (Frankfurter){fechaTexto ? ` para el ${fechaTexto}` : ""}.
+          </Text>
+          <Text style={styles.previewNota}>
+            Es un valor de referencia: puede no coincidir con lo que cobró la tarjeta o una casa de cambio.
+            Vas a poder consultarlo después en el detalle del gasto.
+          </Text>
+        </>
+      ) : null}
+
+      {estado === "error" ? (
+        <Text style={styles.previewDetalle} testID="preview-conversion-error">
+          No pudimos obtener la cotización ahora. El importe se convertirá al guardar el gasto.
+        </Text>
+      ) : null}
+
+      {estado === "idle" ? (
+        <Text style={styles.previewDetalle}>Ingresá el monto para ver la conversión.</Text>
+      ) : null}
+    </View>
+  );
+}
+
 
 export function montosEnMonedaDelGasto(gasto, division) {
   const montoBase = Number(gasto.Monto);
@@ -388,6 +456,11 @@ export default function AddGastoScreen({
   const [guardarComprobante, setGuardarComprobante] = useState(true);
 
   const [conversion, setConversion] = useState({ estado: "idle", fecha: null });
+  const [vistaConversion, setVistaConversion] = useState({
+    estado: "idle",
+    montoConvertido: null,
+    fecha: null,
+  });
 
   const [posiblesDuplicados, setPosiblesDuplicados] = useState(null);
   const resolverDuplicadoRef = useRef(null);
@@ -405,6 +478,9 @@ export default function AddGastoScreen({
 
   const desdeComprobante = escaneoAplicado;
   const requiereConversion = desdeComprobante && requiereConversionARS(monedaSeleccionada);
+  const monedaGastoMayus = monedaSeleccionada.toUpperCase();
+  const monedaBaseMayus = monedaBase.toUpperCase();
+  const mostrarVistaConversion = !requiereConversion && monedaGastoMayus !== monedaBaseMayus;
   const avisoFechaViaje = desdeComprobante
     ? mensajeFechaFueraDelViaje(fechaIso, FechaInicioViaje, FechaFinViaje)
     : null;
@@ -503,6 +579,44 @@ export default function AddGastoScreen({
       clearTimeout(timer);
     };
   }, [requiereConversion, monedaSeleccionada, montoValido, fechaIso, conversion.estado === "manual"]);
+
+  useEffect(() => {
+    if (!visible || !mostrarVistaConversion) {
+      setVistaConversion({ estado: "idle", montoConvertido: null, fecha: null });
+      return undefined;
+    }
+    if (!montoValido) {
+      setVistaConversion({ estado: "idle", montoConvertido: null, fecha: null });
+      return undefined;
+    }
+
+    let vigente = true;
+    setVistaConversion((prev) => ({ ...prev, estado: "cargando" }));
+    const timer = setTimeout(async () => {
+      try {
+        const resultado = await getExchangeRate({
+          origen: monedaGastoMayus,
+          destino: monedaBaseMayus,
+          monto: montoValido,
+          fecha: fechaIso || undefined,
+        });
+        if (!vigente) return;
+        setVistaConversion({
+          estado: "ok",
+          montoConvertido: Number(resultado.MontoConvertido),
+          fecha: resultado.Fecha ?? fechaIso,
+        });
+      } catch (error) {
+        if (!vigente) return;
+        setVistaConversion({ estado: "error", montoConvertido: null, fecha: null });
+      }
+    }, DEMORA_COTIZACION_MS);
+
+    return () => {
+      vigente = false;
+      clearTimeout(timer);
+    };
+  }, [visible, mostrarVistaConversion, monedaGastoMayus, monedaBaseMayus, montoValido, fechaIso]);
 
 
   function toggleSeleccionParticipante(id) {
@@ -614,6 +728,7 @@ export default function AddGastoScreen({
     setComprobanteAmpliado(false);
     setMontoARS("");
     setConversion({ estado: "idle", fecha: null });
+    setVistaConversion({ estado: "idle", montoConvertido: null, fecha: null });
     setComprobanteImagen(null);
     setGuardarComprobante(true);
     setModalCategoriaVisible(false);
@@ -639,8 +754,7 @@ export default function AddGastoScreen({
           getTripParticipants(IdViaje),
         ]);
 
-        // Al editar, el gasto conserva su categoría aunque se haya desactivado
-        // desde el backoffice (US 110): se suma al selector.
+
         const categoriasOrdenadas = conCategoriaActual(
           cats,
           gastoAEditar && {
@@ -1048,6 +1162,16 @@ export default function AddGastoScreen({
     ...participantes,
   ];
 
+  const montoARSNum = parsearMonto(montoARS).valor;
+  const tasaConversionARS =
+    conversion.estado === "auto" && montoValido && montoARSNum
+      ? textoCotizacion({
+          TipoCambio: montoARSNum / montoValido,
+          MonedaOriginal: monedaGastoMayus,
+          MonedaViaje: MONEDA_PESOS_ARGENTINOS,
+        })
+      : null;
+
   return (
     <Modal animationType="slide" transparent visible={visible} onRequestClose={handleCancelar}>
       <View style={styles.overlay}>
@@ -1189,11 +1313,17 @@ export default function AddGastoScreen({
                   {debeRevisar(CAMPO_MONEDA) && (
                     <Text style={styles.revisarHint}>Revisá la moneda del comprobante</Text>
                   )}
-                  {!requiereConversion && monedaSeleccionada.toUpperCase() !== monedaBase.toUpperCase() && (
-                    <Text style={styles.infoConversionText}>
-                      ℹ El importe se convertirá automáticamente a la moneda base del viaje ({monedaBase.toUpperCase()}).
-                    </Text>
-                  )}
+
+                  {mostrarVistaConversion ? (
+                    <VistaPreviaConversion
+                      estado={vistaConversion.estado}
+                      fecha={vistaConversion.fecha}
+                      monedaDestino={monedaBaseMayus}
+                      monedaOrigen={monedaGastoMayus}
+                      monto={montoValido || 0}
+                      montoConvertido={vistaConversion.montoConvertido}
+                    />
+                  ) : null}
 
                   {requiereConversion ? (
                     <View
@@ -1238,8 +1368,14 @@ export default function AddGastoScreen({
                             ? "Monto ingresado manualmente."
                             : "Ingresá el monto para calcular la conversión."}
                         </Text>
-                      ) : null}
-                      {/* US 94 AC6: después de corregir a mano, se puede volver a la cotización automática */}
+                      ) : (
+                        <Text style={styles.conversionEstado} testID="conversion-ars-tasa">
+                          {tasaConversionARS ? `${tasaConversionARS} · ` : ""}Tipo de cambio de referencia
+                          (Frankfurter)
+                          {conversion.fecha ? ` para el ${fechaCotizacionTexto(conversion.fecha)}` : ""}. Podés
+                          corregirlo si pagaste con otro tipo de cambio.
+                        </Text>
+                      )}
                       {conversion.estado === "manual" && montoValido ? (
                         <TouchableOpacity
                           onPress={() => setConversion({ estado: "idle", fecha: null })}
@@ -1503,8 +1639,7 @@ export default function AddGastoScreen({
                   )}
                 </ScrollView>
 
-                {/* El botón "Registrar gasto" NO se muestra mientras el teclado está abierto:
-                    el usuario está escribiendo y el botón quedaría pegado encima del teclado. */}
+
                 {!tecladoVisible && (
                   <View style={styles.footer}>
                     <PrimaryButton
@@ -1792,7 +1927,6 @@ export default function AddGastoScreen({
             {errores.participantes && <Text style={styles.error}>{errores.participantes}</Text>}
             {errores.divisionPersonalizada && <Text style={styles.error}>{errores.divisionPersonalizada}</Text>}
 
-            {/* Igual que en la pantalla principal: el botón no aparece con el teclado abierto */}
             {!tecladoVisible && (
               <PrimaryButton label="Listo" onPress={() => setModalDivisionVisible(false)} />
             )}
@@ -1957,12 +2091,39 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     marginRight: 6,
   },
-  infoConversionText: {
-    fontSize: 12,
+  previewConversion: {
+    marginTop: spacing.sm,
+    padding: spacing.sm,
+    gap: 4,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radii.md,
+    backgroundColor: COLOR_SUPERFICIE_SUAVE,
+  },
+  previewTitulo: {
+    ...textStyles.meta,
+    color: colors.textPrimary,
+    fontWeight: "700",
+    flex: 1,
+  },
+  previewCargando: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.xs,
+  },
+  previewMonto: {
+    ...textStyles.bodyStrong,
+    color: colors.primary,
+    fontSize: 16,
+  },
+  previewDetalle: {
+    ...textStyles.meta,
     color: colors.textSecondary,
-    marginTop: 4,
-    marginBottom: 2,
-    fontStyle: "italic",
+  },
+  previewNota: {
+    ...textStyles.meta,
+    fontSize: 12,
+    color: colors.textMuted,
   },
   tilesRow: {
     flexDirection: "row",
@@ -2485,7 +2646,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surface,
     borderTopLeftRadius: radii.xl,
     borderTopRightRadius: radii.xl,
-    paddingTop: spacing.sm,
+    paddingTop: spacing.xl,
     paddingHorizontal: 20,
     maxHeight: "70%",
   },

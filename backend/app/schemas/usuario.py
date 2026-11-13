@@ -9,8 +9,6 @@ class UsuarioRead(BaseModel):
     id: int
     nombreUsuario: str
     nombreCompleto: str
-    # None cuando el usuario lo configuró como privado (US 61) o en contextos
-    # donde nunca se expone, como la búsqueda de usuarios.
     email: str | None = None
     fotoUrl: str | None = None
 
@@ -18,7 +16,7 @@ class UsuarioRead(BaseModel):
 class UsuarioProfileRead(UsuarioRead):
     nombre: str
     apellido: str
-    proveedorAutenticacion: str 
+    proveedorAutenticacion: str
     consienteNotificacionesEmail: bool
     consienteNotificacionesPush: bool
     consienteProcesamientoIA: bool = False
@@ -43,6 +41,7 @@ class UsuarioProfileRead(UsuarioRead):
     aceptaTerminos: bool = False
     fechaAceptacionTerminos: datetime | None = None
     versionTerminosAceptada: str | None = None
+    planActual: Literal["gratuito", "pro"] = "gratuito"
 
 
 class UsuarioCurrentRead(UsuarioProfileRead):
@@ -126,8 +125,6 @@ class UsuarioDeleteRequest(BaseModel):
 
 
 class CambioPasswordRequest(BaseModel):
-    """US 101: cambio de contraseña desde "Mi cuenta"."""
-
     passwordActual: str = ""
     passwordNueva: str = ""
     confirmacion: str = ""
@@ -135,7 +132,6 @@ class CambioPasswordRequest(BaseModel):
 
 class CambioPasswordResponse(BaseModel):
     message: str
-    # Token nuevo del dispositivo actual: los anteriores quedan inválidos.
     access_token: str
     token_type: str = "bearer"
 
@@ -162,8 +158,6 @@ class UsuarioPushTokenResponse(BaseModel):
 
 
 class ConsentimientoIAUpdate(BaseModel):
-    """Otorga o revoca el consentimiento de procesamiento con IA (US 93)."""
-
     consiente: bool
 
 
@@ -185,8 +179,6 @@ Visibilidad = Literal["participantes", "privado"]
 
 
 class PrivacidadRead(BaseModel):
-    """Preferencias de privacidad del perfil (US 61)."""
-
     visibilidadNombre: Visibilidad
     visibilidadEmail: Visibilidad
     visibilidadFotoPerfil: Visibilidad

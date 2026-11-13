@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal, ROUND_HALF_UP
 
 from sqlalchemy import func, select, update
@@ -23,6 +23,7 @@ from app.schemas.liquidacion import (
     MiSaldoGastoRead,
     MiSaldoRead,
     MiSaldoTransferenciaRead,
+    SaldoFaseRead,
     TransferenciaLiquidacionRead,
 )
 
@@ -30,13 +31,12 @@ from app.schemas.liquidacion import (
 DECIMAL_ZERO = Decimal("0.00")
 DECIMAL_CENT = Decimal("0.01")
 
-# Estados de una transferencia (US: confirmar transferencias):
-# - pendiente: falta pagarla.
-# - informada: el deudor avisó "Ya transferí" y falta que el acreedor confirme.
-# - realizada: el acreedor confirmó que le llegó.
-# Para recalcular, "informada" ya cuenta como pagada: si se carga un gasto
-# nuevo mientras el acreedor no confirmó, ese monto no se vuelve a pedir.
 ESTADOS_PAGADOS = ("realizada", "informada")
+
+FASE_PRE_VIAJE = "pre_viaje"
+FASE_EN_CURSO = "en_curso"
+FASE_POST_VIAJE = "post_viaje"
+FASES_VIAJE = (FASE_PRE_VIAJE, FASE_EN_CURSO, FASE_POST_VIAJE)
 
 
 class PermisoTransferenciaError(Exception):
@@ -224,6 +224,74 @@ def _calcular_resumen_gastos_participantes(
     return total_gastos_viaje, total_pagado, gasto_individual
 
 
+def fase_del_gasto(viaje: Viaje, fecha_gasto) -> str:
+    if viaje.FechaInicio is not None and fecha_gasto < viaje.FechaInicio:
+        return FASE_PRE_VIAJE
+    if viaje.FechaFin is not None and fecha_gasto > viaje.FechaFin:
+        return FASE_POST_VIAJE
+    return FASE_EN_CURSO
+
+
+def _rango_fase(viaje: Viaje, fase: str):
+    if fase == FASE_PRE_VIAJE:
+        return None, viaje.FechaInicio - timedelta(days=1) if viaje.FechaInicio else None
+    if fase == FASE_POST_VIAJE:
+        return viaje.FechaFin + timedelta(days=1) if viaje.FechaFin else None, None
+    return viaje.FechaInicio, viaje.FechaFin
+
+
+def _resumen_por_fase(
+    db: Session,
+    viaje: Viaje,
+    ids_participantes: list[int],
+) -> tuple[list[SaldoFaseRead], dict[int, list[SaldoFaseRead]]]:
+    totales = {fase: {"total": DECIMAL_ZERO, "cantidad": 0} for fase in FASES_VIAJE}
+    por_participante = {
+        id_participante: {fase: {"pagado": DECIMAL_ZERO, "parte": DECIMAL_ZERO} for fase in FASES_VIAJE}
+        for id_participante in ids_participantes
+    }
+    gastos = db.scalars(
+        select(Gasto)
+        .options(joinedload(Gasto.ParticipantesAsociados))
+        .where(Gasto.IdViaje == viaje.IdViaje, Gasto.TipoDivision.is_not(None))
+    ).unique().all()
+
+    for gasto in gastos:
+        fase = fase_del_gasto(viaje, gasto.FechaGasto)
+        monto = Decimal(gasto.Monto)
+        totales[fase]["total"] += monto
+        totales[fase]["cantidad"] += 1
+        if gasto.IdPagador in por_participante:
+            por_participante[gasto.IdPagador][fase]["pagado"] += monto
+        for asignacion in gasto.ParticipantesAsociados:
+            if asignacion.IdParticipanteViaje in por_participante:
+                por_participante[asignacion.IdParticipanteViaje][fase]["parte"] += Decimal(
+                    asignacion.MontoAsignado
+                )
+
+    def armar(fase: str, propio: dict | None = None) -> SaldoFaseRead:
+        desde, hasta = _rango_fase(viaje, fase)
+        pagado = _round_money(propio["pagado"]) if propio else None
+        parte = _round_money(propio["parte"]) if propio else None
+        return SaldoFaseRead(
+            Fase=fase,
+            Desde=desde,
+            Hasta=hasta,
+            CantidadGastos=totales[fase]["cantidad"],
+            TotalGrupo=_round_money(totales[fase]["total"]),
+            Pagado=pagado,
+            Parte=parte,
+            Neto=_round_money(pagado - parte) if propio else None,
+        )
+
+    grupo = [armar(fase) for fase in FASES_VIAJE]
+    individuales = {
+        id_participante: [armar(fase, datos[fase]) for fase in FASES_VIAJE]
+        for id_participante, datos in por_participante.items()
+    }
+    return grupo, individuales
+
+
 def get_trip_accepted_participants(db: Session, trip_id: int) -> list[ParticipanteViaje]:
     estado_aceptado = _get_estado_aceptado(db)
     return list(
@@ -317,12 +385,6 @@ def rebuild_settlement_plan(db: Session, trip_id: int) -> LiquidacionViaje:
     db.add(nueva_liquidacion)
     db.flush()
 
-    # Las transferencias "informada" y "realizada" de todas las versiones
-    # anteriores pasan a la nueva (se mueven, no se copian, así no se cuentan
-    # dos veces). Si quedaran en una versión vieja, la pantalla —que muestra
-    # solo la activa— dejaría de verlas: el acreedor no podría confirmar un
-    # aviso y "Ya saldadas" se vaciaría cada vez que alguien carga un gasto.
-    # Ya se descontaron de los saldos en _apply_realized_transfers.
     ids_estados_pagados = select(
         EstadoTransferenciaLiquidacion.IdEstadoTransferenciaLiquidacion
     ).where(EstadoTransferenciaLiquidacion.Nombre.in_(ESTADOS_PAGADOS))
@@ -567,6 +629,10 @@ def build_settlement_response(
             + gasto_personal_usuario
         )
 
+    fases_grupo, fases_por_participante = _resumen_por_fase(
+        db, viaje, [participante.IdParticipanteViaje for participante in participantes]
+    )
+
     pendientes_por_participante = {participante.IdParticipanteViaje: DECIMAL_ZERO for participante in participantes}
     transferencias = []
     for transferencia in sorted(
@@ -618,6 +684,7 @@ def build_settlement_response(
                 BalancePendiente=_round_money(
                     pendientes_por_participante.get(participante.IdParticipanteViaje, DECIMAL_ZERO)
                 ),
+                Fases=fases_por_participante.get(participante.IdParticipanteViaje, fases_grupo),
             )
         )
 
@@ -633,6 +700,13 @@ def build_settlement_response(
         TieneDesbalances=any(item.Monto > DECIMAL_ZERO for item in transferencias if item.Estado == "pendiente"),
         ResumenParticipantes=resumen,
         Transferencias=transferencias,
+        FechaInicioViaje=viaje.FechaInicio,
+        FechaFinViaje=viaje.FechaFin,
+        Fases=(
+            fases_por_participante.get(participante_usuario.IdParticipanteViaje, fases_grupo)
+            if participante_usuario is not None
+            else fases_grupo
+        ),
     )
 
 
@@ -640,7 +714,7 @@ def build_settlement_response(
 class TransferenciaPendiente:
     """Transferencia pendiente vista desde un participante."""
 
-    rol: str  # "paga" o "cobra"
+    rol: str
     id_contraparte: int
     nombre_contraparte: str
     monto: Decimal
@@ -710,10 +784,6 @@ def participantes_con_contrapartes_distintas(
     }
 
 
-# ---------------------------------------------------------------------------
-# "De dónde sale tu saldo"
-# ---------------------------------------------------------------------------
-
 def _nombre_usuario(participante: ParticipanteViaje) -> str:
     usuario = participante.Usuario
     if usuario is None:
@@ -765,7 +835,7 @@ def desglose_saldo_usuario(db: Session, trip_id: int, id_usuario: int) -> MiSald
             None,
         )
         if not pague and parte is None:
-            continue  # no me toca
+            continue
         pagado = _round_money(Decimal(gasto.Monto)) if pague else DECIMAL_ZERO
         parte = _round_money(parte or DECIMAL_ZERO)
         total_pagado += pagado

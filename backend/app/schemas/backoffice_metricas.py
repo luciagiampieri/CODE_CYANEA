@@ -15,10 +15,11 @@ class PuntoEvolucion(BaseModel):
     usuarios: int
     viajes: int
     solicitudesIA: int = 0
+    parcial: bool = False
 
 
 class SerieEvolucion(BaseModel):
-    agrupacion: Literal["dia", "mes"] | None = None
+    agrupacion: Literal["dia", "semana", "mes"] | None = None
     puntos: list[PuntoEvolucion] = []
     error: str | None = None
 
@@ -32,6 +33,8 @@ class Estacionalidad(BaseModel):
     usuarios: list[FilaEstacional] = []
     viajes: list[FilaEstacional] = []
     salidas: list[FilaEstacional] = []
+    inicio: date | None = None
+    hoy: date | None = None
     error: str | None = None
 
 

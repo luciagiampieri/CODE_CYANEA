@@ -19,18 +19,28 @@ const TONE = {
   even: { color: colors.textSecondary, label: "al día", mine: "Estás al día" },
 };
 
-// Orden del grupo: a quién le deben, quién debe y al final quién está al día.
 const TONE_ORDER = { credit: 0, debt: 1, even: 2 };
 
-/**
- * Vista "Saldos", pensada para mobile (punto 6).
- *
- * - Arriba, el saldo del usuario con una explicación de una línea y
- *   "Ver de dónde sale" (abre el desglose gasto por gasto).
- * - "¿Cómo se calcula?" plegado.
- * - El resto del grupo en una lista compacta: saldo con color y una palabra
- *   ("le deben", "debe", "al día") y, en chico, cuánto pagó y su parte.
- */
+const PHASES = [
+  { key: "pre_viaje", title: "Antes del viaje", icon: "suitcase" },
+  { key: "en_curso", title: "Durante el viaje", icon: "plane" },
+  { key: "post_viaje", title: "Después del viaje", icon: "house" },
+];
+
+function shortDate(iso) {
+  if (!iso) return "";
+  const [, month, day] = String(iso).slice(0, 10).split("-");
+  return `${day}/${month}`;
+}
+
+function phaseRange(phase) {
+  if (!phase) return "";
+  if (phase.Fase === "pre_viaje") return phase.Hasta ? `hasta el ${shortDate(phase.Hasta)}` : "";
+  if (phase.Fase === "post_viaje") return phase.Desde ? `desde el ${shortDate(phase.Desde)}` : "";
+  if (phase.Desde && phase.Hasta) return `del ${shortDate(phase.Desde)} al ${shortDate(phase.Hasta)}`;
+  return "";
+}
+
 export default function SettlementBalances({
   balances = [],
   currency,
@@ -38,7 +48,6 @@ export default function SettlementBalances({
   loading,
   onShowBreakdown,
 }) {
-
   if (balances.length === 0) {
     return loading ? null : (
       <View style={styles.emptyState}>
@@ -64,9 +73,15 @@ export default function SettlementBalances({
       return Math.abs(Number(b.BalancePendiente ?? 0)) - Math.abs(Number(a.BalancePendiente ?? 0));
     });
 
+  const phases = (me ?? balances[0])?.Fases ?? [];
+
   return (
     <View style={styles.container}>
       {me ? <MyBalance item={me} currency={currency} onShowBreakdown={onShowBreakdown} /> : null}
+
+      {phases.length > 0 ? (
+        <PhaseBreakdown currency={currency} hasMe={Boolean(me)} phases={phases} />
+      ) : null}
 
       {others.length > 0 ? (
         <View style={styles.section}>
@@ -92,7 +107,6 @@ function MyBalance({ item, currency, onShowBreakdown }) {
   const tone = toneOf(pendiente);
   const pagado = Number(item.TotalPagado ?? 0);
   const parte = Number(item.GastoIndividual ?? 0);
-  // Si el saldo no es solo "pagó − parte", es porque ya hubo transferencias.
   const conTransferencias = Math.abs(pendiente - (pagado - parte)) > 0.004;
 
   return (
@@ -123,6 +137,74 @@ function MyBalance({ item, currency, onShowBreakdown }) {
   );
 }
 
+function PhaseBreakdown({ phases, currency, hasMe }) {
+  const byKey = Object.fromEntries(phases.map((phase) => [phase.Fase, phase]));
+
+  return (
+    <View style={styles.section} testID="balance-phases">
+      <Text style={styles.sectionTitle}>Por etapa del viaje</Text>
+      <View style={styles.list}>
+        {PHASES.map((phase, index) => {
+          const data = byKey[phase.key];
+          const count = Number(data?.CantidadGastos ?? 0);
+          const neto = Number(data?.Neto ?? 0);
+          const tone = toneOf(neto);
+          const range = phaseRange(data);
+          return (
+            <View
+              key={phase.key}
+              style={[styles.row, index < PHASES.length - 1 && styles.rowDivider]}
+              testID={`phase-${phase.key}`}
+            >
+              <View style={styles.phaseIcon}>
+                <FontAwesome6 color={colors.primary} name={phase.icon} size={13} />
+              </View>
+              <View style={styles.rowText}>
+                <Text style={styles.name}>
+                  {phase.title}
+                  {range ? <Text style={styles.meta}> · {range}</Text> : null}
+                </Text>
+                {count === 0 ? (
+                  <Text style={styles.meta}>Sin gastos</Text>
+                ) : (
+                  <>
+                    <Text style={styles.meta}>
+                      Grupo {formatMoneyNoBreak(data.TotalGrupo, currency)} · {count}{" "}
+                      {count === 1 ? "gasto" : "gastos"}
+                    </Text>
+                    {hasMe ? (
+                      <Text style={styles.meta}>
+                        Pagaste {formatMoneyNoBreak(data.Pagado, currency)} · tu parte{" "}
+                        {formatMoneyNoBreak(data.Parte, currency)}
+                      </Text>
+                    ) : null}
+                  </>
+                )}
+              </View>
+              {hasMe && count > 0 ? (
+                <View style={styles.amountBox}>
+                  <Text style={[styles.amount, { color: TONE[tone].color }]}>
+                    {tone === "even"
+                      ? formatMoney(0, currency)
+                      : `${tone === "credit" ? "+" : "−"}${formatMoney(Math.abs(neto), currency)}`}
+                  </Text>
+                  <Text style={[styles.amountLabel, { color: TONE[tone].color }]}>neto</Text>
+                </View>
+              ) : null}
+            </View>
+          );
+        })}
+      </View>
+      {hasMe ? (
+        <Text style={styles.phaseNote}>
+          El neto de cada etapa es lo que pagaste menos tu parte. Las transferencias se descuentan del
+          saldo total, no de cada etapa.
+        </Text>
+      ) : null}
+    </View>
+  );
+}
+
 function GroupRow({ item, currency, isLast }) {
   const pendiente = Number(item.BalancePendiente ?? 0);
   const tone = toneOf(pendiente);
@@ -136,7 +218,6 @@ function GroupRow({ item, currency, isLast }) {
         <Text numberOfLines={1} style={styles.name}>
           {item.NombreCompleto}
         </Text>
-        {/* Si no entra en un renglón, corta entre las dos frases, no dentro de un monto. */}
         <View style={styles.metaRow}>
           <Text style={styles.meta}>Pagó {formatMoneyNoBreak(item.TotalPagado, currency)}, </Text>
           <Text style={styles.meta}>su parte {formatMoneyNoBreak(item.GastoIndividual, currency)}</Text>
@@ -244,6 +325,20 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: colors.primary,
   },
+  phaseIcon: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.surfaceMuted,
+  },
+  phaseNote: {
+    ...textStyles.meta,
+    fontSize: 12,
+    color: colors.textMuted,
+    paddingHorizontal: spacing.xxs,
+  },
   rowText: {
     flex: 1,
     minWidth: 0,
@@ -261,6 +356,7 @@ const styles = StyleSheet.create({
   meta: {
     ...textStyles.meta,
     fontSize: 12,
+    fontWeight: "400",
     color: colors.textSecondary,
   },
   amountBox: {

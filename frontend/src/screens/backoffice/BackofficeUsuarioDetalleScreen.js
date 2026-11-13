@@ -1,7 +1,8 @@
 import { FontAwesome6 } from '@expo/vector-icons';
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 
+import { BotonVolverBackoffice } from '../../components/backoffice/EncabezadoBackoffice';
 import {
   ETIQUETAS_METODO,
   ETIQUETAS_PLAN,
@@ -60,13 +61,7 @@ export default function BackofficeUsuarioDetalleScreen({ idUsuario, onVolver }) 
 
   return (
     <View>
-      <Pressable
-        onPress={onVolver}
-        style={({ pressed }) => [styles.volver, pressed && styles.presionado]}
-      >
-        <FontAwesome6 color={c.textoSecundario} name="arrow-left" size={12} />
-        <Text style={styles.textoVolver}>Volver a usuarios</Text>
-      </Pressable>
+      <BotonVolverBackoffice etiqueta="Volver a usuarios" onPress={onVolver} />
       {contenido}
     </View>
   );
@@ -161,17 +156,6 @@ function FilaDato({ etiqueta, valor, ultima }) {
 }
 
 const styles = StyleSheet.create({
-  volver: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    alignSelf: 'flex-start',
-    gap: spacing.xs,
-    marginBottom: spacing.lg,
-  },
-  textoVolver: {
-    ...textStyles.meta,
-    color: c.textoSecundario,
-  },
   centro: {
     paddingVertical: 56,
     alignItems: 'center',
@@ -312,8 +296,5 @@ const styles = StyleSheet.create({
   valorDato: {
     ...textStyles.bodyStrong,
     color: c.texto,
-  },
-  presionado: {
-    transform: [{ scale: 0.985 }],
   },
 });

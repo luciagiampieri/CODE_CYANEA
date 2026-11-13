@@ -40,7 +40,7 @@ Fuera de alcance:
 
 Nota de entorno actual:
 
-- Expo 56 requiere Node `>= 20.19.4`
+- Expo 58 requiere Node `>= 20.19.4`
 - si una maquina tiene `20.18.x`, conviene actualizar dentro de Node 20 antes de ejecutar el frontend Expo
 
 ## Estructura del repositorio
@@ -214,6 +214,37 @@ Para crear estructuras y seeds del MVP usar los scripts SQL en `backend/scripts/
 - Swagger: `http://127.0.0.1:8000/docs`
 - Health: `GET /health`
 
+## Testing
+
+Toda US nueva o modificada se entrega con tests en backend y frontend. Los archivos de test se nombran por la funcionalidad y, cuando la US tiene casos de prueba, los tests indican el CP que cubren (CP1, CP2...).
+
+### Backend
+
+- pytest sobre SQLite en memoria; fixtures compartidas en `backend/tests/conftest.py` (`client`, `db_session`, `master_data`, `planificacion_master_data`, etc.)
+- Los tests nunca llaman servicios externos reales: IA, Google Places, Mercado Pago y correo se reemplazan con `app.dependency_overrides`, `monkeypatch` o `httpx.MockTransport`
+- SQLite no aplica FKs ni corre el SQL de Postgres: migraciones y scripts que dependen de Postgres se prueban tambien contra Postgres
+- La suite completa tarda mas de 20 minutos; durante el desarrollo correr el archivo afectado (`python -m pytest tests/<archivo>.py`) y la suite completa antes del push
+- Corre en CI con `.github/workflows/backend-tests.yml`
+
+### Frontend
+
+- Jest 30 con preset `jest-expo` y `@testing-library/react-native`; configuracion en la seccion `jest` de `frontend/package.json`
+- Comandos desde `frontend/`:
+  - `npm test`: todos
+  - `npm test -- <NombreArchivo>`: un archivo
+  - `npm test -- -t "<texto>"`: por nombre de test
+  - `npm run test:watch`: modo observador
+  - `npm run test:coverage`: cobertura
+  - `npm run test:slow`: en serie con `--runInBand`
+- Ubicacion: `frontend/src/tests/`; los del backoffice en `frontend/src/tests/backoffice/` y las utilidades compartidas en `frontend/src/tests/helpers/`. No dejar tests junto a los componentes
+- `testTimeout` de 20 s. Umbral de cobertura global: 30 % de sentencias (`coverageThreshold`); la cobertura excluye `src/tests/**`, `src/**/*.native.js` y `src/theme/**`
+- `frontend/jest.setup.js` (`setupFiles`) simula para todos los tests: `@react-native-community/netinfo` (conectado por wifi; para probar modo offline se sobreescribe `fetch`/`useNetInfo` dentro del test), `expo-sqlite` (base vacia), `expo-font` (fuentes cargadas), `@react-navigation/bottom-tabs` (navigator sin barra y `BottomTabBarHeightContext`), `react-native-safe-area-context` (mock oficial) y `components/profile/MapaPaises`. Un modulo nativo nuevo que rompa el entorno de Jest se mockea ahi, no en cada test
+- Las llamadas HTTP se simulan con `jest.mock` sobre `services/api.js` o `services/backofficeApi.js`; ningun test depende del backend levantado
+- Los dialogos se prueban con `simularDialogos` de `frontend/src/tests/helpers/dialogosSimulados.js` (ver "Dialogos y mensajes")
+- Los elementos que un test necesita encontrar llevan `testID` estable (por ejemplo `balance-phases`, `phase-pre_viaje`, `expense-detail-cotizacion`, `preview-conversion`, `backoffice-volver`). Preferir `testID` o roles accesibles antes que textos largos
+- Si un cambio modifica un texto visible, actualizar en el mismo trabajo los tests que lo buscan
+- Corre en CI con `.github/workflows/NOMBRE_WORKFLOW.yml`; un push con tests del frontend rotos o por debajo del umbral de cobertura falla en GitHub Actions
+
 ## Convenciones generales
 
 ### Idioma
@@ -289,6 +320,10 @@ Reglas vigentes para la HU de balance y liquidacion:
 - La UI de esta HU se muestra dentro del tab `Gastos` del detalle del viaje, no en una pantalla paralela
 - El contrato `GET /trips/{trip_id}/settlement` concentra el resumen financiero del viaje para la solapa `Gastos`, incluyendo total gastado del viaje, gasto individual asignado por participante, total pagado por participante y saldo neto/pendiente
 
+- Saldos por etapa del viaje: cada gasto compartido (`TipoDivision` no nulo) se clasifica por `FechaGasto` contra las fechas del viaje: `pre_viaje` (antes de `FechaInicio`), `en_curso` (entre `FechaInicio` y `FechaFin`, inclusive) y `post_viaje` (despues de `FechaFin`). Los gastos personales no entran en las etapas
+- La respuesta de `/settlement` suma `FechaInicioViaje`, `FechaFinViaje`, `Fases` del grupo y `Fases` en cada participante (`SaldoFaseRead`: `Fase`, `Desde`, `Hasta`, `CantidadGastos`, `TotalGrupo`, `Pagado`, `Parte`, `Neto`). La logica vive en `liquidacion_service.py` (`fase_del_gasto`, `_rango_fase`, `_resumen_por_fase`) y no se persiste
+- Las transferencias se descuentan solo del saldo total, no por etapa: la suma de los netos de las tres etapas es el saldo antes de transferencias
+- Frontend: `components/trip/SettlementBalances.js` muestra el bloque "Por etapa del viaje" con las fases del participante actual (testID `balance-phases` y `phase-<fase>`); `TripDetailScreen` no cambia porque las fases viajan dentro de cada participante. Tests: `frontend/src/tests/SettlementBalances.test.js`
 
 ## Asistente inteligente de planificacion
 
@@ -397,6 +432,15 @@ Reglas vigentes para la HU de balance y liquidacion:
 - `SuscripcionesUsuarios.PrecioPeriodoARS` y `MesesPeriodo` (1 o 12) congelan la tarifa de cada periodo. `services/precios_suscripciones.crear_periodo` toma el precio vigente al crear cada periodo nuevo o renovacion, sin modificar el anterior. Las suscripciones heredadas conservan NULL si no se conoce su precio; no se recalculan desde la tarifa actual. Esta US no agrega cobros, activacion Pro ni renovaciones automaticas: los futuros flujos de suscripcion deben llamar a ese servicio dentro de su transaccion.
 - Tests: `test_backoffice_planes.py` cubre CP1-CP6, autorizacion y validacion; `test_limites_planes_uso.py` cubre meses, renovacion y conteos. Frontend: `BackofficePlanesScreen.test.js` cubre formulario, confirmacion/cancelacion, errores e historial.
 
+## Cotizacion declarada en gastos
+
+- Todo gasto en una moneda distinta a la del viaje informa la cotizacion usada, porque depende de la region y de la fecha
+- `Gastos` suma `FuenteCotizacion` (`VARCHAR(30)`, NULL) y `FechaCotizacion` (`DATE`, NULL); migracion `b0bcca3ac886`. Los gastos anteriores quedan en NULL
+- Fuentes (constantes en `api/routes/gastos.py`): `referencia` (tipo de cambio de Frankfurter de `services/currency.py`, cotizacion mas cercana dentro de 3 dias de la fecha del gasto) y `manual` (monto en ARS ingresado por quien cargo el gasto, con `MontoConvertidoARS`). `_origen_cotizacion` decide la fuente al crear; al editar solo se recalcula si cambia la conversion (`_requiere_reconversion`), si no se conservan
+- `GET /gastos/{id}` (`GastoDetalleRead`) devuelve `FuenteCotizacion` y `FechaCotizacion`
+- Frontend: antes de guardar, `AddGastoScreen` muestra la conversion a la moneda del viaje con `GET /monedas/cotizacion` (testID `preview-conversion`, `preview-conversion-monto`, `preview-conversion-tasa`); en un comprobante convertido a ARS la tasa aparece bajo el monto en pesos (`conversion-ars-tasa`). Si la cotizacion falla no bloquea: el importe se convierte al guardar
+- En el detalle, `ExpenseDetailModal` muestra "1 ORIGEN = X DESTINO" (invertida si la tasa es menor a 1) y la fuente (testID `expense-detail-cotizacion` y `expense-detail-cotizacion-fuente`), con la aclaracion de que es un valor de referencia. `textoCotizacion` y `textoFuenteCotizacion` se exportan desde ese modal y se reutilizan en el formulario
+
 ### Modelo
 
 - Los limites viven en la tabla maestra `Planes` (migracion `c118a1b2c3d4`, script `015_limites_y_suscripciones.sql`): `MaxParticipantesViaje`, `MaxViajesActivos`, `MaxSugerenciasDiarias`, `MaxEscaneosMensuales` y `MaxAlmacenamientoMb`, todos `INTEGER NULL`. `NULL` significa ilimitado. Constantes `PLAN_GRATUITO=1` y `PLAN_PRO=2` en `app/models/plan.py`
@@ -473,6 +517,7 @@ Reglas vigentes para la HU de balance y liquidacion:
 - Notificaciones (`notificaciones_suscripciones.py`): la cancelacion registra aviso interno y envia `subscription_cancelled.html/.txt`; la reactivacion solo registra aviso interno. Los fallos de correo no revierten la accion
 - Fuera de alcance: contratacion inicial (US 116), cambio de modalidad, reembolsos, renovacion (US 124) y vuelta al gratuito (US 121)
 - Tests: `backend/tests/test_gestion_suscripcion_pro.py`; frontend `PlanesDisponibles.test.js` y `SuscipcionPro.test.js`
+- `GET /users/me` incluye `planActual` (`gratuito` o `pro`, desde `Usuarios.IdPlan`) y responde con `Cache-Control: no-store`. `ProfileScreen` muestra el badge y la `PlanCard` con `consumo.planActual ?? profile.planActual`, asi el plan Pro se ve en el perfil apenas cambia
 
 ## Volver al plan gratuito al finalizar la suscripcion (US 121)
 
@@ -974,6 +1019,8 @@ El flujo minimo actual incluye:
 - pantallas en `frontend/src/screens/backoffice/`, componentes en `frontend/src/components/backoffice/`
 - acceso HTTP exclusivo en `frontend/src/services/backofficeApi.js`; el token se guarda en `sessionStorage`
 - la identidad visual oscura del backoffice se toma de `frontend/src/theme/backofficeTokens.js`, combinada con `spacing`, `radii` y `textStyles` de `tokens.js`
+- Todas las pantallas del backoffice usan `components/backoffice/EncabezadoBackoffice.js` (props `titulo`, `bajada`, `onVolver`, `etiquetaVolver`, `volverDeshabilitado`, `accion`) y, para un boton volver suelto, su export `BotonVolverBackoffice` (testID `backoffice-volver`). No dibujar encabezados ni botones de volver propios por pantalla
+- Metricas (`/backoffice/metricas`): la evolucion se agrupa por dia hasta 31 dias, por semana (lunes) hasta 366 y por mes despues; con el rango maximo de un ano la agrupacion mensual no se alcanza. Los puntos de periodos incompletos llevan `parcial=true` y se dibujan atenuados, y las tendencias los excluyen (`utils/tendencias.js`). `suscripcionesProActivas` cuenta usuarios con `IdPlan = PLAN_PRO` e `ingresos` suma `PagosSuscripciones.MontoARS` aprobados del rango. La estacionalidad (`MapaEstacional`) excluye viajes eliminados o cancelados y promedia solo meses completos
 
 
 ## Estado funcional actual

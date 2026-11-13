@@ -1,7 +1,19 @@
 from datetime import date, datetime
 from decimal import Decimal
+from typing import Literal
 
 from pydantic import BaseModel
+
+
+class SaldoFaseRead(BaseModel):
+    Fase: Literal["pre_viaje", "en_curso", "post_viaje"]
+    Desde: date | None = None
+    Hasta: date | None = None
+    CantidadGastos: int
+    TotalGrupo: Decimal
+    Pagado: Decimal | None = None
+    Parte: Decimal | None = None
+    Neto: Decimal | None = None
 
 
 class LiquidacionParticipanteResumen(BaseModel):
@@ -14,6 +26,7 @@ class LiquidacionParticipanteResumen(BaseModel):
     GastoIndividual: Decimal
     BalanceOriginal: Decimal
     BalancePendiente: Decimal
+    Fases: list[SaldoFaseRead] = []
 
 
 class TransferenciaLiquidacionRead(BaseModel):
@@ -32,27 +45,22 @@ class LiquidacionViajeRead(BaseModel):
     IdViaje: int
     Version: int
     Moneda: str
-    # Total del grupo: solo gastos compartidos.
     TotalGastosViaje: Decimal
-    # "Tu gasto" de quien consulta: su parte de los compartidos + sus gastos
-    # personales. None si no es participante aceptado del viaje.
     GastoUsuario: Decimal | None = None
     GastoPersonalUsuario: Decimal | None = None
     TieneDesbalances: bool
     ResumenParticipantes: list[LiquidacionParticipanteResumen]
     Transferencias: list[TransferenciaLiquidacionRead]
+    FechaInicioViaje: date | None = None
+    FechaFinViaje: date | None = None
+    Fases: list[SaldoFaseRead] = []
 
 
 class TransferenciaLiquidacionUpdate(BaseModel):
     Realizada: bool
 
 
-# ---------------------------------------------------------------------------
-# "De dónde sale tu saldo" (GET /trips/{id}/settlement/mi-saldo)
-# ---------------------------------------------------------------------------
-
 class MiSaldoGastoRead(BaseModel):
-    """Un gasto compartido en el que el usuario pagó o tiene parte."""
     IdGasto: int
     Nombre: str
     FechaGasto: date
@@ -61,19 +69,18 @@ class MiSaldoGastoRead(BaseModel):
     Monto: Decimal
     NombrePagador: str
     PagasteVos: bool
-    Pagado: Decimal  # lo que pagó el usuario (Monto si fue el pagador, si no 0)
-    TuParte: Decimal  # lo que le toca al usuario en la división
-    Efecto: Decimal  # Pagado - TuParte: positivo = le deben más, negativo = debe más
+    Pagado: Decimal
+    TuParte: Decimal
+    Efecto: Decimal
 
 
 class MiSaldoTransferenciaRead(BaseModel):
-    """Una transferencia ya hecha (confirmada o avisada) que mueve el saldo."""
     IdTransferenciaLiquidacion: int
-    Enviada: bool  # True: la hizo el usuario; False: la recibió
+    Enviada: bool
     NombreContraparte: str
     Monto: Decimal
     Estado: str
-    Efecto: Decimal  # enviada suma, recibida resta
+    Efecto: Decimal
 
 
 class MiSaldoRead(BaseModel):
@@ -82,8 +89,6 @@ class MiSaldoRead(BaseModel):
     TotalParte: Decimal
     TransferenciasEnviadas: Decimal
     TransferenciasRecibidas: Decimal
-    # TotalPagado - TotalParte + TransferenciasEnviadas - TransferenciasRecibidas.
-    # Positivo: le deben. Negativo: debe.
     Saldo: Decimal
     Gastos: list[MiSaldoGastoRead]
     Transferencias: list[MiSaldoTransferenciaRead]

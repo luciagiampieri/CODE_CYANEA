@@ -6,6 +6,8 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.models.estado_viaje import EstadoViaje
+from app.models.pago_suscripcion import EstadoPagoSuscripcion, PagoSuscripcion
+from app.models.plan import PLAN_PRO
 from app.models.rol_sistema import ROL_ADMIN_SISTEMA
 from app.models.solicitud_ia import SolicitudIA
 from app.models.usuario import Usuario
@@ -26,18 +28,19 @@ ZONA_AR = timezone(timedelta(hours=-3), "America/Argentina/Buenos_Aires")
 DIAS_POR_DEFECTO = 30
 DIAS_MAXIMOS = 366
 DIAS_ACTIVIDAD = 30
-MAX_DIAS_AGRUPACION_DIARIA = 62
+MAX_DIAS_AGRUPACION_DIARIA = 31
+MAX_DIAS_AGRUPACION_SEMANAL = 366
 ESTADO_VIAJE_ACTIVO = "activo"
-
+ESTADOS_SIN_SALIDA = ("eliminado", "cancelado")
+ESTADO_PAGO_APROBADO = "aprobado"
 
 ANIOS_FUTUROS_SALIDAS = 1
 
-METRICAS_COMPARABLES = {"usuariosRegistrados", "viajesCreados", "solicitudesIA"}
+METRICAS_COMPARABLES = {"usuariosRegistrados", "viajesCreados", "solicitudesIA", "ingresos"}
 
 MENSAJE_ERROR_METRICA = "No se pudo obtener esta métrica."
 MENSAJE_ERROR_EVOLUCION = "No se pudo obtener la evolución del período."
 MENSAJE_ERROR_ESTACIONALIDAD = "No se pudo obtener la estacionalidad."
-MENSAJE_SIN_SUSCRIPCIONES = "Disponible cuando se implementen las suscripciones Pro."
 
 
 class RangoInvalido(ValueError):
@@ -89,14 +92,12 @@ def fecha_inicio_plataforma(db: Session) -> date | None:
 
 
 def rango_historico(db: Session) -> tuple[date, date]:
-    """Desde el primer registro de un usuario hasta hoy ("Desde el inicio")."""
     hoy = hoy_ar()
     inicio = fecha_inicio_plataforma(db) or hoy
     return min(inicio, hoy), hoy
 
 
 def rango_anterior(desde: date, hasta: date) -> tuple[date, date]:
-    """Período inmediatamente anterior, de la misma cantidad de días."""
     dias = (hasta - desde).days + 1
     return desde - timedelta(days=dias), desde - timedelta(days=1)
 
@@ -145,11 +146,28 @@ def _viajes_activos(db: Session, inicio: datetime, fin: datetime) -> int:
 
 
 def _suscripciones_pro_activas(db: Session, inicio: datetime, fin: datetime) -> int:
-    raise MetricaNoDisponible(MENSAJE_SIN_SUSCRIPCIONES)
+    return db.scalar(
+        select(func.count())
+        .select_from(Usuario)
+        .where(*_usuarios_vigentes(), Usuario.IdPlan == PLAN_PRO)
+    ) or 0
 
 
 def _ingresos(db: Session, inicio: datetime, fin: datetime) -> float:
-    raise MetricaNoDisponible(MENSAJE_SIN_SUSCRIPCIONES)
+    total = db.scalar(
+        select(func.coalesce(func.sum(PagoSuscripcion.MontoARS), 0))
+        .join(
+            EstadoPagoSuscripcion,
+            EstadoPagoSuscripcion.IdEstadoPagoSuscripcion
+            == PagoSuscripcion.IdEstadoPagoSuscripcion,
+        )
+        .where(
+            EstadoPagoSuscripcion.Nombre == ESTADO_PAGO_APROBADO,
+            PagoSuscripcion.FechaPago >= inicio,
+            PagoSuscripcion.FechaPago < fin,
+        )
+    )
+    return float(total or 0)
 
 
 def _solicitudes_ia(db: Session, inicio: datetime, fin: datetime) -> int:
@@ -181,11 +199,28 @@ def _calcular(
 
 
 def _agrupacion(desde: date, hasta: date) -> str:
-    return "dia" if (hasta - desde).days + 1 <= MAX_DIAS_AGRUPACION_DIARIA else "mes"
+    dias = (hasta - desde).days + 1
+    if dias <= MAX_DIAS_AGRUPACION_DIARIA:
+        return "dia"
+    if dias <= MAX_DIAS_AGRUPACION_SEMANAL:
+        return "semana"
+    return "mes"
 
 
 def _clave(fecha: date, agrupacion: str) -> date:
-    return fecha if agrupacion == "dia" else fecha.replace(day=1)
+    if agrupacion == "dia":
+        return fecha
+    if agrupacion == "semana":
+        return fecha - timedelta(days=fecha.weekday())
+    return fecha.replace(day=1)
+
+
+def _siguiente(clave: date, agrupacion: str) -> date:
+    if agrupacion == "dia":
+        return clave + timedelta(days=1)
+    if agrupacion == "semana":
+        return clave + timedelta(days=7)
+    return (clave.replace(day=28) + timedelta(days=4)).replace(day=1)
 
 
 def _claves_del_rango(desde: date, hasta: date, agrupacion: str) -> list[date]:
@@ -193,11 +228,12 @@ def _claves_del_rango(desde: date, hasta: date, agrupacion: str) -> list[date]:
     actual = _clave(desde, agrupacion)
     while actual <= hasta:
         claves.append(actual)
-        if agrupacion == "dia":
-            actual += timedelta(days=1)
-        else:
-            actual = (actual.replace(day=28) + timedelta(days=4)).replace(day=1)
+        actual = _siguiente(actual, agrupacion)
     return claves
+
+
+def _es_parcial(clave: date, agrupacion: str, desde: date, hasta: date) -> bool:
+    return clave < desde or _siguiente(clave, agrupacion) - timedelta(days=1) > hasta
 
 
 def _evolucion(db: Session, desde: date, hasta: date, inicio: datetime, fin: datetime) -> SerieEvolucion:
@@ -229,6 +265,7 @@ def _evolucion(db: Session, desde: date, hasta: date, inicio: datetime, fin: dat
                     usuarios=usuarios[clave],
                     viajes=viajes[clave],
                     solicitudesIA=solicitudes[clave],
+                    parcial=_es_parcial(clave, agrupacion, desde, hasta),
                 )
                 for clave in _claves_del_rango(desde, hasta, agrupacion)
             ],
@@ -254,22 +291,31 @@ def _filas_estacionales(fechas: list[date], hasta_anio: int | None = None) -> li
 
 
 def _estacionalidad(db: Session) -> Estacionalidad:
-    """Toda la historia mes por mes, sin importar el rango elegido."""
     try:
-        anio_actual = hoy_ar().year
+        hoy = hoy_ar()
+        anio_actual = hoy.year
         altas = db.scalars(
             select(Usuario.FechaAlta).where(*_usuarios_vigentes(), Usuario.FechaAlta.is_not(None))
         ).all()
         creaciones = db.scalars(
             select(Viaje.FechaCreacion).where(Viaje.FechaCreacion.is_not(None))
         ).all()
-        salidas = db.scalars(select(Viaje.FechaInicio).where(Viaje.FechaInicio.is_not(None))).all()
+        salidas = db.scalars(
+            select(Viaje.FechaInicio)
+            .join(EstadoViaje, EstadoViaje.IdEstadoViaje == Viaje.IdEstadoViaje)
+            .where(
+                Viaje.FechaInicio.is_not(None),
+                EstadoViaje.Nombre.not_in(ESTADOS_SIN_SALIDA),
+            )
+        ).all()
         return Estacionalidad(
             usuarios=_filas_estacionales([_a_fecha(f) for f in altas], anio_actual),
             viajes=_filas_estacionales([_a_fecha(f) for f in creaciones], anio_actual),
             salidas=_filas_estacionales(
                 [_a_fecha(f) for f in salidas], anio_actual + ANIOS_FUTUROS_SALIDAS
             ),
+            inicio=fecha_inicio_plataforma(db),
+            hoy=hoy,
         )
     except Exception:
         logger.exception("Error al calcular la estacionalidad del dashboard")

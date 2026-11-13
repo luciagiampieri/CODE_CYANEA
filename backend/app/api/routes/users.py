@@ -12,6 +12,7 @@ from app.db.session import get_db
 from app.models.estado_participacion import EstadoParticipacion
 from app.models.estado_viaje import EstadoViaje
 from app.models.participante_viaje import ParticipanteViaje
+from app.models.plan import PLAN_PRO
 from app.models.token_push_usuario import TokenPushUsuario
 from app.models.usuario import Usuario
 from app.models.viaje import Viaje
@@ -117,6 +118,7 @@ def _serializar_usuario_actual(usuario: Usuario) -> UsuarioProfileRead:
         aceptaTerminos=usuario.AceptaTerminos,
         fechaAceptacionTerminos=usuario.FechaAceptacionTerminos,
         versionTerminosAceptada=usuario.VersionTerminosAceptada,
+        planActual="pro" if usuario.IdPlan == PLAN_PRO else "gratuito",
     )
 
 
@@ -217,7 +219,11 @@ def _reasignar_administracion_viajes(
 
 
 @router.get("/me", response_model=UsuarioProfileRead)
-def get_me(current_user: Usuario = Depends(get_current_user)) -> UsuarioProfileRead:
+def get_me(
+    response: Response,
+    current_user: Usuario = Depends(get_current_user),
+) -> UsuarioProfileRead:
+    response.headers["Cache-Control"] = "no-store"
     return _serializar_usuario_actual(current_user)
 
 
@@ -266,8 +272,6 @@ def update_ai_consent(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
 ) -> ConsentimientoIARead:
-    """Otorga o revoca el consentimiento para procesar imágenes con un servicio
-    externo de IA (US 93, RNF-13, RNF-33). Se registra la fecha en que se otorgó."""
     current_user.ConsienteProcesamientoIA = payload.consiente
     current_user.FechaConsentimientoIA = (
         datetime.now(timezone.utc) if payload.consiente else None
@@ -309,7 +313,6 @@ def _serializar_privacidad(usuario: Usuario) -> PrivacidadRead:
 
 @router.get("/me/privacidad", response_model=PrivacidadRead)
 def get_privacy_settings(current_user: Usuario = Depends(get_current_user)) -> PrivacidadRead:
-    """Preferencias de privacidad del perfil (US 61)."""
     return _serializar_privacidad(current_user)
 
 
@@ -319,8 +322,6 @@ def update_privacy_settings(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
 ) -> PrivacidadUpdateResponse:
-    """Actualiza qué datos del perfil ven los demás participantes de los viajes
-    compartidos y si la cuenta se puede encontrar por nombre de usuario (US 61)."""
     current_user.VisibilidadNombre = payload.visibilidadNombre
     current_user.VisibilidadEmail = payload.visibilidadEmail
     current_user.VisibilidadFotoPerfil = payload.visibilidadFotoPerfil
@@ -504,13 +505,6 @@ def list_users(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
 ) -> list[UsuarioRead]:
-    """Búsqueda de usuarios para invitarlos a un viaje (US 61, CA 3).
-
-    Solo busca por nombre de usuario y solo devuelve cuentas que permiten ser
-    encontradas. El email nunca se expone acá: quien busca todavía no comparte
-    un viaje con esas personas. Nombre y foto respetan la privacidad de cada
-    usuario.
-    """
     query = select(Usuario).where(
         Usuario.Activo.is_(True),
         or_(
@@ -547,10 +541,6 @@ def change_password(
     current_user: Usuario = Depends(get_current_user),
     mail_service: MailService = Depends(get_mail_service),
 ) -> CambioPasswordResponse:
-    """Cambia la contraseña de una cuenta registrada con correo (US 101).
-
-    Cierra las sesiones de los demás dispositivos y devuelve un token nuevo para
-    que el dispositivo actual siga conectado."""
     token = password_change_service.cambiar_password(
         db,
         mail_service,

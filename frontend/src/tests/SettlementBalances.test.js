@@ -9,6 +9,12 @@ const balances = [
   { IdParticipanteViaje: 4, IdUsuario: 44, NombreCompleto: "Martín López", TotalPagado: 0, GastoIndividual: 40, BalancePendiente: -40 },
 ];
 
+const fases = [
+  { Fase: "pre_viaje", Desde: null, Hasta: "2026-01-09", CantidadGastos: 1, TotalGrupo: 300, Pagado: 300, Parte: 100, Neto: 200 },
+  { Fase: "en_curso", Desde: "2026-01-10", Hasta: "2026-01-20", CantidadGastos: 3, TotalGrupo: 900, Pagado: 0, Parte: 300, Neto: -300 },
+  { Fase: "post_viaje", Desde: "2026-01-21", Hasta: null, CantidadGastos: 0, TotalGrupo: 0, Pagado: 0, Parte: 0, Neto: 0 },
+];
+
 describe("SettlementBalances", () => {
   it("arriba muestra tu saldo con una explicación simple", async () => {
     const { getAllByTestId, getByTestId } = await render(
@@ -59,5 +65,28 @@ describe("SettlementBalances", () => {
     const { getByText } = await render(<SettlementBalances balances={[]} currency="ARS" />);
 
     expect(getByText(/Todavía no hay participantes aceptados/)).toBeTruthy();
+  });
+
+  it("muestra los saldos por etapa: antes, durante y después del viaje", async () => {
+    const conFases = balances.map((b) => (b.IdUsuario === 33 ? { ...b, Fases: fases } : b));
+    const { getByTestId } = await render(
+      <SettlementBalances balances={conFases} currency="ARS" currentUserId={33} />
+    );
+
+    expect(getByTestId("phase-pre_viaje")).toHaveTextContent(/Antes del viaje/);
+    expect(getByTestId("phase-pre_viaje")).toHaveTextContent(/hasta el 09\/01/);
+    expect(getByTestId("phase-pre_viaje")).toHaveTextContent(/Pagaste .*300 · tu parte .*100/);
+    expect(getByTestId("phase-en_curso")).toHaveTextContent(/Durante el viaje/);
+    expect(getByTestId("phase-en_curso")).toHaveTextContent(/del 10\/01 al 20\/01/);
+    expect(getByTestId("phase-post_viaje")).toHaveTextContent(/desde el 21\/01/);
+    expect(getByTestId("phase-post_viaje")).toHaveTextContent(/Sin gastos/);
+  });
+
+  it("sin etapas no muestra el bloque", async () => {
+    const { queryByTestId } = await render(
+      <SettlementBalances balances={balances} currency="ARS" currentUserId={33} />
+    );
+
+    expect(queryByTestId("balance-phases")).toBeNull();
   });
 });

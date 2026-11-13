@@ -4,6 +4,7 @@ import pytest
 
 from app.core.security import create_access_token, hash_password
 from app.models.estado_viaje import EstadoViaje
+from app.models.plan import PLAN_PRO
 from app.models.rol_sistema import ROL_ADMIN_SISTEMA, ROL_VIAJERO, RolSistema
 from app.models.solicitud_ia import SolicitudIA
 from app.models.usuario import Usuario
@@ -158,9 +159,17 @@ def test_evolucion_agrupa_registros_por_dia(client, db_session, headers_admin):
     assert puntos[_hace(1).isoformat()]["usuarios"] == 1
 
 
-def test_rango_largo_se_agrupa_por_mes(client, headers_admin):
-    r = client.get(URL, params=_rango(_hace(200), _hace(0)), headers=headers_admin)
-    assert r.json()["evolucion"]["agrupacion"] == "mes"
+@pytest.mark.parametrize(
+    "dias_desde, agrupacion",
+    [
+        (30, "dia"),
+        (31, "semana"),
+        (200, "semana"),
+    ],
+)
+def test_agrupacion_segun_largo_del_rango(client, headers_admin, dias_desde, agrupacion):
+    r = client.get(URL, params=_rango(_hace(dias_desde), _hace(0)), headers=headers_admin)
+    assert r.json()["evolucion"]["agrupacion"] == agrupacion
 
 
 @pytest.mark.parametrize(
@@ -203,11 +212,20 @@ def test_error_en_una_metrica_no_impide_las_demas(client, db_session, headers_ad
     assert r.json()["usuariosRegistrados"]["error"] is None
 
 
-def test_suscripciones_e_ingresos_no_disponibles(client, headers_admin):
+def test_suscripciones_e_ingresos_sin_datos_devuelven_cero(client, headers_admin):
     datos = client.get(URL, headers=headers_admin).json()
     for clave in ("suscripcionesProActivas", "ingresos"):
-        assert datos[clave]["valor"] is None
-        assert datos[clave]["error"] == metricas_service.MENSAJE_SIN_SUSCRIPCIONES
+        assert datos[clave]["valor"] == 0
+        assert datos[clave]["error"] is None
+
+
+def test_suscripciones_pro_activas_cuenta_usuarios_con_plan_pro(
+    client, db_session, master_data, headers_admin
+):
+    _crear_usuario(db_session, "pro@cyanea.test", IdPlan=PLAN_PRO)
+    _crear_usuario(db_session, "gratis@cyanea.test")
+    datos = client.get(URL, headers=headers_admin).json()
+    assert datos["suscripcionesProActivas"]["valor"] == 1
 
 
 def test_solicitudes_ia_del_periodo(client, db_session, headers_admin):

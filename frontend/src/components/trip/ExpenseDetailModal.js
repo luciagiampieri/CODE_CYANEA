@@ -17,6 +17,31 @@ function textoDivision(gasto) {
   return "Compartido · división igualitaria";
 }
 
+function formatearTasa(valor) {
+  return Number(valor).toLocaleString("es-AR", { maximumFractionDigits: 4 });
+}
+
+export function textoCotizacion(gasto) {
+  const tasa = Number(gasto?.TipoCambio);
+  const origen = String(gasto?.MonedaOriginal ?? "").toUpperCase();
+  const destino = String(gasto?.MonedaViaje ?? "").toUpperCase();
+  if (!Number.isFinite(tasa) || tasa <= 0 || !origen || !destino || origen === destino) return null;
+  return tasa >= 1
+    ? `1 ${origen} = ${formatearTasa(tasa)} ${destino}`
+    : `1 ${destino} = ${formatearTasa(1 / tasa)} ${origen}`;
+}
+
+export function textoFuenteCotizacion(gasto) {
+  const fecha = gasto?.FechaCotizacion ? formatExpenseDate(gasto.FechaCotizacion) : "";
+  if (gasto?.FuenteCotizacion === "manual") {
+    return `Monto en pesos ingresado por quien cargó el gasto${fecha ? ` (${fecha})` : ""}`;
+  }
+  if (gasto?.FuenteCotizacion === "referencia") {
+    return `Tipo de cambio de referencia (Frankfurter)${fecha ? ` para el ${fecha}` : ""}`;
+  }
+  return "Tipo de cambio de referencia del día del gasto";
+}
+
 function Fila({ icono, etiqueta, valor, testID }) {
   return (
     <View style={styles.fila} testID={testID}>
@@ -29,20 +54,12 @@ function Fila({ icono, etiqueta, valor, testID }) {
   );
 }
 
-/**
- * Datos del gasto tal como los muestra el detalle: nombre, monto, fecha,
- * categoría, pagador, quién lo registró, división y participantes.
- *
- * Lo reutiliza la advertencia de posible gasto duplicado (US 95) para mostrar
- * el gasto existente igual que cuando se lo toca en la lista. Espera los
- * campos de `GastoDetalleRead` (o `GastoPosibleDuplicadoRead`, que trae los
- * mismos). `fechaCarga` (ya formateada) se agrega a "Registró": la advertencia
- * la muestra porque ayuda a decidir si es el mismo pago.
- */
 export function ExpenseDetailContent({ gasto, pagoYo = false, fechaCarga = "" }) {
   const moneda = gasto?.MonedaViaje;
   const monedaOriginal = String(gasto?.MonedaOriginal ?? "").toUpperCase();
   const mostrarOriginal = Boolean(gasto) && monedaOriginal && monedaOriginal !== moneda;
+  const cotizacion = mostrarOriginal ? textoCotizacion(gasto) : null;
+  const esManual = gasto?.FuenteCotizacion === "manual";
 
   return (
     <>
@@ -62,6 +79,23 @@ export function ExpenseDetailContent({ gasto, pagoYo = false, fechaCarga = "" })
           ) : null}
         </View>
       </View>
+
+      {cotizacion ? (
+        <View style={styles.cotizacion} testID="expense-detail-cotizacion">
+          <View style={styles.cotizacionFila}>
+            <FontAwesome6 color={colors.primary} name="money-bill-transfer" size={13} />
+            <Text style={styles.cotizacionValor}>{cotizacion}</Text>
+          </View>
+          <Text style={styles.cotizacionFuente} testID="expense-detail-cotizacion-fuente">
+            {textoFuenteCotizacion(gasto)}
+          </Text>
+          {!esManual ? (
+            <Text style={styles.cotizacionNota}>
+              Es un valor de referencia: puede no coincidir con lo que cobró la tarjeta o una casa de cambio.
+            </Text>
+          ) : null}
+        </View>
+      ) : null}
 
       <View style={styles.bloque}>
         <Fila etiqueta="Fecha" icono="calendar" valor={formatExpenseDate(gasto.FechaGasto)} />
@@ -99,16 +133,6 @@ export function ExpenseDetailContent({ gasto, pagoYo = false, fechaCarga = "" })
   );
 }
 
-/**
- * Detalle de un gasto en modo lectura (US 79).
- *
- * Lo ve cualquier participante del viaje. Desde acá se decide qué hacer con
- * el gasto:
- * - "Editar" si el usuario puede editarlo (`gasto.PuedeEditar`); si no, se
- *   muestra el motivo que informa el backend (por ejemplo, que solo el creador
- *   o el pagador actual pueden editarlo);
- * - "Eliminar" si `canDelete` (mismas reglas que el botón de la lista).
- */
 export default function ExpenseDetailModal({
   visible,
   gasto,
@@ -284,6 +308,31 @@ const styles = StyleSheet.create({
   original: {
     ...textStyles.meta,
     color: colors.textSecondary,
+  },
+  cotizacion: {
+    gap: 4,
+    borderRadius: radii.sm,
+    backgroundColor: colors.surfaceMuted,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.sm,
+  },
+  cotizacionFila: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.xs,
+  },
+  cotizacionValor: {
+    ...textStyles.bodyStrong,
+    color: colors.primary,
+  },
+  cotizacionFuente: {
+    ...textStyles.meta,
+    color: colors.textSecondary,
+  },
+  cotizacionNota: {
+    ...textStyles.meta,
+    fontSize: 12,
+    color: colors.textMuted,
   },
   bloque: {
     borderWidth: 1,

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
+import EncabezadoBackoffice from '../../components/backoffice/EncabezadoBackoffice';
 import { obtenerPlanes, guardarPlanes, obtenerAuditoriaPlanes } from '../../services/backofficeApi';
 import { backofficeColors as c } from '../../theme/backofficeTokens';
 import { radii, spacing, textStyles } from '../../theme/tokens';
@@ -131,9 +132,12 @@ export default function BackofficePlanesScreen({ onVolver }) {
   }
 
   return <View style={styles.pantalla}>
-    <Pressable accessibilityRole="button" disabled={guardando} onPress={onVolver}><Text style={styles.enlace}>← Volver al inicio</Text></Pressable>
-    <Text style={styles.titulo}>Planes y límites</Text>
-    <Text style={styles.texto}>Configurá la oferta de Pro y los cupos de cada plan.</Text>
+    <EncabezadoBackoffice
+      bajada="Configurá la oferta de Pro y los cupos de cada plan."
+      onVolver={onVolver}
+      titulo="Planes y límites"
+      volverDeshabilitado={guardando}
+    />
     {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
     {aviso ? <Text accessibilityRole="alert" style={styles.exito}>{aviso}</Text> : null}
     {cargando ? <ActivityIndicator color={c.acento} /> : !form ?
@@ -165,21 +169,86 @@ export default function BackofficePlanesScreen({ onVolver }) {
 }
 
 const styles = StyleSheet.create({
-  pantalla: { gap: spacing.md },
-  titulo: { ...textStyles.screenTitle, color: c.texto },
-  subtitulo: { ...textStyles.bodyStrong, color: c.texto, fontSize: 20 },
-  texto: { ...textStyles.meta, color: c.textoSecundario },
-  enlace: { ...textStyles.bodyStrong, color: c.acento },
-  tarjeta: { backgroundColor: c.panel, borderColor: c.borde, borderWidth: 1, borderRadius: radii.md, padding: spacing.lg, gap: spacing.md },
-  fila: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.md },
-  plan: { flexBasis: 320, flexGrow: 1 },
-  campo: { gap: spacing.xs, flexGrow: 1, minWidth: 180 },
-  label: { ...textStyles.bodyStrong, color: c.texto, fontSize: 14 },
-  input: { ...textStyles.body, color: c.texto, backgroundColor: c.superficie, borderWidth: 1, borderColor: c.bordeFuerte, borderRadius: radii.xs, padding: spacing.sm, minHeight: 46 },
-  boton: { backgroundColor: c.acento, borderRadius: radii.sm, padding: spacing.md, alignItems: 'center', alignSelf: 'flex-start', minWidth: 180 },
-  textoBoton: { ...textStyles.bodyStrong, color: c.sobreAcento },
-  deshabilitado: { opacity: 0.6 },
-  error: { ...textStyles.body, color: c.peligro },
-  exito: { ...textStyles.body, color: c.salvia },
-  evento: { gap: spacing.xxs, borderTopWidth: 1, borderTopColor: c.borde, paddingTop: spacing.sm },
+  pantalla: { 
+    gap: spacing.md 
+  },
+  subtitulo: { 
+    ...textStyles.bodyStrong, 
+    color: c.texto, 
+    fontSize: 20 
+  },
+  texto: { 
+    ...textStyles.meta, 
+    color: c.textoSecundario 
+  },
+  enlace: { 
+    ...textStyles.bodyStrong, 
+    color: c.acento 
+  },
+  tarjeta: { 
+    backgroundColor: c.panel, 
+    borderColor: c.borde, 
+    borderWidth: 1, 
+    borderRadius: radii.md, 
+    padding: spacing.lg, 
+    gap: spacing.md 
+  },
+  fila: { 
+    flexDirection: 'row', 
+    flexWrap: 'wrap', 
+    gap: spacing.md 
+  },
+  plan: { 
+    flexBasis: 320, 
+    flexGrow: 1 
+  },
+  campo: { 
+    gap: spacing.xs, 
+    flexGrow: 1, 
+    minWidth: 180 
+  },
+  label: { 
+    ...textStyles.bodyStrong, 
+    color: c.texto, 
+    fontSize: 14 
+  },
+  input: { 
+    ...textStyles.body, 
+    color: c.texto, 
+    backgroundColor: c.superficie, 
+    borderWidth: 1, 
+    borderColor: c.bordeFuerte, 
+    borderRadius: radii.xs, 
+    padding: spacing.sm, 
+    minHeight: 46 
+  },
+  boton: { 
+    backgroundColor: c.acento, 
+    borderRadius: radii.sm, 
+    padding: spacing.md, 
+    alignItems: 'center', 
+    alignSelf: 'flex-start', 
+    minWidth: 180 
+  },
+  textoBoton: { 
+    ...textStyles.bodyStrong, 
+    color: c.sobreAcento 
+  },
+  deshabilitado: { 
+    opacity: 0.6 
+  },
+  error: { 
+    ...textStyles.body, 
+    color: c.peligro 
+  },
+  exito: { 
+    ...textStyles.body, 
+    color: c.salvia 
+  },
+  evento: { 
+    gap: spacing.xxs, 
+    borderTopWidth: 1, 
+    borderTopColor: c.borde, 
+    paddingTop: spacing.sm 
+  },
 });

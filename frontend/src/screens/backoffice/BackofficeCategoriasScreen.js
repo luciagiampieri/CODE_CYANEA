@@ -2,6 +2,7 @@ import { FontAwesome6 } from '@expo/vector-icons';
 import { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 
+import EncabezadoBackoffice from '../../components/backoffice/EncabezadoBackoffice';
 import FormularioCategoria from '../../components/backoffice/FormularioCategoria';
 import { appToast } from '../../components/ui/AppDialog';
 import {
@@ -42,7 +43,6 @@ export default function BackofficeCategoriasScreen({ onVolver }) {
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState('');
   const [recarga, setRecarga] = useState(0);
-  // { modo: 'crear' | 'editar', tipo, categoria? }
   const [formulario, setFormulario] = useState(null);
   const [procesandoId, setProcesandoId] = useState(null);
 
@@ -111,7 +111,6 @@ export default function BackofficeCategoriasScreen({ onVolver }) {
 
   async function eliminar(categoria) {
     if (categoria.cantidadUsos > 0) {
-      // CA 6: una categoría en uso no se elimina; se ofrece desactivarla.
       if (!categoria.activa) {
         avisar(
           'No se puede eliminar',
@@ -183,32 +182,25 @@ export default function BackofficeCategoriasScreen({ onVolver }) {
 
   return (
     <View>
-      <Pressable onPress={onVolver} style={({ pressed }) => [styles.volver, pressed && styles.presionado]}>
-        <FontAwesome6 color={c.textoSecundario} name="arrow-left" size={12} />
-        <Text style={styles.textoVolver}>Volver al inicio</Text>
-      </Pressable>
-
-      <View style={styles.encabezado}>
-        <View style={styles.textosEncabezado}>
-          <Text style={styles.titulo}>Categorías</Text>
-          <Text style={styles.bajada}>
-            Administrá las categorías que se ofrecen a los viajeros al registrar gastos, documentos y
-            tareas del checklist.
-          </Text>
-        </View>
-        <Pressable
-          onPress={() => setFormulario({ modo: 'crear', tipo: 'gastos' })}
-          style={({ hovered, pressed }) => [
-            styles.botonPrincipal,
-            hovered && styles.hover,
-            pressed && styles.presionado,
-          ]}
-          testID="categorias-nueva"
-        >
-          <FontAwesome6 color={c.sobreAcento} name="plus" size={13} />
-          <Text style={styles.textoBotonPrincipal}>Nueva categoría</Text>
-        </Pressable>
-      </View>
+      <EncabezadoBackoffice
+        accion={
+          <Pressable
+            onPress={() => setFormulario({ modo: 'crear', tipo: 'gastos' })}
+            style={({ hovered, pressed }) => [
+              styles.botonPrincipal,
+              hovered && styles.hover,
+              pressed && styles.presionado,
+            ]}
+            testID="categorias-nueva"
+          >
+            <FontAwesome6 color={c.sobreAcento} name="plus" size={13} />
+            <Text style={styles.textoBotonPrincipal}>Nueva categoría</Text>
+          </Pressable>
+        }
+        bajada="Administrá las categorías que se ofrecen a los viajeros al registrar gastos, documentos y tareas del checklist."
+        onVolver={onVolver}
+        titulo="Categorías"
+      />
 
       {contenido}
 
@@ -360,39 +352,6 @@ function BotonAccion({ icono, etiqueta, onPress, deshabilitado = false, peligro 
 }
 
 const styles = StyleSheet.create({
-  volver: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    alignSelf: 'flex-start',
-    gap: spacing.xs,
-    marginBottom: spacing.lg,
-  },
-  textoVolver: {
-    ...textStyles.meta,
-    color: c.textoSecundario,
-  },
-  encabezado: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    alignItems: 'flex-end',
-    justifyContent: 'space-between',
-    gap: spacing.lg,
-    marginBottom: spacing.xl,
-  },
-  textosEncabezado: {
-    flexShrink: 1,
-    maxWidth: 720,
-  },
-  titulo: {
-    ...textStyles.brandTitle,
-    color: c.texto,
-    fontSize: 36,
-  },
-  bajada: {
-    ...textStyles.body,
-    color: c.textoSecundario,
-    marginTop: spacing.xs,
-  },
   botonPrincipal: {
     flexDirection: 'row',
     alignItems: 'center',

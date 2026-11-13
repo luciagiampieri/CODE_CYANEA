@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, Text, TextInput, View } from 'react-native';
+import EncabezadoBackoffice from '../../components/backoffice/EncabezadoBackoffice';
 import ResumenFinanciero from '../../components/backoffice/ResumenFinanciero';
 import TablaFinanzas, { EstadoFinanciero, fechaCorta } from '../../components/backoffice/TablaFinanzas';
 import ConsultaPagos from '../../components/backoffice/ConsultaPagos';
@@ -34,8 +35,7 @@ function DetalleSuscripcion({ id, onVolver }) {
     return () => { vigente = false; };
   }, [id, recarga]);
   return <View style={s.pantalla}>
-    <BotonFinanzas onPress={onVolver}>Volver a suscripciones</BotonFinanzas>
-    <Text style={s.titulo}>Suscripción #{id}</Text>
+    <EncabezadoBackoffice etiquetaVolver="Volver a suscripciones" onVolver={onVolver} titulo={`Suscripción #${id}`} />
     {error ? <><Text accessibilityRole="alert" style={s.error}>{error}</Text><BotonFinanzas onPress={() => setRecarga((n) => n + 1)}>Reintentar detalle</BotonFinanzas></> : datos ?
       <><DatosSuscripcion item={datos} /><ConsultaPagos key={id} idSuscripcion={id} /></> : <ActivityIndicator color={c.acento} />}
   </View>;
@@ -66,9 +66,11 @@ export default function BackofficeSuscripcionesScreen({ onVolver }) {
 
   if (seleccionada != null) return <DetalleSuscripcion id={seleccionada} onVolver={() => setSeleccionada(null)} />;
   return <View style={s.pantalla}>
-    <BotonFinanzas onPress={onVolver}>Volver al inicio</BotonFinanzas>
-    <Text style={s.titulo}>Suscripciones y pagos</Text>
-    <Text style={s.texto}>De la evolución de ingresos al detalle de cada operación.</Text>
+    <EncabezadoBackoffice
+      bajada="De la evolución de ingresos al detalle de cada operación."
+      onVolver={onVolver}
+      titulo="Suscripciones y pagos"
+    />
     <View style={s.fila}>
       <BotonFinanzas seleccionado={vista === 'resumen'} onPress={() => setVista('resumen')}>Resumen ejecutivo</BotonFinanzas>
       <BotonFinanzas seleccionado={vista === 'suscripciones'} onPress={() => setVista('suscripciones')}>Suscripciones</BotonFinanzas>

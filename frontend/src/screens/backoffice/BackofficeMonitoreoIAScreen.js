@@ -12,6 +12,7 @@ import {
 } from 'react-native';
 
 import CampoFecha from '../../components/backoffice/CampoFecha';
+import EncabezadoBackoffice from '../../components/backoffice/EncabezadoBackoffice';
 import { appToast } from '../../components/ui/AppDialog';
 import { configurarUmbralCostoIA, obtenerMonitoreoIA } from '../../services/backofficeApi';
 import { backofficeColors as c } from '../../theme/backofficeTokens';
@@ -149,16 +150,11 @@ export default function BackofficeMonitoreoIAScreen({ onVolver }) {
 
   return (
     <View>
-      <Pressable onPress={onVolver} style={({ pressed }) => [styles.volver, pressed && styles.presionado]}>
-        <FontAwesome6 color={c.textoSecundario} name="arrow-left" size={12} />
-        <Text style={styles.textoVolver}>Volver al inicio</Text>
-      </Pressable>
-
-      <Text style={styles.titulo}>Monitoreo de IA</Text>
-      <Text style={styles.bajada}>
-        Controlá el consumo y el costo de los servicios de inteligencia artificial y detectá fallas
-        en las funcionalidades que dependen de ellos.
-      </Text>
+      <EncabezadoBackoffice
+        bajada="Controlá el consumo y el costo de los servicios de inteligencia artificial y detectá fallas en las funcionalidades que dependen de ellos."
+        onVolver={onVolver}
+        titulo="Monitoreo de IA"
+      />
 
       <View style={styles.panelFiltros}>
         <View style={styles.etiquetaGrupoFila}>
@@ -470,29 +466,6 @@ function PanelUmbral({ umbral, onActualizado }) {
 }
 
 const styles = StyleSheet.create({
-  volver: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    alignSelf: 'flex-start',
-    gap: spacing.xs,
-    marginBottom: spacing.lg,
-  },
-  textoVolver: {
-    ...textStyles.meta,
-    color: c.textoSecundario,
-  },
-  titulo: {
-    ...textStyles.brandTitle,
-    color: c.texto,
-    fontSize: 36,
-  },
-  bajada: {
-    ...textStyles.body,
-    color: c.textoSecundario,
-    marginTop: spacing.xs,
-    marginBottom: spacing.xl,
-    maxWidth: 760,
-  },
   panelFiltros: {
     padding: spacing.lg,
     gap: spacing.sm,

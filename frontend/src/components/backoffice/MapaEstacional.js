@@ -5,29 +5,67 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { backofficeColors as c } from '../../theme/backofficeTokens';
 import { radii, spacing, textStyles } from '../../theme/tokens';
 import { MESES_CORTOS, MESES_LARGOS, formatearNumero } from '../../utils/formatoMetricas';
-import { mesDestacado } from '../../utils/tendencias';
+import { mesConMayorPromedio } from '../../utils/tendencias';
 
 const SERIES = [
   {
     clave: 'salidas',
     titulo: 'Salidas de viajes',
     color: c.salvia,
-    ayuda: 'En qué meses viajan los grupos (fecha de inicio del viaje, incluye los planificados hasta el año que viene).',
+    ayuda: 'En qué meses viajan los grupos (fecha de inicio del viaje, incluye los planificados hasta el año que viene y excluye cancelados o eliminados).',
   },
   { clave: 'viajes', titulo: 'Viajes creados', color: c.cielo, ayuda: 'En qué meses se planifican los viajes.' },
   { clave: 'usuarios', titulo: 'Registros', color: c.manteca, ayuda: 'En qué meses se suma gente nueva a Cyanea.' },
 ];
 
 const SEPARACION = 4;
-const ANCHO_ANIO = 56;
+const ANCHO_ANIO = 64;
 const ANCHO_TOTAL = 64;
 const ANCHO_CELDA_MINIMO = 44;
 const ALTO_CELDA = 34;
 
 function colorCelda(color, valor, maximo) {
   if (!valor || !maximo) return null;
-  const opacidad = 0.18 + 0.72 * (valor / maximo);
+  const opacidad = 0.18 + 0.72 * Math.min(1, valor / maximo);
   return `${color}${Math.round(opacidad * 255).toString(16).padStart(2, '0')}`;
+}
+
+function partesFecha(valor) {
+  if (!valor) return null;
+  const [anio, mes, dia] = String(valor).slice(0, 10).split('-').map(Number);
+  return { anio, mes: mes - 1, dia };
+}
+
+function indiceMes(anio, mes) {
+  return anio * 12 + mes;
+}
+
+function crearEvaluador(estacionalidad, clave) {
+  const inicio = partesFecha(estacionalidad.inicio);
+  const hoy = partesFecha(estacionalidad.hoy);
+  if (!inicio || !hoy) return () => 'completa';
+  const mesInicio = indiceMes(inicio.anio, inicio.mes);
+  const inicioParcial = inicio.dia > 1;
+  const mesHoy = indiceMes(hoy.anio, hoy.mes);
+  return (anio, mes) => {
+    const actual = indiceMes(anio, mes);
+    if (actual < mesInicio) return 'fuera';
+    if (actual === mesInicio && inicioParcial) return 'parcial';
+    if (clave === 'salidas') return 'completa';
+    if (actual > mesHoy) return 'fuera';
+    if (actual === mesHoy) return 'parcial';
+    return 'completa';
+  };
+}
+
+function calcularPromedios(filas, evaluar) {
+  return Array.from({ length: 12 }, (_, mes) => {
+    const valores = filas
+      .filter((fila) => evaluar(fila.anio, mes) === 'completa')
+      .map((fila) => fila.meses[mes] || 0);
+    if (!valores.length) return null;
+    return Math.round((valores.reduce((a, b) => a + b, 0) / valores.length) * 10) / 10;
+  });
 }
 
 export default function MapaEstacional({ estacionalidad }) {
@@ -49,12 +87,11 @@ export default function MapaEstacional({ estacionalidad }) {
   }
 
   const filas = estacionalidad[clave] || [];
+  const evaluar = crearEvaluador(estacionalidad, clave);
   const maximo = Math.max(0, ...filas.flatMap((fila) => fila.meses));
-  const totalesMes = Array.from({ length: 12 }, (_, mes) =>
-    filas.reduce((suma, fila) => suma + (fila.meses[mes] || 0), 0)
-  );
-  const maximoTotales = Math.max(0, ...totalesMes);
-  const destacado = mesDestacado(filas);
+  const promedios = calcularPromedios(filas, evaluar);
+  const maximoPromedios = Math.max(0, ...promedios.map((valor) => valor ?? 0));
+  const destacado = mesConMayorPromedio(promedios);
   const anchoCelda = ancho
     ? Math.max(
         ANCHO_CELDA_MINIMO,
@@ -62,13 +99,21 @@ export default function MapaEstacional({ estacionalidad }) {
       )
     : ANCHO_CELDA_MINIMO;
 
-  function renderCelda(valor, max, indice, fuerte = false) {
+  function renderCelda(valor, max, indice, estado = 'completa', fuerte = false) {
+    if (estado === 'fuera') {
+      return <View key={MESES_CORTOS[indice]} style={[styles.celda, styles.celdaFuera, { width: anchoCelda }]} />;
+    }
     const fondo = colorCelda(serie.color, valor, max);
     const oscuro = valor && max && valor / max > 0.5;
     return (
       <View
         key={MESES_CORTOS[indice]}
-        style={[styles.celda, { width: anchoCelda }, fondo ? { backgroundColor: fondo } : styles.celdaVacia]}
+        style={[
+          styles.celda,
+          { width: anchoCelda },
+          fondo ? { backgroundColor: fondo } : styles.celdaVacia,
+          estado === 'parcial' && styles.celdaParcial,
+        ]}
       >
         {valor ? (
           <Text style={[styles.valorCelda, fuerte && styles.valorFuerte, oscuro && styles.valorOscuro]}>
@@ -133,21 +178,33 @@ export default function MapaEstacional({ estacionalidad }) {
                 return (
                   <View key={fila.anio} style={[styles.fila, !total && styles.filaSinActividad]}>
                     <Text style={[styles.anio, { width: ANCHO_ANIO }]}>{fila.anio}</Text>
-                    {fila.meses.map((valor, indice) => renderCelda(valor, maximo, indice))}
+                    {fila.meses.map((valor, indice) => renderCelda(valor, maximo, indice, evaluar(fila.anio, indice)))}
                     <Text style={[styles.total, { width: ANCHO_TOTAL }]}>{formatearNumero(total)}</Text>
                   </View>
                 );
               })}
 
               <View style={[styles.fila, styles.filaTotales]}>
-                <Text style={[styles.anioTotales, { width: ANCHO_ANIO }]}>Total</Text>
-                {totalesMes.map((valor, indice) => renderCelda(valor, maximoTotales, indice, true))}
-                <Text style={[styles.total, styles.totalGeneral, { width: ANCHO_TOTAL }]}>
-                  {formatearNumero(totalesMes.reduce((a, b) => a + b, 0))}
-                </Text>
+                <Text style={[styles.anioTotales, { width: ANCHO_ANIO }]}>Promedio</Text>
+                {promedios.map((valor, indice) =>
+                  valor === null
+                    ? renderCelda(0, maximoPromedios, indice, 'fuera')
+                    : renderCelda(valor, maximoPromedios, indice, 'completa', true)
+                )}
+                <Text style={[styles.total, { width: ANCHO_TOTAL }]} />
               </View>
             </View>
           </ScrollView>
+          <View style={styles.referencias}>
+            <View style={styles.referencia}>
+              <View style={[styles.muestra, styles.celdaParcial, { backgroundColor: `${serie.color}55` }]} />
+              <Text style={styles.textoReferencia}>Mes incompleto (no entra en el promedio)</Text>
+            </View>
+            <View style={styles.referencia}>
+              <View style={[styles.muestra, styles.celdaFuera]} />
+              <Text style={styles.textoReferencia}>Sin datos posibles (antes del lanzamiento o a futuro)</Text>
+            </View>
+          </View>
         </View>
       )}
 
@@ -155,8 +212,9 @@ export default function MapaEstacional({ estacionalidad }) {
         <View style={styles.insight}>
           <FontAwesome6 color={serie.color} name="lightbulb" size={13} />
           <Text style={styles.textoInsight}>
-            <Text style={styles.textoInsightFuerte}>{MESES_LARGOS[destacado.mes]}</Text> es el mes más fuerte (
-            {formatearNumero(destacado.total)} en total). Es el momento para anticipar campañas y promociones.
+            <Text style={styles.textoInsightFuerte}>{MESES_LARGOS[destacado.mes]}</Text> es el mes más fuerte, con un
+            promedio de {formatearNumero(destacado.promedio)} por año contando solo meses completos. Es el momento para
+            anticipar campañas y promociones.
           </Text>
         </View>
       ) : null}
@@ -264,6 +322,17 @@ const styles = StyleSheet.create({
   celdaVacia: {
     backgroundColor: c.panel,
   },
+  celdaParcial: {
+    borderWidth: 1,
+    borderStyle: 'dashed',
+    borderColor: c.textoSecundario,
+    opacity: 0.6,
+  },
+  celdaFuera: {
+    backgroundColor: 'transparent',
+    borderWidth: 1,
+    borderColor: c.borde,
+  },
   valorCelda: {
     ...textStyles.bodyStrong,
     color: c.texto,
@@ -281,8 +350,26 @@ const styles = StyleSheet.create({
     fontSize: 13,
     textAlign: 'center',
   },
-  totalGeneral: {
-    color: c.texto,
+  referencias: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.lg,
+    marginTop: spacing.md,
+  },
+  referencia: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+  },
+  muestra: {
+    width: 18,
+    height: 14,
+    borderRadius: 4,
+  },
+  textoReferencia: {
+    ...textStyles.meta,
+    color: c.textoTenue,
+    fontSize: 12,
   },
   insight: {
     flexDirection: 'row',

@@ -149,6 +149,8 @@ MONEDA_PESOS_ARGENTINOS = "ARS"
 CONVERSION_REQUIRED_CODE = "CONVERSION_REQUIRED"
 EXPENSE_DELETE_LOCKED_CODE = "EXPENSE_DELETE_LOCKED_BY_PAID_SETTLEMENT"
 TIPO_CAMBIO_PRECISION = Decimal("0.000001")
+FUENTE_COTIZACION_REFERENCIA = "referencia"
+FUENTE_COTIZACION_MANUAL = "manual"
 
 
 def _cotizacion(origen: str, destino: str, fecha: date) -> Decimal:
@@ -159,6 +161,19 @@ def _cotizacion(origen: str, destino: str, fecha: date) -> Decimal:
             status_code=503,
             detail="Servicio de cotización no disponible. No se pudo realizar la conversión de moneda.",
         )
+
+
+def _origen_cotizacion(
+    data: GastoCreate | GastoUpdate,
+    moneda_gasto: str,
+    moneda_base: str,
+    fecha_gasto: date,
+) -> tuple[str | None, date | None]:
+    if data.MontoConvertidoARS is not None and moneda_gasto != MONEDA_PESOS_ARGENTINOS:
+        return FUENTE_COTIZACION_MANUAL, fecha_gasto
+    if moneda_gasto != moneda_base:
+        return FUENTE_COTIZACION_REFERENCIA, fecha_gasto
+    return None, None
 
 
 def _resolver_conversion(
@@ -456,12 +471,13 @@ async def create_gasto(data: GastoCreate, db: Session = Depends(get_db), current
     moneda_gasto = (data.MonedaOriginal or moneda_base).upper()
 
     monto_convertido, tipo_cambio = _resolver_conversion(data, moneda_gasto, moneda_base, fecha_gasto_dt)
+    fuente_cotizacion, fecha_cotizacion = _origen_cotizacion(
+        data, moneda_gasto, moneda_base, fecha_gasto_dt
+    )
 
     id_pagador, tipo_division_final, participantes_ids, monto_por_participante = _resolver_division(
         db, data, data.IdViaje, monto_convertido, participante_actual.IdParticipanteViaje
     )
-
-    print(f"DEBUG: Guardando gasto: {data.Nombre}, Monto Original: {data.MontoOriginal} {moneda_gasto}, Monto Convertido: {monto_convertido}")
 
     transferencias_antes = transferencias_pendientes_por_participante(db, data.IdViaje)
       
@@ -471,7 +487,9 @@ async def create_gasto(data: GastoCreate, db: Session = Depends(get_db), current
         Monto=monto_convertido,          
         MontoOriginal=data.MontoOriginal, 
         MonedaOriginal=moneda_gasto,      
-        TipoCambio=tipo_cambio,        
+        TipoCambio=tipo_cambio,
+        FuenteCotizacion=fuente_cotizacion,
+        FechaCotizacion=fecha_cotizacion,
         IdCategoria=data.IdCategoria,
         IdPagador=id_pagador,
         FechaGasto=fecha_gasto_dt,
@@ -1096,8 +1114,12 @@ async def update_gasto(
         monto_convertido, tipo_cambio = _resolver_conversion(
             data, moneda_gasto, moneda_base, fecha_gasto_dt
         )
+        fuente_cotizacion, fecha_cotizacion = _origen_cotizacion(
+            data, moneda_gasto, moneda_base, fecha_gasto_dt
+        )
     else:
         monto_convertido, tipo_cambio = gasto.Monto, gasto.TipoCambio
+        fuente_cotizacion, fecha_cotizacion = gasto.FuenteCotizacion, gasto.FechaCotizacion
 
 
     id_pagador_personal = gasto.IdPagador
@@ -1122,6 +1144,8 @@ async def update_gasto(
         gasto.MontoOriginal = data.MontoOriginal
         gasto.MonedaOriginal = moneda_gasto
         gasto.TipoCambio = tipo_cambio
+        gasto.FuenteCotizacion = fuente_cotizacion
+        gasto.FechaCotizacion = fecha_cotizacion
         gasto.IdCategoria = data.IdCategoria
         gasto.IdPagador = id_pagador
         gasto.FechaGasto = fecha_gasto_dt
@@ -1336,6 +1360,8 @@ def get_gasto(
         MonedaOriginal=gasto.MonedaOriginal,
         MonedaViaje=(viaje.Moneda or "USD").upper(),
         TipoCambio=gasto.TipoCambio,
+        FuenteCotizacion=gasto.FuenteCotizacion,
+        FechaCotizacion=gasto.FechaCotizacion,
         FechaGasto=gasto.FechaGasto,
         IdCategoria=gasto.IdCategoria,
         NombreCategoria=gasto.Categoria.Nombre,

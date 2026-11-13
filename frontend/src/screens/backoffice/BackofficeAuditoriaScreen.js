@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, ScrollView, Text, TextInput, View } from 'react-native';
 import CampoFecha from '../../components/backoffice/CampoFecha';
+import EncabezadoBackoffice from '../../components/backoffice/EncabezadoBackoffice';
 import TablaFinanzas from '../../components/backoffice/TablaFinanzas';
 import { BotonFinanzas, FiltroEstado, PaginacionFinanzas, fechaFinanciera, s } from '../../components/backoffice/FinanzasPresentacion';
 import { validarFechasPagos } from '../../components/backoffice/ConsultaPagos';
@@ -60,8 +61,7 @@ function DetalleEvento({ id, onVolver }) {
     return () => { vigente = false; };
   }, [id, recarga]);
   return <View style={s.pantalla}>
-    <BotonFinanzas onPress={onVolver}>Volver al registro</BotonFinanzas>
-    <Text style={s.titulo}>Detalle del evento</Text>
+    <EncabezadoBackoffice etiquetaVolver="Volver al registro" onVolver={onVolver} titulo="Detalle del evento" />
     {error ? <><Text accessibilityRole="alert" style={s.error}>{error}</Text><BotonFinanzas onPress={() => setRecarga((n) => n + 1)}>Reintentar detalle</BotonFinanzas></> : datos ? <>
       <View style={s.tarjeta}>
         <Text style={s.subtitulo}>{TIPOS[datos.tipo]}</Text>
@@ -123,9 +123,11 @@ export default function BackofficeAuditoriaScreen({ onVolver }) {
 
   if (evento) return <DetalleEvento id={evento} onVolver={() => setEvento(null)} />;
   return <View style={s.pantalla}>
-    <BotonFinanzas onPress={onVolver}>Volver al inicio</BotonFinanzas>
-    <Text style={s.titulo}>Registro de auditoría</Text>
-    <Text style={s.texto}>Revisá accesos y acciones sensibles. Los registros son de solo lectura.</Text>
+    <EncabezadoBackoffice
+      bajada="Revisá accesos y acciones sensibles. Los registros son de solo lectura."
+      onVolver={onVolver}
+      titulo="Registro de auditoría"
+    />
     <View style={s.tarjeta}>
       <Text style={s.subtitulo}>Filtrar eventos</Text>
       <Text style={s.texto}>Por defecto se consultan los últimos 7 días. Las fechas incluyen el día completo en hora Argentina.</Text>

@@ -37,6 +37,7 @@ const initialProfile = {
   nombreUsuario: "",
   email: "",
   fotoUrl: "",
+  planActual: null,
 };
 
 const TOTAL_PAISES_MUNDO = 195;
@@ -162,9 +163,8 @@ function ProfileHeader({
   profile,
   nombreCompleto,
   loading,
-  consumo,
+  planActual,
   esPro,
-  estadisticas,
   portada,
   isTablet,
   grande,
@@ -215,7 +215,7 @@ function ProfileHeader({
           >
             {loading ? " " : nombreCompleto || "Sin nombre"}
           </Text>
-          {consumo ? (
+          {planActual ? (
             <Text style={[styles.badge, esPro && styles.badgePro]} testID="profile-plan-badge">
               {esPro ? "Pro" : "Gratuito"}
             </Text>
@@ -293,9 +293,9 @@ function NextTripCard({ viaje, horizontal, grande, navigation }) {
   );
 }
 
-function PlanCard({ consumo, grande, navigation }) {
-  const conocido = Boolean(consumo);
-  const esPro = consumo?.planActual === "pro";
+function PlanCard({ consumo, planActual, grande, navigation }) {
+  const conocido = Boolean(planActual);
+  const esPro = planActual === "pro";
   let boton = { label: "Ver plan y suscripción", destino: "MiSuscripcion" };
   if (conocido) {
     boton = esPro
@@ -310,7 +310,7 @@ function PlanCard({ consumo, grande, navigation }) {
       grande={grande}
       testID="profile-plan-card"
     >
-      {conocido ? (
+      {consumo ? (
         <View style={styles.planMeters}>
           <View style={styles.meterRow}>
             <UsageMeter titulo="Viajes activos que administrás" uso={consumo.viajesActivos} testID="profile-uso-viajes" />
@@ -426,6 +426,7 @@ export default function ProfileScreen({ navigation }) {
             nombreUsuario: data.nombreUsuario ?? "",
             email: data.email ?? "",
             fotoUrl: data.fotoUrl ?? "",
+            planActual: data.planActual ?? null,
           });
           setPaises(visitados.paises ?? []);
           setTrips(Array.isArray(viajes) ? viajes : []);
@@ -448,7 +449,8 @@ export default function ProfileScreen({ navigation }) {
   );
 
   const nombreCompleto = `${profile.nombre} ${profile.apellido}`.trim();
-  const esPro = consumo?.planActual === "pro";
+  const planActual = consumo?.planActual ?? profile.planActual;
+  const esPro = planActual === "pro";
   const sinViajes = trips.length === 0;
 
   const proximoViaje = useMemo(() => calcularProximoViaje(trips), [trips]);
@@ -465,10 +467,6 @@ export default function ProfileScreen({ navigation }) {
     return Array.from(anios).sort((a, b) => b - a);
   }, [trips]);
 
-  const estadisticasTotales = useMemo(
-    () => calcularEstadisticas(trips, profile.id, null),
-    [trips, profile.id]
-  );
   const estadisticasAnio = useMemo(
     () => calcularEstadisticas(trips, profile.id, selectedYear),
     [trips, profile.id, selectedYear]
@@ -647,7 +645,9 @@ export default function ProfileScreen({ navigation }) {
     </Seccion>
   ) : null;
 
-  const plan = <PlanCard consumo={consumo} grande={grande} navigation={navigation} />;
+  const plan = (
+    <PlanCard consumo={consumo} planActual={planActual} grande={grande} navigation={navigation} />
+  );
   const seccionLogros = <LogrosSection logros={logros} grande={grande} />;
 
   return (
@@ -667,9 +667,8 @@ export default function ProfileScreen({ navigation }) {
             profile={profile}
             nombreCompleto={nombreCompleto}
             loading={loading}
-            consumo={consumo}
+            planActual={planActual}
             esPro={esPro}
-            estadisticas={estadisticasTotales}
             portada={portada}
             isTablet={isTablet}
             grande={grande}

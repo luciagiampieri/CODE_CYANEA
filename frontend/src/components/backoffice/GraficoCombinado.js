@@ -6,6 +6,7 @@ import Svg, { Circle, Line, Polyline, Rect } from 'react-native-svg';
 import { backofficeColors as c } from '../../theme/backofficeTokens';
 import { radii, spacing, textStyles } from '../../theme/tokens';
 import {
+  TITULOS_AGRUPACION,
   escalaRedonda,
   etiquetaCorta,
   etiquetaLarga,
@@ -24,18 +25,18 @@ const MARGEN_SUPERIOR = 14;
 const MARGEN_INFERIOR = 26;
 const MARGEN_EJE = 46;
 const MARGEN_SIN_EJE = 12;
-const ANCHO_TOOLTIP = 190;
-const MAX_PUNTOS_CON_MARCADOR = 45;
+const ANCHO_TOOLTIP = 200;
+const MAX_PUNTOS_CON_MARCADOR = 60;
+const OPACIDAD_PARCIAL = 0.35;
 
 function buscarSerie(clave) {
   return SERIES_EVOLUCION.find((serie) => serie.clave === clave) ?? null;
 }
 
-
 export default function GraficoCombinado({ serie: datos }) {
   const [ancho, setAncho] = useState(0);
-  const [claveBarras, setClaveBarras] = useState('usuarios');
-  const [claveLinea, setClaveLinea] = useState('viajes');
+  const [claveBarras, setClaveBarras] = useState('viajes');
+  const [claveLinea, setClaveLinea] = useState('usuarios');
   const [conTendencia, setConTendencia] = useState(true);
   const [activo, setActivo] = useState(null);
 
@@ -52,12 +53,14 @@ export default function GraficoCombinado({ serie: datos }) {
 
   const puntos = datos.puntos;
   const agrupacion = datos.agrupacion;
+  const incluir = puntos.map((p) => !p.parcial);
+  const hayParciales = puntos.some((p) => p.parcial);
   const barras = buscarSerie(claveBarras);
   const linea = buscarSerie(claveLinea);
   const valoresBarras = puntos.map((p) => p[barras.clave] ?? 0);
   const valoresLinea = linea ? puntos.map((p) => p[linea.clave] ?? 0) : [];
-  const tendenciaBarras = conTendencia ? lineaTendencia(valoresBarras) : null;
-  const tendenciaLinea = conTendencia && linea ? lineaTendencia(valoresLinea) : null;
+  const tendenciaBarras = conTendencia ? lineaTendencia(valoresBarras, incluir) : null;
+  const tendenciaLinea = conTendencia && linea ? lineaTendencia(valoresLinea, incluir) : null;
   const maximoBarras = escalaRedonda(Math.max(0, ...valoresBarras, ...(tendenciaBarras ?? [])));
   const maximoLinea = escalaRedonda(Math.max(0, ...valoresLinea, ...(tendenciaLinea ?? [])));
   const hayDatos = valoresBarras.some((v) => v > 0) || valoresLinea.some((v) => v > 0);
@@ -73,6 +76,11 @@ export default function GraficoCombinado({ serie: datos }) {
   const cadaCuanto = Math.max(1, Math.ceil(cantidad / 8));
   const x = (indice) => izquierda + banda * (indice + 0.5);
   const y = (valor, maximo) => base - (Math.min(Math.max(valor, 0), maximo) / maximo) * altoUtil;
+
+  function opacidad(indice) {
+    const resaltado = activo === null || activo === indice ? 1 : 0.45;
+    return puntos[indice].parcial ? resaltado * OPACIDAD_PARCIAL : resaltado;
+  }
 
   function elegirBarras(clave) {
     setClaveBarras(clave);
@@ -111,7 +119,7 @@ export default function GraficoCombinado({ serie: datos }) {
               key={`b-${puntos[indice].fecha}`}
               fill={barras.color}
               height={base - y(valor, maximoBarras)}
-              opacity={activo === null || activo === indice ? 1 : 0.45}
+              opacity={opacidad(indice)}
               rx={3}
               width={anchoBarra}
               x={x(indice) - anchoBarra / 2}
@@ -149,8 +157,10 @@ export default function GraficoCombinado({ serie: datos }) {
                 cx={x(indice)}
                 cy={y(valor, maximoLinea)}
                 fill={c.superficie}
+                opacity={puntos[indice].parcial ? 0.6 : 1}
                 r={activo === indice ? 5 : 3}
                 stroke={linea.color}
+                strokeDasharray={puntos[indice].parcial ? '2 2' : undefined}
                 strokeWidth={2}
               />
             ))
@@ -242,6 +252,9 @@ export default function GraficoCombinado({ serie: datos }) {
             ]}
           >
             <Text style={styles.fechaTooltip}>{etiquetaLarga(puntos[activo].fecha, agrupacion)}</Text>
+            {puntos[activo].parcial ? (
+              <Text style={styles.parcialTooltip}>Período incompleto</Text>
+            ) : null}
             <FilaTooltip color={barras.color} texto={barras.titulo} valor={valoresBarras[activo]} />
             {linea ? (
               <FilaTooltip color={linea.color} texto={linea.titulo} valor={valoresLinea[activo]} />
@@ -256,8 +269,15 @@ export default function GraficoCombinado({ serie: datos }) {
     <View style={styles.panel}>
       <View style={styles.cabecera}>
         <View style={styles.flex}>
-          <Text style={styles.titulo}>Evolución {agrupacion === 'mes' ? 'mensual' : 'diaria'}</Text>
-          <Text style={styles.subtitulo}>Combiná dos indicadores y compará sus tendencias.</Text>
+          <Text style={styles.titulo}>Evolución {TITULOS_AGRUPACION[agrupacion] ?? 'diaria'}</Text>
+          <Text style={styles.subtitulo}>
+            Combiná dos indicadores y compará sus tendencias. La tendencia es una regresión lineal.
+          </Text>
+          {hayParciales ? (
+            <Text style={styles.notaParcial}>
+              Los períodos incompletos se ven atenuados y no se usan para calcular la tendencia.
+            </Text>
+          ) : null}
         </View>
         <Pressable
           accessibilityRole="switch"
@@ -318,8 +338,10 @@ export default function GraficoCombinado({ serie: datos }) {
       )}
 
       <View style={styles.leyendas}>
-        <Leyenda agrupacion={agrupacion} serie={barras} tipo="barras" valores={valoresBarras} />
-        {linea ? <Leyenda agrupacion={agrupacion} serie={linea} tipo="linea" valores={valoresLinea} /> : null}
+        <Leyenda agrupacion={agrupacion} incluir={incluir} serie={barras} tipo="barras" valores={valoresBarras} />
+        {linea ? (
+          <Leyenda agrupacion={agrupacion} incluir={incluir} serie={linea} tipo="linea" valores={valoresLinea} />
+        ) : null}
       </View>
     </View>
   );
@@ -354,9 +376,9 @@ function Selector({ etiqueta, icono, opciones, valor, onCambiar, conNinguna = fa
   );
 }
 
-function Leyenda({ serie, tipo, valores, agrupacion }) {
+function Leyenda({ serie, tipo, valores, agrupacion, incluir }) {
   const total = valores.reduce((a, b) => a + b, 0);
-  const tendencia = describirTendencia(valores, agrupacion);
+  const tendencia = describirTendencia(valores, agrupacion, incluir);
   let icono = 'minus';
   if (tendencia.startsWith('En alza')) icono = 'arrow-trend-up';
   if (tendencia.startsWith('En baja')) icono = 'arrow-trend-down';
@@ -414,6 +436,12 @@ const styles = StyleSheet.create({
     ...textStyles.meta,
     color: c.textoTenue,
     marginTop: 2,
+  },
+  notaParcial: {
+    ...textStyles.meta,
+    color: c.textoSecundario,
+    fontSize: 12,
+    marginTop: 4,
   },
   selectores: {
     flexDirection: 'row',
@@ -513,6 +541,11 @@ const styles = StyleSheet.create({
     color: c.texto,
     fontSize: 13,
     marginBottom: 2,
+  },
+  parcialTooltip: {
+    ...textStyles.meta,
+    color: c.manteca,
+    fontSize: 11,
   },
   filaTooltip: {
     flexDirection: 'row',

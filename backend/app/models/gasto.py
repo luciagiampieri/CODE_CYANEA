@@ -34,6 +34,8 @@ class Gasto(Base):
 
     MontoOriginal: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False) 
     TipoCambio: Mapped[Decimal] = mapped_column(Numeric(12, 6), nullable=False, default=1.0)
+    FuenteCotizacion: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    FechaCotizacion: Mapped[date | None] = mapped_column(Date, nullable=True)
 
     IdCategoria: Mapped[int] = mapped_column(
         BigInteger, 
@@ -79,20 +81,17 @@ class Gasto(Base):
         nullable=True,
     )
 
-    # Restricciones (Check Constraints espejo de la migración)
     __table_args__ = (
         CheckConstraint('"Monto" > 0', name="CK_Gastos_Monto"),
         CheckConstraint('TRIM("Nombre") <> \'\'', name="CK_Gastos_Nombre"),
     )
 
-    # Relaciones directas
     Viaje = relationship("Viaje", back_populates="Gastos", foreign_keys=[IdViaje])
     Pagador = relationship("ParticipanteViaje", back_populates="GastosPagados", foreign_keys=[IdPagador])
     ParticipanteCreador = relationship("ParticipanteViaje", foreign_keys=[IdParticipanteCreador])
     Categoria = relationship("CategoriasGastos", back_populates="Gastos", foreign_keys=[IdCategoria])
     Comprobante = relationship("DocumentoViaje", foreign_keys=[IdDocumentoComprobante])
 
-    # Relación intermedia hacia ParticipantesGastos con eliminación en cascada
     ParticipantesAsociados = relationship(
         "ParticipantesGastos",
         back_populates="Gasto",

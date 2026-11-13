@@ -12,6 +12,7 @@ import {
 } from 'react-native';
 
 import CampoFecha from '../../components/backoffice/CampoFecha';
+import EncabezadoBackoffice from '../../components/backoffice/EncabezadoBackoffice';
 import {
   ETIQUETAS_ESTADO,
   ETIQUETAS_METODO,
@@ -221,16 +222,11 @@ export default function BackofficeUsuariosScreen({
 
   return (
     <View>
-      <Pressable
-        onPress={onVolver}
-        style={({ pressed }) => [styles.volver, pressed && styles.presionado]}
-      >
-        <FontAwesome6 color={c.textoSecundario} name="arrow-left" size={12} />
-        <Text style={styles.textoVolver}>Volver al inicio</Text>
-      </Pressable>
-
-      <Text style={styles.titulo}>Usuarios</Text>
-      <Text style={styles.bajada}>Buscá y consultá las cuentas registradas en la plataforma.</Text>
+      <EncabezadoBackoffice
+        bajada="Buscá y consultá las cuentas registradas en la plataforma."
+        onVolver={onVolver}
+        titulo="Usuarios"
+      />
 
       <View style={styles.cajaBusqueda}>
         <FontAwesome6 color={c.textoTenue} name="magnifying-glass" size={14} />
@@ -490,28 +486,6 @@ function BotonPagina({ texto, icono, iconoAlFinal, deshabilitado, onPress }) {
 }
 
 const styles = StyleSheet.create({
-  volver: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    alignSelf: 'flex-start',
-    gap: spacing.xs,
-    marginBottom: spacing.lg,
-  },
-  textoVolver: {
-    ...textStyles.meta,
-    color: c.textoSecundario,
-  },
-  titulo: {
-    ...textStyles.brandTitle,
-    color: c.texto,
-    fontSize: 36,
-  },
-  bajada: {
-    ...textStyles.body,
-    color: c.textoSecundario,
-    marginTop: spacing.xs,
-    marginBottom: spacing.xl,
-  },
   cajaBusqueda: {
     flexDirection: 'row',
     alignItems: 'center',

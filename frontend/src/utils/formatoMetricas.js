@@ -4,6 +4,9 @@ export const MESES_LARGOS = [
   'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre',
 ];
 
+export const TITULOS_AGRUPACION = { dia: 'diaria', semana: 'semanal', mes: 'mensual' };
+export const UNIDADES_AGRUPACION = { dia: 'día', semana: 'semana', mes: 'mes' };
+
 export function aISO(fecha) {
   const mes = String(fecha.getMonth() + 1).padStart(2, '0');
   const dia = String(fecha.getDate()).padStart(2, '0');
@@ -23,13 +26,16 @@ export function formatearISO(iso) {
 }
 
 export function etiquetaCorta(iso, agrupacion) {
-  const [anio, mes, dia] = iso.split('-');
-  return agrupacion === 'mes' ? `${MESES_CORTOS[Number(mes) - 1]} ${anio.slice(2)}` : `${dia}/${mes}`;
+  const [anio, mes, dia] = String(iso).slice(0, 10).split('-');
+  if (agrupacion === 'mes') return `${MESES_CORTOS[Number(mes) - 1]} ${anio.slice(2)}`;
+  return `${dia}/${mes}`;
 }
 
 export function etiquetaLarga(iso, agrupacion) {
-  const [anio, mes] = iso.split('-');
-  return agrupacion === 'mes' ? `${MESES_CORTOS[Number(mes) - 1]} ${anio}` : formatearISO(iso);
+  const [anio, mes] = String(iso).slice(0, 10).split('-');
+  if (agrupacion === 'mes') return `${MESES_CORTOS[Number(mes) - 1]} ${anio}`;
+  if (agrupacion === 'semana') return `Semana del ${formatearISO(iso)}`;
+  return formatearISO(iso);
 }
 
 export function diasDelRango(desde, hasta) {
@@ -41,7 +47,7 @@ export function formatearNumero(valor, moneda) {
   if (moneda) {
     return valor.toLocaleString('es-AR', { style: 'currency', currency: 'ARS', maximumFractionDigits: 0 });
   }
-  return valor.toLocaleString('es-AR');
+  return valor.toLocaleString('es-AR', { maximumFractionDigits: 1 });
 }
 
 export function escalaRedonda(maximo) {

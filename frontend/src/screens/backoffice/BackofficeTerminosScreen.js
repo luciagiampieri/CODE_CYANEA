@@ -2,6 +2,7 @@ import { FontAwesome6 } from '@expo/vector-icons';
 import { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 
+import EncabezadoBackoffice from '../../components/backoffice/EncabezadoBackoffice';
 import FormularioTermino from '../../components/backoffice/FormularioTermino';
 import { formatearFecha } from '../../components/backoffice/UsuarioPresentacion';
 import TermsModal from '../../components/legal/TermsModal';
@@ -202,28 +203,21 @@ export default function BackofficeTerminosScreen({ onVolver }) {
 
   return (
     <View>
-      <Pressable onPress={onVolver} style={({ pressed }) => [styles.volver, pressed && styles.presionado]}>
-        <FontAwesome6 color={c.textoSecundario} name="arrow-left" size={12} />
-        <Text style={styles.textoVolver}>Volver al inicio</Text>
-      </Pressable>
-
-      <View style={styles.encabezado}>
-        <View style={styles.textosEncabezado}>
-          <Text style={styles.titulo}>Términos y Condiciones</Text>
-          <Text style={styles.bajada}>
-            Creá versiones en borrador, previsualizalas y publicalas. Al publicar, todos los usuarios
-            deberán aceptar la nueva versión.
-          </Text>
-        </View>
-        <Pressable
-          onPress={() => setFormulario({ modo: 'crear' })}
-          style={({ hovered, pressed }) => [styles.botonPrincipal, hovered && styles.hover, pressed && styles.presionado]}
-          testID="termino-nueva"
-        >
-          <FontAwesome6 color={c.sobreAcento} name="plus" size={13} />
-          <Text style={styles.textoBotonPrincipal}>Nueva versión</Text>
-        </Pressable>
-      </View>
+      <EncabezadoBackoffice
+        accion={
+          <Pressable
+            onPress={() => setFormulario({ modo: 'crear' })}
+            style={({ hovered, pressed }) => [styles.botonPrincipal, hovered && styles.hover, pressed && styles.presionado]}
+            testID="termino-nueva"
+          >
+            <FontAwesome6 color={c.sobreAcento} name="plus" size={13} />
+            <Text style={styles.textoBotonPrincipal}>Nueva versión</Text>
+          </Pressable>
+        }
+        bajada="Creá versiones en borrador, previsualizalas y publicalas. Al publicar, todos los usuarios deberán aceptar la nueva versión."
+        onVolver={onVolver}
+        titulo="Términos y Condiciones"
+      />
 
       {contenido}
 
@@ -332,39 +326,6 @@ function BotonAccion({ icono, etiqueta, onPress, peligro = false, resaltado = fa
 }
 
 const styles = StyleSheet.create({
-  volver: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    alignSelf: 'flex-start',
-    gap: spacing.xs,
-    marginBottom: spacing.lg,
-  },
-  textoVolver: {
-    ...textStyles.meta,
-    color: c.textoSecundario,
-  },
-  encabezado: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    alignItems: 'flex-end',
-    justifyContent: 'space-between',
-    gap: spacing.lg,
-    marginBottom: spacing.xl,
-  },
-  textosEncabezado: {
-    flexShrink: 1,
-    maxWidth: 720,
-  },
-  titulo: {
-    ...textStyles.brandTitle,
-    color: c.texto,
-    fontSize: 36,
-  },
-  bajada: {
-    ...textStyles.body,
-    color: c.textoSecundario,
-    marginTop: spacing.xs,
-  },
   botonPrincipal: {
     flexDirection: 'row',
     alignItems: 'center',

@@ -1,11 +1,22 @@
-export function regresionLineal(valores) {
-  const n = valores?.length ?? 0;
+import { UNIDADES_AGRUPACION } from './formatoMetricas';
+
+function paresIncluidos(valores, incluir) {
+  const pares = [];
+  (valores ?? []).forEach((y, x) => {
+    if (!incluir || incluir[x]) pares.push([x, y]);
+  });
+  return pares;
+}
+
+export function regresionLineal(valores, incluir) {
+  const pares = paresIncluidos(valores, incluir);
+  const n = pares.length;
   if (n < 2) return null;
   let sumaX = 0;
   let sumaY = 0;
   let sumaXY = 0;
   let sumaXX = 0;
-  valores.forEach((y, x) => {
+  pares.forEach(([x, y]) => {
     sumaX += x;
     sumaY += y;
     sumaXY += x * y;
@@ -18,8 +29,8 @@ export function regresionLineal(valores) {
   return { pendiente, ordenada };
 }
 
-export function lineaTendencia(valores) {
-  const recta = regresionLineal(valores);
+export function lineaTendencia(valores, incluir) {
+  const recta = regresionLineal(valores, incluir);
   return recta ? valores.map((_, x) => recta.ordenada + recta.pendiente * x) : null;
 }
 
@@ -33,13 +44,14 @@ export function variacion(actual, anterior) {
   return { porcentaje, direccion };
 }
 
-export function describirTendencia(valores, agrupacion) {
-  const recta = regresionLineal(valores);
+export function describirTendencia(valores, agrupacion, incluir) {
+  const recta = regresionLineal(valores, incluir);
   if (!recta) return 'Sin datos suficientes';
-  const promedio = valores.reduce((a, b) => a + b, 0) / valores.length;
+  const usados = paresIncluidos(valores, incluir).map(([, y]) => y);
+  const promedio = usados.reduce((a, b) => a + b, 0) / usados.length;
   const relativa = promedio ? Math.abs(recta.pendiente) / promedio : 0;
   if (Math.abs(recta.pendiente) < 0.01 || relativa < 0.01) return 'Estable';
-  const unidad = agrupacion === 'mes' ? 'mes' : 'día';
+  const unidad = UNIDADES_AGRUPACION[agrupacion] ?? 'día';
   const magnitud = Math.abs(recta.pendiente).toLocaleString('es-AR', { maximumFractionDigits: 1 });
   return recta.pendiente > 0
     ? `En alza (+${magnitud} por ${unidad})`
@@ -54,4 +66,13 @@ export function mesDestacado(filas) {
   const maximo = Math.max(...totales);
   if (maximo === 0) return null;
   return { mes: totales.indexOf(maximo), total: maximo };
+}
+
+export function mesConMayorPromedio(promedios) {
+  let mejor = null;
+  (promedios ?? []).forEach((valor, mes) => {
+    if (valor === null || valor <= 0) return;
+    if (!mejor || valor > mejor.promedio) mejor = { mes, promedio: valor };
+  });
+  return mejor;
 }

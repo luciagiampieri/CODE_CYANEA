@@ -21,7 +21,6 @@ class ParticipantesGastosRead(BaseModel):
     Apellido: str
     NombreUsuario: str
     MontoAsignado: Optional[Decimal] = None
-    # Permite precargar al usuario actual como pagador (US 94, AC4).
     EsUsuarioActual: bool = False
     
     model_config = {
@@ -48,9 +47,6 @@ class GastoCreate(BaseModel):
     TipoDivision: Optional[TipoDivisionEnum] = None
     IdParticipantes: Optional[list[int]] = []
     DetalleMontosPersonalizados: Optional[list[ParticipanteDivisionCreate]] = []
-    # Confirmación de un gasto precargado desde un comprobante (US 94).
-    # Si la moneda del comprobante no es ARS, el usuario debe ingresar el
-    # monto convertido a pesos argentinos (RN-39).
     DesdeComprobante: bool = False
     MontoConvertidoARS: Optional[Decimal] = None
 
@@ -68,7 +64,6 @@ class GastoUpdate(BaseModel):
     TipoDivision: Optional[TipoDivisionEnum] = None
     IdParticipantes: Optional[list[int]] = []
     DetalleMontosPersonalizados: Optional[list[ParticipanteDivisionCreate]] = []
-    # Usados por la conversión de moneda compartida con el alta (US 94).
     DesdeComprobante: bool = False
     MontoConvertidoARS: Optional[Decimal] = None
 
@@ -88,7 +83,6 @@ class GastoListItemRead(BaseModel):
     IdPagador: int
     IdUsuarioPagador: int
     NombrePagador: str
-    # False en un gasto personal: solo lo ve su dueño (visibilidad_gastos).
     EsCompartido: bool = True
     IdDocumentoComprobante: Optional[int] = None
     EsPropioComprobante: bool = False
@@ -171,8 +165,6 @@ class GastoPosibleDuplicadoRead(BaseModel):
     IdUsuarioPagador: int
     NombrePagador: str
     NombreCreador: Optional[str] = None
-    # Cuándo se cargó: ayuda a decidir si es el mismo pago (por ejemplo, un
-    # doble toque o dos personas cargando lo mismo al mismo tiempo).
     FechaCreacion: datetime
     EsCompartido: bool
     TipoDivision: Optional[TipoDivisionEnum] = None
@@ -196,6 +188,8 @@ class GastoDetalleRead(BaseModel):
     MonedaOriginal: str
     MonedaViaje: str
     TipoCambio: Decimal
+    FuenteCotizacion: Optional[str] = None
+    FechaCotizacion: Optional[date] = None
     FechaGasto: date
     IdCategoria: int
     NombreCategoria: str
