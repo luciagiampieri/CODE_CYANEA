@@ -84,7 +84,7 @@ from app.services.notifications import (
     dispatch_trip_notification,
 )
 from app.services.resolucion_votaciones import obtener_o_crear_lugar
-from app.services.traslados import dias_en_viaje, ocupacion_traslados
+from app.services.traslados import dias_en_viaje, destinos_del_dia, ocupacion_traslados
 from app.services.websocket_manager import manager
 from app.services.trip_access import (
     get_trip_with_relations,
@@ -139,6 +139,16 @@ MENSAJE_SIN_PREFERENCIAS = (
 MENSAJE_SIN_REFERENCIA = (
     "Tu viaje tiene varios destinos y no sabemos dónde van a estar ese día. Agregá al menos "
     "una actividad con lugar en ese día (o en uno cercano) y volvé a pedir sugerencias."
+)
+DAY_IN_TRANSIT = "DAY_IN_TRANSIT"
+MENSAJE_DIA_EN_VIAJE = (
+    "Ese día el grupo está viajando entre destinos según el recorrido, así que no hay "
+    "actividades para sugerir."
+)
+MENSAJE_TRASLADO_SIN_AGENDAR = (
+    "Ese día cambian de destino y todavía no hay un traslado agendado, así que no sabemos "
+    "en qué ciudad van a estar en esa franja. Agendá el traslado o agregá una actividad "
+    "con lugar en ese día y volvé a pedir sugerencias."
 )
 
 
@@ -263,6 +273,46 @@ def _referencia_dias_cercanos(
             return puntos, direcciones
     return [], []
 
+def _destinos_candidatos(viaje, dia: DiaCronograma, franja_inicio: int, franja_fin: int) -> list | None:
+    """Destinos posibles para la franja según el recorrido del viaje.
+
+    None si el recorrido no lo dice (se usa la inferencia por actividades). En un día de
+    traslado con hora de salida, gana el destino donde cae la mayor parte de la franja."""
+    info = destinos_del_dia(viaje, dia.Fecha)
+    if info is None:
+        return None
+    if info.en_viaje:
+        raise _error(409, MENSAJE_DIA_EN_VIAJE, DAY_IN_TRANSIT)
+    if len(info.destinos) == 2 and info.salida is not None:
+        salida = minutos_de(info.salida)
+        antes = max(0, min(franja_fin, salida) - franja_inicio)
+        despues = max(0, franja_fin - max(franja_inicio, salida))
+        return [info.destinos[0] if antes >= despues else info.destinos[1]]
+    return list(info.destinos)
+
+
+def _actividades_en_destino(
+    actividades: list[ActividadItinerario], destino, destinos_viaje: list
+) -> list[ActividadItinerario]:
+    """Actividades cuyo lugar queda más cerca de `destino` que de los otros destinos del
+    viaje. Evita tomar como referencia una actividad de otra ciudad (por ejemplo, la del
+    día anterior a un traslado)."""
+    if destino.Lat is None or destino.Lng is None:
+        return actividades
+    con_coordenadas = [d for d in destinos_viaje if d.Lat is not None and d.Lng is not None]
+    resultado = []
+    for actividad in actividades:
+        lugar = _lugar_de(actividad)
+        if not _coordenadas_validas(lugar):
+            continue
+        lat, lng = float(lugar.Lat), float(lugar.Lng)
+        mas_cercano = min(
+            con_coordenadas, key=lambda d: distancia_km(lat, lng, float(d.Lat), float(d.Lng))
+        )
+        if mas_cercano.IdDestino == destino.IdDestino:
+            resultado.append(actividad)
+    return resultado
+
 
 def _estado_pendiente(db: Session) -> EstadoSugerenciaActividad:
     estado = db.scalar(
@@ -344,15 +394,17 @@ def _cerrar_solicitud(
     db.commit()
 
 
-def _elegir_destino(viaje, puntos: list[tuple[float, float]]) -> tuple[str, float | None, float | None]:
-    """Destino de referencia: el más cercano a los puntos de referencia (actividades del día
-    o de días vecinos); si no hay puntos, el primero del viaje."""
-    destinos = [rel.Destino for rel in viaje.Destinos if rel.Destino is not None]
+def _elegir_destino(
+    viaje, destinos: list, puntos: list[tuple[float, float]]
+) -> tuple[str, float | None, float | None]:
+    """Destino de referencia entre los candidatos: si hay uno solo (el del recorrido), ese;
+    si hay varios, el más cercano a los puntos de referencia; sin puntos, el primero."""
+    destinos = [d for d in destinos if d is not None]
     if not destinos:
         return viaje.Titulo, None, None
 
     elegido = destinos[0]
-    if puntos:
+    if len(destinos) > 1 and puntos:
         lat_c = sum(p[0] for p in puntos) / len(puntos)
         lng_c = sum(p[1] for p in puntos) / len(puntos)
         con_coordenadas = [d for d in destinos if d.Lat is not None and d.Lng is not None]
@@ -718,17 +770,31 @@ async def _generar_sugerencias_franja(
         )
 
 
-    puntos_referencia, direcciones_referencia = _referencia_de_actividades(actividades_dia)
+    destinos_viaje = [rel.Destino for rel in viaje.Destinos if rel.Destino is not None]
+    candidatos = _destinos_candidatos(viaje, dia, franja_inicio, franja_fin)
+    desde_recorrido = candidatos is not None
+    if candidatos is None:
+        candidatos = destinos_viaje
+    destino_fijo = candidatos[0] if len(candidatos) == 1 else None
+
+    actividades_ref_dia, actividades_ref_viaje = actividades_dia, actividades_viaje
+    if destino_fijo is not None and len(destinos_viaje) > 1:
+        actividades_ref_dia = _actividades_en_destino(actividades_dia, destino_fijo, destinos_viaje)
+        actividades_ref_viaje = _actividades_en_destino(
+            actividades_viaje, destino_fijo, destinos_viaje
+        )
+
+    puntos_referencia, direcciones_referencia = _referencia_de_actividades(actividades_ref_dia)
     origen_referencia = "actividades del día"
     if not puntos_referencia:
         puntos_referencia, direcciones_referencia = _referencia_dias_cercanos(
-            viaje, dia, actividades_viaje
+            viaje, dia, actividades_ref_viaje
         )
         origen_referencia = "actividades de días cercanos"
 
-    destinos_viaje = [rel.Destino for rel in viaje.Destinos if rel.Destino is not None]
-    if not puntos_referencia and len(destinos_viaje) > 1:
-        raise _error(409, MENSAJE_SIN_REFERENCIA, NO_LOCATION_REFERENCE)
+    if not puntos_referencia and len(candidatos) > 1:
+        mensaje = MENSAJE_TRASLADO_SIN_AGENDAR if desde_recorrido else MENSAJE_SIN_REFERENCIA
+        raise _error(409, mensaje, NO_LOCATION_REFERENCE)
 
     limites_planes.validar_sugerencias(db, viaje)
 
@@ -762,9 +828,11 @@ async def _generar_sugerencias_franja(
             }
         )
 
-    destino_nombre, destino_lat, destino_lng = _elegir_destino(viaje, puntos_referencia)
+    destino_nombre, destino_lat, destino_lng = _elegir_destino(viaje, candidatos, puntos_referencia)
     if not puntos_referencia:
-        origen_referencia = "destino del viaje"
+        origen_referencia = (
+            "destino del día según el recorrido" if destino_fijo is not None else "destino del viaje"
+        )
         if destino_lat is not None and destino_lng is not None:
             puntos_referencia = [(destino_lat, destino_lng)]
     centro_busqueda = puntos_referencia[0] if puntos_referencia else None

@@ -15,18 +15,21 @@ const fases = [
   { Fase: "post_viaje", Desde: "2026-01-21", Hasta: null, CantidadGastos: 0, TotalGrupo: 0, Pagado: 0, Parte: 0, Neto: 0 },
 ];
 
+const conFases = balances.map((b) => ({ ...b, Fases: fases }));
+
 describe("SettlementBalances", () => {
-  it("arriba muestra tu saldo con una explicación simple", async () => {
+  it("tu fila va primera, como 'Vos', con lo que pagaste y tu parte", async () => {
     const { getAllByTestId, getByTestId } = await render(
       <SettlementBalances balances={balances} currency="ARS" currentUserId={33} />
     );
 
     expect(getAllByTestId(/^balance-\d+$/)[0].props.testID).toBe("balance-3");
-    expect(getByTestId("balance-mine-value")).toHaveTextContent(/Debés .*100/);
-    expect(getByTestId("balance-mine-explain")).toHaveTextContent(/Pagaste .*0 y tu parte es .*100\./);
+    expect(getByTestId("balance-3")).toHaveTextContent(/Vos/);
+    expect(getByTestId("balance-3")).toHaveTextContent(/Pagaste .*0 · tu parte .*100/);
+    expect(getByTestId("balance-mine-value")).toHaveTextContent(/100.*debés/);
   });
 
-  it("si ya hubo transferencias, lo aclara", async () => {
+  it("si hubo transferencias, las muestra en la fila", async () => {
     const conTransferencia = balances.map((b) =>
       b.IdUsuario === 33 ? { ...b, BalancePendiente: 0 } : b
     );
@@ -34,11 +37,11 @@ describe("SettlementBalances", () => {
       <SettlementBalances balances={conTransferencia} currency="ARS" currentUserId={33} />
     );
 
-    expect(getByTestId("balance-mine-value")).toHaveTextContent("Estás al día");
-    expect(getByTestId("balance-mine-explain")).toHaveTextContent(/Ya contamos las transferencias/);
+    expect(getByTestId("balance-3")).toHaveTextContent(/transferiste .*100/);
+    expect(getByTestId("balance-mine-value")).toHaveTextContent(/al día/);
   });
 
-  it("'Ver de dónde sale' abre el desglose", async () => {
+  it("tocar tu fila abre el desglose", async () => {
     const onShowBreakdown = jest.fn();
     const { getByTestId } = await render(
       <SettlementBalances balances={balances} currency="ARS" currentUserId={33} onShowBreakdown={onShowBreakdown} />
@@ -58,7 +61,7 @@ describe("SettlementBalances", () => {
     expect(getByTestId("balance-2")).toHaveTextContent(/le deben/);
     expect(getByTestId("balance-4")).toHaveTextContent(/debe/);
     expect(getByTestId("balance-1")).toHaveTextContent(/al día/);
-    expect(getByTestId("balance-2")).toHaveTextContent(/Pagó .*1\.100, su parte .*1\.000/);
+    expect(getByTestId("balance-2")).toHaveTextContent(/Pagó .*1\.100 · su parte .*1\.000/);
   });
 
   it("muestra un mensaje si todavía no hay saldos", async () => {
@@ -67,26 +70,54 @@ describe("SettlementBalances", () => {
     expect(getByText(/Todavía no hay participantes aceptados/)).toBeTruthy();
   });
 
-  it("muestra los saldos por etapa: antes, durante y después del viaje", async () => {
-    const conFases = balances.map((b) => (b.IdUsuario === 33 ? { ...b, Fases: fases } : b));
-    const { getByTestId } = await render(
+  it("'Por etapa' muestra las etapas y el detalle de la primera con gastos", async () => {
+    const { getByTestId, queryByTestId } = await render(
       <SettlementBalances balances={conFases} currency="ARS" currentUserId={33} />
     );
 
-    expect(getByTestId("phase-pre_viaje")).toHaveTextContent(/Antes del viaje/);
-    expect(getByTestId("phase-pre_viaje")).toHaveTextContent(/hasta el 09\/01/);
-    expect(getByTestId("phase-pre_viaje")).toHaveTextContent(/Pagaste .*300 · tu parte .*100/);
-    expect(getByTestId("phase-en_curso")).toHaveTextContent(/Durante el viaje/);
-    expect(getByTestId("phase-en_curso")).toHaveTextContent(/del 10\/01 al 20\/01/);
-    expect(getByTestId("phase-post_viaje")).toHaveTextContent(/desde el 21\/01/);
+    expect(queryByTestId("balance-phases")).toBeNull();
+    await fireEvent.press(getByTestId("balance-mode-etapa"));
+
+    expect(getByTestId("phase-pre_viaje")).toHaveTextContent(/Antes.*1 gasto/);
+    expect(getByTestId("phase-en_curso")).toHaveTextContent(/Durante.*3 gastos/);
     expect(getByTestId("phase-post_viaje")).toHaveTextContent(/Sin gastos/);
+    expect(getByTestId("phase-detail")).toHaveTextContent(/Antes del viaje.*hasta 09\/01/);
+    expect(getByTestId("phase-detail")).toHaveTextContent(/Pagaste.*300/);
+    expect(getByTestId("phase-detail")).toHaveTextContent(/Tu parte.*100/);
+    expect(getByTestId("phase-detail")).toHaveTextContent(/\+.*200/);
   });
 
-  it("sin etapas no muestra el bloque", async () => {
+  it("en una etapa, el grupo muestra el balance de cada uno en esa etapa", async () => {
+    const { getByTestId, queryByTestId } = await render(
+      <SettlementBalances balances={conFases} currency="ARS" currentUserId={33} />
+    );
+
+    await fireEvent.press(getByTestId("balance-mode-etapa"));
+    await fireEvent.press(getByTestId("phase-en_curso"));
+
+    expect(getByTestId("phase-detail")).toHaveTextContent(/10\/01 al 20\/01/);
+    expect(getByTestId("balance-phase-2")).toHaveTextContent(/Pagó .*0 · su parte .*300/);
+    expect(getByTestId("balance-phase-2")).toHaveTextContent(/en contra/);
+    expect(queryByTestId("balance-phase-3")).toBeNull();
+  });
+
+  it("en una etapa sin gastos no muestra la lista del grupo", async () => {
+    const { getByTestId, queryByTestId } = await render(
+      <SettlementBalances balances={conFases} currency="ARS" currentUserId={33} />
+    );
+
+    await fireEvent.press(getByTestId("balance-mode-etapa"));
+    await fireEvent.press(getByTestId("phase-post_viaje"));
+
+    expect(getByTestId("phase-detail")).toHaveTextContent(/Todavía no hay gastos/);
+    expect(queryByTestId("balance-phase-2")).toBeNull();
+  });
+
+  it("sin etapas no muestra el selector de modo", async () => {
     const { queryByTestId } = await render(
       <SettlementBalances balances={balances} currency="ARS" currentUserId={33} />
     );
 
-    expect(queryByTestId("balance-phases")).toBeNull();
+    expect(queryByTestId("balance-mode")).toBeNull();
   });
 });

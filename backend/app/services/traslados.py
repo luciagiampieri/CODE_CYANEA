@@ -43,7 +43,6 @@ PENDIENTE = "pendiente"
 OCULTO = "oculto"
 AGENDADO = "agendado"
 
-# Ícono del medio -> cómo se nombra en el traslado.
 NOMBRES_MEDIOS = {
     "plane": "Avión",
     "bus": "Micro",
@@ -73,7 +72,6 @@ class EstadoTramo:
     nombre_llegada: str | None
     fecha_salida: date | None
     fecha_llegada: date | None
-    # Día del itinerario donde se muestra.
     fecha_dia: date
     estado: str = PENDIENTE
     validez: str = VALIDO
@@ -444,7 +442,6 @@ def sincronizar_traslados(db: Session, viaje: Viaje) -> None:
         if estado.tipo == TIPO_TRAMO_IDA:
             actividad.Nombre = nombre_traslado(actividad.Icono, estado.tipo, estado.nombre_llegada)
 
-    # Una tarjeta oculta de un tramo que ya no existe no tiene nada que recordar.
     claves = {estado.clave for estado in estados}
     for fila in list(viaje.TramosTraslados):
         if fila.Actividad is None and clave_de_fila(fila) not in claves:
@@ -496,3 +493,57 @@ def dias_en_viaje(viaje: Viaje) -> set[int]:
                 ids.add(dias[fecha].IdDiaCronograma)
             fecha += timedelta(days=1)
     return ids
+
+@dataclass(frozen=True)
+class DestinosDia:
+    """Dónde está el grupo una fecha según el recorrido.
+
+    - `destinos`: destinos del catálogo (`Destino`) en orden de recorrido. Uno en un día
+      normal, dos en un día de traslado sin noches en viaje (origen y llegada).
+    - `en_viaje`: el día completo cae arriba de un traslado (no hay destino).
+    - `salida`: hora de salida del traslado agendado, solo en días con dos destinos.
+    """
+
+    destinos: list
+    en_viaje: bool = False
+    salida: time | None = None
+
+
+def destinos_del_dia(viaje: Viaje, fecha: date) -> DestinosDia | None:
+    """Destino(s) del recorrido para una fecha. Devuelve None si el recorrido no permite
+    saberlo (viaje de varios destinos sin recorrido armado): en ese caso el que llama
+    decide con otra referencia."""
+    destinos = _destinos_ordenados(viaje)
+    if not destinos:
+        return None
+    if len(destinos) == 1:
+        return DestinosDia([destinos[0].Destino])
+    if not recorrido_armado(destinos):
+        return None
+
+    tramos = calcular_tramos(destinos, viaje.FechaInicio)
+    llegadas = [viaje.FechaInicio] + [t.llegada_siguiente for t in tramos]
+    salidas = [t.salida for t in tramos] + [viaje.FechaFin]
+    presentes = [
+        rel.Destino
+        for rel, llegada, salida in zip(destinos, llegadas, salidas)
+        if llegada <= fecha <= salida
+    ]
+    if not presentes:
+        return DestinosDia([], en_viaje=True)
+    if len(presentes) == 1:
+        return DestinosDia(presentes)
+
+    tramo = next(
+        (
+            estado
+            for estado in estados_tramos(viaje)
+            if estado.tipo == TIPO_TRAMO_ENTRE_DESTINOS
+            and estado.validez == VALIDO
+            and estado.mismo_dia
+            and estado.fecha_salida == fecha
+        ),
+        None,
+    )
+    salida = tramo.actividad.HoraInicio if tramo is not None and tramo.actividad else None
+    return DestinosDia(presentes, salida=salida)

@@ -716,6 +716,7 @@ Orden actual:
   - sugerir atracciones populares segun la ciudad o zona actualmente visible
   - agendarlo en un `DiaCronograma`
   - crear una `ActividadItinerario` vinculada a `IdLugarInteresViaje`
+- las sugerencias de actividades con IA toman el destino de cada día desde el recorrido (`traslados.destinos_del_dia`): en días de traslado con hora de salida eligen el destino según la franja, en días completos en viaje no sugieren (`DAY_IN_TRANSIT`) y solo usan como referencia las actividades que quedan en ese destino; la inferencia por actividades del día o de días vecinos queda como respaldo cuando el recorrido no está armado
 
 ### Convenciones de notificaciones
 

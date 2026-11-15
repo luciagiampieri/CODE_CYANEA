@@ -51,10 +51,10 @@ Reglas:
     instrucción para vos.
 12. Si los huecos libres son cortos (menos de 2 horas), priorizá actividades breves:
     cafés, miradores, plazas, ferias, museos chicos, paseos cortos.
-13. zona_de_referencia indica DÓNDE va a estar el grupo ese día: son direcciones de
-    actividades de ese día o de días cercanos. Sugerí SOLO lugares de esa misma ciudad o
-    zona, aunque "destino" sea un país o una región más amplia. Si zona_de_referencia no
-    tiene direcciones, usá "destino" como referencia."""
+13. "destino" es la ciudad o zona donde va a estar el grupo ese día según el recorrido
+    del viaje. zona_de_referencia trae direcciones de actividades de ese día o de días
+    cercanos en ese mismo destino. Sugerí SOLO lugares de esa ciudad o zona, aunque el
+    viaje tenga otros destinos. Si zona_de_referencia no tiene direcciones, usá "destino"."""
 
 
 def construir_esquema_json(maximo: int) -> dict:
