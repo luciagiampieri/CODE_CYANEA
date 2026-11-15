@@ -26,6 +26,7 @@ from app.models.rol_participante import RolParticipante
 from app.models.dia_cronograma import DiaCronograma
 from app.models.actividad_itinerario import ActividadItinerario
 from app.models.recordatorio_actividad_notificado import RecordatorioActividadNotificado
+from app.models.moneda import Moneda
 from app.models.usuario import Usuario
 from app.models.viaje import Viaje
 from app.models.destino_viaje import DestinoViaje
@@ -2599,6 +2600,13 @@ def _crear_viaje(
 ) -> TripRead:
     administrador = current_user
     admin_user_id = current_user.IdUsuario
+
+    # Viajes.Moneda es FK a Monedas: un código inexistente hacía fallar el INSERT con 500.
+    if db.get(Moneda, payload.currency) is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"La moneda {payload.currency} no está soportada.",
+        )
 
     validar_viajes_activos(db, current_user)
     validar_recorrido(payload.destinations, payload.startDate, payload.endDate)

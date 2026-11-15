@@ -22,6 +22,7 @@ from app.models.viaje import Viaje
 from app.models.categorias_gastos import CategoriasGastos
 from app.models.estado_transferencia_liquidacion import EstadoTransferenciaLiquidacion
 from app.models.participante_viaje import ParticipanteViaje
+from app.models.moneda import Moneda
 
 
 
@@ -141,7 +142,13 @@ def master_data(db_session):
         for id_tipo, nombre in ((1, "ida"), (2, "entre_destinos"), (3, "regreso"))
     ]
 
-    db_session.add_all(estados_viaje + estados_participacion + estados_invitacion + roles + estados_transferencia + tipos_tramos)
+    # Monedas: crear un viaje valida que la moneda exista (Viajes.Moneda es FK a Monedas).
+    monedas = [
+        Moneda(Codigo=codigo, Nombre=nombre)
+        for codigo, nombre in (("ARS", "Peso argentino"), ("USD", "Dólar estadounidense"), ("EUR", "Euro"))
+    ]
+
+    db_session.add_all(estados_viaje + estados_participacion + estados_invitacion + roles + estados_transferencia + tipos_tramos + monedas)
     db_session.commit()
 
 

@@ -28,6 +28,7 @@ from app.main import app
 from app.models.estado_invitacion import EstadoInvitacion
 from app.models.estado_participacion import EstadoParticipacion
 from app.models.estado_viaje import EstadoViaje
+from app.models.moneda import Moneda
 from app.models.plan import Plan
 from app.models.rol_participante import RolParticipante
 from app.models.usuario import Usuario
@@ -71,6 +72,7 @@ def sesiones(tmp_path):
                     EstadoInvitacion(Nombre=n, Descripcion=n, Activo=True)
                     for n in ("pendiente", "aceptada", "vencida", "cancelada")
                 ],
+                Moneda(Codigo="ARS", Nombre="Peso argentino"),
                 RolParticipante(Nombre="administrador", Descripcion="admin", Activo=True),
                 RolParticipante(Nombre="participante", Descripcion="part", Activo=True),
                 Usuario(
