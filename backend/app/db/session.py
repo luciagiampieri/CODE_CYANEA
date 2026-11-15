@@ -8,7 +8,27 @@ class Base(DeclarativeBase):
     pass
 
 
-engine = create_engine(settings.database_url, future=True)
+def opciones_conexion(database_url: str) -> dict:
+    """En PostgreSQL acota la espera por locks y la duración de las consultas.
+
+    Sin estos topes, una transacción que espera un lock puede quedar colgada sin límite.
+    """
+    if not database_url.startswith("postgresql"):
+        return {}
+    return {
+        "options": (
+            f"-c lock_timeout={settings.db_lock_timeout} "
+            f"-c statement_timeout={settings.db_statement_timeout}"
+        )
+    }
+
+
+engine = create_engine(
+    settings.database_url,
+    future=True,
+    pool_pre_ping=True,
+    connect_args=opciones_conexion(settings.database_url),
+)
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
 
 

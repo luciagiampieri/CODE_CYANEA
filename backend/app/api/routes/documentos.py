@@ -105,6 +105,15 @@ def _obtener_documento_del_viaje(
         )
     return documento
 
+def _validar_almacenamiento_o_liberar(db: Session, viaje, bytes_nuevos: int) -> None:
+    """Valida el espacio con el viaje bloqueado; si no entra, libera el lock enseguida."""
+    try:
+        validar_almacenamiento(db, viaje, bytes_nuevos)
+    except Exception:
+        db.rollback()
+        raise
+
+
 @router.get("/documents/categories", response_model=list[CategoriasDocumentosRead])
 def obtener_categorias_documentos(db: Session = Depends(get_db)):
     return (
@@ -213,9 +222,11 @@ async def subir_documento_viaje(
             detail="Ya existe un documento con ese nombre en este viaje."
         )
 
-    validar_almacenamiento(db, viaje, tamano_bytes)
-
+    # El seek va antes del lock: entre el lock del viaje y el commit no puede haber
+    # ningún await, o una subida concurrente al mismo viaje colgaría el event loop.
     await archivo.seek(0)
+
+    _validar_almacenamiento_o_liberar(db, viaje, tamano_bytes)
 
     url_archivo = _subir_al_almacenamiento(archivo, ruta_archivo)
 
@@ -425,9 +436,9 @@ async def editar_o_reemplazar_documento_viaje(
         contenido_nuevo = await archivo.read()
         tamano_nuevo = len(contenido_nuevo)
         diferencia = tamano_nuevo - (documento.TamanoBytes or 0)
-        if diferencia > 0:
-            validar_almacenamiento(db, viaje, diferencia)
         await archivo.seek(0)
+        if diferencia > 0:
+            _validar_almacenamiento_o_liberar(db, viaje, diferencia)
             
         ruta_archivo_vieja = documento.UrlArchivo
     

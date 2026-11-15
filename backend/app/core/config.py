@@ -12,6 +12,10 @@ class Settings(BaseSettings):
     api_base_url: str = "http://127.0.0.1:8000/api/v1"
     terms_version: str = "2026-10-03"
     database_url: str = "postgresql+psycopg://cyanea:cyanea@localhost:5432/cyanea"
+    # Tope de espera por un lock y de duración de cada consulta en PostgreSQL: si una
+    # transacción queda trabada, la que espera falla en lugar de colgar al servidor.
+    db_lock_timeout: str = "5s"
+    db_statement_timeout: str = "30s"
     cors_origins: str = Field(
         default="http://localhost:5173,http://127.0.0.1:5173,http://localhost:8081,http://127.0.0.1:8081,http://localhost:19006,http://127.0.0.1:19006"
     )
