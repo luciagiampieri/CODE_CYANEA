@@ -1,5 +1,6 @@
-import { useCallback, useMemo, useState, useEffect } from "react";
+import { useCallback, useMemo, useRef, useState, useEffect } from "react";
 import {
+  ActivityIndicator,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -13,6 +14,8 @@ import ScreenContainer from "../components/layout/ScreenContainer";
 import TripCard from "../components/home/TripCard";
 import IconCircleButton from "../components/ui/IconCircleButton";
 import MetricCard from "../components/ui/MetricCard";
+import PrimaryButton from "../components/ui/PrimaryButton";
+import { useAuth } from "../context/AuthContext";
 import useResponsive from "../hooks/useResponsive";
 import { getTodayIso } from "../utils/dates";
 import {
@@ -87,25 +90,61 @@ function normalizeTrip(trip, phase, isNext) {
   };
 }
 
+// Si la primera consulta falla (por ejemplo, justo después de iniciar sesión) se
+// reintenta una vez antes de mostrar el error.
+export const ESPERA_REINTENTO_MS = 800;
+
+const esperar = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+async function conUnReintento(consulta) {
+  try {
+    return await consulta();
+  } catch {
+    await esperar(ESPERA_REINTENTO_MS);
+    return consulta();
+  }
+}
+
+function nombreSaludo(usuario) {
+  return usuario?.nombre || usuario?.nombreCompleto?.split(" ")[0] || null;
+}
+
 export default function HomeScreen({ navigation }) {
 
+  const { user: usuarioSesion } = useAuth();
   const [trips, setTrips] = useState([]);
   const [currentUser, setCurrentUser] = useState(null);
+  // "cargando" | "listo" | "error": distingue el error del "todavía no hay viajes".
+  const [estadoCarga, setEstadoCarga] = useState("cargando");
+  const viajesCargados = useRef(false);
+  const montado = useRef(true);
   const [notificationBadgeCount, setNotificationBadgeCount] = useState(0);
   const { isTablet, isDesktop } = useResponsive();
   const espacioBarra = useEspacioBarraTabs();
 
+  useEffect(() => {
+    montado.current = true;
+    return () => {
+      montado.current = false;
+    };
+  }, []);
+
   const loadData = useCallback(async () => {
-    try {
-      const [tripData, me] = await Promise.all([
-        getTrips(),
-        getCurrentUser().catch(() => null),
-      ]);
-      setTrips(tripData);
-      setCurrentUser(me);
-    } catch {
-      setTrips([]);
+    if (!viajesCargados.current) setEstadoCarga("cargando");
+    const [viajes, me] = await Promise.allSettled([
+      conUnReintento(getTrips),
+      getCurrentUser(),
+    ]);
+    if (!montado.current) return;
+    if (me.status === "fulfilled" && me.value) setCurrentUser(me.value);
+    if (viajes.status === "fulfilled") {
+      viajesCargados.current = true;
+      setTrips(viajes.value ?? []);
+      setEstadoCarga("listo");
+      return;
     }
+    // Si ya había viajes cargados se siguen mostrando; si no, se informa el error.
+    if (!viajesCargados.current) setEstadoCarga("error");
   }, []);
 
   const loadNotificationBadge = useCallback(async () => {
@@ -228,7 +267,7 @@ export default function HomeScreen({ navigation }) {
             <View>
               <Text style={styles.greeting}>Bienvenida de vuelta,</Text>
               <Text style={styles.heading}>
-                {currentUser?.nombre || currentUser?.nombreCompleto?.split(" ")[0] || "Viajera"} ✈︎
+                {nombreSaludo(currentUser) || nombreSaludo(usuarioSesion) || "Viajera"} ✈︎
               </Text>
             </View>
             <View style={styles.headerActions}>
@@ -244,9 +283,9 @@ export default function HomeScreen({ navigation }) {
         </View>
         <View style={styles.body}>
           <View style={styles.metricsRow}>
-            <MetricCard label="Viajes" value={metrics.viajes} />
-            <MetricCard label="Compañeros" value={metrics.companeros} />
-            <MetricCard label="Países" value={metrics.paises} />
+            <MetricCard label="Viajes" value={estadoCarga === "listo" ? metrics.viajes : "—"} />
+            <MetricCard label="Compañeros" value={estadoCarga === "listo" ? metrics.companeros : "—"} />
+            <MetricCard label="Países" value={estadoCarga === "listo" ? metrics.paises : "—"} />
           </View>
           <View style={styles.sectionHeader}>
             <Text style={styles.sectionTitle}>Próximos viajes</Text>
@@ -254,8 +293,24 @@ export default function HomeScreen({ navigation }) {
               <Text style={styles.sectionAction}>Ver todos</Text>
             </Pressable>
           </View>
-          {decoratedTrips.length === 0 ? (
-            <View style={styles.emptyCard}>
+          {estadoCarga === "cargando" ? (
+            <View testID="home-cargando" style={styles.loadingBox}>
+              <ActivityIndicator color={colors.primary} />
+              <Text style={styles.emptyCopy}>Cargando tus viajes…</Text>
+            </View>
+          ) : estadoCarga === "error" ? (
+            <View testID="home-error" style={styles.emptyCard} accessibilityRole="alert">
+              <Text style={styles.emptyTitle}>No pudimos cargar tus viajes.</Text>
+              <Text style={styles.emptyCopy}>Revisá tu conexión y volvé a intentarlo.</Text>
+              <PrimaryButton
+                testID="home-reintentar"
+                label="Reintentar"
+                onPress={loadData}
+                style={styles.retryButton}
+              />
+            </View>
+          ) : decoratedTrips.length === 0 ? (
+            <View testID="home-vacio" style={styles.emptyCard}>
               <Text style={styles.emptyTitle}>Todavía no hay viajes cargados.</Text>
               <Text style={styles.emptyCopy}>Creá el primero y empezá a sumar compañeros.</Text>
             </View>
@@ -381,6 +436,14 @@ const styles = StyleSheet.create({
     ...textStyles.body,
     color: colors.textSecondary,
     marginTop: spacing.sm,
+  },
+  loadingBox: {
+    alignItems: "center",
+    padding: spacing.xl,
+  },
+  retryButton: {
+    marginTop: spacing.lg,
+    alignSelf: "flex-start",
   },
   fab: {
     position: "absolute",
