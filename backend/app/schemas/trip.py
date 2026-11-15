@@ -247,6 +247,16 @@ class DiaCronogramaRead(BaseModel):
         from_attributes = True
         populate_by_name = True
 
+MENSAJE_TITULO_VACIO = "El nombre del viaje no puede quedar vacío"
+
+
+def limpiar_titulo(value: str) -> str:
+    limpio = value.strip()
+    if not limpio:
+        raise ValueError(MENSAJE_TITULO_VACIO)
+    return limpio
+
+
 class DestinationCreate(BaseModel):
     # Largos de Destinos (Nombre, Pais, ProvinciaEstado) y de Viajes.GooglePlaceIdPortada.
     name: str = Field(..., max_length=200)
@@ -396,6 +406,11 @@ class TripCreate(BaseModel):
     participantUserIds: list[int] = Field(default_factory=list)
     invitedEmails: list[str] = Field(default_factory=list)
 
+    @field_validator("title")
+    @classmethod
+    def validate_title(cls, value: str) -> str:
+        return limpiar_titulo(value)
+
     @field_validator("destinations")
     @classmethod
     def validate_destinations(cls, value):
@@ -441,6 +456,11 @@ class TripUpdate(BaseModel):
     startDate: date
     endDate: date
     destinations: list[DestinationCreate]
+
+    @field_validator("title")
+    @classmethod
+    def validate_title(cls, value: str) -> str:
+        return limpiar_titulo(value)
 
     @field_validator("destinations")
     @classmethod

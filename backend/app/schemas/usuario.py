@@ -114,8 +114,11 @@ class UsuarioRegister(BaseModel):
 
     @field_validator("nombre", "apellido", "nombreUsuario")
     @classmethod
-    def validar_largos(cls, value: str, info: ValidationInfo) -> str:
-        return validar_largo_campo_usuario(value, info)
+    def validar_obligatorios(cls, value: str, info: ValidationInfo) -> str:
+        limpio = value.strip()
+        if not limpio:
+            raise ValueError(f"{_ETIQUETAS_USUARIO[info.field_name]} no puede estar vacío")
+        return validar_largo_campo_usuario(limpio, info)
 
     @field_validator("password")
     @classmethod
