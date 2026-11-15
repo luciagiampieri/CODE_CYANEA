@@ -212,6 +212,7 @@ Para crear estructuras y seeds del MVP usar los scripts SQL en `backend/scripts/
 ## API util
 
 - Swagger: `http://127.0.0.1:8000/docs`
+- Con `APP_ENV=production` (o `produccion`/`prod`) no se publican `/docs`, `/redoc` ni `openapi.json` (`opciones_documentacion` en `app/main.py`)
 - Health: `GET /health`
 
 ## Testing
@@ -1081,6 +1082,11 @@ Frontend activo:
 - Si se toma una nueva convencion, actualizar este archivo en el mismo trabajo
 - No dejar decisiones arquitectonicas relevantes solo en chat o commits
 
+
+### Limite de intentos de inicio de sesion
+
+- `POST /auth/login` cuenta los intentos fallidos (401) por IP + email (sin mayusculas ni espacios) en una ventana de 5 minutos; al llegar a 10 responde 429 con `Retry-After`, `X-Error-Code: LOGIN_RATE_LIMITED` y un mensaje en español, aunque la contraseña sea correcta. Un login exitoso reinicia el contador
+- La cuenta vive en memoria del proceso (`services/auth/limite_intentos_login.py`): alcanza con un worker; con varios, cada uno cuenta por separado. El fixture `client` la reinicia en cada test. Tests: `backend/tests/test_limite_intentos_login.py`
 
 ### Reenvio de confirmacion de cuenta
 

@@ -48,11 +48,21 @@ async def lifespan(app: FastAPI):
         await stop_activity_reminders_scheduler(activity_reminders_task)
 
 
+ENTORNOS_PRODUCCION = {"production", "produccion", "prod"}
+
+
+def opciones_documentacion(app_env: str) -> dict:
+    """En producción no se publican /docs, /redoc ni el openapi.json."""
+    if app_env.strip().lower() in ENTORNOS_PRODUCCION:
+        return {"docs_url": None, "redoc_url": None, "openapi_url": None}
+    return {"openapi_url": f"{settings.api_v1_prefix}/openapi.json"}
+
+
 app = FastAPI(
     title=settings.app_name,
     version="0.1.0",
-    openapi_url=f"{settings.api_v1_prefix}/openapi.json",
     lifespan=lifespan,
+    **opciones_documentacion(settings.app_env),
 )
 
 app.add_middleware(

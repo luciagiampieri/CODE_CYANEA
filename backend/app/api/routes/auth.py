@@ -26,7 +26,11 @@ from app.schemas.password_reset import (
     ResetTokenRequest,
     TokenValidationResponse,
 )
-from app.services.auth import password_reset_service, email_confirmation_service
+from app.services.auth import (
+    email_confirmation_service,
+    limite_intentos_login,
+    password_reset_service,
+)
 from app.services.invitaciones_externas import vincular_invitaciones_externas_seguro
 from app.schemas.usuario import UsuarioRegister, UsuarioRegisterResponse
 from app.schemas.email_confirmation import ResendConfirmationRequest
@@ -188,7 +192,20 @@ def confirm_email(
 
 
 @router.post("/login", response_model=TokenResponse)
-def login(payload: LoginRequest, db: Session = Depends(get_db)) -> TokenResponse:
+def login(payload: LoginRequest, request: Request, db: Session = Depends(get_db)) -> TokenResponse:
+    ip = request.client.host if request.client else None
+    limite_intentos_login.verificar(ip, payload.email)
+    try:
+        respuesta = _login(payload, db)
+    except HTTPException as error:
+        if error.status_code == status.HTTP_401_UNAUTHORIZED:
+            limite_intentos_login.registrar_fallo(ip, payload.email)
+        raise
+    limite_intentos_login.registrar_exito(ip, payload.email)
+    return respuesta
+
+
+def _login(payload: LoginRequest, db: Session) -> TokenResponse:
 
     credentials_error = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
