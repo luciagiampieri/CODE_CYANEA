@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, String, func
+from sqlalchemy import Boolean, DateTime, ForeignKey, Index, String, func, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.session import Base
@@ -9,6 +9,14 @@ from app.models.rol_sistema import ROL_VIAJERO
 
 class Usuario(Base):
     __tablename__ = "Usuarios"
+    __table_args__ = (
+        # "u123" y "U123" son el mismo nombre de usuario (migración e140a1b2c3d4).
+        Index(
+            "UX_Usuarios_NombreUsuario_Minusculas",
+            text('lower("NombreUsuario")'),
+            unique=True,
+        ),
+    )
 
     IdUsuario: Mapped[int] = mapped_column(primary_key=True)
     IdPlan: Mapped[int] = mapped_column(ForeignKey("Planes.IdPlan"), default=1, server_default="1")

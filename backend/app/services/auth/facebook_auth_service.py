@@ -4,7 +4,7 @@ from dataclasses import dataclass
 
 import httpx
 from fastapi import HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
@@ -214,7 +214,7 @@ class FacebookAuthService:
         while db.scalar(
             select(Usuario)
             .where(
-                Usuario.NombreUsuario == candidate
+                func.lower(Usuario.NombreUsuario) == candidate.lower()
             )
         ):
             candidate = f"{base}{suffix}"

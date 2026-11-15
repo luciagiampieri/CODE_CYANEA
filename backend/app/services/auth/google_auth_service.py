@@ -4,7 +4,7 @@ from dataclasses import dataclass
 
 import httpx
 from fastapi import HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
@@ -257,7 +257,9 @@ class GoogleAuthService:
         candidate = base
         suffix = 1
 
-        while db.scalar(select(Usuario).where(Usuario.NombreUsuario == candidate)):
+        while db.scalar(
+            select(Usuario).where(func.lower(Usuario.NombreUsuario) == candidate.lower())
+        ):
             candidate = f"{base}{suffix}"
             suffix += 1
 

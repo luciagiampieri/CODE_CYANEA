@@ -668,6 +668,7 @@ Orden actual:
 - `025_recorrido_destinos_viajes.sql`
 - `026_traslados_viajes.sql`
 - `027_rutas_por_destino.sql`
+- `028_nombre_usuario_sin_mayusculas.sql`
 
 ## Convenciones de backend
 
@@ -676,6 +677,7 @@ Orden actual:
 - FastAPI expone rutas en `backend/app/api/routes/`
 - Todo campo de texto de un schema de entrada que se persiste lleva el largo maximo de su columna, asi un valor largo responde 422 y no 500 en el INSERT. Registro y perfil validan `nombre`/`apellido` (100) y `nombreUsuario` (50) con mensajes en español (`LARGOS_MAXIMOS_USUARIO` en `schemas/usuario.py`); `DestinationCreate` limita `name` (200), `country` (100), `provinceState` (150), `placeId` (255) y el rango de `lat`/`lng`. `TripCreate` exige `startDate` y `endDate` y normaliza `currency` a 3 letras mayusculas; el alta valida que la moneda exista en `Monedas` (422 "La moneda XXX no está soportada."). El fixture `master_data` siembra ARS, USD y EUR
 - Los textos obligatorios se validan despues de `strip()`: el registro rechaza con 422 `nombre`, `apellido` o `nombreUsuario` de solo espacios y `TripCreate`/`TripUpdate` rechazan un `title` de solo espacios (`limpiar_titulo`, "El nombre del viaje no puede quedar vacío"); el valor se guarda sin espacios alrededor
+- El nombre de usuario es unico sin distinguir mayusculas: toda comparacion usa `func.lower(Usuario.NombreUsuario)` (registro, perfil y los nombres generados para Google y Facebook) y el indice unico `UX_Usuarios_NombreUsuario_Minusculas` sobre `lower("NombreUsuario")` (migracion `e140a1b2c3d4`, script `028`) lo garantiza. La migracion no crea el indice si ya hay duplicados y deja un warning con los nombres; si choca en un registro simultaneo responde 409
 - Concurrencia en endpoints `async def` (la Session es sincrona y corre en el event loop): entre un lock (`with_for_update`, `_bloquear_usuario`, `bloquear_viaje`, los `validar_*` de `limites_planes`) o una escritura y su `commit` no puede haber ningun `await`, y si la validacion falla hay que hacer rollback antes de volver al event loop. Las llamadas externas (Google, IA, Mercado Pago) se hacen antes de tocar la base o despues del commit. Si una seccion con locks tiene que correr dentro de un endpoint async, va en `app/db/concurrencia.en_hilo_con_locks` (threadpool + rollback si falla). Si el endpoint no necesita `await`, se declara `def`. Lo cubre `tests/test_concurrencia_crear_viaje.py` (simula el FOR UPDATE con un lock de Python)
 - El engine (`app/db/session.py`) usa `pool_pre_ping` y en PostgreSQL fija `lock_timeout` (`DB_LOCK_TIMEOUT`, 5s) y `statement_timeout` (`DB_STATEMENT_TIMEOUT`, 30s): una espera trabada falla en lugar de colgar el servidor
 - El Dockerfile lee los workers de uvicorn de `WEB_CONCURRENCY` (1 por defecto). No subirlo mientras el `ConnectionManager` de WebSocket, las ediciones activas y los schedulers vivan en memoria del proceso: con mas de un worker los eventos en tiempo real no llegan a los sockets de otro worker y los schedulers corren duplicados

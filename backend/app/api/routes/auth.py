@@ -5,7 +5,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.security import OAuth2PasswordRequestForm
 from fastapi.responses import RedirectResponse
 from jose import JWTError
-from sqlalchemy import select
+from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
@@ -90,7 +91,11 @@ def register(
             detail="El correo electrónico ya está registrado.",
         )
 
-    if db.scalar(select(Usuario).where(Usuario.NombreUsuario == data.nombreUsuario.strip())):
+    if db.scalar(
+        select(Usuario).where(
+            func.lower(Usuario.NombreUsuario) == data.nombreUsuario.strip().lower()
+        )
+    ):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="El nombre de usuario ya está en uso.",
@@ -107,7 +112,15 @@ def register(
     )
     _registrar_aceptacion_terminos(nuevo, db)
     db.add(nuevo)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        # Otro registro simultáneo tomó el mismo correo o nombre de usuario.
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="El correo electrónico o el nombre de usuario ya están en uso.",
+        )
     db.refresh(nuevo)
 
     # Si lo habían invitado por mail a algún viaje, la invitación pasa a su cuenta.
