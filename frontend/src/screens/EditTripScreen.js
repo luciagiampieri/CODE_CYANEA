@@ -510,6 +510,9 @@ export default function EditTripScreen({ navigation, route }) {
     const sessionTokenRef = useRef(makeSessionToken());
     const navigationTimerRef = useRef(null);
     const [showDestinationPicker, setShowDestinationPicker] = useState(false);
+    // Error propio del buscador de destinos: el de validación del paso ("al menos un
+    // destino") no corresponde mostrarlo dentro del modal.
+    const [errorAgregarDestino, setErrorAgregarDestino] = useState(null);
     const [destinationSearch, setDestinationSearch] = useState("");
     const [destinationOptions, setDestinationOptions] = useState([]);
     const [searchingDestinations, setSearchingDestinations] = useState(false);
@@ -751,6 +754,7 @@ export default function EditTripScreen({ navigation, route }) {
         setDestinationOptions([]);
         setResolvingDestination(true);
         setErrors((current) => ({ ...current, destinations: null }));
+        setErrorAgregarDestino(null);
         try {
             const full = await resolveDestination(suggestion.placeId, sessionTokenRef.current);
             setForm((current) => ({
@@ -762,7 +766,7 @@ export default function EditTripScreen({ navigation, route }) {
             }));
             sessionTokenRef.current = makeSessionToken();
         } catch {
-            setErrors((current) => ({ ...current, destinations: "No se pudo agregar ese destino, probá de nuevo." }));
+            setErrorAgregarDestino("No se pudo agregar ese destino, probá de nuevo.");
         } finally {
             setResolvingDestination(false);
         }
@@ -791,10 +795,12 @@ export default function EditTripScreen({ navigation, route }) {
     function openDestinationPicker() {
         Keyboard.dismiss();
         setShowDestinationPicker(true);
+        setErrorAgregarDestino(null);
     }
 
     function closeDestinationPicker() {
         setShowDestinationPicker(false);
+        setErrorAgregarDestino(null);
         setDestinationSearch("");
         setDestinationOptions([]);
     }
@@ -1336,7 +1342,7 @@ export default function EditTripScreen({ navigation, route }) {
         selectedDestinations={form.destinations}
         onRemoveSelected={removeDestination}
         resolving={resolvingDestination}
-        error={errors.destinations}
+        error={errorAgregarDestino}
       />
     </ScreenContainer>
   );

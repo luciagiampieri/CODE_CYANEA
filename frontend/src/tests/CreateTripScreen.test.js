@@ -1312,4 +1312,87 @@ describe("US - Crear viaje (CreateTripScreen)", () => {
       ]);
     });
   });
+  describe("detalles de interfaz (QA)", () => {
+    // Sube por los padres hasta el Pressable de la opción de portada.
+    function opcionPortada(utils, etiqueta) {
+      let nodo = utils.getByText(etiqueta);
+      while (nodo && nodo.props.accessibilityState === undefined) nodo = nodo.parent;
+      return nodo;
+    }
+
+    it("el buscador de destinos no muestra el error del paso anterior", async () => {
+      const utils = await renderPantallaCargada();
+      await act(async () => {
+        fireEvent.changeText(utils.getByPlaceholderText("Escapada a Bariloche"), "Viaje de prueba");
+      });
+      await completarFechas(utils);
+      await irAlPaso2(utils);
+
+      await press(utils, "Siguiente");
+      expect(utils.getByText("Al menos un destino es requerido.")).toBeTruthy();
+
+      await press(utils, "Buscar ciudad o país...");
+
+      expect(utils.getByPlaceholderText(PLACEHOLDER_BUSCADOR)).toBeTruthy();
+      expect(utils.queryByText("Al menos un destino es requerido.")).toBeNull();
+    });
+
+    it("solo una opción de portada queda marcada al abrir el generador con IA", async () => {
+      searchDestinations.mockResolvedValue([BARILOCHE_SUGERENCIA]);
+      resolveDestination.mockResolvedValue(BARILOCHE_RESUELTO);
+      const utils = await abrirBuscadorDeDestinos();
+      await agregarBariloche(utils);
+
+      expect(opcionPortada(utils, "Destino").props.accessibilityState.selected).toBe(true);
+
+      await press(utils, "Con IA");
+
+      const seleccionadas = ["Destino", "Galería", "Con IA"].filter(
+        (etiqueta) => opcionPortada(utils, etiqueta).props.accessibilityState.selected
+      );
+      expect(seleccionadas).toEqual(["Con IA"]);
+    });
+
+    it("el botón Crear viaje informa que está subiendo la portada", async () => {
+      searchDestinations.mockResolvedValue([BARILOCHE_SUGERENCIA]);
+      resolveDestination.mockResolvedValue(BARILOCHE_RESUELTO);
+      ImagePicker.launchImageLibraryAsync.mockResolvedValue({
+        canceled: false,
+        assets: [{ uri: "file:///foto.jpg", fileName: "foto.jpg", mimeType: "image/jpeg" }],
+      });
+      let terminarSubida;
+      uploadTripCover.mockReturnValue(
+        new Promise((resolve) => {
+          terminarSubida = resolve;
+        })
+      );
+      const utils = await abrirBuscadorDeDestinos();
+      await agregarBariloche(utils);
+      await press(utils, "Galería");
+      await waitFor(() => expect(utils.getByText("Tu foto")).toBeTruthy());
+      await irAlPaso3(utils);
+
+      await press(utils, "Crear viaje");
+
+      await waitFor(() => expect(utils.getByText("Subiendo portada…")).toBeTruthy());
+
+      await act(async () => {
+        terminarSubida();
+      });
+      await waitFor(() => expect(mockNavigate).toHaveBeenCalledWith("Tabs", { screen: "Inicio" }));
+    });
+
+    it("mientras crea el viaje sin portada propia muestra 'Creando viaje…'", async () => {
+      searchDestinations.mockResolvedValue([BARILOCHE_SUGERENCIA]);
+      resolveDestination.mockResolvedValue(BARILOCHE_RESUELTO);
+      createTrip.mockReturnValue(new Promise(() => {}));
+      const utils = await abrirBuscadorDeDestinos();
+      await agregarBariloche(utils);
+      await irAlPaso3(utils);
+
+      await press(utils, "Crear viaje");
+
+      await waitFor(() => expect(utils.getByText("Creando viaje…")).toBeTruthy());
+    });
+  });
 });

@@ -58,6 +58,7 @@ export default function LoginScreen({ navigation }) {
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState(null);
+  const passwordRef = useRef(null);
   const [confirmationEmail, setConfirmationEmail] = useState(null);
   const [loading, setLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
@@ -98,7 +99,19 @@ export default function LoginScreen({ navigation }) {
 
   const facebookAuthAvailable = Boolean(process.env.EXPO_PUBLIC_FACEBOOK_APP_ID);
 
+  // El error del intento anterior deja de tener sentido apenas se corrige un campo.
+  function cambiarEmail(valor) {
+    setEmail(valor);
+    setError(null);
+  }
+
+  function cambiarPassword(valor) {
+    setPassword(valor);
+    setError(null);
+  }
+
   async function handleLogin() {
+    if (loading) return;
     setError(null);
     setConfirmationEmail(null);
     if (!email.trim() || !password) {
@@ -319,15 +332,21 @@ export default function LoginScreen({ navigation }) {
                 icon="envelope"
                 keyboardType="email-address"
                 label="Correo electrónico"
-                onChangeText={setEmail}
+                onChangeText={cambiarEmail}
                 testID="login-email-input"
                 value={email}
+                returnKeyType="next"
+                blurOnSubmit={false}
+                onSubmitEditing={() => passwordRef.current?.focus()}
               />
 
               <Field
                 icon="lock"
                 label="Contraseña"
-                onChangeText={setPassword}
+                inputRef={passwordRef}
+                onChangeText={cambiarPassword}
+                returnKeyType="go"
+                onSubmitEditing={handleLogin}
                 rightIcon={showPassword ? "eye-slash" : "eye"}
                 onPressRightIcon={() => setShowPassword((current) => !current)}
                 secureTextEntry={!showPassword}
@@ -406,6 +425,7 @@ function Field({
   icon,
   rightIcon,
   onPressRightIcon,
+  inputRef,
   ...props
 }) {
   return (
@@ -414,6 +434,7 @@ function Field({
       <View style={styles.inputShell}>
         <FontAwesome6 color={colors.textMuted} name={icon} size={14} style={styles.inputIcon} />
         <TextInput
+          ref={inputRef}
           placeholderTextColor={colors.textMuted}
           style={styles.input}
           {...props}

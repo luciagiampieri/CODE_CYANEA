@@ -847,6 +847,11 @@ function DestinationPickerModal({
   );
 }
 
+const TEXTOS_PROGRESO = {
+  viaje: "Creando viaje…",
+  portada: "Subiendo portada…",
+};
+
 export default function CreateTripScreen({ navigation }) {
   const [step, setStep] = useState(1);
 
@@ -867,6 +872,11 @@ export default function CreateTripScreen({ navigation }) {
   const [destinationSearch, setDestinationSearch] = useState("");
   const [destinationOptions, setDestinationOptions] = useState([]);
   const [showDestinationPicker, setShowDestinationPicker] = useState(false);
+  // Qué está haciendo "Crear viaje": subir la portada tarda unos segundos.
+  const [pasoEnvio, setPasoEnvio] = useState("viaje");
+  // Error propio del buscador de destinos: el de validación del paso ("al menos un
+  // destino") no corresponde mostrarlo dentro del modal.
+  const [errorAgregarDestino, setErrorAgregarDestino] = useState(null);
   const primaryDestination = form.destinations[0] ?? null;
   const [arrastrandoDestino, setArrastrandoDestino] = useState(false);
   const nochesViaje = calcularNochesViaje(form.startDate, form.endDate);
@@ -889,6 +899,8 @@ export default function CreateTripScreen({ navigation }) {
   const [showAiGenerator, setShowAiGenerator] = useState(false);
   const lastContentHeightRef = useRef(0);
   const coverMode = coverImage ? "gallery" : aiCover ? "ai" : "destination";
+  // Una sola opción marcada: con el generador de IA abierto, "Con IA" reemplaza a la actual.
+  const opcionPortada = showAiGenerator ? "ai" : coverMode;
 
   const [viajesActivos, setViajesActivos] = useState(null);
   const viajesLimitados =
@@ -1270,6 +1282,7 @@ export default function CreateTripScreen({ navigation }) {
     setDestinationOptions([]);
     setResolvingDestination(true);
     setErrors((current) => ({ ...current, destinations: null }));
+    setErrorAgregarDestino(null);
     try {
       const full = await resolveDestination(suggestion.placeId, sessionTokenRef.current);
       setForm((current) => ({
@@ -1278,7 +1291,7 @@ export default function CreateTripScreen({ navigation }) {
       }));
       sessionTokenRef.current = makeSessionToken();
     } catch {
-      setErrors((current) => ({ ...current, destinations: "No se pudo agregar ese destino, probá de nuevo." }));
+      setErrorAgregarDestino("No se pudo agregar ese destino, probá de nuevo.");
     } finally {
       setResolvingDestination(false);
     }
@@ -1309,10 +1322,12 @@ export default function CreateTripScreen({ navigation }) {
   function openDestinationPicker() {
     dismissAllInputs();
     setShowDestinationPicker(true);
+    setErrorAgregarDestino(null);
   }
 
   function closeDestinationPicker() {
     setShowDestinationPicker(false);
+    setErrorAgregarDestino(null);
     setDestinationSearch("");
     setDestinationOptions([]);
   }
@@ -1376,6 +1391,7 @@ export default function CreateTripScreen({ navigation }) {
   async function handleSubmit() {
     if (submitStatus === "submitting") return;
     setSubmitStatus("submitting");
+    setPasoEnvio("viaje");
     setSubmitMessage("");
     try {
       const createdTrip = await createTrip({
@@ -1390,6 +1406,7 @@ export default function CreateTripScreen({ navigation }) {
       });
 
       if (coverImage) {
+        setPasoEnvio("portada");
         try {
           await uploadTripCover(createdTrip.id, coverImage);
         } catch (uploadError) {
@@ -1403,6 +1420,7 @@ export default function CreateTripScreen({ navigation }) {
       }
 
       if (aiCover) {
+        setPasoEnvio("portada");
         try {
           await acceptTripCoverAI(createdTrip.id, aiCover.imageBase64, aiCover.mimeType);
         } catch (aiError) {
@@ -1752,21 +1770,21 @@ export default function CreateTripScreen({ navigation }) {
                     icon="location-dot"
                     label="Destino"
                     sub="Automática"
-                    active={coverMode === "destination"}
+                    active={opcionPortada === "destination"}
                     onPress={handleUseDestinationCover}
                   />
                   <CoverOption
                     icon="image"
                     label="Galería"
                     sub={coverImage ? "Cambiar" : "Elegir foto"}
-                    active={coverMode === "gallery"}
+                    active={opcionPortada === "gallery"}
                     onPress={handleChooseGallery}
                   />
                   <CoverOption
                     icon="wand-magic-sparkles"
                     label="Con IA"
                     sub={aiCover ? "Lista" : "Generar"}
-                    active={coverMode === "ai" || showAiGenerator}
+                    active={opcionPortada === "ai"}
                     onPress={handleToggleAiGenerator}
                   />
                 </View>
@@ -1895,9 +1913,11 @@ export default function CreateTripScreen({ navigation }) {
               />
             ) : (
               <PrimaryButton
+                testID="crear-viaje"
                 disabled={!currentUser}
-                label={submitting ? "Creando..." : "Crear viaje"}
+                label="Crear viaje"
                 loading={submitting}
+                loadingLabel={TEXTOS_PROGRESO[pasoEnvio]}
                 onPress={handleSubmit}
                 style={styles.actionPrimary}
               />
@@ -1918,7 +1938,7 @@ export default function CreateTripScreen({ navigation }) {
         selectedDestinations={form.destinations}
         onRemoveSelected={removeDestination}
         resolving={resolvingDestination}
-        error={errors.destinations}
+        error={errorAgregarDestino}
       />
     </ScreenContainer>
   );

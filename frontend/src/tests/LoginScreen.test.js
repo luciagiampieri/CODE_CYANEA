@@ -116,6 +116,47 @@ describe("US - Iniciar sesión (LoginScreen)", () => {
     expect(mockLogin).not.toHaveBeenCalled();
   });
 
+  it("Enter en la contraseña envía el formulario", async () => {
+    loginUser.mockResolvedValue({ access_token: "token-123" });
+    const utils = await render(<LoginScreen navigation={navigation} />);
+
+    await completarCredenciales(utils, "persona@mail.com", "secreta123");
+    await act(async () => {
+      fireEvent(utils.getByTestId("login-password-input"), "submitEditing");
+    });
+
+    await waitFor(() => expect(loginUser).toHaveBeenCalledWith("persona@mail.com", "secreta123"));
+    await waitFor(() => expect(mockLogin).toHaveBeenCalledWith("token-123"));
+  });
+
+  it("Enter en el correo pasa a la contraseña sin enviar", async () => {
+    const utils = await render(<LoginScreen navigation={navigation} />);
+
+    await act(async () => {
+      fireEvent(utils.getByTestId("login-email-input"), "submitEditing");
+    });
+
+    expect(loginUser).not.toHaveBeenCalled();
+    expect(utils.getByTestId("login-email-input").props.returnKeyType).toBe("next");
+  });
+
+  it.each(["login-email-input", "login-password-input"])(
+    "el error se borra al editar %s",
+    async (campo) => {
+      loginUser.mockRejectedValue(new Error("Usuario o contraseña incorrectos"));
+      const utils = await render(<LoginScreen navigation={navigation} />);
+      await completarCredenciales(utils, "persona@mail.com", "mala-clave");
+      await press(utils, "Entrar");
+      await waitFor(() => expect(utils.getByText("Usuario o contraseña incorrectos")).toBeTruthy());
+
+      await act(async () => {
+        fireEvent.changeText(utils.getByTestId(campo), "otro valor");
+      });
+
+      expect(utils.queryByText("Usuario o contraseña incorrectos")).toBeNull();
+    }
+  );
+
   it("navega a la pantalla de registro al tocar 'Regístrate'", async () => {
     const utils = await render(<LoginScreen navigation={navigation} />);
 

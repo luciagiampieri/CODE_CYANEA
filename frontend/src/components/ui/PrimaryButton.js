@@ -9,6 +9,8 @@ export default function PrimaryButton({
   variant = "primary",
   disabled = false,
   loading = false,
+  // Texto que acompaña al indicador mientras carga (por ejemplo "Subiendo portada…").
+  loadingLabel,
   style,
   textStyle,
   icon,
@@ -34,7 +36,16 @@ export default function PrimaryButton({
       ]}
     >
       {loading ? (
-        <ActivityIndicator color={indicatorColor} />
+        <>
+          <ActivityIndicator color={indicatorColor} />
+          {loadingLabel ? (
+            <Text
+              style={[styles.label, styles.loadingLabel, isPrimary ? styles.labelPrimary : styles.labelSecondary, textStyle]}
+            >
+              {loadingLabel}
+            </Text>
+          ) : null}
+        </>
       ) : (
         <>
           {icon && iconPosition === "left" ? (
@@ -97,6 +108,9 @@ const styles = StyleSheet.create({
   },
   labelPrimary: {
     color: colors.textInverse,
+  },
+  loadingLabel: {
+    marginLeft: spacing.sm,
   },
   labelSecondary: {
     color: colors.primary,
