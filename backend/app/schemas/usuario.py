@@ -4,6 +4,8 @@ from typing import Literal
 
 from pydantic import BaseModel, EmailStr, field_validator
 
+from app.core.security import validar_largo_password
+
 
 class UsuarioRead(BaseModel):
     id: int
@@ -95,6 +97,7 @@ class UsuarioRegister(BaseModel):
     @field_validator("password")
     @classmethod
     def validar_password(cls, value: str) -> str:
+        validar_largo_password(value)
         if len(value) < 8:
             raise ValueError("La contraseña debe tener al menos 8 caracteres.")
         if not re.search(r"[A-Z]", value):
@@ -128,6 +131,11 @@ class CambioPasswordRequest(BaseModel):
     passwordActual: str = ""
     passwordNueva: str = ""
     confirmacion: str = ""
+
+    @field_validator("passwordNueva")
+    @classmethod
+    def validar_largo_nueva(cls, value: str) -> str:
+        return validar_largo_password(value)
 
 
 class CambioPasswordResponse(BaseModel):
