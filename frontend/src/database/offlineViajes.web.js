@@ -90,7 +90,7 @@ export async function guardarDocumentoOffline(documento, idViaje) {
     throw errorConCodigo("NO_DISPONIBLE", "Este navegador no permite guardar documentos sin conexión.");
   }
   const idDoc = documento.IdDocumento;
-  const viaje = idViaje ?? documento.IdViaje ?? documento.idViaje;
+  const viaje = documento.IdViaje ?? documento.idViaje;
 
   let blob;
   try {

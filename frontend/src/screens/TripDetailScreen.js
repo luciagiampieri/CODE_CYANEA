@@ -1239,7 +1239,10 @@ export default function TripDetailScreen({ navigation, route }) {
 
     try {
       setGuardandoOfflineId(documento.IdDocumento);
-      await guardarDocumentoOffline(documento, initialTrip.id);
+      await guardarDocumentoOffline({
+        ...documento,
+        IdViaje: documento.IdViaje ?? initialTrip.id,
+      });
       setIdsOffline((prev) => [
         ...prev.filter((id) => id !== documento.IdDocumento),
         documento.IdDocumento,
@@ -1281,7 +1284,10 @@ export default function TripDetailScreen({ navigation, route }) {
         return { offlineGuardado: false, errorOffline: "no se encontró el documento recién subido." };
       }
 
-      await guardarDocumentoOffline(documento, initialTrip.id);
+      await guardarDocumentoOffline({
+        ...documento,
+        IdViaje: documento.IdViaje ?? initialTrip.id,
+      });
       setIdsOffline((prev) => [
         ...prev.filter((id) => id !== documento.IdDocumento),
         documento.IdDocumento,
