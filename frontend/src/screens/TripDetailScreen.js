@@ -499,7 +499,7 @@ export default function TripDetailScreen({ navigation, route }) {
     if (activeTab === "itinerario") {
       cargarSugerencias();
     }
-  }, [activeTab, cargarSugerencias, trip?.cronograma]);
+  }, [activeTab, cargarSugerencias]);
 
 
   function abrirSugerencias(dayId, franja = null) {
@@ -922,7 +922,7 @@ export default function TripDetailScreen({ navigation, route }) {
     return mine ? Number(mine.BalancePendiente ?? 0) : null;
   }, [currentUser, settlement]);
 
-  const loadTripDetail = useCallback(async () => {
+  const cargarDetalleViaje = useCallback(async ({ silencioso = false } = {}) => {
     if (!initialTrip?.id) {
       setLoading(false);
       setLoadError("No se pudo resolver el viaje.");
@@ -930,7 +930,7 @@ export default function TripDetailScreen({ navigation, route }) {
     }
 
     try {
-      setLoading(true);
+      if (!silencioso) setLoading(true);
       setLoadError("");
       const detail = await getTripDetail(initialTrip.id);
       const sincronizado = guardarItinerarioOffline(detail);
@@ -960,9 +960,42 @@ export default function TripDetailScreen({ navigation, route }) {
       setLoadError(error.message || "No se pudo cargar el detalle del viaje.");
       return false;
     } finally {
-      setLoading(false);
+      if (!silencioso) setLoading(false);
     }
   }, [initialTrip?.id, initialTrip?.image]);
+
+
+  const recargaViajeRef = useRef({ enCurso: null, pendiente: false });
+
+  const loadTripDetail = useCallback(
+    (opciones) => {
+      const estado = recargaViajeRef.current;
+      if (estado.enCurso) {
+        estado.pendiente = true;
+        return estado.enCurso;
+      }
+      const ejecutar = async () => {
+        let resultado;
+        do {
+          estado.pendiente = false;
+          resultado = await cargarDetalleViaje(opciones);
+        } while (estado.pendiente);
+        return resultado;
+      };
+      estado.enCurso = ejecutar().finally(() => {
+        estado.enCurso = null;
+      });
+      return estado.enCurso;
+    },
+    [cargarDetalleViaje]
+  );
+
+
+  const timerRecargaRef = useRef(null);
+  function programarRecargaViaje() {
+    clearTimeout(timerRecargaRef.current);
+    timerRecargaRef.current = setTimeout(() => loadTripDetail({ silencioso: true }), 400);
+  }
 
   useEffect(() => onTripFinishedError(() => loadTripDetail()), [loadTripDetail]);
 
@@ -1472,31 +1505,22 @@ export default function TripDetailScreen({ navigation, route }) {
               cargarSugerencias();
               return;
             }
+            if (mensaje.tipo === "edicion_finalizada") {
+              return;
+            }
             if (mensaje.tipo === "usuario_anonimizado") {
-              loadTripDetail();
+              programarRecargaViaje();
               loadDocumentos();
               loadVotaciones();
               loadRepositorio();
               loadSettlement();
               return;
             }
-            if (mensaje.tipo === "usuario_abandono_viaje") {
-              loadTripDetail();
-              return;
-            }
             if (mensaje.tipo === "administracion_transferida") {
               setGroupView("participantes");
               setShowInvitePanel(false);
               setSentInvitations([]);
-              loadTripDetail();
-              return;
-            }
-            if (mensaje.tipo === "participante_acepto") {
-              loadTripDetail();
-              return;
-            }
-            if (mensaje.tipo === "viaje_actualizado") {
-              loadTripDetail();
+              programarRecargaViaje();
               return;
             }
             if (mensaje.tipo === "ruta_eliminada") {
@@ -1505,10 +1529,10 @@ export default function TripDetailScreen({ navigation, route }) {
                 message:
                   "La ruta automática de ese día se eliminó porque quedaron menos de dos actividades con ubicación cargada.",
               });
-              loadTripDetail();
+              programarRecargaViaje();
               return;
             }
-            loadTripDetail();
+            programarRecargaViaje();
           } catch (error) {
             console.error("Error procesando mensaje WebSocket:", error);
           }
@@ -1535,6 +1559,7 @@ export default function TripDetailScreen({ navigation, route }) {
     return () => {
       cancelado = true;
       if (reconnectTimeout) clearTimeout(reconnectTimeout);
+      clearTimeout(timerRecargaRef.current);
       socketRef.current?.close();
     };
   }, [trip?.id, trip?.hasLeft]);
