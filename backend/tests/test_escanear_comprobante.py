@@ -90,13 +90,13 @@ class ExtractorFalso:
 @pytest.fixture()
 def datos_gastos(db_session):
     db_session.add_all([CategoriasGastos(Nombre=nombre, Activo=True) for nombre in CATEGORIAS])
-    db_session.add_all(
-        [
-            Moneda(Codigo="ARS", Nombre="Peso argentino"),
-            Moneda(Codigo="USD", Nombre="Dólar estadounidense"),
-            Moneda(Codigo="BRL", Nombre="Real brasileño"),
-        ]
-    )
+    # merge: master_data ya puede haber sembrado ARS y USD.
+    for moneda in (
+        Moneda(Codigo="ARS", Nombre="Peso argentino"),
+        Moneda(Codigo="USD", Nombre="Dólar estadounidense"),
+        Moneda(Codigo="BRL", Nombre="Real brasileño"),
+    ):
+        db_session.merge(moneda)
     db_session.commit()
     return {c.Nombre: c.IdCategoria for c in db_session.query(CategoriasGastos).all()}
 

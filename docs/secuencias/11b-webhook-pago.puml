@@ -1,0 +1,51 @@
+@startuml
+title Confirmación de un cobro mediante webhook
+skinparam backgroundColor #FFFFFF
+skinparam defaultFontName Arial
+skinparam defaultFontSize 13
+skinparam shadowing false
+skinparam roundcorner 8
+skinparam sequence {
+  ArrowColor #234E70
+  LifeLineBorderColor #78909C
+  ParticipantBorderColor #234E70
+  ParticipantBackgroundColor #EAF2F8
+  ParticipantFontColor #17324D
+  ActorBorderColor #234E70
+  GroupBorderColor #78909C
+  GroupBackgroundColor #F6F9FB
+  NoteBackgroundColor #FFF7DD
+  NoteBorderColor #B79947
+}
+hide footbox
+autonumber
+participant "Mercado Pago" as MP
+participant "API de pagos" as API
+participant "Servicio de suscripciones" as S
+database PostgreSQL as DB
+participant "Notificaciones / correo" as N
+MP -> API: POST /pagos/mercadopago/webhook\ntipo, recurso y firma
+API -> API: Verificar firma según configuración
+alt Firma inválida o requerida y ausente
+  API --> MP: 401; no procesar cobro
+else Notificación admitida
+  API -> S: Procesar notificación del recurso
+  S -> MP: Consultar recurso y cobro en la API de la pasarela
+  MP --> S: Estado y datos verificables del cobro
+  S -> DB: Buscar suscripción y pago por identificador de operación
+  alt Cobro aprobado nuevo
+    S -> DB: Registrar pago aprobado y período aplicado;\nactivar o renovar suscripción y plan Pro; COMMIT
+    S -> N: Notificar resultado del cobro
+  else Operación ya aprobada y aplicada
+    S -> DB: Conservar período aplicado; no extenderlo nuevamente
+  else Cobro rechazado o pendiente
+    S -> DB: Registrar o actualizar pago y estado correspondiente; COMMIT
+    S -> N: Avisar cuando corresponda según el cambio
+  end
+  S --> API: Resultado del procesamiento
+  API -> DB: Registrar notificación de pasarela\ncomo procesada o ignorada; COMMIT
+  API --> MP: 200 recibido
+end
+note over API,DB: Si la consulta o el procesamiento falla, registrar error y responder 5xx.\nLa pasarela puede reintentar; el identificador de operación evita duplicar el efecto.
+note over S,DB: Un rechazo del primer cobro no concede Pro.\nLa renovación rechazada sigue las reglas de cobro existentes.\nNo se guardan datos de tarjetas.
+@enduml

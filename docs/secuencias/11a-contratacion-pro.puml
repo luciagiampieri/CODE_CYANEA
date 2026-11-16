@@ -1,0 +1,58 @@
+@startuml
+title Contratación de Pro e inicio del pago
+skinparam backgroundColor #FFFFFF
+skinparam defaultFontName Arial
+skinparam defaultFontSize 13
+skinparam shadowing false
+skinparam roundcorner 8
+skinparam sequence {
+  ArrowColor #234E70
+  LifeLineBorderColor #78909C
+  ParticipantBorderColor #234E70
+  ParticipantBackgroundColor #EAF2F8
+  ParticipantFontColor #17324D
+  ActorBorderColor #234E70
+  GroupBorderColor #78909C
+  GroupBackgroundColor #F6F9FB
+  NoteBackgroundColor #FFF7DD
+  NoteBorderColor #B79947
+}
+hide footbox
+autonumber
+actor Viajero as U
+participant "Aplicación Expo / Web" as UI
+participant "API de suscripciones" as API
+database PostgreSQL as DB
+participant "Mercado Pago" as MP
+U -> UI: Elegir modalidad mensual o anual
+UI -> API: GET /users/me/suscripcion/resumen
+API -> DB: Leer precios vigentes y situación de la cuenta
+API --> UI: Resumen comercial y estado actual
+UI --> U: Mostrar precio y renovación automática
+U -> UI: Aceptar renovación y confirmar contratación
+UI -> API: POST /users/me/suscripcion
+API -> API: Validar correo confirmado, elegibilidad\ny aceptación de renovación
+API -> DB: Bloquear usuario y comprobar intentos concurrentes
+alt Suscripción vigente o pago pendiente que impide iniciar
+  API --> UI: Conflicto; ofrecer consulta del estado actual
+else Puede iniciar suscripción
+  API -> DB: Preparar período pendiente de pago\ncon precio vigente en ARS y modalidad; FLUSH
+  API -> MP: Crear suscripción con referencia local y precio del período
+  alt Pasarela no disponible o sin enlace de pago
+    API -> DB: ROLLBACK del intento local
+    API --> UI: Error; permitir reintento
+  else Suscripción remota creada
+    MP --> API: Identificador remoto y URL de pago
+    API -> DB: Guardar identificador y estado de pasarela; COMMIT
+    API --> UI: 201 + urlPago
+    UI -> MP: Abrir checkout alojado por la pasarela
+    U -> MP: Completar proceso de pago
+    MP --> UI: Retorno a la aplicación
+    UI -> API: GET /users/me/suscripcion/estado
+    API -> MP: Sincronizar estado y cobros verificables
+    MP --> API: Estado conocido por la pasarela
+    API --> UI: Estado actualizado de la suscripción
+  end
+end
+note over UI,DB: El retorno por sí solo no activa Pro.\nLa activación requiere un cobro aprobado verificado por el servidor.\nTambién puede llegar mediante el webhook del diagrama 11b.
+@enduml

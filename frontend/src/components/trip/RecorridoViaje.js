@@ -351,6 +351,11 @@ export default function RecorridoViaje({
 
   return (
     <View>
+      {modo === MODOS_RECORRIDO.POCAS_NOCHES ? (
+        <View style={styles.resumen} testID="recorrido-pocas-noches">
+          <AvisoRecorrido tono={resumen.tono} mensaje={resumen.mensaje} />
+        </View>
+      ) : null}
       {armado ? (
         <View style={styles.resumen}>
           <BarraRecorrido segmentos={resumen.segmentos} />

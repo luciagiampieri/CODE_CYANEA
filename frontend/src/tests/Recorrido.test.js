@@ -211,8 +211,9 @@ describe("resumenRecorrido", () => {
 
     expect(resumen.modo).toBe(modo);
     expect(resumen.puedeAvanzar).toBe(true);
-    expect(resumen.mensaje).toBeUndefined();
     expect(resumen.segmentos).toEqual([]);
+    // En pocasNoches se avisa por qué no se reparten las noches (ver "regla única").
+    if (modo !== "pocasNoches") expect(resumen.mensaje).toBeUndefined();
   });
 });
 
@@ -433,13 +434,62 @@ describe("repartirNoches", () => {
     expect(enViaje(repartida)).toEqual([1, 0, 0]);
   });
 
-  it("no toca las noches en viaje aunque no alcance para todos", () => {
+  it("si no alcanza para una noche por destino no reparte ni toca las noches en viaje", () => {
     const lista = [destino("A", 0, 3), destino("B", 0), destino("C", 0)];
 
     const repartida = repartirNoches(lista, 4);
 
-    expect(noches(repartida)).toEqual([1, 0, 0]);
-    expect(resumenRecorrido(repartida, 4).puedeAvanzar).toBe(false);
+    expect(repartida).toBe(lista);
+    expect(enViaje(repartida)).toEqual([3, 0, 0]);
+  });
+
+  it("nunca deja un estado que bloquee", () => {
+    const casos = [
+      [["A", "B", "C"].map((n) => destino(n, 0)), 3],
+      [[destino("A", 0, 1), destino("B", 0), destino("C", 0)], 4],
+      [[destino("A", 5), destino("B", 5)], 9],
+      [["A", "B", "C", "D"].map((n) => destino(n, 0)), 9],
+    ];
+    casos.forEach(([lista, total]) => {
+      const resumen = resumenRecorrido(lista, total);
+      if (!resumen.mostrarRepartir) return;
+      expect(resumenRecorrido(repartirNoches(lista, total), total).puedeAvanzar).toBe(true);
+    });
+  });
+});
+
+describe("regla única del recorrido (QA US 135)", () => {
+  it("con 3 destinos y 2 noches avisa en lugar de ocultar y deja seguir", () => {
+    const resumen = resumenRecorrido([destino("A", 0), destino("B", 0), destino("C", 0)], 2);
+
+    expect(resumen.modo).toBe("pocasNoches");
+    expect(resumen.puedeAvanzar).toBe(true);
+    expect(resumen.mostrarRepartir).toBe(false);
+    expect(resumen.tono).toBe("warning");
+    expect(resumen.mensaje).toBe(
+      "Con 2 noches no alcanza para pasar al menos una en cada uno de los 3 destinos. Podés seguir: el viaje se guarda sin repartir las noches. Para repartirlas, quitá un destino o alargá el viaje."
+    );
+  });
+
+  it("con 3 destinos, 3 noches y 1 de traslado no ofrece repartir y sugiere quitar traslados", () => {
+    const lista = [destino("A", 0, 1), destino("B", 0), destino("C", 0)];
+
+    const resumen = resumenRecorrido(lista, 3);
+
+    expect(resumen.puedeAvanzar).toBe(false);
+    expect(resumen.mostrarRepartir).toBe(false);
+    expect(resumen.mensaje).toBe(
+      "No alcanzan las noches para que cada destino tenga al menos una: 1 noche está en viaje. Quitá noches de traslado para poder repartirlas."
+    );
+  });
+
+  it("al quitar el traslado vuelve a ofrecer repartir y queda 1, 1 y 1", () => {
+    const sinTraslado = cambiarNochesEnViaje([destino("A", 0, 1), destino("B", 0), destino("C", 0)], 0, -1);
+
+    expect(resumenRecorrido(sinTraslado, 3).mostrarRepartir).toBe(true);
+    const repartida = repartirNoches(sinTraslado, 3);
+    expect(noches(repartida)).toEqual([1, 1, 1]);
+    expect(resumenRecorrido(repartida, 3).puedeAvanzar).toBe(true);
   });
 });
 

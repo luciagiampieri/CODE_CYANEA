@@ -14,11 +14,31 @@ TOKEN_BACKOFFICE = "backoffice"
 DURACION_MAXIMA_BACKOFFICE = timedelta(hours=8)
 
 
+# bcrypt solo admite contraseñas de hasta 72 bytes (en UTF-8 un carácter con acento
+# o un emoji ocupa más de uno) y con más falla con una excepción.
+MAX_BYTES_PASSWORD = 72
+MENSAJE_PASSWORD_DEMASIADO_LARGA = "La contraseña no puede superar los 72 caracteres"
+
+
+def password_demasiado_larga(plain: str) -> bool:
+    return len(plain.encode()) > MAX_BYTES_PASSWORD
+
+
+def validar_largo_password(plain: str) -> str:
+    """Validador para los schemas: rechaza con 422 lo que bcrypt no puede procesar."""
+    if password_demasiado_larga(plain):
+        raise ValueError(MENSAJE_PASSWORD_DEMASIADO_LARGA)
+    return plain
+
+
 def hash_password(plain: str) -> str:
     return bcrypt.hashpw(plain.encode(), bcrypt.gensalt()).decode()
 
 
 def verify_password(plain: str, hashed: str) -> bool:
+    # Ninguna contraseña guardada supera el límite: una más larga nunca coincide.
+    if password_demasiado_larga(plain):
+        return False
     return bcrypt.checkpw(plain.encode(), hashed.encode())
 
 

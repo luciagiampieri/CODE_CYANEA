@@ -1,0 +1,130 @@
+@startuml
+!pragma layout smetana
+hide circle
+skinparam shadowing false
+skinparam defaultFontName Arial
+skinparam defaultFontSize 12
+skinparam classBackgroundColor #F1F8FA
+skinparam classBorderColor #286779
+skinparam ArrowColor #4B6370
+skinparam nodesep 55
+skinparam ranksep 75
+title Cyanea · Módulo 3 · Itinerario traslados y rutas\nDER físico completo
+
+entity "DiasCronogramas" as DiasCronogramas {
+  {field} * IdDiaCronograma : INTEGER <<PK>>
+  {field} * IdViaje : INTEGER <<FK>>
+  {field} * Fecha : DATE
+  {field} * IndiceDia : INTEGER
+}
+
+entity "ActividadesItinerario" as ActividadesItinerario {
+  {field} * IdActividad : INTEGER <<PK>>
+  {field} * IdDiaCronograma : INTEGER <<FK>>
+  {field} * Nombre : VARCHAR(150)
+  {field}   Descripcion : TEXT
+  {field} * HoraInicio : TIME
+  {field} * HoraFin : TIME
+  {field} * FechaCreacion : TIMESTAMPTZ
+  {field} * Icono : VARCHAR(50)
+  {field}   IdLugarInteresViaje : INTEGER <<FK>>
+  {field}   IdLugarInteres : INTEGER <<FK>>
+  {field}   TipoAdvertenciaHorario : VARCHAR(30)
+  {field}   AdvertenciaHorario : VARCHAR(300)
+  {field}   GooglePlaceIdEntradas : VARCHAR(255)
+  {field}   IdVotacionOrigen : BIGINT <<FK, UQ>>
+  {field}   IdTramoTraslado : INTEGER <<FK, UQ>>
+}
+
+entity "TramosTrasladosViajes" as TramosTrasladosViajes {
+  {field} * IdTramoTraslado : INTEGER <<PK>>
+  {field} * IdViaje : INTEGER <<FK, UP1, UP2>>
+  {field} * IdTipoTramoTraslado : INTEGER <<FK, UP2>>
+  {field}   IdDestinoOrigen : INTEGER <<FK, UP1>>
+  {field}   IdDestinoLlegada : INTEGER <<FK, UP1>>
+  {field} * Oculto : BOOLEAN
+}
+
+entity "TiposTramosTraslados" as TiposTramosTraslados {
+  {field} * IdTipoTramoTraslado : INTEGER <<PK>>
+  {field} * Nombre : VARCHAR(30) <<UQ>>
+  {field} * Activo : BOOLEAN
+}
+
+entity "RutasDiarias" as RutasDiarias {
+  {field} * IdRutaDiaria : INTEGER <<PK>>
+  {field} * IdDiaCronograma : INTEGER <<FK, UP1, UP2>>
+  {field} * PolilineaCodificada : VARCHAR
+  {field} * DistanciaMetros : INTEGER
+  {field} * DuracionSegundos : INTEGER
+  {field} * IdsActividadesOrdenadas : JSON
+  {field} * FechaGeneracion : TIMESTAMPTZ
+  {field} * Modo : VARCHAR(20)
+  {field}   IdDestino : INTEGER <<FK, UP2>>
+}
+
+entity "LugaresInteres" as LugaresInteres {
+  {field} * IdLugarInteres : INTEGER <<PK>>
+  {field} * GooglePlaceId : VARCHAR(255) <<UQ>>
+  {field} * Nombre : VARCHAR(200)
+  {field} * Direccion : VARCHAR(255)
+  {field} * Lat : DOUBLE PRECISION
+  {field} * Lng : DOUBLE PRECISION
+  {field}   Categoria : VARCHAR(100)
+  {field}   FotoUrl : VARCHAR(500)
+  {field}   MetadataJson : JSON
+  {field} * Activo : BOOLEAN
+  {field} * FechaAlta : TIMESTAMPTZ
+}
+
+entity "LugaresInteresViajes" as LugaresInteresViajes {
+  {field} * IdLugarInteresViaje : INTEGER <<PK>>
+  {field} * IdViaje : INTEGER <<FK, UQ1>>
+  {field} * IdLugarInteres : INTEGER <<FK, UQ1>>
+  {field}   Notas : TEXT
+  {field} * IdUsuarioAlta : INTEGER <<FK>>
+  {field} * FechaAlta : TIMESTAMPTZ
+}
+
+entity "Destinos (módulo 2)" as Destinos #EEEEEE {
+  {field} * IdDestino : INTEGER <<PK>>
+}
+
+entity "Usuarios (módulo 1)" as Usuarios #EEEEEE {
+  {field} * IdUsuario : INTEGER <<PK>>
+}
+
+entity "Viajes (módulo 2)" as Viajes #EEEEEE {
+  {field} * IdViaje : INTEGER <<PK>>
+}
+
+entity "Votaciones (módulo 5)" as Votaciones #EEEEEE {
+  {field} * IdVotacion : BIGINT <<PK>>
+}
+
+Viajes ||--o{ DiasCronogramas : Viaje
+LugaresInteresViajes |o--o{ ActividadesItinerario : lugar guardado
+LugaresInteres |o--o{ ActividadesItinerario : lugar
+TramosTrasladosViajes |o--o| ActividadesItinerario : actividad del tramo
+Votaciones |o--o| ActividadesItinerario : origen votación
+DiasCronogramas ||--o{ ActividadesItinerario : DiaCronograma
+Destinos |o--o{ TramosTrasladosViajes : llegada
+Destinos |o--o{ TramosTrasladosViajes : origen
+TiposTramosTraslados ||--o{ TramosTrasladosViajes : TipoTramoTraslado
+Viajes ||--o{ TramosTrasladosViajes : Viaje
+Destinos |o--o{ RutasDiarias : Destino
+DiasCronogramas ||--o{ RutasDiarias : DiaCronograma
+LugaresInteres ||--o{ LugaresInteresViajes : lugar
+Usuarios ||--o{ LugaresInteresViajes : guardado por
+Viajes ||--o{ LugaresInteresViajes : Viaje
+legend bottom
+  Azul: tablas propias · Gris: referencias externas (solo PK)
+  PK: clave primaria · FK: clave foránea · UQ: unicidad individual
+  UQ1: unicidad compuesta dentro de la tabla
+  UP1/UP2: índice UNIQUE parcial; consultar columnas y condición en el diccionario
+  Los índices parciales no implican unicidad incondicional de una FK.
+  * Campo NOT NULL · Sin *: admite NULL
+  TIMESTAMPTZ: TIMESTAMP WITH TIME ZONE · TIME: TIME WITHOUT TIME ZONE
+  Las relaciones solo representan FK físicas, no identificadores dentro de JSON o texto.
+endlegend
+@enduml

@@ -1,0 +1,64 @@
+@startuml
+!pragma layout smetana
+hide circle
+skinparam shadowing false
+skinparam defaultFontName Arial
+skinparam defaultFontSize 12
+skinparam classBackgroundColor #F1F8FA
+skinparam classBorderColor #286779
+skinparam ArrowColor #4B6370
+skinparam nodesep 55
+skinparam ranksep 75
+title Cyanea · Módulo 10 · Notificaciones y recordatorios\nDER resumido · atributos seleccionados
+
+entity "Notificaciones" as Notificaciones {
+  {field} * IdNotificacion : INTEGER <<PK>>
+  {field} * IdUsuario : INTEGER <<FK>>
+  {field}   IdViaje : INTEGER <<FK>>
+  {field} * Tipo : VARCHAR(50)
+  {field} * Titulo : VARCHAR(150)
+  {field} * Leida : BOOLEAN
+}
+
+entity "TokensPushUsuarios" as TokensPushUsuarios {
+  {field} * IdTokenPushUsuario : INTEGER <<PK>>
+  {field} * IdUsuario : INTEGER <<FK>>
+  {field} * Plataforma : VARCHAR(20)
+  {field} * Activo : BOOLEAN
+}
+
+entity "RecordatoriosActividadesNotificados" as RecordatoriosActividadesNotificados {
+  {field} * IdRecordatorioActividadNotificado : INTEGER <<PK>>
+  {field} * IdActividad : INTEGER <<FK, UQ1>>
+  {field} * Tipo : VARCHAR(50) <<UQ1>>
+  {field} * MinutosAntes : INTEGER <<UQ1>>
+}
+
+entity "ActividadesItinerario (módulo 3)" as ActividadesItinerario #EEEEEE {
+  {field} * IdActividad : INTEGER <<PK>>
+}
+
+entity "Usuarios (módulo 1)" as Usuarios #EEEEEE {
+  {field} * IdUsuario : INTEGER <<PK>>
+}
+
+entity "Viajes (módulo 2)" as Viajes #EEEEEE {
+  {field} * IdViaje : INTEGER <<PK>>
+}
+
+Usuarios ||--o{ Notificaciones : destinatario o titular
+Viajes |o--o{ Notificaciones : contexto del viaje
+Usuarios ||--o{ TokensPushUsuarios : destinatario o titular
+ActividadesItinerario ||--o{ RecordatoriosActividadesNotificados : recordatorio de actividad
+legend bottom
+  Azul: tablas propias · Gris: referencias externas (solo PK)
+  PK: clave primaria · FK: clave foránea · UQ: unicidad individual
+  UQ1: unicidad compuesta dentro de la tabla
+  UP1/UP2: índice UNIQUE parcial; consultar columnas y condición en el diccionario
+  Los índices parciales no implican unicidad incondicional de una FK.
+  * Campo NOT NULL · Sin *: admite NULL
+  TIMESTAMPTZ: TIMESTAMP WITH TIME ZONE · TIME: TIME WITHOUT TIME ZONE
+  Las relaciones solo representan FK físicas, no identificadores dentro de JSON o texto.
+  Atributos restantes: consultar el DER físico y el diccionario.
+endlegend
+@enduml

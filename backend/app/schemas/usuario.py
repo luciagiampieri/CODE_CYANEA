@@ -2,7 +2,27 @@ import re
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, EmailStr, field_validator
+from pydantic import BaseModel, EmailStr, ValidationInfo, field_validator
+
+from app.core.security import validar_largo_password
+
+
+# Largos de las columnas de Usuarios: un valor más largo hacía fallar el INSERT con 500.
+LARGOS_MAXIMOS_USUARIO = {"nombre": 100, "apellido": 100, "nombreUsuario": 50}
+_ETIQUETAS_USUARIO = {
+    "nombre": "El nombre",
+    "apellido": "El apellido",
+    "nombreUsuario": "El nombre de usuario",
+}
+
+
+def validar_largo_campo_usuario(value: str, info: ValidationInfo) -> str:
+    maximo = LARGOS_MAXIMOS_USUARIO[info.field_name]
+    if len(value.strip()) > maximo:
+        raise ValueError(
+            f"{_ETIQUETAS_USUARIO[info.field_name]} no puede superar los {maximo} caracteres"
+        )
+    return value
 
 
 class UsuarioRead(BaseModel):
@@ -72,11 +92,11 @@ class UsuarioProfileUpdate(BaseModel):
 
     @field_validator("nombre", "apellido", "nombreUsuario")
     @classmethod
-    def validar_obligatorios(cls, value: str) -> str:
+    def validar_obligatorios(cls, value: str, info: ValidationInfo) -> str:
         limpio = value.strip()
         if not limpio:
             raise ValueError("El campo no puede estar vacío")
-        return limpio
+        return validar_largo_campo_usuario(limpio, info)
 
 
 class UsuarioPhotoUploadResponse(BaseModel):
@@ -92,9 +112,18 @@ class UsuarioRegister(BaseModel):
     password: str
     aceptaTerminos: bool
 
+    @field_validator("nombre", "apellido", "nombreUsuario")
+    @classmethod
+    def validar_obligatorios(cls, value: str, info: ValidationInfo) -> str:
+        limpio = value.strip()
+        if not limpio:
+            raise ValueError(f"{_ETIQUETAS_USUARIO[info.field_name]} no puede estar vacío")
+        return validar_largo_campo_usuario(limpio, info)
+
     @field_validator("password")
     @classmethod
     def validar_password(cls, value: str) -> str:
+        validar_largo_password(value)
         if len(value) < 8:
             raise ValueError("La contraseña debe tener al menos 8 caracteres.")
         if not re.search(r"[A-Z]", value):
@@ -128,6 +157,11 @@ class CambioPasswordRequest(BaseModel):
     passwordActual: str = ""
     passwordNueva: str = ""
     confirmacion: str = ""
+
+    @field_validator("passwordNueva")
+    @classmethod
+    def validar_largo_nueva(cls, value: str) -> str:
+        return validar_largo_password(value)
 
 
 class CambioPasswordResponse(BaseModel):

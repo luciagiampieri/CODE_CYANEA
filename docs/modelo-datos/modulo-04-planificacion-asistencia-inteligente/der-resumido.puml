@@ -1,0 +1,110 @@
+@startuml
+!pragma layout smetana
+hide circle
+skinparam shadowing false
+skinparam defaultFontName Arial
+skinparam defaultFontSize 12
+skinparam classBackgroundColor #F1F8FA
+skinparam classBorderColor #286779
+skinparam ArrowColor #4B6370
+skinparam nodesep 55
+skinparam ranksep 75
+title Cyanea · Módulo 4 · Planificación y asistencia inteligente\nDER resumido · atributos seleccionados
+
+entity "PreferenciasPlanificacion" as PreferenciasPlanificacion {
+  {field} * IdPreferenciaPlanificacion : INTEGER <<PK>>
+  {field} * IdParticipanteViaje : INTEGER <<FK, UQ>>
+  {field} * IdRitmoViaje : INTEGER <<FK>>
+  {field}   PresupuestoDiarioARS : NUMERIC(12, 2)
+}
+
+entity "InteresesPlanificacion" as InteresesPlanificacion {
+  {field} * IdInteresPlanificacion : INTEGER <<PK>>
+  {field} * Nombre : VARCHAR(50) <<UQ>>
+}
+
+entity "RitmosViajes" as RitmosViajes {
+  {field} * IdRitmoViaje : INTEGER <<PK>>
+  {field} * Nombre : VARCHAR(30) <<UQ>>
+}
+
+entity "PreferenciasPlanificacionIntereses" as PreferenciasPlanificacionIntereses {
+  {field} * IdPreferenciaPlanificacion : INTEGER <<PK, FK>>
+  {field} * IdInteresPlanificacion : INTEGER <<PK, FK>>
+}
+
+entity "SolicitudesSugerenciasActividades" as SolicitudesSugerenciasActividades {
+  {field} * IdSolicitudSugerenciaActividad : INTEGER <<PK>>
+  {field} * IdViaje : INTEGER <<FK, UP1>>
+  {field} * IdUsuario : INTEGER <<FK>>
+  {field} * IdDiaCronograma : INTEGER <<FK, UP1>>
+  {field} * HoraInicio : TIME
+  {field} * HoraFin : TIME
+  {field} * Estado : VARCHAR(20)
+}
+
+entity "SugerenciasActividades" as SugerenciasActividades {
+  {field} * IdSugerenciaActividad : INTEGER <<PK>>
+  {field} * IdSolicitudSugerenciaActividad : INTEGER <<FK>>
+  {field} * IdViaje : INTEGER <<FK>>
+  {field} * IdDiaCronograma : INTEGER <<FK>>
+  {field} * IdEstadoSugerenciaActividad : INTEGER <<FK>>
+  {field} * Nombre : VARCHAR(150)
+  {field} * GooglePlaceId : VARCHAR(255)
+  {field} * CostoEstimadoARS : NUMERIC(12, 2)
+}
+
+entity "EstadosSugerenciasActividades" as EstadosSugerenciasActividades {
+  {field} * IdEstadoSugerenciaActividad : INTEGER <<PK>>
+  {field} * Nombre : VARCHAR(30) <<UQ>>
+}
+
+entity "AccionesAsistenteViaje" as AccionesAsistenteViaje {
+  {field} * IdAccionAsistente : VARCHAR(36) <<PK>>
+  {field} * IdViaje : INTEGER <<FK>>
+  {field} * IdUsuario : INTEGER <<FK>>
+  {field} * Tipo : VARCHAR(50)
+  {field} * Estado : VARCHAR(30)
+}
+
+entity "DiasCronogramas (módulo 3)" as DiasCronogramas #EEEEEE {
+  {field} * IdDiaCronograma : INTEGER <<PK>>
+}
+
+entity "ParticipantesViajes (módulo 2)" as ParticipantesViajes #EEEEEE {
+  {field} * IdParticipanteViaje : INTEGER <<PK>>
+}
+
+entity "Usuarios (módulo 1)" as Usuarios #EEEEEE {
+  {field} * IdUsuario : INTEGER <<PK>>
+}
+
+entity "Viajes (módulo 2)" as Viajes #EEEEEE {
+  {field} * IdViaje : INTEGER <<PK>>
+}
+
+ParticipantesViajes ||--o| PreferenciasPlanificacion : preferencias propias
+RitmosViajes ||--o{ PreferenciasPlanificacion : RitmoViaje
+InteresesPlanificacion ||--o{ PreferenciasPlanificacionIntereses : InteresPlanificacion
+PreferenciasPlanificacion ||--o{ PreferenciasPlanificacionIntereses : PreferenciaPlanificacion
+DiasCronogramas ||--o{ SolicitudesSugerenciasActividades : DiaCronograma
+Usuarios ||--o{ SolicitudesSugerenciasActividades : Usuario
+Viajes ||--o{ SolicitudesSugerenciasActividades : Viaje
+DiasCronogramas ||--o{ SugerenciasActividades : DiaCronograma
+EstadosSugerenciasActividades ||--o{ SugerenciasActividades : estado
+SolicitudesSugerenciasActividades ||--o{ SugerenciasActividades : genera
+Viajes ||--o{ SugerenciasActividades : Viaje
+Usuarios ||--o{ AccionesAsistenteViaje : Usuario
+Viajes ||--o{ AccionesAsistenteViaje : Viaje
+legend bottom
+  Azul: tablas propias · Gris: referencias externas (solo PK)
+  PK: clave primaria · FK: clave foránea · UQ: unicidad individual
+  UQ1: unicidad compuesta dentro de la tabla
+  UP1/UP2: índice UNIQUE parcial; consultar columnas y condición en el diccionario
+  Los índices parciales no implican unicidad incondicional de una FK.
+  * Campo NOT NULL · Sin *: admite NULL
+  TIMESTAMPTZ: TIMESTAMP WITH TIME ZONE · TIME: TIME WITHOUT TIME ZONE
+  Las relaciones solo representan FK físicas, no identificadores dentro de JSON o texto.
+  Atributos restantes: consultar el DER físico y el diccionario.
+endlegend
+@enduml

@@ -2,6 +2,7 @@ import logging
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
+from app.db.concurrencia import en_hilo_con_locks
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session
 
@@ -408,9 +409,16 @@ async def _avisar(db: Session, aviso: _Aviso | None, mail_service) -> None:
     await acciones[aviso.tipo](db, usuario, aviso.suscripcion, mail_service)
 
 
-async def procesar_cobro(db: Session, cobro: CobroPasarela, mail_service) -> None:
+def _registrar_cobro_y_confirmar(db: Session, cobro: CobroPasarela) -> _Aviso | None:
     aviso = _registrar_cobro(db, cobro)
     db.commit()
+    return aviso
+
+
+async def procesar_cobro(db: Session, cobro: CobroPasarela, mail_service) -> None:
+    # Bloquea la suscripción (FOR UPDATE): la espera corre en el threadpool para no
+    # trabar el event loop si otra operación tiene la fila tomada.
+    aviso = await en_hilo_con_locks(db, _registrar_cobro_y_confirmar, db, cobro)
     await _avisar(db, aviso, mail_service)
 
 
@@ -553,6 +561,10 @@ async def resumen(db: Session, usuario: Usuario, cliente, mail_service) -> dict:
     }
 
 
+def _bloquear_usuario(db: Session, id_usuario: int) -> None:
+    db.execute(select(Usuario).where(Usuario.IdUsuario == id_usuario).with_for_update())
+
+
 async def iniciar(
     db: Session,
     usuario: Usuario,
@@ -574,7 +586,9 @@ async def iniciar(
     # La validación puede haber confirmado cambios: se bloquea al viajero recién
     # ahora y se verifica que nadie haya iniciado otro intento en el medio (por
     # ejemplo, dos toques seguidos en "Confirmar").
-    db.execute(select(Usuario).where(Usuario.IdUsuario == usuario.IdUsuario).with_for_update())
+    # El lock se retiene mientras se llama a Mercado Pago; se pide desde el threadpool
+    # para que un segundo toque espere en un hilo y no trabe el event loop.
+    await en_hilo_con_locks(db, _bloquear_usuario, db, usuario.IdUsuario)
     actual = _intento_pendiente(db, usuario)
     if (actual.IdSuscripcionUsuario if actual else None) != (
         anterior.IdSuscripcionUsuario if anterior else None
@@ -796,8 +810,8 @@ async def _actualizar_en_pasarela(db: Session, accion, suscripcion: SuscripcionU
         )
 
 
-async def cancelar(db: Session, usuario: Usuario, cliente, mail_service) -> dict:
-    ahora = _ahora()
+def _cancelable(db: Session, usuario: Usuario, ahora: datetime) -> SuscripcionUsuario:
+    """Suscripción actual bloqueada, si se puede cancelar; si no, libera el lock y avisa."""
     suscripcion = _suscripcion_actual(db, usuario, bloquear=True)
     if (
         suscripcion is None
@@ -810,8 +824,27 @@ async def cancelar(db: Session, usuario: Usuario, cliente, mail_service) -> dict
             "SUBSCRIPTION_NOT_CANCELLABLE",
             "No tenés una suscripción Pro activa para cancelar.",
         )
+    return suscripcion
+
+
+async def cancelar(db: Session, usuario: Usuario, cliente, mail_service) -> dict:
+    ahora = _ahora()
+    # Primero se valida y se libera la fila: no se retiene ningún lock mientras se
+    # espera a Mercado Pago. Después se vuelve a bloquear y validar antes de guardar.
+    suscripcion = _cancelable(db, usuario, ahora)
+    id_suscripcion = suscripcion.IdSuscripcionUsuario
+    db.rollback()
 
     await _actualizar_en_pasarela(db, cliente.pausar_suscripcion, suscripcion)
+
+    suscripcion = _cancelable(db, usuario, ahora)
+    if suscripcion.IdSuscripcionUsuario != id_suscripcion:
+        db.rollback()
+        raise SuscripcionError(
+            409,
+            "SUBSCRIPTION_NOT_CANCELLABLE",
+            "No tenés una suscripción Pro activa para cancelar.",
+        )
     suscripcion.IdEstadoSuscripcion = _id_estado_suscripcion(db, ESTADO_CANCELADA)
     suscripcion.FechaCancelacion = ahora
     suscripcion.EstadoPasarela = PASARELA_PAUSADA
@@ -830,8 +863,8 @@ async def cancelar(db: Session, usuario: Usuario, cliente, mail_service) -> dict
     }
 
 
-async def reactivar(db: Session, usuario: Usuario, cliente) -> dict:
-    ahora = _ahora()
+def _reactivable(db: Session, usuario: Usuario, ahora: datetime) -> SuscripcionUsuario:
+    """Suscripción actual bloqueada, si se puede reactivar; si no, libera el lock y avisa."""
     suscripcion = _suscripcion_actual(db, usuario, bloquear=True)
     if suscripcion is None or _nombre_estado(db, suscripcion) != ESTADO_CANCELADA:
         db.rollback()
@@ -847,8 +880,26 @@ async def reactivar(db: Session, usuario: Usuario, cliente) -> dict:
             "SUBSCRIPTION_PERIOD_ENDED",
             "El período abonado ya finalizó. Para volver a Pro, iniciá una nueva suscripción.",
         )
+    return suscripcion
+
+
+async def reactivar(db: Session, usuario: Usuario, cliente) -> dict:
+    ahora = _ahora()
+    # Igual que al cancelar: no se retiene el lock mientras se espera a Mercado Pago.
+    suscripcion = _reactivable(db, usuario, ahora)
+    id_suscripcion = suscripcion.IdSuscripcionUsuario
+    db.rollback()
 
     await _actualizar_en_pasarela(db, cliente.reactivar_suscripcion, suscripcion)
+
+    suscripcion = _reactivable(db, usuario, ahora)
+    if suscripcion.IdSuscripcionUsuario != id_suscripcion:
+        db.rollback()
+        raise SuscripcionError(
+            409,
+            "SUBSCRIPTION_NOT_REACTIVABLE",
+            "No tenés una suscripción cancelada para reactivar.",
+        )
     suscripcion.IdEstadoSuscripcion = _id_estado_suscripcion(db, ESTADO_ACTIVA)
     suscripcion.FechaCancelacion = None
     suscripcion.EstadoPasarela = PASARELA_AUTORIZADA

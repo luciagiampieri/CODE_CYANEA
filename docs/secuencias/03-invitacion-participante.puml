@@ -1,0 +1,57 @@
+@startuml
+title Invitación e incorporación de un participante
+skinparam backgroundColor #FFFFFF
+skinparam defaultFontName Arial
+skinparam defaultFontSize 13
+skinparam shadowing false
+skinparam roundcorner 8
+skinparam sequence {
+  ArrowColor #234E70
+  LifeLineBorderColor #78909C
+  ParticipantBorderColor #234E70
+  ParticipantBackgroundColor #EAF2F8
+  ParticipantFontColor #17324D
+  ActorBorderColor #234E70
+  GroupBorderColor #78909C
+  GroupBackgroundColor #F6F9FB
+  NoteBackgroundColor #FFF7DD
+  NoteBorderColor #B79947
+}
+hide footbox
+autonumber
+actor "Administrador del viaje" as A
+actor Invitado as U
+participant "Aplicación Expo / Web" as UI
+participant "API de viajes" as API
+database PostgreSQL as DB
+participant "Notificaciones / correo" as N
+A -> UI: Invitar por usuario o correo
+UI -> API: POST /trips/{viaje}/participants
+API -> API: Autenticar y validar administración\ny reglas del viaje
+API -> DB: Buscar usuario y participación o invitación previa
+alt Usuario registrado
+  API -> DB: Crear o reutilizar ParticipantesViajes\ncon estado invitado; COMMIT
+  API -> N: Notificar invitación al usuario
+else Correo sin cuenta
+  API -> DB: Preparar InvitacionesViajes pendiente\ncon vencimiento; FLUSH
+  API -> N: Enviar invitación por correo
+  API -> DB: COMMIT tras envío exitoso
+  note over API,N: Si el envío falla, se revierte la invitación\ny se informa un error para reintentar.
+  note over U,DB: Al registrarse, la invitación se vincula a la cuenta.\nLa participación sigue requiriendo aceptación explícita.
+end
+API --> UI: Invitación registrada
+== Respuesta desde una cuenta autenticada ==
+U -> UI: Abrir invitación y aceptar
+UI -> API: POST /trips/invitations/{viaje}/respond\ndecision = aceptar
+API -> DB: Bloquear viaje y consultar participación invitada
+API -> API: Validar invitación pendiente, viaje no finalizado\ny cupo del plan de su administrador
+alt Invitación no válida o cupo agotado
+  API --> UI: Error; conservar participación sin incorporar
+else Incorporación permitida
+  API -> DB: Estado aceptado, fecha de respuesta\ny fecha de incorporación; COMMIT
+  API -> N: Emitir participante_acepto por WebSocket
+  API --> UI: Invitación aceptada
+  UI --> U: Habilitar acceso como participante
+end
+note over UI,API: Rechazar usa el mismo endpoint con decision = rechazar;\nregistra la respuesta y no incorpora al usuario.
+@enduml

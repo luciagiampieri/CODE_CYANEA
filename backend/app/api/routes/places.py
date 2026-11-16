@@ -589,6 +589,9 @@ async def schedule_trip_place(
     viaje = require_trip_edit_access(get_trip_with_relations(db, trip_id), current_user)
     require_trip_not_finished(viaje, "el itinerario")
     _ensure_trip_days(db, trip_id)
+    # Si se crearon días, se confirman ya: no pueden quedar escrituras sin commit
+    # mientras se espera a Google más abajo.
+    db.commit()
 
     trip_place = db.scalar(
         select(LugarInteresViaje)

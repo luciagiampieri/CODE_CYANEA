@@ -1,0 +1,58 @@
+@startuml
+title Votación de sugerencias y resolución de ganadora
+skinparam backgroundColor #FFFFFF
+skinparam defaultFontName Arial
+skinparam defaultFontSize 13
+skinparam shadowing false
+skinparam roundcorner 8
+skinparam sequence {
+  ArrowColor #234E70
+  LifeLineBorderColor #78909C
+  ParticipantBorderColor #234E70
+  ParticipantBackgroundColor #EAF2F8
+  ParticipantFontColor #17324D
+  ActorBorderColor #234E70
+  GroupBorderColor #78909C
+  GroupBackgroundColor #F6F9FB
+  NoteBackgroundColor #FFF7DD
+  NoteBorderColor #B79947
+}
+hide footbox
+autonumber
+actor "Participante creador" as C
+actor Participante as U
+participant "Aplicación Expo / Web" as UI
+participant "API de votaciones" as API
+participant "Procesador periódico" as JOB
+database PostgreSQL as DB
+C -> UI: Elegir sugerencias y fecha de cierre
+UI -> API: POST /votaciones/desde-sugerencias
+API -> API: Validar acceso, viaje y sugerencias disponibles
+API -> DB: Guardar votación de opción única y propuestas;\nsugerencias en_votacion; COMMIT
+API --> UI: Votación creada
+loop Cada participante que emite su voto
+  U -> UI: Elegir propuesta
+  UI -> API: POST /votaciones/{id}/votar
+  API -> API: Validar participación, apertura y selección
+  API -> DB: Guardar Votos; COMMIT
+  API -> API: Emitir votacion_actualizada
+  API --> UI: Voto registrado
+end
+== Al alcanzar la fecha de cierre ==
+JOB -> DB: Buscar votaciones de sugerencias pendientes de resolución
+JOB -> JOB: Revalidar cierre y contar votos
+alt Ganadora única
+  JOB -> DB: Reclamar resolución y crear actividad con origen de votación;\nactualizar resolución y sugerencias; COMMIT
+  JOB -> JOB: Publicar cambios y notificar resultado
+else Empate
+  JOB -> DB: Registrar empate y plazo de desempate; COMMIT
+  JOB -> JOB: Notificar al creador que debe desempatar
+  C -> UI: Elegir ganadora dentro del plazo
+  UI -> API: POST /votaciones/{id}/desempate
+  API -> DB: Validar creador, empate y plazo;\nincorporar ganadora al itinerario; COMMIT
+  API --> UI: Resolución confirmada
+else Sin votos
+  JOB -> DB: Registrar sin_votos y liberar sugerencias; COMMIT
+end
+note over API,DB: Una votación ya resuelta no vuelve a incorporar actividad.\nLa expiración del desempate se trata fuera del camino básico.
+@enduml

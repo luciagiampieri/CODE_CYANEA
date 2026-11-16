@@ -11,6 +11,7 @@ from app.main import app
 from app.db.session import Base, get_db
 from app.core.security import hash_password, create_access_token
 from app.services.mail import get_mail_service
+from app.services.auth import limite_intentos_login
 from app.models.usuario import Usuario
 from app.models.plan import Plan
 from app.models.estado_viaje import EstadoViaje
@@ -22,6 +23,7 @@ from app.models.viaje import Viaje
 from app.models.categorias_gastos import CategoriasGastos
 from app.models.estado_transferencia_liquidacion import EstadoTransferenciaLiquidacion
 from app.models.participante_viaje import ParticipanteViaje
+from app.models.moneda import Moneda
 
 
 
@@ -97,9 +99,11 @@ def client(db_session):
 
     app.dependency_overrides[get_db] = _override_get_db
     app.dependency_overrides[get_mail_service] = lambda: _FakeMailService()
+    limite_intentos_login.reiniciar()
     with TestClient(app) as test_client:
         yield test_client
     app.dependency_overrides.clear()
+    limite_intentos_login.reiniciar()
 
 
 @pytest.fixture()
@@ -141,7 +145,13 @@ def master_data(db_session):
         for id_tipo, nombre in ((1, "ida"), (2, "entre_destinos"), (3, "regreso"))
     ]
 
-    db_session.add_all(estados_viaje + estados_participacion + estados_invitacion + roles + estados_transferencia + tipos_tramos)
+    # Monedas: crear un viaje valida que la moneda exista (Viajes.Moneda es FK a Monedas).
+    monedas = [
+        Moneda(Codigo=codigo, Nombre=nombre)
+        for codigo, nombre in (("ARS", "Peso argentino"), ("USD", "Dólar estadounidense"), ("EUR", "Euro"))
+    ]
+
+    db_session.add_all(estados_viaje + estados_participacion + estados_invitacion + roles + estados_transferencia + tipos_tramos + monedas)
     db_session.commit()
 
 

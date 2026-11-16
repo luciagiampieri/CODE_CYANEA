@@ -93,6 +93,7 @@ from app.services.receipt_ai.base import (
     MENSAJE_TIEMPO_AGOTADO,
 )
 from app.services.comprobante_gasto import guardar_comprobante
+from app.db.concurrencia import en_hilo_con_locks
 from app.services.limites_planes import registrar_escaneo, validar_almacenamiento, validar_escaneos
 from app.services.supabase.storage import eliminar_documento, eliminar_documento_storage, obtener_url_publica
 from app.services.websocket_manager import manager
@@ -453,6 +454,14 @@ def _resolver_division(
     return data.IdPagador, tipo_division_final, participantes_ids, monto_por_participante
 
 
+def _validar_escaneos_sin_retener_lock(db: Session, usuario: Usuario) -> None:
+    """Controla el cupo mensual de escaneos y libera el lock del usuario antes de llamar
+    a la IA: retenerlo mientras se espera a Gemini colgaba el event loop si otro request
+    del mismo usuario (otro escaneo, crear un viaje) pedía el mismo lock."""
+    validar_escaneos(db, usuario)
+    db.rollback()
+
+
 @router.post("")
 async def create_gasto(data: GastoCreate, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)):
 
@@ -640,7 +649,11 @@ async def asociar_comprobante_gasto(
     except ReceiptScanError as error:
         raise _error_escaneo(error)
 
-    validar_almacenamiento(db, viaje, len(contenido))
+    try:
+        validar_almacenamiento(db, viaje, len(contenido))
+    except Exception:
+        db.rollback()  # libera el lock del viaje antes de volver al event loop
+        raise
 
     ruta_subida = None
     try:
@@ -734,7 +747,7 @@ async def escanear_comprobante(
             headers={"X-Error-Code": AI_CONSENT_REQUIRED},
         )
 
-    validar_escaneos(db, current_user)
+    await en_hilo_con_locks(db, _validar_escaneos_sin_retener_lock, db, current_user)
 
     contenido = await archivo.read(MAX_RECEIPT_BYTES + 1)
     try:

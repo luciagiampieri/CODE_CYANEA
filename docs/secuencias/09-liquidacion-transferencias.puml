@@ -1,0 +1,54 @@
+@startuml
+title Liquidación de gastos y confirmación de transferencias
+skinparam backgroundColor #FFFFFF
+skinparam defaultFontName Arial
+skinparam defaultFontSize 13
+skinparam shadowing false
+skinparam roundcorner 8
+skinparam sequence {
+  ArrowColor #234E70
+  LifeLineBorderColor #78909C
+  ParticipantBorderColor #234E70
+  ParticipantBackgroundColor #EAF2F8
+  ParticipantFontColor #17324D
+  ActorBorderColor #234E70
+  GroupBorderColor #78909C
+  GroupBackgroundColor #F6F9FB
+  NoteBackgroundColor #FFF7DD
+  NoteBorderColor #B79947
+}
+hide footbox
+autonumber
+actor Deudor as D
+actor Acreedor as A
+participant "Aplicación Expo / Web" as UI
+participant "API y servicio de liquidaciones" as API
+database PostgreSQL as DB
+== Consulta o recálculo de la liquidación ==
+D -> UI: Consultar balance del viaje
+UI -> API: GET /trips/{viaje}/settlement
+API -> API: Validar acceso al viaje
+API -> DB: Leer gastos compartidos, asignaciones\ny liquidación activa
+opt Es necesario generar o reconstruir el plan
+  API -> API: Calcular balances y transferencias pendientes
+  API -> DB: Desactivar versión anterior, crear nueva versión\ny conservar transferencias informadas/realizadas; COMMIT
+end
+API --> UI: Totales, saldos y transferencias de la versión activa
+UI --> D: Mostrar cuánto debe y a quién
+== Aviso y confirmación de pago ==
+note over D,A: La transferencia de dinero ocurre fuera de Cyanea.
+D -> UI: Indicar «Ya transferí»
+UI -> API: POST /trips/{viaje}/settlement/transfers/{id}/informar
+API -> API: Validar que actúa el deudor de la transferencia
+API -> DB: Cambiar pendiente a informada; COMMIT
+API -> API: Notificar al acreedor y emitir actualización
+API --> UI: Transferencia informada
+A -> UI: Confirmar que recibió el dinero
+UI -> API: PATCH /trips/{viaje}/settlement/transfers/{id}\nRealizada = true
+API -> API: Validar que actúa el acreedor
+API -> DB: Cambiar a realizada y registrar fecha; COMMIT
+API -> API: Emitir actualización de liquidación
+API --> UI: Liquidación actualizada
+UI --> A: Mostrar transferencia confirmada
+note over API,DB: Confirmar una transferencia no modifica los gastos base.\nLos balances se calculan, no se guardan por participante.
+@enduml

@@ -1,0 +1,82 @@
+@startuml
+!pragma layout smetana
+title Cyanea — Ambiente productivo: despliegue de la aplicación
+top to bottom direction
+skinparam backgroundColor #FFFFFF
+skinparam defaultFontName Arial
+skinparam defaultFontSize 14
+skinparam shadowing false
+skinparam roundcorner 10
+skinparam nodesep 55
+skinparam ranksep 55
+skinparam ArrowColor #234E70
+skinparam nodeBackgroundColor #EAF2F8
+skinparam nodeBorderColor #234E70
+skinparam componentBackgroundColor #FFFFFF
+skinparam componentBorderColor #48728D
+skinparam databaseBackgroundColor #E6F4EF
+skinparam databaseBorderColor #26725D
+skinparam cloudBackgroundColor #F5F7FA
+skinparam cloudBorderColor #78909C
+skinparam artifactBackgroundColor #FFF7DD
+
+node "Dispositivo del usuario" as DEVICE {
+  component "App móvil instalada\nExpo + React Native\nAndroid; iOS previsto" as MOBILE
+  database "SQLite y archivos locales\nCaché / trabajo sin conexión" as LOCAL
+  MOBILE -- LOCAL
+}
+
+node "Equipo del usuario / administrador" as CLIENT {
+  component "Navegador web\nApp de viajeros + Backoffice\nReact Native Web" as WEB
+}
+
+cloud "Expo Application Services (EAS)\nCompilación y distribución" as EAS {
+  artifact "Build móvil de producción\nPerfil production" as APK
+}
+
+cloud "Cloudflare Workers\ncode-cyanea.fafafacultad.workers.dev" as CF {
+  artifact "Export web de Expo: frontend/dist\nHTML, JavaScript y recursos\nRuta /backoffice en el mismo frontend" as WEBFILES
+}
+
+cloud "Railway" as RW {
+  node "Servicio backend\ncyanea-production.up.railway.app" as SERVER {
+    component "FastAPI + Uvicorn\nPython 3.12 / contenedor Docker\nAPI REST /api/v1 + WebSockets" as API
+    component "Servicios de negocio y tareas periódicas\nDentro del mismo proceso de backend" as SERVICES
+    API -- SERVICES
+  }
+  node "Servicio de base de datos" as DATA {
+    database "PostgreSQL\nDatos de dominio, auditoría y configuración\nEsquema administrado con Alembic" as PG
+  }
+  API --> PG : SQL / TCP\nDATABASE_URL
+}
+
+cloud "Supabase" as SUPA {
+  component "Storage\nDocumentos, comprobantes e imágenes" as STORAGE
+}
+
+cloud "Proveedores externos\nSegún funcionalidades habilitadas" as EXT {
+  component "Google Maps / Places\nGemini / Cloudflare Workers AI\nServicios geográficos y de IA" as GEOAI
+  component "Brevo o SMTP\nExpo Push\nCorreo y notificaciones móviles" as NOTIFY
+  component "Mercado Pago\nIntegración de suscripciones\nEntorno según configuración" as MP
+  GEOAI -[hidden]down-> NOTIFY
+  NOTIFY -[hidden]down-> MP
+}
+
+APK -[#26725D,dashed]-> MOBILE : Distribuir e instalar\nsegún canal habilitado
+WEB --> WEBFILES : HTTPS\nObtener aplicación web
+WEB --> API : HTTPS / JSON\nWSS para tiempo real
+MOBILE --> API : HTTPS / JSON\nWSS para tiempo real
+API --> STORAGE : HTTPS\nSubir / descargar archivos
+API -right-> GEOAI : HTTPS\nSolicitudes desde backend
+API -right-> NOTIFY : HTTPS o SMTP\nsegún proveedor
+API -right-> MP : HTTPS\nSuscripciones y cobros
+MP --> API : HTTPS\nWebhook firmado
+
+legend bottom left
+  Flechas azules: comunicación durante la ejecución.
+  Flecha verde discontinua: distribución de un artefacto.
+  Las integraciones se muestran por responsabilidad; no son un gateway común.
+  OAuth, mapas nativos y otros accesos directos del cliente: ver documento asociado.
+  PostgreSQL en Railway: topología solicitada; detalles de infraestructura a verificar.
+endlegend
+@enduml

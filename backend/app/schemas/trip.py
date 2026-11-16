@@ -247,13 +247,24 @@ class DiaCronogramaRead(BaseModel):
         from_attributes = True
         populate_by_name = True
 
+MENSAJE_TITULO_VACIO = "El nombre del viaje no puede quedar vacío"
+
+
+def limpiar_titulo(value: str) -> str:
+    limpio = value.strip()
+    if not limpio:
+        raise ValueError(MENSAJE_TITULO_VACIO)
+    return limpio
+
+
 class DestinationCreate(BaseModel):
-    name: str
-    country: str
-    provinceState: str | None = None
-    lat: float | None = None
-    lng: float | None = None
-    placeId: str | None = None
+    # Largos de Destinos (Nombre, Pais, ProvinciaEstado) y de Viajes.GooglePlaceIdPortada.
+    name: str = Field(..., max_length=200)
+    country: str = Field(..., max_length=100)
+    provinceState: str | None = Field(default=None, max_length=150)
+    lat: float | None = Field(default=None, ge=-90, le=90)
+    lng: float | None = Field(default=None, ge=-180, le=180)
+    placeId: str | None = Field(default=None, max_length=255)
     imageUrl: str | None = None
     noches: int | None = None
     nochesEnViaje: int | None = None
@@ -395,6 +406,11 @@ class TripCreate(BaseModel):
     participantUserIds: list[int] = Field(default_factory=list)
     invitedEmails: list[str] = Field(default_factory=list)
 
+    @field_validator("title")
+    @classmethod
+    def validate_title(cls, value: str) -> str:
+        return limpiar_titulo(value)
+
     @field_validator("destinations")
     @classmethod
     def validate_destinations(cls, value):
@@ -412,8 +428,21 @@ class TripCreate(BaseModel):
                 normalized.append(cleaned)
         return normalized
 
+    @field_validator("currency")
+    @classmethod
+    def validate_currency(cls, value: str) -> str:
+        codigo = value.strip().upper()
+        if not re.fullmatch(r"[A-Z]{3}", codigo):
+            raise ValueError("La moneda debe ser un código de 3 letras, por ejemplo ARS")
+        return codigo
+
     @model_validator(mode="after")
     def validate_dates(self):
+        # Viajes.FechaInicio y FechaFin son NOT NULL: sin ellas el INSERT fallaba con 500.
+        if self.startDate is None:
+            raise ValueError("La fecha de inicio es obligatoria")
+        if self.endDate is None:
+            raise ValueError("La fecha de fin es obligatoria")
         if self.startDate and self.startDate < date.today():
             raise ValueError("La fecha de inicio no puede ser anterior a la fecha actual")
         if self.startDate and self.endDate and self.endDate < self.startDate:
@@ -427,6 +456,11 @@ class TripUpdate(BaseModel):
     startDate: date
     endDate: date
     destinations: list[DestinationCreate]
+
+    @field_validator("title")
+    @classmethod
+    def validate_title(cls, value: str) -> str:
+        return limpiar_titulo(value)
 
     @field_validator("destinations")
     @classmethod

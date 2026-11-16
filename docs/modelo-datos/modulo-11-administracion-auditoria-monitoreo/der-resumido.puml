@@ -1,0 +1,97 @@
+@startuml
+!pragma layout smetana
+hide circle
+skinparam shadowing false
+skinparam defaultFontName Arial
+skinparam defaultFontSize 12
+skinparam classBackgroundColor #F1F8FA
+skinparam classBorderColor #286779
+skinparam ArrowColor #4B6370
+skinparam nodesep 55
+skinparam ranksep 75
+title Cyanea · Módulo 11 · Administración auditoría y monitoreo\nDER resumido · atributos seleccionados
+
+entity "AuditoriaAccesosBackoffice" as AuditoriaAccesosBackoffice {
+  {field} * IdAuditoriaAcceso : INTEGER <<PK>>
+  {field}   IdUsuario : INTEGER <<FK>>
+  {field} * Exitoso : BOOLEAN
+  {field} * FechaHora : TIMESTAMPTZ
+}
+
+entity "AuditoriaSuspensionesUsuarios" as AuditoriaSuspensionesUsuarios {
+  {field} * IdAuditoriaSuspension : INTEGER <<PK>>
+  {field} * IdUsuario : INTEGER <<FK>>
+  {field} * IdAdministrador : INTEGER <<FK>>
+  {field} * Accion : VARCHAR(20)
+  {field} * FechaHora : TIMESTAMPTZ
+}
+
+entity "VersionesTerminos" as VersionesTerminos {
+  {field} * IdVersionTerminos : INTEGER <<PK>>
+  {field} * Numero : VARCHAR(30) <<UQ>>
+  {field} * Estado : VARCHAR(20) <<UP1>>
+  {field}   IdAdministradorCreacion : INTEGER <<FK>>
+  {field}   IdAdministradorPublicacion : INTEGER <<FK>>
+}
+
+entity "AuditoriaTerminos" as AuditoriaTerminos {
+  {field} * IdAuditoriaTerminos : INTEGER <<PK>>
+  {field} * IdVersionTerminos : INTEGER <<FK>>
+  {field} * IdAdministrador : INTEGER <<FK>>
+  {field} * Accion : VARCHAR(20)
+  {field} * FechaHora : TIMESTAMPTZ
+}
+
+entity "AuditoriaPlanes" as AuditoriaPlanes {
+  {field} * IdAuditoriaPlan : INTEGER <<PK>>
+  {field} * IdPlan : INTEGER <<FK>>
+  {field} * IdAdministrador : INTEGER <<FK>>
+  {field} * Campo : VARCHAR(50)
+  {field}   ValorAnterior : VARCHAR(50)
+  {field} * ValorNuevo : VARCHAR(50)
+}
+
+entity "SolicitudesIA" as SolicitudesIA {
+  {field} * IdSolicitudIA : INTEGER <<PK>>
+  {field} * Servicio : VARCHAR(50)
+  {field} * Modelo : VARCHAR(100)
+  {field} * Exitosa : BOOLEAN
+  {field} * CostoEstimadoUSD : NUMERIC(12, 6)
+}
+
+entity "ConfiguracionesMonitoreoIA" as ConfiguracionesMonitoreoIA {
+  {field} * IdConfiguracionMonitoreoIA : INTEGER <<PK>>
+  {field}   UmbralCostoMensualUSD : NUMERIC(12, 2)
+  {field}   IdUsuarioActualizacion : INTEGER <<FK>>
+}
+
+entity "Planes (módulo 9)" as Planes #EEEEEE {
+  {field} * IdPlan : INTEGER <<PK>>
+}
+
+entity "Usuarios (módulo 1)" as Usuarios #EEEEEE {
+  {field} * IdUsuario : INTEGER <<PK>>
+}
+
+Usuarios |o--o{ AuditoriaAccesosBackoffice : cuenta identificada
+Usuarios ||--o{ AuditoriaSuspensionesUsuarios : administrador actor
+Usuarios ||--o{ AuditoriaSuspensionesUsuarios : cuenta afectada
+Usuarios |o--o{ VersionesTerminos : creada por
+Usuarios |o--o{ VersionesTerminos : publicada por
+Usuarios ||--o{ AuditoriaTerminos : administrador actor
+VersionesTerminos ||--o{ AuditoriaTerminos : versión publicada
+Usuarios ||--o{ AuditoriaPlanes : administrador actor
+Planes ||--o{ AuditoriaPlanes : plan modificado
+Usuarios |o--o{ ConfiguracionesMonitoreoIA : actualizada por
+legend bottom
+  Azul: tablas propias · Gris: referencias externas (solo PK)
+  PK: clave primaria · FK: clave foránea · UQ: unicidad individual
+  UQ1: unicidad compuesta dentro de la tabla
+  UP1/UP2: índice UNIQUE parcial; consultar columnas y condición en el diccionario
+  Los índices parciales no implican unicidad incondicional de una FK.
+  * Campo NOT NULL · Sin *: admite NULL
+  TIMESTAMPTZ: TIMESTAMP WITH TIME ZONE · TIME: TIME WITHOUT TIME ZONE
+  Las relaciones solo representan FK físicas, no identificadores dentro de JSON o texto.
+  Atributos restantes: consultar el DER físico y el diccionario.
+endlegend
+@enduml

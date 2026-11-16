@@ -26,6 +26,7 @@ from app.models.rol_participante import RolParticipante
 from app.models.dia_cronograma import DiaCronograma
 from app.models.actividad_itinerario import ActividadItinerario
 from app.models.recordatorio_actividad_notificado import RecordatorioActividadNotificado
+from app.models.moneda import Moneda
 from app.models.usuario import Usuario
 from app.models.viaje import Viaje
 from app.models.destino_viaje import DestinoViaje
@@ -110,6 +111,7 @@ from app.services import invitaciones_correo, tareas_entradas, traslados as serv
 from app.services.cupos_viajes import require_trip_capacity
 from app.services.administracion_viajes import bloquear_viaje, cambiar_administrador, transferir_administracion
 from app.services.limites_planes import validar_viajes_activos
+from app.db.concurrencia import en_hilo_con_locks
 from app.models.checklist import Checklist
 
 ROUTE_GENERATION_AVAILABLE = True
@@ -1149,11 +1151,15 @@ async def update_trip(
 
     validar_recorrido(payload.destinations, payload.startDate, payload.endDate)
 
+    # Se consulta a Google antes de modificar nada: ningún await queda dentro de la
+    # transacción que escribe el viaje.
+    google_place_id_portada = await _resolve_cover_place_id(payload.destinations)
+
     viaje.Titulo = payload.title.strip()
     viaje.Descripcion = payload.description.strip() if payload.description else None
     viaje.FechaInicio = payload.startDate
     viaje.FechaFin = payload.endDate
-    viaje.GooglePlaceIdPortada = await _resolve_cover_place_id(payload.destinations)
+    viaje.GooglePlaceIdPortada = google_place_id_portada
 
     destinos_actuales_por_clave = {
         (rel.Destino.Nombre, rel.Destino.Pais): rel for rel in viaje.Destinos
@@ -2575,8 +2581,32 @@ async def create_trip(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
 ) -> TripRead:
+    # La portada se resuelve antes de tocar la base: si se esperara a Google con el
+    # usuario bloqueado (validar_viajes_activos), otra creación del mismo usuario
+    # quedaría esperando el lock dentro del event loop y colgaría todo el servidor.
+    google_place_id_portada = await _resolve_cover_place_id(payload.destinations)
+    # El trabajo con la base (lock incluido) corre en el threadpool: la espera por el
+    # lock bloquea un hilo y no el event loop.
+    return await en_hilo_con_locks(
+        db, _crear_viaje, payload, db, current_user, google_place_id_portada
+    )
+
+
+def _crear_viaje(
+    payload: TripCreate,
+    db: Session,
+    current_user: Usuario,
+    google_place_id_portada: str | None,
+) -> TripRead:
     administrador = current_user
     admin_user_id = current_user.IdUsuario
+
+    # Viajes.Moneda es FK a Monedas: un código inexistente hacía fallar el INSERT con 500.
+    if db.get(Moneda, payload.currency) is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"La moneda {payload.currency} no está soportada.",
+        )
 
     validar_viajes_activos(db, current_user)
     validar_recorrido(payload.destinations, payload.startDate, payload.endDate)
@@ -2670,7 +2700,7 @@ async def create_trip(
         FechaFin=payload.endDate,
         IdEstadoViaje=estado_activo.IdEstadoViaje,
         Moneda=payload.currency.upper(),
-        GooglePlaceIdPortada=await _resolve_cover_place_id(payload.destinations),
+        GooglePlaceIdPortada=google_place_id_portada,
         IdAdministrador=admin_user_id,
     )
     db.add(viaje)
@@ -2818,8 +2848,10 @@ async def transfer_trip_administration(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
 ) -> TripMutationResponse:
-    viaje, destinatario = transferir_administracion(
-        db, trip_id, current_user, data.nuevoAdministradorId,
+    # Bloquea el viaje y al destinatario: en el threadpool, la espera por esos locks
+    # no traba el event loop.
+    viaje, destinatario = await en_hilo_con_locks(
+        db, transferir_administracion, db, trip_id, current_user, data.nuevoAdministradorId,
     )
     try:
         await manager.broadcast_to_trip(viaje.IdViaje, {

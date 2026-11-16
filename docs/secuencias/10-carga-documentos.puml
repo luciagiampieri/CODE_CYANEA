@@ -1,0 +1,46 @@
+@startuml
+title Carga de documentos con permisos y almacenamiento
+skinparam backgroundColor #FFFFFF
+skinparam defaultFontName Arial
+skinparam defaultFontSize 13
+skinparam shadowing false
+skinparam roundcorner 8
+skinparam sequence {
+  ArrowColor #234E70
+  LifeLineBorderColor #78909C
+  ParticipantBorderColor #234E70
+  ParticipantBackgroundColor #EAF2F8
+  ParticipantFontColor #17324D
+  ActorBorderColor #234E70
+  GroupBorderColor #78909C
+  GroupBackgroundColor #F6F9FB
+  NoteBackgroundColor #FFF7DD
+  NoteBorderColor #B79947
+}
+hide footbox
+autonumber
+actor Participante as U
+participant "Aplicación Expo / Web" as UI
+participant "API de documentos" as API
+database PostgreSQL as DB
+participant "Supabase Storage" as STORAGE
+U -> UI: Elegir archivo, nombre, categoría y visibilidad
+UI -> API: POST /trips/{viaje}/documents\narchivo multipart + metadatos
+API -> DB: Consultar participación, viaje, categoría,\nnombre existente y almacenamiento utilizado
+API -> API: Validar acceso de edición, viaje no finalizado,\nextensión, nombre y espacio del plan del administrador
+alt Archivo no permitido, nombre duplicado o cupo excedido
+  API --> UI: Error; no subir documento
+else Validaciones satisfechas
+  API -> STORAGE: Subir archivo al repositorio del viaje
+  STORAGE --> API: Localizador del archivo almacenado
+  API -> DB: Guardar DocumentosViajes con localizador,\ntamaño, autor y visibilidad; COMMIT
+  opt Documento asociado a tarea accesible
+    note over API,DB: La asociación con el checklist se guarda\nen el mismo commit de metadatos.
+  end
+  API -> API: Emitir documento_actualizado
+  API --> UI: Documento subido
+  UI --> U: Actualizar repositorio
+end
+note over API,STORAGE: El archivo se carga antes del commit de metadatos.\nStorage y PostgreSQL no comparten una transacción.
+note over UI,DB: EsPublico expresa visibilidad dentro del viaje.\nLa descarga vuelve a validar los permisos en el servidor.
+@enduml

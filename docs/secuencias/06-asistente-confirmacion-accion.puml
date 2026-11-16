@@ -1,0 +1,59 @@
+@startuml
+title Propuesta y confirmación de una acción del asistente
+skinparam backgroundColor #FFFFFF
+skinparam defaultFontName Arial
+skinparam defaultFontSize 13
+skinparam shadowing false
+skinparam roundcorner 8
+skinparam sequence {
+  ArrowColor #234E70
+  LifeLineBorderColor #78909C
+  ParticipantBorderColor #234E70
+  ParticipantBackgroundColor #EAF2F8
+  ParticipantFontColor #17324D
+  ActorBorderColor #234E70
+  GroupBorderColor #78909C
+  GroupBackgroundColor #F6F9FB
+  NoteBackgroundColor #FFF7DD
+  NoteBorderColor #B79947
+}
+hide footbox
+autonumber
+actor Participante as U
+participant "Aplicación Expo / Web" as UI
+participant "API del asistente" as API
+participant "Orquestador y herramientas" as S
+participant "Proveedor IA" as IA
+database PostgreSQL as DB
+U -> UI: Enviar pedido al asistente
+UI -> API: POST /trips/{viaje}/assistant/messages\nmessage + conversation
+API -> S: Validar acceso y procesar mensaje
+S -> DB: Consultar consentimiento y contexto autorizado
+S -> IA: Consultar intención con contexto permitido
+IA --> S: Respuesta o propuesta estructurada
+alt Solo respuesta informativa
+  S --> API: Texto sin modificación del viaje
+  API --> UI: Mostrar respuesta
+else Acción que modifica información
+  S -> DB: Guardar AccionesAsistenteViaje\ncon estado propuesta; COMMIT
+  S --> API: Resumen y actionId
+  API --> UI: Propuesta pendiente de confirmación
+  UI --> U: Mostrar acción y pedir confirmación
+  U -> UI: Confirmar
+  UI -> API: POST /trips/{viaje}/assistant/messages\nconfirmActionId
+  API -> S: Confirmar acción
+  S -> DB: Verificar autor, viaje y estado propuesta
+  S -> S: Revalidar permisos y reglas de la herramienta
+  alt Acción ya procesada o no permitida
+    S --> API: Error; no ejecutar nuevamente
+    API --> UI: Informar motivo
+  else Acción válida
+    S -> DB: Ejecutar cambios mediante herramienta del dominio
+    S -> DB: Guardar estado ejecutada, fecha y resultado; COMMIT
+    S --> API: Resultado de la acción
+    API --> UI: Mostrar confirmación y actualizar datos
+  end
+end
+note over S,DB: Las herramientas pueden realizar sus propios commits.\nNo se representa una transacción global entre todas ellas.
+note over U,UI: Sin confirmación, la propuesta no se ejecuta.
+@enduml

@@ -163,6 +163,21 @@ Los tests del frontend todavía no corren en GitHub Actions, así que conviene e
 
 Antes de trabajar en el proyecto, leer:
 
+- [`Diccionario de datos en Word`](docs/modelo-datos/Cyanea_Diccionario_de_datos.docx): documento consolidado de los once módulos, con índice navegable y tablas formateadas para su lectura.
+- [`Arquitectura de despliegue`](docs/despliegue/arquitectura-despliegue.md): diagramas de Railway, PostgreSQL, frontend web, app móvil y compilación/distribución con EAS.
+- [`Diagramas de secuencia`](docs/secuencias/indice.md): doce procesos principales en PlantUML y SVG, con alcance y referencias de implementación.
 - [`AGENTS.md`](AGENTS.md): convenciones de naming, reglas de base de datos, estructura, criterios de frontend y de testing.
 - [`docs/testing-backend.md`](docs/testing-backend.md): estrategia de testing del backend.
 - [`docs/testing-frontend.md`](docs/testing-frontend.md): estrategia de testing del frontend.
+- [`Módulo 1: Usuarios, autenticación y preferencias`](docs/modelo-datos/modulo-01-usuarios-autenticacion-preferencias/diccionario-datos.md): diccionario de datos y DER resumido y físico en PlantUML y SVG.
+- [`Módulo 2: Viajes, destinos y participantes`](docs/modelo-datos/modulo-02-viajes-destinos-participantes/diccionario-datos.md): diccionario de datos y DER resumido y físico en PlantUML y SVG.
+- [`Módulo 3: Itinerario, traslados y rutas`](docs/modelo-datos/modulo-03-itinerario-traslados-rutas/diccionario-datos.md): diccionario de datos y DER resumido y físico en PlantUML y SVG.
+- [`Módulo 4: Planificación y asistencia inteligente`](docs/modelo-datos/modulo-04-planificacion-asistencia-inteligente/diccionario-datos.md): diccionario de datos y DER resumido y físico en PlantUML y SVG.
+- [`Módulo 5: Votaciones`](docs/modelo-datos/modulo-05-votaciones/diccionario-datos.md): diccionario de datos y DER resumido y físico en PlantUML y SVG.
+- [`Módulo 6: Gastos y liquidaciones`](docs/modelo-datos/modulo-06-gastos-liquidaciones/diccionario-datos.md): diccionario de datos y DER resumido y físico en PlantUML y SVG.
+- [`Módulo 7: Documentos e información del viaje`](docs/modelo-datos/modulo-07-documentos-informacion-viaje/diccionario-datos.md): diccionario de datos y DER resumido y físico en PlantUML y SVG.
+- [`Módulo 8: Tareas y checklist`](docs/modelo-datos/modulo-08-tareas-checklist/diccionario-datos.md): diccionario de datos y DER resumido y físico en PlantUML y SVG.
+- [`Módulo 9: Planes, suscripciones y pagos`](docs/modelo-datos/modulo-09-planes-suscripciones-pagos/diccionario-datos.md): diccionario de datos y DER resumido y físico en PlantUML y SVG.
+- [`Módulo 10: Notificaciones y recordatorios`](docs/modelo-datos/modulo-10-notificaciones-recordatorios/diccionario-datos.md): diccionario de datos y DER resumido y físico en PlantUML y SVG.
+- [`Módulo 11: Administración, auditoría y monitoreo`](docs/modelo-datos/modulo-11-administracion-auditoria-monitoreo/diccionario-datos.md): diccionario de datos y DER resumido y físico en PlantUML y SVG.
+- [`Inventario general de tablas`](docs/modelo-datos/inventario-tablas.md): cobertura de los once módulos y propietario de cada tabla.

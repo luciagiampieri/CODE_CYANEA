@@ -1,0 +1,53 @@
+@startuml
+title Cambio administrativo de planes y límites con auditoría
+skinparam backgroundColor #FFFFFF
+skinparam defaultFontName Arial
+skinparam defaultFontSize 13
+skinparam shadowing false
+skinparam roundcorner 8
+skinparam sequence {
+  ArrowColor #234E70
+  LifeLineBorderColor #78909C
+  ParticipantBorderColor #234E70
+  ParticipantBackgroundColor #EAF2F8
+  ParticipantFontColor #17324D
+  ActorBorderColor #234E70
+  GroupBorderColor #78909C
+  GroupBackgroundColor #F6F9FB
+  NoteBackgroundColor #FFF7DD
+  NoteBorderColor #B79947
+}
+hide footbox
+autonumber
+actor "Administrador del sistema" as A
+participant "Backoffice web" as UI
+participant "API de backoffice" as API
+participant "Servicio de planes" as S
+database PostgreSQL as DB
+A -> UI: Abrir Planes y límites
+UI -> API: GET /backoffice/planes
+API -> API: Validar sesión y rol de administrador del sistema
+API -> S: Obtener configuración
+S -> DB: Leer planes activos
+API --> UI: Precios y límites vigentes
+A -> UI: Editar precios o límites
+UI -> UI: Validar y comparar valores anteriores y nuevos
+UI --> A: Solicitar confirmación con resumen de cambios
+alt El administrador cancela
+  UI --> A: Conservar configuración sin enviar PUT
+else El administrador confirma
+  UI -> API: PUT /backoffice/planes
+  API -> API: Revalidar sesión, rol y esquema numérico
+  API -> S: Actualizar configuración
+  S -> S: Validar precios y límites > 0; límites Pro >= gratuito
+  S -> DB: Bloquear ambos planes por orden de identificador
+  loop Cada campo cuyo valor cambió
+    S -> DB: Actualizar Planes y agregar AuditoriaPlanes\ncon administrador, fecha, valor anterior y nuevo
+  end
+  S -> DB: COMMIT conjunto de configuración y auditoría
+  S --> API: Configuración actualizada
+  API --> UI: Cambios guardados
+  UI --> A: Mostrar configuración vigente
+end
+note over API,DB: Un usuario sin rol de administrador es rechazado en el servidor.\nLos límites se consultan en las operaciones posteriores.\nEste PUT no modifica períodos de suscripciones existentes.
+@enduml

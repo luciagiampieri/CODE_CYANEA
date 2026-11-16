@@ -89,11 +89,17 @@ function listarNombres(nombres) {
   return `${nombres.slice(0, -1).join(", ")} y ${nombres[nombres.length - 1]}`;
 }
 
-function mensajeEstado({ exceso, sinNoches, libres, enViaje, totalNoches }) {
+function mensajeEstado({ exceso, sinNoches, libres, enViaje, totalNoches, alcanzan }) {
   if (exceso > 0) {
     return {
       tono: "danger",
       mensaje: `Hay ${textoNoches(exceso)} de más. Sacá noches para poder seguir.`,
+    };
+  }
+  if (sinNoches.length > 0 && !alcanzan) {
+    return {
+      tono: "info",
+      mensaje: `No alcanzan las noches para que cada destino tenga al menos una: ${textoNoches(enViaje)} ${enViaje === 1 ? "está" : "están"} en viaje. Quitá noches de traslado para poder repartirlas.`,
     };
   }
   if (sinNoches.length > 0) {
@@ -131,8 +137,36 @@ function segmentosBarra(destinos, libres) {
   return segmentos;
 }
 
+// Noches que quedan para los destinos después de los traslados: "Repartir" solo se
+// ofrece si alcanzan para darle al menos una a cada destino.
+function nochesParaDestinos(destinos, totalNoches) {
+  const enViaje = destinos.reduce((total, destino) => total + enViajeDe(destino), 0);
+  return Math.max(0, totalNoches - enViaje);
+}
+
+export function puedeRepartir(destinos, totalNoches) {
+  return destinos.length > 0 && nochesParaDestinos(destinos, totalNoches) >= destinos.length;
+}
+
+// Regla única del recorrido (QA US 135): con dos o más destinos el recorrido siempre se
+// ve y un destino sin noches siempre se avisa. Solo se bloquea lo que se puede resolver
+// repartiendo (noches de más, o un destino en 0 cuando las noches alcanzan para todos).
+// Si las noches del viaje no alcanzan para todos los destinos, se avisa y se puede seguir:
+// el viaje se guarda sin repartir las noches.
 export function resumenRecorrido(destinos, totalNoches) {
   const modo = modoRecorrido(destinos, totalNoches);
+  if (modo === MODOS_RECORRIDO.POCAS_NOCHES) {
+    return {
+      modo,
+      puedeAvanzar: true,
+      mostrarRepartir: false,
+      libres: 0,
+      exceso: 0,
+      segmentos: [],
+      tono: "warning",
+      mensaje: `Con ${textoNoches(totalNoches)} no alcanza para pasar al menos una en cada uno de los ${destinos.length} destinos. Podés seguir: el viaje se guarda sin repartir las noches. Para repartirlas, quitá un destino o alargá el viaje.`,
+    };
+  }
   if (modo !== MODOS_RECORRIDO.ARMADO) {
     return { modo, puedeAvanzar: true, mostrarRepartir: false, libres: 0, exceso: 0, segmentos: [] };
   }
@@ -144,6 +178,7 @@ export function resumenRecorrido(destinos, totalNoches) {
   const exceso = Math.max(0, -diferencia);
   const sinNoches = destinos.filter((destino) => destino.noches === 0).map((destino) => destino.name);
   const bloqueado = exceso > 0 || sinNoches.length > 0;
+  const alcanzan = puedeRepartir(destinos, totalNoches);
 
   return {
     modo,
@@ -152,9 +187,10 @@ export function resumenRecorrido(destinos, totalNoches) {
     enViaje,
     sinNoches,
     puedeAvanzar: !bloqueado,
-    mostrarRepartir: bloqueado,
+    // Repartir nunca deja un estado bloqueado: si no alcanzan las noches no se ofrece.
+    mostrarRepartir: bloqueado && alcanzan,
     segmentos: segmentosBarra(destinos, libres),
-    ...mensajeEstado({ exceso, sinNoches, libres, enViaje, totalNoches }),
+    ...mensajeEstado({ exceso, sinNoches, libres, enViaje, totalNoches, alcanzan }),
   };
 }
 
@@ -242,8 +278,9 @@ export function moverDestino(destinos, desde, hasta) {
 }
 
 export function repartirNoches(destinos, totalNoches) {
-  const enViaje = destinos.reduce((total, destino) => total + enViajeDe(destino), 0);
-  const disponibles = Math.max(0, totalNoches - enViaje);
+  // Si no alcanza para una noche por destino, no se reparte: quedaría alguno en 0.
+  if (!puedeRepartir(destinos, totalNoches)) return destinos;
+  const disponibles = nochesParaDestinos(destinos, totalNoches);
   const base = Math.floor(disponibles / destinos.length);
   const sobrantes = disponibles % destinos.length;
   return destinos.map((destino, i) => ({ ...destino, noches: base + (i < sobrantes ? 1 : 0) }));

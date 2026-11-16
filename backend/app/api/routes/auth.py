@@ -5,7 +5,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.security import OAuth2PasswordRequestForm
 from fastapi.responses import RedirectResponse
 from jose import JWTError
-from sqlalchemy import select
+from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
@@ -25,7 +26,11 @@ from app.schemas.password_reset import (
     ResetTokenRequest,
     TokenValidationResponse,
 )
-from app.services.auth import password_reset_service, email_confirmation_service
+from app.services.auth import (
+    email_confirmation_service,
+    limite_intentos_login,
+    password_reset_service,
+)
 from app.services.invitaciones_externas import vincular_invitaciones_externas_seguro
 from app.schemas.usuario import UsuarioRegister, UsuarioRegisterResponse
 from app.schemas.email_confirmation import ResendConfirmationRequest
@@ -90,7 +95,11 @@ def register(
             detail="El correo electrónico ya está registrado.",
         )
 
-    if db.scalar(select(Usuario).where(Usuario.NombreUsuario == data.nombreUsuario.strip())):
+    if db.scalar(
+        select(Usuario).where(
+            func.lower(Usuario.NombreUsuario) == data.nombreUsuario.strip().lower()
+        )
+    ):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="El nombre de usuario ya está en uso.",
@@ -107,7 +116,15 @@ def register(
     )
     _registrar_aceptacion_terminos(nuevo, db)
     db.add(nuevo)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        # Otro registro simultáneo tomó el mismo correo o nombre de usuario.
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="El correo electrónico o el nombre de usuario ya están en uso.",
+        )
     db.refresh(nuevo)
 
     # Si lo habían invitado por mail a algún viaje, la invitación pasa a su cuenta.
@@ -175,7 +192,20 @@ def confirm_email(
 
 
 @router.post("/login", response_model=TokenResponse)
-def login(payload: LoginRequest, db: Session = Depends(get_db)) -> TokenResponse:
+def login(payload: LoginRequest, request: Request, db: Session = Depends(get_db)) -> TokenResponse:
+    ip = request.client.host if request.client else None
+    limite_intentos_login.verificar(ip, payload.email)
+    try:
+        respuesta = _login(payload, db)
+    except HTTPException as error:
+        if error.status_code == status.HTTP_401_UNAUTHORIZED:
+            limite_intentos_login.registrar_fallo(ip, payload.email)
+        raise
+    limite_intentos_login.registrar_exito(ip, payload.email)
+    return respuesta
+
+
+def _login(payload: LoginRequest, db: Session) -> TokenResponse:
 
     credentials_error = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,

@@ -1,0 +1,106 @@
+@startuml
+!pragma layout smetana
+hide circle
+skinparam shadowing false
+skinparam defaultFontName Arial
+skinparam defaultFontSize 12
+skinparam classBackgroundColor #F1F8FA
+skinparam classBorderColor #286779
+skinparam ArrowColor #4B6370
+skinparam nodesep 55
+skinparam ranksep 75
+title Cyanea · Módulo 9 · Planes suscripciones y pagos\nDER físico completo
+
+entity "Planes" as Planes {
+  {field} * IdPlan : INTEGER <<PK>>
+  {field} * Nombre : VARCHAR(30) <<UQ>>
+  {field}   MaxParticipantesViaje : INTEGER
+  {field} * Activo : BOOLEAN
+  {field}   MaxViajesActivos : INTEGER
+  {field}   MaxSugerenciasDiarias : INTEGER
+  {field}   MaxEscaneosMensuales : INTEGER
+  {field}   MaxAlmacenamientoMb : INTEGER
+  {field}   PrecioMensualARS : NUMERIC(12, 2)
+  {field}   PrecioAnualARS : NUMERIC(12, 2)
+}
+
+entity "EstadosSuscripciones" as EstadosSuscripciones {
+  {field} * IdEstadoSuscripcion : INTEGER <<PK>>
+  {field} * Nombre : VARCHAR(30) <<UQ>>
+  {field}   Descripcion : VARCHAR(200)
+  {field} * Activo : BOOLEAN
+}
+
+entity "SuscripcionesUsuarios" as SuscripcionesUsuarios {
+  {field} * IdSuscripcionUsuario : INTEGER <<PK>>
+  {field} * IdUsuario : INTEGER <<FK>>
+  {field} * IdPlan : INTEGER <<FK>>
+  {field} * IdEstadoSuscripcion : INTEGER <<FK>>
+  {field} * FechaInicio : TIMESTAMPTZ
+  {field} * FechaFin : TIMESTAMPTZ
+  {field}   FechaCancelacion : TIMESTAMPTZ
+  {field} * FechaCreacion : TIMESTAMPTZ
+  {field}   PrecioPeriodoARS : NUMERIC(12, 2)
+  {field}   MesesPeriodo : INTEGER
+  {field}   IdSuscripcionPasarela : VARCHAR(150) <<UQ>>
+  {field}   EstadoPasarela : VARCHAR(30)
+  {field}   FechaAceptacionRenovacion : TIMESTAMPTZ
+  {field}   FechaAvisoFinalizacion : TIMESTAMPTZ
+  {field}   FechaFinalizacion : TIMESTAMPTZ
+  {field}   FechaPendientePago : TIMESTAMPTZ
+}
+
+entity "EstadosPagosSuscripciones" as EstadosPagosSuscripciones {
+  {field} * IdEstadoPagoSuscripcion : INTEGER <<PK>>
+  {field} * Nombre : VARCHAR(30) <<UQ>>
+  {field} * Activo : BOOLEAN
+}
+
+entity "PagosSuscripciones" as PagosSuscripciones {
+  {field} * IdPagoSuscripcion : INTEGER <<PK>>
+  {field} * IdSuscripcionUsuario : INTEGER <<FK>>
+  {field} * IdEstadoPagoSuscripcion : INTEGER <<FK>>
+  {field} * FechaPago : TIMESTAMPTZ
+  {field} * MontoARS : NUMERIC(12, 2)
+  {field}   IdOperacionPasarela : VARCHAR(150) <<UQ>>
+  {field}   PeriodoDesde : TIMESTAMPTZ
+  {field}   PeriodoHasta : TIMESTAMPTZ
+}
+
+entity "EstadosNotificacionesPasarela" as EstadosNotificacionesPasarela {
+  {field} * IdEstadoNotificacionPasarela : INTEGER <<PK>>
+  {field} * Nombre : VARCHAR(30) <<UQ>>
+  {field} * Activo : BOOLEAN
+}
+
+entity "NotificacionesPasarela" as NotificacionesPasarela {
+  {field} * IdNotificacionPasarela : INTEGER <<PK>>
+  {field} * IdEstadoNotificacionPasarela : INTEGER <<FK>>
+  {field} * Tipo : VARCHAR(60)
+  {field} * IdRecurso : VARCHAR(150)
+  {field}   IdSolicitudPasarela : VARCHAR(150)
+  {field}   Error : VARCHAR(500)
+  {field} * FechaRecepcion : TIMESTAMPTZ
+}
+
+entity "Usuarios (módulo 1)" as Usuarios #EEEEEE {
+  {field} * IdUsuario : INTEGER <<PK>>
+}
+
+EstadosSuscripciones ||--o{ SuscripcionesUsuarios : estado local
+Planes ||--o{ SuscripcionesUsuarios : plan
+Usuarios ||--o{ SuscripcionesUsuarios : cuenta suscriptora
+EstadosPagosSuscripciones ||--o{ PagosSuscripciones : estado del pago
+SuscripcionesUsuarios ||--o{ PagosSuscripciones : suscripción
+EstadosNotificacionesPasarela ||--o{ NotificacionesPasarela : resultado webhook
+legend bottom
+  Azul: tablas propias · Gris: referencias externas (solo PK)
+  PK: clave primaria · FK: clave foránea · UQ: unicidad individual
+  UQ1: unicidad compuesta dentro de la tabla
+  UP1/UP2: índice UNIQUE parcial; consultar columnas y condición en el diccionario
+  Los índices parciales no implican unicidad incondicional de una FK.
+  * Campo NOT NULL · Sin *: admite NULL
+  TIMESTAMPTZ: TIMESTAMP WITH TIME ZONE · TIME: TIME WITHOUT TIME ZONE
+  Las relaciones solo representan FK físicas, no identificadores dentro de JSON o texto.
+endlegend
+@enduml

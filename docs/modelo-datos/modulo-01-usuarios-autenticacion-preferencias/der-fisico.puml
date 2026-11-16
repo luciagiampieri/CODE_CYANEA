@@ -1,0 +1,131 @@
+@startuml
+!pragma layout smetana
+hide circle
+skinparam linetype ortho
+skinparam shadowing false
+skinparam defaultFontName Arial
+skinparam defaultFontSize 12
+skinparam classBackgroundColor #F1F8FA
+skinparam classBorderColor #286779
+skinparam ArrowColor #4B6370
+skinparam nodesep 45
+skinparam ranksep 65
+title Cyanea · Módulo 1 · Usuarios, autenticación y preferencias\nDER físico completo
+
+entity "Usuarios" as Usuarios {
+  {field} * IdUsuario : INTEGER <<PK>>
+  {field} * Email : VARCHAR(255)
+  {field} * Nombre : VARCHAR(100)
+  {field} * Apellido : VARCHAR(100)
+  {field} * NombreUsuario : VARCHAR(50) <<UQ>>
+  {field}   FotoUrl : VARCHAR
+  {field} * FechaAlta : TIMESTAMPTZ
+  {field}   FechaBaja : TIMESTAMPTZ
+  {field} * Activo : BOOLEAN
+  {field} * HashedPassword : VARCHAR(255)
+  {field} * EmailConfirmado : BOOLEAN
+  {field} * ConsienteNotificacionesEmail : BOOLEAN
+  {field} * RecibeEmailsNuevaVotacion : BOOLEAN
+  {field} * RecibeEmailsCambiosViaje : BOOLEAN
+  {field} * RecibeEmailsRecordatoriosDeuda : BOOLEAN
+  {field} * RecibeEmailsRecordatoriosReserva : BOOLEAN
+  {field}   GoogleSub : VARCHAR(255) <<UQ>>
+  {field} * ProveedorAutenticacion : VARCHAR(30)
+  {field}   FacebookId : VARCHAR(255)
+  {field} * ConsienteNotificacionesPush : BOOLEAN
+  {field} * RecibePushNuevaVotacion : BOOLEAN
+  {field} * RecibePushCambiosViaje : BOOLEAN
+  {field} * RecibePushRecordatoriosDeuda : BOOLEAN
+  {field} * RecibePushRecordatoriosReserva : BOOLEAN
+  {field} * RecibeEmailsNuevosGastos : BOOLEAN
+  {field} * RecibeEmailsRecordatoriosActividad : BOOLEAN
+  {field} * RecibePushNuevosGastos : BOOLEAN
+  {field} * RecibePushRecordatoriosActividad : BOOLEAN
+  {field} * ConsienteProcesamientoIA : BOOLEAN
+  {field}   FechaConsentimientoIA : TIMESTAMPTZ
+  {field} * RecibeEmailsNuevasActividades : BOOLEAN
+  {field} * RecibePushNuevasActividades : BOOLEAN
+  {field}   FechaConsentimientoNotificacionesEmail : TIMESTAMPTZ
+  {field}   FechaConsentimientoNotificacionesPush : TIMESTAMPTZ
+  {field} * AceptaTerminos : BOOLEAN
+  {field}   FechaAceptacionTerminos : TIMESTAMPTZ
+  {field}   VersionTerminosAceptada : VARCHAR(30)
+  {field} * ConsienteAsistenteIA : BOOLEAN
+  {field}   FechaConsentimientoAsistenteIA : TIMESTAMPTZ
+  {field} * VisibilidadNombre : VARCHAR(20)
+  {field} * VisibilidadEmail : VARCHAR(20)
+  {field} * VisibilidadFotoPerfil : VARCHAR(20)
+  {field} * PermiteBusquedaPorUsuario : BOOLEAN
+  {field} * IdRolSistema : INTEGER <<FK>>
+  {field}   UltimoAcceso : TIMESTAMPTZ
+  {field} * IdPlan : INTEGER <<FK>>
+  {field}   FechaCambioPassword : TIMESTAMPTZ
+  {field}   MotivoSuspension : VARCHAR(500)
+  {field}   FechaSuspension : TIMESTAMPTZ
+  {field}   FechaCierreSesiones : TIMESTAMPTZ
+}
+
+entity "RolesSistema" as RolesSistema {
+  {field} * IdRolSistema : INTEGER <<PK>>
+  {field} * Nombre : VARCHAR(50) <<UQ>>
+}
+
+entity "TokensRecuperacionPassword" as TokensRecuperacionPassword {
+  {field} * IdTokenRecuperacion : INTEGER <<PK>>
+  {field} * IdUsuario : INTEGER <<FK>>
+  {field} * TokenHash : VARCHAR(64) <<UQ>>
+  {field} * FechaCreacion : TIMESTAMPTZ
+  {field} * FechaExpiracion : TIMESTAMPTZ
+  {field}   FechaUso : TIMESTAMPTZ
+  {field}   FechaInvalidacion : TIMESTAMPTZ
+}
+
+entity "SolicitudesRecuperacionPassword" as SolicitudesRecuperacionPassword {
+  {field} * IdSolicitud : INTEGER <<PK>>
+  {field}   IdUsuario : INTEGER <<FK>>
+  {field} * EmailHash : VARCHAR(64)
+  {field}   Ip : VARCHAR(45)
+  {field} * Tipo : VARCHAR(30)
+  {field} * Fecha : TIMESTAMPTZ
+}
+
+entity "SolicitudesConfirmacionEmail" as SolicitudesConfirmacionEmail {
+  {field} * IdSolicitud : INTEGER <<PK>>
+  {field} * EmailHash : VARCHAR(64)
+  {field}   Ip : VARCHAR(45)
+  {field} * Fecha : TIMESTAMPTZ
+}
+
+entity "SesionesBackoffice" as SesionesBackoffice {
+  {field} * IdSesionBackoffice : VARCHAR(36) <<PK>>
+  {field} * IdUsuario : INTEGER <<FK>>
+  {field} * FechaInicio : TIMESTAMPTZ
+  {field} * UltimaActividad : TIMESTAMPTZ
+  {field}   FechaCierre : TIMESTAMPTZ
+}
+
+entity "Planes" as Planes #EEEEEE {
+  {field} * IdPlan : INTEGER <<PK>>
+}
+
+RolesSistema ||--o{ Usuarios : asigna
+Planes ||--o{ Usuarios : plan vigente
+Usuarios ||--o{ TokensRecuperacionPassword : posee
+Usuarios |o--o{ SolicitudesRecuperacionPassword : cuenta identificada
+Usuarios ||--o{ SesionesBackoffice : inicia
+note right of Planes
+  Referencia externa al módulo 9.
+  Solo se muestra su clave primaria.
+end note
+note bottom of SolicitudesConfirmacionEmail
+  Sin FK a Usuarios.
+  EmailHash permite registrar solicitudes
+  sin identificar ni revelar una cuenta.
+end note
+legend bottom
+  PK: clave primaria · FK: clave foránea · UQ: unicidad
+  * Campo NOT NULL · Sin *: admite NULL
+  TIMESTAMPTZ: TIMESTAMP WITH TIME ZONE
+  Cardinalidades basadas en las FK del esquema físico.
+endlegend
+@enduml

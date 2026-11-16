@@ -258,6 +258,24 @@ describe("RecorridoViaje", () => {
     expect(utils.getByText("Repartir automáticamente")).toBeTruthy();
   });
 
+  it("si el traslado no deja noches para todos no ofrece repartir y sugiere quitarlo", async () => {
+    // 3 noches (3 al 6 nov), 3 destinos y 1 noche de traslado: repartir dejaría uno en 0.
+    const utils = await render(
+      <Recorrido
+        inicial={[destino("Salta", 0, 1), destino("Cafayate", 0), destino("Jujuy", 0)]}
+        endDate="2026-11-06"
+      />
+    );
+
+    expect(utils.getByText(/Quitá noches de traslado para poder repartirlas/)).toBeTruthy();
+    expect(utils.queryByText("Repartir automáticamente")).toBeNull();
+
+    await pulsar(utils, "Sacar una noche en viaje hacia Cafayate");
+    await pulsarTexto(utils, "Repartir automáticamente");
+
+    expect(utils.getByText("Las 3 noches están repartidas.")).toBeTruthy();
+  });
+
   it("cambia el orden con las acciones de mover y recalcula las fechas", async () => {
     const onCambio = jest.fn();
     const utils = await render(
@@ -329,7 +347,7 @@ describe("RecorridoViaje", () => {
     expect(utils.getByText("Llegan el 4 nov")).toBeTruthy();
   });
 
-  it("con menos noches que destinos no muestra contadores, barra ni traslados", async () => {
+  it("con menos noches que destinos avisa por qué no hay contadores, barra ni traslados", async () => {
     const utils = await render(
       <Recorrido
         inicial={[destino("Mendoza"), destino("Salta"), destino("Cafayate")]}
@@ -337,6 +355,8 @@ describe("RecorridoViaje", () => {
       />
     );
 
+    expect(utils.getByTestId("recorrido-pocas-noches")).toBeTruthy();
+    expect(utils.getByText(/no alcanza para pasar al menos una en cada uno de los 3 destinos/)).toBeTruthy();
     expect(utils.getByText("Mendoza")).toBeTruthy();
     expect(utils.queryByLabelText("Sumar una noche a Mendoza")).toBeNull();
     expect(utils.queryByText("Traslado a Salta")).toBeNull();

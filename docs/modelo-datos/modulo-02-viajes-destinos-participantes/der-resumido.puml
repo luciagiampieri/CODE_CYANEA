@@ -1,0 +1,120 @@
+@startuml
+!pragma layout smetana
+hide circle
+skinparam shadowing false
+skinparam defaultFontName Arial
+skinparam defaultFontSize 12
+skinparam classBackgroundColor #F1F8FA
+skinparam classBorderColor #286779
+skinparam ArrowColor #4B6370
+skinparam nodesep 60
+skinparam ranksep 85
+title Cyanea · Módulo 2 · Viajes, destinos y participantes\nDER resumido · atributos seleccionados
+
+entity "Viajes" as Viajes {
+  {field} * IdViaje : INTEGER <<PK>>
+  {field} * Titulo : VARCHAR(150)
+  {field} * FechaInicio : DATE
+  {field} * FechaFin : DATE
+  {field} * IdEstadoViaje : INTEGER <<FK>>
+  {field} * Moneda : VARCHAR(3) <<FK>>
+  {field} * IdAdministrador : INTEGER <<FK>>
+}
+
+entity "Destinos" as Destinos {
+  {field} * IdDestino : INTEGER <<PK>>
+  {field} * Nombre : VARCHAR(200)
+  {field} * Pais : VARCHAR(100)
+}
+
+entity "DestinosViajes" as DestinosViajes {
+  {field} * IdViaje : INTEGER <<PK, FK>>
+  {field} * IdDestino : INTEGER <<PK, FK>>
+  {field} * Orden : INTEGER
+  {field}   Noches : INTEGER
+  {field} * NochesEnViaje : INTEGER
+}
+
+entity "EstadosViajes" as EstadosViajes {
+  {field} * IdEstadoViaje : INTEGER <<PK>>
+  {field} * Nombre : VARCHAR(30)
+}
+
+entity "ParticipantesViajes" as ParticipantesViajes {
+  {field} * IdParticipanteViaje : INTEGER <<PK>>
+  {field} * IdViaje : INTEGER <<FK, UQ1>>
+  {field} * IdUsuario : INTEGER <<FK, UQ1>>
+  {field} * IdRolParticipante : INTEGER <<FK>>
+  {field} * IdEstadoParticipacion : INTEGER <<FK>>
+  {field}   InvitadoPor : INTEGER <<FK>>
+  {field}   IdAdministradorAlMomentoDeSalida : INTEGER <<FK>>
+}
+
+entity "RolesParticipantes" as RolesParticipantes {
+  {field} * IdRolParticipante : INTEGER <<PK>>
+  {field} * Nombre : VARCHAR(30)
+}
+
+entity "EstadosParticipaciones" as EstadosParticipaciones {
+  {field} * IdEstadoParticipacion : INTEGER <<PK>>
+  {field} * Nombre : VARCHAR(30)
+}
+
+entity "InvitacionesViajes" as InvitacionesViajes {
+  {field} * IdInvitacionViaje : INTEGER <<PK>>
+  {field} * IdViaje : INTEGER <<FK, UQ1>>
+  {field} * EmailInvitado : VARCHAR(255) <<UQ1>>
+  {field} * TokenInvitacion : VARCHAR(120) <<UQ>>
+  {field} * IdEstadoInvitacion : INTEGER <<FK>>
+  {field} * InvitadoPor : INTEGER <<FK>>
+  {field}   IdUsuarioRegistrado : INTEGER <<FK>>
+}
+
+entity "EstadosInvitaciones" as EstadosInvitaciones {
+  {field} * IdEstadoInvitacion : INTEGER <<PK>>
+  {field} * Nombre : VARCHAR(30) <<UQ>>
+}
+
+entity "EnlacesInvitacionViajes" as EnlacesInvitacionViajes {
+  {field} * IdEnlaceInvitacionViaje : INTEGER <<PK>>
+  {field} * IdViaje : INTEGER <<FK, UQ>>
+  {field} * TokenEnlace : VARCHAR(120) <<UQ>>
+  {field} * IdUsuarioCreador : INTEGER <<FK>>
+}
+
+entity "Usuarios (módulo 1)" as Usuarios #EEEEEE {
+  {field} * IdUsuario : INTEGER <<PK>>
+}
+entity "Monedas (módulo 6)" as Monedas #EEEEEE {
+  {field} * Codigo : VARCHAR(3) <<PK>>
+}
+EstadosViajes ||--o{ Viajes : estado
+Monedas ||--o{ Viajes : moneda base
+Usuarios ||--o{ Viajes : administra
+Destinos ||--o{ DestinosViajes : destino
+Viajes ||--o{ DestinosViajes : recorrido
+EstadosParticipaciones ||--o{ ParticipantesViajes : estado
+RolesParticipantes ||--o{ ParticipantesViajes : rol
+Usuarios |o--o{ ParticipantesViajes : admin. al salir
+Usuarios ||--o{ ParticipantesViajes : integrante
+Usuarios |o--o{ ParticipantesViajes : invita integrante
+Viajes ||--o{ ParticipantesViajes : grupo
+EstadosInvitaciones ||--o{ InvitacionesViajes : estado
+Usuarios |o--o{ InvitacionesViajes : cuenta vinculada
+Usuarios ||--o{ InvitacionesViajes : invita por correo
+Viajes ||--o{ InvitacionesViajes : invitacion personal
+Usuarios ||--o{ EnlacesInvitacionViajes : crea enlace
+Viajes ||--o| EnlacesInvitacionViajes : enlace compartible
+legend bottom
+  Azul: tablas propias · Gris: referencias externas (solo PK)
+  PK: clave primaria · FK: clave foránea · UQ: unicidad individual
+  UQ1: unicidad compuesta dentro de cada tabla; no implica unicidad de cada campo
+  DestinosViajes: PK (IdViaje, IdDestino)
+  ParticipantesViajes: UQ1 (IdViaje, IdUsuario)
+  InvitacionesViajes: UQ1 (IdViaje, EmailInvitado)
+  * Campo NOT NULL · Sin *: admite NULL
+  TIMESTAMPTZ: TIMESTAMP WITH TIME ZONE
+  Varias líneas desde Usuarios identifican FK diferentes.
+  Atributos restantes: consultar el DER físico y el diccionario.
+endlegend
+@enduml

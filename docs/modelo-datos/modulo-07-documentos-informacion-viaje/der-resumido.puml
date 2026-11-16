@@ -1,0 +1,62 @@
+@startuml
+!pragma layout smetana
+hide circle
+skinparam shadowing false
+skinparam defaultFontName Arial
+skinparam defaultFontSize 12
+skinparam classBackgroundColor #F1F8FA
+skinparam classBorderColor #286779
+skinparam ArrowColor #4B6370
+skinparam nodesep 55
+skinparam ranksep 75
+title Cyanea · Módulo 7 · Documentos e información del viaje\nDER resumido · atributos seleccionados
+
+entity "DocumentosViajes" as DocumentosViajes {
+  {field} * IdDocumento : INTEGER <<PK>>
+  {field} * IdViaje : INTEGER <<FK, UQ1>>
+  {field} * IdCategoriaDocumento : INTEGER <<FK>>
+  {field} * IdUsuarioSubida : INTEGER <<FK>>
+  {field} * NombreArchivo : VARCHAR(255) <<UQ1>>
+  {field} * EsPublico : BOOLEAN
+}
+
+entity "CategoriasDocumentos" as CategoriasDocumentos {
+  {field} * IdCategoriaDocumento : INTEGER <<PK>>
+  {field} * Nombre : VARCHAR(100) <<UQ>>
+  {field} * EsSistema : BOOLEAN
+}
+
+entity "ItemsRepositorioViaje" as ItemsRepositorioViaje {
+  {field} * IdItemRepositorio : INTEGER <<PK>>
+  {field} * IdViaje : INTEGER <<FK>>
+  {field} * IdUsuarioCreador : INTEGER <<FK>>
+  {field} * Titulo : VARCHAR(150)
+  {field} * Tipo : tipo_item_repositorio_enum
+  {field} * EsPublico : BOOLEAN
+}
+
+entity "Usuarios (módulo 1)" as Usuarios #EEEEEE {
+  {field} * IdUsuario : INTEGER <<PK>>
+}
+
+entity "Viajes (módulo 2)" as Viajes #EEEEEE {
+  {field} * IdViaje : INTEGER <<PK>>
+}
+
+CategoriasDocumentos ||--o{ DocumentosViajes : categoría
+Usuarios ||--o{ DocumentosViajes : subido por
+Viajes ||--o{ DocumentosViajes : viaje
+Usuarios ||--o{ ItemsRepositorioViaje : creado por
+Viajes ||--o{ ItemsRepositorioViaje : viaje
+legend bottom
+  Azul: tablas propias · Gris: referencias externas (solo PK)
+  PK: clave primaria · FK: clave foránea · UQ: unicidad individual
+  UQ1: unicidad compuesta dentro de la tabla
+  UP1/UP2: índice UNIQUE parcial; consultar columnas y condición en el diccionario
+  Los índices parciales no implican unicidad incondicional de una FK.
+  * Campo NOT NULL · Sin *: admite NULL
+  TIMESTAMPTZ: TIMESTAMP WITH TIME ZONE · TIME: TIME WITHOUT TIME ZONE
+  Las relaciones solo representan FK físicas, no identificadores dentro de JSON o texto.
+  Atributos restantes: consultar el DER físico y el diccionario.
+endlegend
+@enduml
