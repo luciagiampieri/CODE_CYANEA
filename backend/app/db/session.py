@@ -25,8 +25,12 @@ def opciones_conexion(database_url: str) -> dict:
 
 engine = create_engine(
     settings.database_url,
-    future=True,
     pool_pre_ping=True,
+    pool_recycle=300,
+    pool_size=5,
+    max_overflow=10,
+    pool_timeout=10,
+    future=True,
     connect_args=opciones_conexion(settings.database_url),
 )
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
