@@ -1032,10 +1032,12 @@ export default function TripDetailScreen({ navigation, route }) {
       setIdsOffline(listarDocumentosOffline(initialTrip.id).map((guardado) => guardado.idDocumento));
     } catch (error) {
       if (esErrorDeRed(error)) {
-        const guardados = listarDocumentosOffline(initialTrip.id);
-        setDocumentos(guardados.map((guardado) => guardado.documento).filter(Boolean));
-        setIdsOffline(guardados.map((guardado) => guardado.idDocumento));
         setSinConexion(true);
+        const guardados = listarDocumentosOffline(initialTrip.id);
+        setIdsOffline(guardados.map((g) => g.idDocumento));
+        if (guardados.length > 0) {
+          setDocumentos(guardados.map((g) => g.documento).filter(Boolean));
+        }
         return;
       }
       setDocumentosError(error.message || "No se pudieron cargar los documentos del viaje.");
@@ -1203,6 +1205,22 @@ export default function TripDetailScreen({ navigation, route }) {
       return;
     }
 
+    if (Platform.OS === "web") {
+      const pestania = window.open("", "_blank");
+      fetch(guardado.uri)
+        .then((r) => r.blob())
+        .then((blob) => {
+          const url = URL.createObjectURL(blob);
+          if (pestania) pestania.location.href = url;
+          else window.location.assign(url);
+        })
+        .catch(() => {
+          pestania?.close();
+          avisar("No se pudo abrir", "No se pudo abrir el documento guardado.");
+        });
+      return;
+    }
+
     avisar(
       "Documento guardado",
       "Este PDF está guardado en el dispositivo, pero para abrirlo necesitás conexión."
@@ -1221,7 +1239,7 @@ export default function TripDetailScreen({ navigation, route }) {
 
     try {
       setGuardandoOfflineId(documento.IdDocumento);
-      await guardarDocumentoOffline(documento);
+      await guardarDocumentoOffline(documento, initialTrip.id);
       setIdsOffline((prev) => [
         ...prev.filter((id) => id !== documento.IdDocumento),
         documento.IdDocumento,
@@ -1241,6 +1259,39 @@ export default function TripDetailScreen({ navigation, route }) {
       );
     } finally {
       setGuardandoOfflineId(null);
+    }
+  }
+
+    async function guardarOfflineDocumentoSubido(documentoSubido, nombreArchivo) {
+    try {
+      let documento =
+        documentoSubido?.IdDocumento && documentoSubido?.UrlArchivo ? documentoSubido : null;
+
+      if (!documento) {
+        const lista = await getTripDocuments(initialTrip.id);
+        documento =
+          (Array.isArray(lista) ? lista : []).find(
+            (d) =>
+              (documentoSubido?.IdDocumento && d.IdDocumento === documentoSubido.IdDocumento) ||
+              d.NombreArchivo === nombreArchivo
+          ) ?? null;
+      }
+
+      if (!documento) {
+        return { offlineGuardado: false, errorOffline: "no se encontró el documento recién subido." };
+      }
+
+      await guardarDocumentoOffline(documento, initialTrip.id);
+      setIdsOffline((prev) => [
+        ...prev.filter((id) => id !== documento.IdDocumento),
+        documento.IdDocumento,
+      ]);
+      return { offlineGuardado: true };
+    } catch (error) {
+      return {
+        offlineGuardado: false,
+        errorOffline: error?.message || "ocurrió un error al guardarlo en el dispositivo.",
+      };
     }
   }
 
@@ -2628,18 +2679,13 @@ export default function TripDetailScreen({ navigation, route }) {
         </View>
 
         {sinConexion ? (
-          <View style={styles.offlineBanner} testID="banner-sin-conexion">
-            <FontAwesome6 name="wifi" size={16} color={colors.warning} />
-            <View style={styles.readOnlyBannerContent}>
-              <Text style={styles.readOnlyBannerTitle}>Sin conexión</Text>
-              <Text style={styles.readOnlyBannerText} testID="banner-sin-conexion-texto">
-                {sincronizadoEn
-                  ? `Estás viendo la información guardada el ${formatearSincronizacion(
-                      sincronizadoEn
-                    )}. Los cambios se habilitan al recuperar la conexión.`
-                  : "Los cambios se habilitan al recuperar la conexión."}
-              </Text>
-            </View>
+          <View style={styles.offlineStrip} testID="banner-sin-conexion">
+            <FontAwesome6 name="wifi" size={12} color={colors.warning} />
+            <Text style={styles.offlineStripText} numberOfLines={1} testID="banner-sin-conexion-texto">
+              {sincronizadoEn
+                ? `Sin conexión · datos del ${formatearSincronizacion(sincronizadoEn)}`
+                : loadError || "Sin conexión · los cambios se habilitan al volver"}
+            </Text>
           </View>
         ) : null}
 
@@ -2694,7 +2740,7 @@ export default function TripDetailScreen({ navigation, route }) {
         ) : null}
 
         <View style={styles.body}>
-          {loadError ? (
+          {loadError && !sinConexion ? (
             <View style={styles.sectionCard}>
               <Text style={styles.sectionHeading}>No se pudo cargar el viaje</Text>
               <Text style={styles.sectionCopy}>{loadError}</Text>
@@ -4203,7 +4249,7 @@ export default function TripDetailScreen({ navigation, route }) {
           ]);
         }}
       />
-      <DocumentsScreen
+            <DocumentsScreen
         visible={showAddDocumentModal}
         onClose={() => {
           setShowAddDocumentModal(false);
@@ -4214,12 +4260,21 @@ export default function TripDetailScreen({ navigation, route }) {
         tripFechaInicio={trip?.startDate}
         tripFechaFin={trip?.endDate}
         tarea={tareaDocumento}
-        onDocumentoSubido={() => {
+        puedeGuardarOffline={puedeGuardarOffline}
+        onDocumentoSubido={async (documentoSubido, opciones) => {
+          let resultado;
+          if (opciones?.guardarOffline) {
+            resultado = await guardarOfflineDocumentoSubido(
+              documentoSubido,
+              opciones.nombreArchivo
+            );
+          }
           loadDocumentos();
           if (tareaDocumento) {
             loadChecklists();
             if (tareaDocumento.IdActividad) refrescarActividades();
           }
+          return resultado;
         }}
       />
       <EditDocumentScreen
@@ -5192,19 +5247,22 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.warning,
   },
-  offlineBanner: {
+  offlineStrip: {
     flexDirection: "row",
-    alignItems: "flex-start",
-    gap: spacing.sm,
-    marginHorizontal: spacing.lg,
-    marginTop: spacing.md,
-    padding: spacing.md,
-    borderRadius: radii.md,
-    backgroundColor: colors.surfaceAlt,
-    borderWidth: 1,
-    borderColor: colors.borderStrong,
-    borderLeftWidth: 4,
-    borderLeftColor: colors.warning,
+    alignItems: "center",
+    gap: spacing.xs,
+    paddingVertical: 6,
+    paddingHorizontal: spacing.lg,
+    backgroundColor: colors.warningSurface,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
+  offlineStripText: {
+    ...textStyles.meta,
+    flex: 1,
+    fontSize: 12,
+    fontWeight: "600",
+    color: colors.textSecondary,
   },
   finishedBanner: {
     flexDirection: "row",

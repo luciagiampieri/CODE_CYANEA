@@ -11,6 +11,7 @@ import {
   KeyboardAvoidingView,
   TouchableOpacity,
   Animated,
+  Switch,
 } from "react-native";
 import Modal from "../components/ui/AppModal";
 
@@ -51,6 +52,12 @@ function formatearMb(valor) {
 const iconoCategoria = (categoria) =>
     iconoDeCategoria(TIPOS_CATEGORIA.DOCUMENTOS, categoria?.Nombre, categoria?.Icono);
 
+function documentoDeLaRespuesta(respuesta) {
+    if (!respuesta || typeof respuesta !== "object") return null;
+    const candidato = respuesta.documento ?? respuesta.Documento ?? respuesta;
+    return candidato?.IdDocumento ? candidato : null;
+}
+
 
 export default function DocumentsScreen({
     visible,
@@ -60,10 +67,8 @@ export default function DocumentsScreen({
     tripFechaInicio = null,
     tripFechaFin = null,
     onDocumentoSubido,
-    // Subida desde una tarea del checklist (las entradas, el pasaje, la reserva):
-    // { IdChecklist, Nombre, IdCategoriaDocumento?, EsPublico?, NombreSugerido? }.
-    // Se preselecciona la categoría y la visibilidad y el documento queda en la tarea.
     tarea = null,
+    puedeGuardarOffline = false,
 }) {
 
     const [loading, setLoading] = useState(true);
@@ -79,6 +84,7 @@ export default function DocumentsScreen({
     const [extensionArchivo, setExtensionArchivo] = useState("");
 
     const [esPublico, setEsPublico] = useState(true);
+    const [guardarOffline, setGuardarOffline] = useState(false);
 
     const [errores, setErrores] = useState({});
 
@@ -88,8 +94,8 @@ export default function DocumentsScreen({
     const [datosGastoSugerido, setDatosGastoSugerido] = useState(null);
     const gastoRegistradoRef = useRef(false);
     const subiendoRef = useRef(false);
-    // El nombre propuesto por la tarea se usa solo para el primer documento.
     const usarNombreTareaRef = useRef(true);
+    const avisoOfflineRef = useRef("");
 
     const categoriaSeleccionada = categorias.find(
         (c) => c.IdCategoriaDocumento === idCategoria
@@ -104,6 +110,10 @@ export default function DocumentsScreen({
         almacenamientoLimitado && almacenamiento.usoActual + tamanoArchivoMb > almacenamiento.limite;
 
     const slideAnimCategoria = useRef(new Animated.Value(300)).current;
+
+    function conAvisoOffline(mensaje) {
+        return `${mensaje}${avisoOfflineRef.current}`;
+    }
 
     useEffect(() => {
         if (modalCategoriaVisible) {
@@ -155,9 +165,11 @@ export default function DocumentsScreen({
             setExtensionArchivo("");
             setIdCategoria(null);
             setEsPublico(true);
+            setGuardarOffline(false);
             setErrores({});
             setAlmacenamiento(null);
             gastoRegistradoRef.current = false;
+            avisoOfflineRef.current = "";
         }
     }, [visible, tripId, tarea?.IdChecklist]);
 
@@ -193,7 +205,6 @@ export default function DocumentsScreen({
 
                 setArchivo(documento);
                 setExtensionArchivo(extension);
-                // Desde una tarea se propone su nombre («Entradas – Museo del Prado»).
                 setNombreDocumento(
                     (usarNombreTareaRef.current && tarea?.NombreSugerido) || nombreSinExtension
                 );
@@ -216,13 +227,37 @@ export default function DocumentsScreen({
     }
 
     function prepararOtroDocumento() {
-        // Mismo formulario de la tarea, para el comprobante de pago u otro archivo.
         usarNombreTareaRef.current = false;
+        avisoOfflineRef.current = "";
         setArchivo(null);
         setNombreDocumento("");
         setExtensionArchivo("");
         setErrores({});
         cargarAlmacenamiento();
+    }
+
+
+    async function notificarDocumentoSubido(respuesta, nombreFinal) {
+        avisoOfflineRef.current = "";
+        if (!onDocumentoSubido) return;
+        const pidioOffline = puedeGuardarOffline && guardarOffline;
+        try {
+            const resultado = await onDocumentoSubido(documentoDeLaRespuesta(respuesta), {
+                guardarOffline: pidioOffline,
+                nombreArchivo: nombreFinal,
+            });
+            if (!pidioOffline) return;
+            if (resultado?.offlineGuardado) {
+                avisoOfflineRef.current =
+                    "\n\nTambién quedó disponible sin conexión en este dispositivo.";
+            } else if (resultado?.errorOffline) {
+                avisoOfflineRef.current =
+                    `\n\nNo se pudo guardar sin conexión: ${resultado.errorOffline} ` +
+                    "Podés intentarlo desde la lista de documentos.";
+            }
+        } catch (error) {
+            console.log("⚠️ Error después de subir el documento:", error);
+        }
     }
 
     async function handleSubir() {
@@ -247,68 +282,22 @@ export default function DocumentsScreen({
         if (subiendoRef.current) return;
         subiendoRef.current = true;
 
+        let respuesta;
+        let nombreFinal;
+
         try {
             setSaving(true);
 
-            const nombreFinal = extensionArchivo
+            nombreFinal = extensionArchivo
                 ? `${nombreDocumento}.${extensionArchivo}`
                 : nombreDocumento;
 
-            const respuesta = tarea
+            respuesta = tarea
                 ? await uploadTripDocument(tripId, archivo, idCategoria, nombreFinal, esPublico, tarea.IdChecklist)
                 : await uploadTripDocument(tripId, archivo, idCategoria, nombreFinal, esPublico);
-
-            if (onDocumentoSubido) onDocumentoSubido();
-
-            if (respuesta && respuesta.sugerencia_gasto) {
-                const sugg = respuesta.sugerencia_gasto;
-                setSaving(false); 
-                gastoRegistradoRef.current = false;
-                
-                const concepto = sugg.Nombre || "Sin nombre";
-                const monto = `${sugg.MonedaOriginal || ""} ${sugg.MontoOriginal || ""}`.trim();
-                appAlert(
-                    "¡Gasto detectado!",
-                    "El sistema analizó el documento y encontró un posible gasto asociado.\n\n" +
-                    `Concepto: ${concepto}` +
-                    (monto ? `\nMonto: ${monto}` : "") +
-                    "\n\n¿Deseás registrarlo?",
-                    [
-                        {
-                            text: "No",
-                            style: "cancel",
-                            onPress: () => {
-                                mostrarAlertaConfirmacion("Éxito", "Documento subido correctamente.", () => {
-                                    onClose();
-                                });
-                            }
-                        },
-                        {
-                            text: "Sí, registrar",
-                            onPress: () => {
-                                setDatosGastoSugerido(sugg);
-                                setGastoSugeridoModalVisible(true);
-                            }
-                        }
-                    ]
-                );
-                return;
-            }
-
-            setSaving(false);
-            if (tarea) {
-                // Se puede subir aparte el comprobante de pago (o las demás entradas).
-                appAlert("Documento guardado", `Lo guardamos en la tarea «${tarea.Nombre}».`, [
-                    { text: "Subir otro", onPress: prepararOtroDocumento },
-                    { text: "Listo", onPress: () => onClose() },
-                ]);
-                return;
-            }
-            mostrarAlertaConfirmacion("Éxito", "Documento subido correctamente.", () => {
-                onClose();
-            });
         } catch (error) {
             setSaving(false);
+            subiendoRef.current = false;
             console.log("ERROR uploadTripDocument:", error);
 
             if (esErrorDeLimite(error)) {
@@ -336,9 +325,65 @@ export default function DocumentsScreen({
                     error?.message || "No se pudo subir el documento."
                 );
             }
-        } finally {
-            subiendoRef.current = false;
+            return;
         }
+
+        await notificarDocumentoSubido(respuesta, nombreFinal);
+        setSaving(false);
+        subiendoRef.current = false;
+
+        if (respuesta && respuesta.sugerencia_gasto) {
+            const sugg = respuesta.sugerencia_gasto;
+            gastoRegistradoRef.current = false;
+
+            const concepto = sugg.Nombre || "Sin nombre";
+            const monto = `${sugg.MonedaOriginal || ""} ${sugg.MontoOriginal || ""}`.trim();
+            appAlert(
+                "¡Gasto detectado!",
+                "El sistema analizó el documento y encontró un posible gasto asociado.\n\n" +
+                `Concepto: ${concepto}` +
+                (monto ? `\nMonto: ${monto}` : "") +
+                "\n\n¿Deseás registrarlo?",
+                [
+                    {
+                        text: "No",
+                        style: "cancel",
+                        onPress: () => {
+                            mostrarAlertaConfirmacion(
+                                "Éxito",
+                                conAvisoOffline("Documento subido correctamente."),
+                                () => {
+                                    onClose();
+                                }
+                            );
+                        }
+                    },
+                    {
+                        text: "Sí, registrar",
+                        onPress: () => {
+                            setDatosGastoSugerido(sugg);
+                            setGastoSugeridoModalVisible(true);
+                        }
+                    }
+                ]
+            );
+            return;
+        }
+
+        if (tarea) {
+            appAlert(
+                "Documento guardado",
+                conAvisoOffline(`Lo guardamos en la tarea «${tarea.Nombre}».`),
+                [
+                    { text: "Subir otro", onPress: prepararOtroDocumento },
+                    { text: "Listo", onPress: () => onClose() },
+                ]
+            );
+            return;
+        }
+        mostrarAlertaConfirmacion("Éxito", conAvisoOffline("Documento subido correctamente."), () => {
+            onClose();
+        });
     }
 
 
@@ -499,11 +544,41 @@ export default function DocumentsScreen({
                                             : "Solo vos vas a poder verlo."}
                                     </Text>
 
+                                    {puedeGuardarOffline ? (
+                                        <Pressable
+                                            accessibilityRole="switch"
+                                            accessibilityState={{ checked: guardarOffline }}
+                                            onPress={() => setGuardarOffline((actual) => !actual)}
+                                            style={styles.offlineRow}
+                                            testID="documentos-guardar-offline"
+                                        >
+                                            <View style={styles.offlineIcono}>
+                                                <FontAwesome6 name="wifi" size={13} color={colors.primary} />
+                                            </View>
+                                            <View style={{ flex: 1 }}>
+                                                <Text style={styles.offlineTitulo}>Disponible sin conexión</Text>
+                                                <Text style={styles.offlineDetalle}>
+                                                    Se guarda en este dispositivo para verlo sin internet.
+                                                </Text>
+                                            </View>
+                                            <Switch
+                                                value={guardarOffline}
+                                                onValueChange={setGuardarOffline}
+                                                trackColor={{ false: colors.border, true: colors.primary }}
+                                                thumbColor={colors.surface}
+                                            />
+                                        </Pressable>
+                                    ) : null}
+
                                     {/* Indicador de estado visible mientras sube y analiza con IA */}
                                     {saving && (
                                         <View style={styles.analyzingBox}>
                                             <ActivityIndicator size="small" color={colors.primary} />
-                                            <Text style={styles.analyzingText}>Subiendo documento y analizando si tiene gastos...</Text>
+                                            <Text style={styles.analyzingText}>
+                                                {puedeGuardarOffline && guardarOffline
+                                                    ? "Subiendo documento, analizando si tiene gastos y guardándolo sin conexión..."
+                                                    : "Subiendo documento y analizando si tiene gastos..."}
+                                            </Text>
                                         </View>
                                     )}
 
@@ -582,9 +657,13 @@ export default function DocumentsScreen({
                         onClose={() => {
                             setGastoSugeridoModalVisible(false);
                             if (gastoRegistradoRef.current) return;
-                            mostrarAlertaConfirmacion("Éxito", "Documento subido correctamente.", () => {
-                                onClose();
-                            });
+                            mostrarAlertaConfirmacion(
+                                "Éxito",
+                                conAvisoOffline("Documento subido correctamente."),
+                                () => {
+                                    onClose();
+                                }
+                            );
                         }}
                         IdViaje={tripId}
                         Moneda={tripMoneda}
@@ -593,9 +672,13 @@ export default function DocumentsScreen({
                         onGastoCreado={() => {
                             gastoRegistradoRef.current = true;
                             setGastoSugeridoModalVisible(false);
-                            mostrarAlertaConfirmacion("Éxito", "El documento y el gasto se registraron correctamente.", () => {
-                                onClose();
-                            });
+                            mostrarAlertaConfirmacion(
+                                "Éxito",
+                                conAvisoOffline("El documento y el gasto se registraron correctamente."),
+                                () => {
+                                    onClose();
+                                }
+                            );
                         }}
                         initialData={datosGastoSugerido}
                         puedeEscanear={false}
@@ -613,7 +696,6 @@ const styles = StyleSheet.create({
         padding: spacing.sm,
         borderRadius: radii.md,
         backgroundColor: colors.surfaceAlt,
-        // Separado del aviso de espacio del viaje que puede venir debajo.
         marginBottom: spacing.sm,
     },
     tareaTexto: {
@@ -708,6 +790,36 @@ const styles = StyleSheet.create({
         ...textStyles.bodyStrong,
         color: colors.primary,
         fontSize: 13,
+    },
+    offlineRow: {
+        flexDirection: "row",
+        alignItems: "center",
+        gap: spacing.sm,
+        marginTop: spacing.md,
+        padding: spacing.sm,
+        borderRadius: radii.md,
+        borderWidth: 1,
+        borderColor: colors.border,
+        backgroundColor: colors.surface,
+    },
+    offlineIcono: {
+        width: 30,
+        height: 30,
+        borderRadius: 15,
+        alignItems: "center",
+        justifyContent: "center",
+        backgroundColor: colors.surfaceAlt,
+    },
+    offlineTitulo: {
+        ...textStyles.bodyStrong,
+        color: colors.primary,
+        fontSize: 14,
+    },
+    offlineDetalle: {
+        ...textStyles.meta,
+        color: colors.textSecondary,
+        fontSize: 12,
+        marginTop: 2,
     },
     analyzingBox: {
         flexDirection: "column",
