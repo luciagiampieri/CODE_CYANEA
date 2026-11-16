@@ -1,0 +1,60 @@
+@startuml
+!pragma layout smetana
+title Cyanea — Ambiente de desarrollo y validación
+left to right direction
+skinparam backgroundColor #FFFFFF
+skinparam defaultFontName Arial
+skinparam defaultFontSize 14
+skinparam shadowing false
+skinparam roundcorner 10
+skinparam nodesep 45
+skinparam ranksep 50
+skinparam ArrowColor #234E70
+skinparam nodeBackgroundColor #EAF2F8
+skinparam nodeBorderColor #234E70
+skinparam componentBackgroundColor #FFFFFF
+skinparam componentBorderColor #48728D
+skinparam artifactBackgroundColor #FFF7DD
+
+node "Equipo de desarrollo" as DEV {
+  artifact "Código local\nfrontend/ y backend/" as CODE
+  component "Expo / Metro\nFrontend web en localhost:8081\nApp de viajeros y backoffice" as EXPO
+  component "FastAPI / Uvicorn\nAPI local en puerto 8000\nMigraciones Alembic locales" as API
+  database "PostgreSQL local\nDocker Compose o instalación local" as DB
+  component "Mailpit\nSMTP 1025 / interfaz 8025\nCaptura de correos de prueba" as MAIL
+  CODE --> EXPO : Ejecutar frontend
+  CODE --> API : Ejecutar backend
+  EXPO --> API : HTTP / WS
+  API --> DB : SQL / DATABASE_URL local
+  API --> MAIL : SMTP de prueba
+}
+
+node "Repositorio GitHub" as REPO {
+  artifact "Código versionado\nPush / pull request" as GIT
+}
+node "GitHub Actions\nValidación del desarrollo" as CI {
+  component "Backend: pytest y cobertura\nFrontend: Jest y cobertura\nDependencias externas simuladas" as TESTS
+}
+
+node "EAS Build\nCompilaciones de desarrollo / prueba" as EAS {
+  artifact "development: cliente de desarrollo\npreview: APK de distribución interna" as BUILDS
+}
+node "Teléfono Android de prueba" as PHONE {
+  component "Cliente de desarrollo o APK preview\nAPI de pruebas seleccionada al compilar" as APP
+}
+
+CODE --> GIT : Versionar cambios
+GIT --> TESTS : Disparar tests en push / PR
+CODE --> BUILDS : Solicitar build con EAS CLI
+BUILDS -[#26725D,dashed]-> APP : Descargar e instalar
+APP --> EXPO
+APP --> API : HTTP / WS por IP LAN o túnel\ncuando apunta al backend local
+
+legend bottom left
+  Desarrollo y validación separados de la infraestructura productiva.
+  GitHub Actions ejecuta pruebas; no es un servidor de la app ni un paso de publicación.
+  Un APK preview puede apuntar a una API de pruebas publicada si se configura esa URL.
+  El cliente development se conecta a Metro; un APK preview no lo requiere.
+  No se presupone un staging remoto independiente ni se conectan pruebas a datos productivos.
+endlegend
+@enduml

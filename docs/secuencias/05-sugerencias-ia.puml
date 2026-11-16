@@ -1,0 +1,57 @@
+@startuml
+title Solicitud y aceptación de sugerencias de IA
+skinparam backgroundColor #FFFFFF
+skinparam defaultFontName Arial
+skinparam defaultFontSize 13
+skinparam shadowing false
+skinparam roundcorner 8
+skinparam sequence {
+  ArrowColor #234E70
+  LifeLineBorderColor #78909C
+  ParticipantBorderColor #234E70
+  ParticipantBackgroundColor #EAF2F8
+  ParticipantFontColor #17324D
+  ActorBorderColor #234E70
+  GroupBorderColor #78909C
+  GroupBackgroundColor #F6F9FB
+  NoteBackgroundColor #FFF7DD
+  NoteBorderColor #B79947
+}
+hide footbox
+autonumber
+actor Participante as U
+participant "Aplicación Expo / Web" as UI
+participant "API de sugerencias" as API
+database PostgreSQL as DB
+participant "Proveedor IA / Google Places" as EXT
+== Solicitud ==
+U -> UI: Elegir día y franja; pedir sugerencias
+UI -> API: POST /trips/{viaje}/sugerencias-actividades
+API -> DB: Leer viaje, preferencias y consumo diario
+API -> API: Validar participación, viaje, franja,\nreferencia geográfica y límite vigente
+note right of API: Sin preferencias: solicitar completarlas\no continuar explícitamente sin ellas.\nLímite agotado: responder 429 sin llamar a IA.
+API -> DB: Registrar solicitud en proceso
+API -> EXT: Generar opciones con contexto anonimizado\ny verificar lugares
+alt Fallo del proveedor
+  API -> DB: Cerrar solicitud como fallida
+  API --> UI: Error y posibilidad de reintentar
+else Generación finalizada
+  API -> DB: Guardar sugerencias pendientes y cerrar solicitud\n(completada o sin resultados); COMMIT
+  API --> UI: Sugerencias y solicitudes restantes
+end
+== Aceptación de una sugerencia pendiente ==
+U -> UI: Elegir sugerencia y confirmar horario
+UI -> API: POST /trips/{viaje}/sugerencias-actividades/{id}/aceptar
+API -> DB: Leer sugerencia, estado y actividades del día
+API -> API: Revalidar acceso, viaje y estado pendiente
+opt Horario superpuesto y sin confirmación previa
+  API --> UI: RequiereConfirmacion = true; no crear actividad
+  UI --> U: Mostrar actividades superpuestas
+  U -> UI: Confirmar incorporación
+  UI -> API: Repetir aceptación con ConfirmarSuperposicion = true
+end
+API -> DB: Crear actividad y pasar sugerencia a aceptada; COMMIT
+API -> API: Emitir eventos, sincronizar ruta y notificar
+API --> UI: Actividad incorporada al itinerario
+note over U,UI: Cancelar cualquiera de las confirmaciones\nconserva la sugerencia sin incorporarla.
+@enduml

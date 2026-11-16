@@ -1,0 +1,63 @@
+@startuml
+title Escaneo de comprobante y confirmación del gasto
+skinparam backgroundColor #FFFFFF
+skinparam defaultFontName Arial
+skinparam defaultFontSize 13
+skinparam shadowing false
+skinparam roundcorner 8
+skinparam sequence {
+  ArrowColor #234E70
+  LifeLineBorderColor #78909C
+  ParticipantBorderColor #234E70
+  ParticipantBackgroundColor #EAF2F8
+  ParticipantFontColor #17324D
+  ActorBorderColor #234E70
+  GroupBorderColor #78909C
+  GroupBackgroundColor #F6F9FB
+  NoteBackgroundColor #FFF7DD
+  NoteBorderColor #B79947
+}
+hide footbox
+autonumber
+actor Participante as U
+participant "Aplicación Expo / Web" as UI
+participant "API de gastos" as API
+participant "Proveedor de extracción IA" as IA
+database PostgreSQL as DB
+U -> UI: Seleccionar comprobante y consentir procesamiento
+UI -> UI: Validar imagen y comprimir a JPEG
+UI -> API: POST /gastos/trips/{viaje}/escanear-comprobante\narchivo multipart
+API -> API: Validar participación, viaje no finalizado,\nconsentimiento, cupo mensual, firma y tamaño
+API -> IA: Enviar imagen y categorías activas
+alt Error de extracción o tiempo agotado
+  API --> UI: Error; ofrecer carga manual
+else Extracción válida
+  IA --> API: Datos y campos de baja confianza
+  API -> API: Validar esquema, montos, fecha, moneda y categoría
+  API -> DB: Registrar escaneo exitoso para consumo
+  API --> UI: Datos para precargar; ningún gasto creado
+  UI --> U: Mostrar imagen, formulario y campos a revisar
+end
+== Confirmación del formulario precargado ==
+U -> UI: Revisar y corregir los datos
+opt Moneda distinta de ARS
+  UI -> API: GET /monedas/cotizacion
+  API --> UI: Cotización o error de disponibilidad
+  UI -> UI: Completar monto ARS; permitir corrección manual
+end
+U -> UI: Confirmar registro del gasto
+UI -> API: POST /gastos\nDesdeComprobante + monto ARS si corresponde
+API -> API: Validar monto, pagador, categoría,\nparticipantes y distribución
+API -> DB: Guardar Gastos y ParticipantesGastos; COMMIT
+API -> API: Recalcular liquidación y emitir cambios
+API --> UI: Gasto registrado
+opt Guardar comprobante elegido y conexión disponible
+  UI -> API: POST /gastos/{id}/comprobante
+  API -> API: Validar permisos y almacenamiento;\nguardar imagen en repositorio y asociarla al gasto
+  API --> UI: Comprobante asociado o error de carga
+  note over UI,DB: Un fallo al guardar el comprobante\nno elimina el gasto ya registrado.
+end
+UI -> UI: Eliminar imagen temporal del escaneo
+UI --> U: Mostrar gasto en el viaje
+note over U,DB: Cancelar no llama a POST /gastos y elimina la imagen temporal.\nEl escaneo por sí solo no almacena la imagen como documento del viaje.
+@enduml

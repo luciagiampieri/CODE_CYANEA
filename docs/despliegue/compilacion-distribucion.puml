@@ -1,0 +1,65 @@
+@startuml
+!pragma layout smetana
+title Cyanea — Producción: publicación y distribución
+left to right direction
+skinparam backgroundColor #FFFFFF
+skinparam defaultFontName Arial
+skinparam defaultFontSize 14
+skinparam shadowing false
+skinparam roundcorner 10
+skinparam nodesep 55
+skinparam ranksep 60
+skinparam ArrowColor #234E70
+skinparam nodeBackgroundColor #EAF2F8
+skinparam nodeBorderColor #234E70
+skinparam artifactBackgroundColor #FFF7DD
+skinparam artifactBorderColor #B79947
+skinparam componentBackgroundColor #FFFFFF
+skinparam componentBorderColor #48728D
+
+node "Repositorio GitHub\nCODE_CYANEA" as REPO {
+  artifact "frontend/\nCódigo Expo compartido" as FRONT
+  artifact "backend/\nFastAPI + Dockerfile + Alembic" as BACK
+}
+
+node "Compilación web\nEntorno que ejecute el export" as WEBBUILD {
+  component "Exportar Expo para web\nEXPO_PUBLIC_API_BASE_URL" as EXPORT
+  artifact "frontend/dist\nIncluye app y backoffice" as DIST
+  EXPORT --> DIST
+}
+
+node "Cloudflare Workers" as CF {
+  artifact "Recursos web publicados\nConfiguración wrangler.jsonc" as WEBLIVE
+}
+
+node "Railway\nServicio backend" as RW {
+  component "Construir imagen Docker\nInstalar backend y copiar migraciones" as DOCKER
+  component "Inicio del contenedor\nalembic upgrade head\nluego uvicorn en PORT" as START
+  DOCKER --> START
+}
+database "Railway\nPostgreSQL" as PG
+
+node "Expo Application Services\nEAS Build / EAS Workflows" as EAS {
+  component "Compilar frontend nativo\nPerfil production\nVariables y credenciales de firma" as BUILD
+  artifact "Build Android production\nWorkflow versionado" as PROD
+  BUILD --> PROD
+}
+
+node "Publicación en tiendas\nEtapa posterior no automatizada\nen este repositorio" as STORES #F5F7FA {
+  artifact "Google Play / distribución de producción\niOS: TestFlight / App Store si se habilita" as FUTURE
+}
+
+FRONT --> EXPORT : Compilar web
+DIST --> WEBLIVE : Publicar recursos
+BACK --> DOCKER : Desplegar backend
+START --> PG : Migrar esquema y conectar API
+FRONT --> BUILD : EAS CLI o workflow\nCódigo enviado / referencia Git
+PROD -[#78909C,dashed]-> FUTURE : Envío / publicación posterior
+
+legend bottom left
+  Flechas azules: construcción o publicación de artefactos.
+  Flecha gris: etapa posterior; no implica publicación existente en tiendas.
+  La publicación no depende de ejecutar GitHub Actions.
+  EAS Workflows compila el móvil y es independiente de GitHub Actions.
+endlegend
+@enduml

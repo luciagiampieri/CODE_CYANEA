@@ -1,0 +1,127 @@
+@startuml
+!pragma layout smetana
+hide circle
+skinparam shadowing false
+skinparam defaultFontName Arial
+skinparam defaultFontSize 12
+skinparam classBackgroundColor #F1F8FA
+skinparam classBorderColor #286779
+skinparam ArrowColor #4B6370
+skinparam nodesep 55
+skinparam ranksep 75
+title Cyanea · Módulo 6 · Gastos y liquidaciones\nDER físico completo
+
+entity "Gastos" as Gastos {
+  {field} * IdGasto : BIGINT <<PK>>
+  {field} * IdViaje : BIGINT <<FK>>
+  {field} * Nombre : VARCHAR(150)
+  {field} * Monto : NUMERIC(12, 2)
+  {field} * IdCategoria : BIGINT <<FK>>
+  {field} * IdPagador : BIGINT <<FK>>
+  {field} * DividirEntreTodos : BOOLEAN
+  {field} * FechaGasto : DATE
+  {field} * FechaCreacion : TIMESTAMPTZ
+  {field} * FechaActualizacion : TIMESTAMPTZ
+  {field}   TipoDivision : tipo_division_enum
+  {field} * MonedaOriginal : VARCHAR(3) <<FK>>
+  {field} * MontoOriginal : NUMERIC(12, 2)
+  {field} * TipoCambio : NUMERIC(12, 6)
+  {field}   IdDocumentoComprobante : INTEGER <<FK>>
+  {field}   IdParticipanteCreador : BIGINT <<FK>>
+  {field}   FuenteCotizacion : VARCHAR(30)
+  {field}   FechaCotizacion : DATE
+}
+
+entity "ParticipantesGastos" as ParticipantesGastos {
+  {field} * IdParticipanteGasto : BIGINT <<PK>>
+  {field}   IdGasto : BIGINT <<FK, UQ1>>
+  {field} * IdParticipanteViaje : BIGINT <<FK, UQ1>>
+  {field} * MontoAsignado : NUMERIC(12, 2)
+}
+
+entity "Monedas" as Monedas {
+  {field} * Codigo : VARCHAR(3) <<PK>>
+  {field} * Nombre : VARCHAR(100)
+}
+
+entity "CategoriasGastos" as CategoriasGastos {
+  {field} * IdCategoria : BIGINT <<PK>>
+  {field} * Nombre : VARCHAR(50) <<UQ>>
+  {field} * Activo : BOOLEAN
+  {field} * Icono : VARCHAR(50)
+}
+
+entity "LiquidacionesViajes" as LiquidacionesViajes {
+  {field} * IdLiquidacion : INTEGER <<PK>>
+  {field} * IdViaje : INTEGER <<FK, UQ1>>
+  {field} * Version : INTEGER <<UQ1>>
+  {field} * Activa : BOOLEAN
+  {field} * FechaGeneracion : TIMESTAMPTZ
+}
+
+entity "TransferenciasLiquidaciones" as TransferenciasLiquidaciones {
+  {field} * IdTransferenciaLiquidacion : INTEGER <<PK>>
+  {field} * IdLiquidacion : INTEGER <<FK>>
+  {field} * IdParticipanteDeudor : INTEGER <<FK>>
+  {field} * IdParticipanteAcreedor : INTEGER <<FK>>
+  {field} * Monto : NUMERIC(12, 2)
+  {field} * IdEstadoTransferenciaLiquidacion : INTEGER <<FK>>
+  {field} * FechaCreacion : TIMESTAMPTZ
+  {field}   FechaConfirmacion : TIMESTAMPTZ
+}
+
+entity "EstadosTransferenciasLiquidaciones" as EstadosTransferenciasLiquidaciones {
+  {field} * IdEstadoTransferenciaLiquidacion : INTEGER <<PK>>
+  {field} * Nombre : VARCHAR(50) <<UQ>>
+  {field} * Activo : BOOLEAN
+}
+
+entity "EscaneosComprobantes" as EscaneosComprobantes {
+  {field} * IdEscaneoComprobante : INTEGER <<PK>>
+  {field} * IdUsuario : INTEGER <<FK>>
+  {field} * IdViaje : INTEGER <<FK>>
+  {field} * FechaEscaneo : TIMESTAMPTZ
+}
+
+entity "DocumentosViajes (módulo 7)" as DocumentosViajes #EEEEEE {
+  {field} * IdDocumento : INTEGER <<PK>>
+}
+
+entity "ParticipantesViajes (módulo 2)" as ParticipantesViajes #EEEEEE {
+  {field} * IdParticipanteViaje : INTEGER <<PK>>
+}
+
+entity "Usuarios (módulo 1)" as Usuarios #EEEEEE {
+  {field} * IdUsuario : INTEGER <<PK>>
+}
+
+entity "Viajes (módulo 2)" as Viajes #EEEEEE {
+  {field} * IdViaje : INTEGER <<PK>>
+}
+
+CategoriasGastos ||--o{ Gastos : categoría
+DocumentosViajes |o--o{ Gastos : comprobante
+Monedas ||--o{ Gastos : moneda original
+ParticipantesViajes ||--o{ Gastos : pagador
+ParticipantesViajes |o--o{ Gastos : registrado por
+Viajes ||--o{ Gastos : Viaje
+Gastos |o--o{ ParticipantesGastos : gasto
+ParticipantesViajes ||--o{ ParticipantesGastos : parte asignada
+Viajes ||--o{ LiquidacionesViajes : Viaje
+EstadosTransferenciasLiquidaciones ||--o{ TransferenciasLiquidaciones : estado
+LiquidacionesViajes ||--o{ TransferenciasLiquidaciones : liquidación
+ParticipantesViajes ||--o{ TransferenciasLiquidaciones : acreedor
+ParticipantesViajes ||--o{ TransferenciasLiquidaciones : deudor
+Usuarios ||--o{ EscaneosComprobantes : Usuario
+Viajes ||--o{ EscaneosComprobantes : Viaje
+legend bottom
+  Azul: tablas propias · Gris: referencias externas (solo PK)
+  PK: clave primaria · FK: clave foránea · UQ: unicidad individual
+  UQ1: unicidad compuesta dentro de la tabla
+  UP1/UP2: índice UNIQUE parcial; consultar columnas y condición en el diccionario
+  Los índices parciales no implican unicidad incondicional de una FK.
+  * Campo NOT NULL · Sin *: admite NULL
+  TIMESTAMPTZ: TIMESTAMP WITH TIME ZONE · TIME: TIME WITHOUT TIME ZONE
+  Las relaciones solo representan FK físicas, no identificadores dentro de JSON o texto.
+endlegend
+@enduml

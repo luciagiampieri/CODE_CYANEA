@@ -1,0 +1,56 @@
+@startuml
+title Registro y confirmación de correo
+skinparam backgroundColor #FFFFFF
+skinparam defaultFontName Arial
+skinparam defaultFontSize 13
+skinparam shadowing false
+skinparam roundcorner 8
+skinparam sequence {
+  ArrowColor #234E70
+  LifeLineBorderColor #78909C
+  ParticipantBorderColor #234E70
+  ParticipantBackgroundColor #EAF2F8
+  ParticipantFontColor #17324D
+  ActorBorderColor #234E70
+  GroupBorderColor #78909C
+  GroupBackgroundColor #F6F9FB
+  NoteBackgroundColor #FFF7DD
+  NoteBorderColor #B79947
+}
+hide footbox
+autonumber
+actor Viajero as U
+participant "Aplicación Expo / Web" as UI
+participant "API de autenticación" as API
+database PostgreSQL as DB
+participant "Servicio de correo" as MAIL
+== Registro ==
+U -> UI: Completar datos y aceptar términos vigentes
+UI -> API: POST /auth/register
+API -> DB: Consultar email, nombre de usuario\ny versión de términos
+alt Email o nombre de usuario ya utilizado
+  API --> UI: 409 Conflicto
+else Datos válidos y disponibles
+  API -> API: Calcular hash de la contraseña
+  API -> DB: Guardar usuario sin correo confirmado\ny aceptación de términos; COMMIT
+  opt Invitaciones externas pendientes para ese correo
+    API -> DB: Vincular invitaciones a la cuenta\n(crear participación invitada si corresponde)
+  end
+  API -> MAIL: Enviar enlace de confirmación con vigencia de 24 h
+  note over API,MAIL: Un fallo del correo no revierte el alta.
+  API --> UI: 201 Registro exitoso; solicitar confirmación
+end
+== Confirmación posterior ==
+MAIL --> U: Correo con enlace
+U -> API: GET /auth/confirm-email?token=...
+API -> API: Validar firma y vencimiento del enlace
+alt Enlace inválido, vencido o cuenta inexistente
+  API --> UI: 302 a pantalla con estado de error
+else Enlace válido y correo pendiente
+  API -> DB: Actualizar EmailConfirmado = true; COMMIT
+  API --> UI: 302 a pantalla de confirmación exitosa
+else Correo ya confirmado
+  API --> UI: 302 a pantalla de correo ya confirmado
+end
+UI --> U: Informar resultado y ofrecer acceso al login
+@enduml

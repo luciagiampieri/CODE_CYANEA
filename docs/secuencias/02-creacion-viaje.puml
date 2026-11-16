@@ -1,0 +1,54 @@
+@startuml
+title Creación de viaje con destinos y recorrido
+skinparam backgroundColor #FFFFFF
+skinparam defaultFontName Arial
+skinparam defaultFontSize 13
+skinparam shadowing false
+skinparam roundcorner 8
+skinparam sequence {
+  ArrowColor #234E70
+  LifeLineBorderColor #78909C
+  ParticipantBorderColor #234E70
+  ParticipantBackgroundColor #EAF2F8
+  ParticipantFontColor #17324D
+  ActorBorderColor #234E70
+  GroupBorderColor #78909C
+  GroupBackgroundColor #F6F9FB
+  NoteBackgroundColor #FFF7DD
+  NoteBorderColor #B79947
+}
+hide footbox
+autonumber
+actor "Viajero autenticado" as U
+participant "Aplicación Expo / Web" as UI
+participant "API de viajes" as API
+database PostgreSQL as DB
+participant "Servicio de correo" as MAIL
+U -> UI: Completar viaje, destinos, noches y participantes
+UI -> API: POST /trips
+API -> DB: Consultar plan, viajes activos y datos maestros
+API -> API: Validar límite de viajes, fechas y recorrido\nValidar participantes e invitaciones
+alt Límite alcanzado o datos inválidos
+  API --> UI: Error de validación; no crear viaje
+else Validaciones satisfechas
+  API -> DB: Insertar Viajes
+  loop Cada destino en el orden del recorrido
+    API -> DB: Reutilizar o crear Destinos\ny guardar DestinosViajes con orden y noches
+  end
+  opt Fechas de inicio y fin definidas
+    API -> DB: Crear días de cronograma del intervalo
+  end
+  API -> DB: Crear participación aceptada del administrador
+  opt Participantes o correos invitados
+    API -> DB: Crear participaciones invitadas\ne invitaciones externas pendientes
+  end
+  API -> DB: COMMIT del alta
+  opt Invitaciones externas
+    API -> MAIL: Enviar correos con enlaces de invitación
+    note over API,MAIL: Un fallo de envío no revierte el viaje.
+  end
+  API --> UI: 201 Viaje creado
+  UI --> U: Mostrar viaje y participantes pendientes
+end
+note over API,DB: La identificación de una portada es auxiliar;\nse omite del flujo básico.
+@enduml

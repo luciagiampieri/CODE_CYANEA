@@ -1,0 +1,91 @@
+@startuml
+!pragma layout smetana
+hide circle
+skinparam linetype ortho
+skinparam shadowing false
+skinparam defaultFontName Arial
+skinparam defaultFontSize 12
+skinparam classBackgroundColor #F1F8FA
+skinparam classBorderColor #286779
+skinparam ArrowColor #4B6370
+skinparam nodesep 45
+skinparam ranksep 65
+title Cyanea · Módulo 1 · Usuarios, autenticación y preferencias\nDER de relaciones · atributos seleccionados
+
+entity "Usuarios" as Usuarios {
+  {field} * IdUsuario : INTEGER <<PK>>
+  {field} * Email : VARCHAR(255)
+  {field} * NombreUsuario : VARCHAR(50) <<UQ>>
+  {field} * Activo : BOOLEAN
+  {field} * HashedPassword : VARCHAR(255)
+  {field}   GoogleSub : VARCHAR(255) <<UQ>>
+  {field} * ProveedorAutenticacion : VARCHAR(30)
+  {field}   FacebookId : VARCHAR(255)
+  {field} * IdRolSistema : INTEGER <<FK>>
+  {field} * IdPlan : INTEGER <<FK>>
+}
+
+entity "RolesSistema" as RolesSistema {
+  {field} * IdRolSistema : INTEGER <<PK>>
+  {field} * Nombre : VARCHAR(50) <<UQ>>
+}
+
+entity "TokensRecuperacionPassword" as TokensRecuperacionPassword {
+  {field} * IdTokenRecuperacion : INTEGER <<PK>>
+  {field} * IdUsuario : INTEGER <<FK>>
+  {field} * TokenHash : VARCHAR(64) <<UQ>>
+  {field} * FechaExpiracion : TIMESTAMPTZ
+  {field}   FechaUso : TIMESTAMPTZ
+  {field}   FechaInvalidacion : TIMESTAMPTZ
+}
+
+entity "SolicitudesRecuperacionPassword" as SolicitudesRecuperacionPassword {
+  {field} * IdSolicitud : INTEGER <<PK>>
+  {field}   IdUsuario : INTEGER <<FK>>
+  {field} * EmailHash : VARCHAR(64)
+  {field}   Ip : VARCHAR(45)
+  {field} * Tipo : VARCHAR(30)
+  {field} * Fecha : TIMESTAMPTZ
+}
+
+entity "SolicitudesConfirmacionEmail" as SolicitudesConfirmacionEmail {
+  {field} * IdSolicitud : INTEGER <<PK>>
+  {field} * EmailHash : VARCHAR(64)
+  {field}   Ip : VARCHAR(45)
+  {field} * Fecha : TIMESTAMPTZ
+}
+
+entity "SesionesBackoffice" as SesionesBackoffice {
+  {field} * IdSesionBackoffice : VARCHAR(36) <<PK>>
+  {field} * IdUsuario : INTEGER <<FK>>
+  {field} * FechaInicio : TIMESTAMPTZ
+  {field} * UltimaActividad : TIMESTAMPTZ
+  {field}   FechaCierre : TIMESTAMPTZ
+}
+
+entity "Planes" as Planes #EEEEEE {
+  {field} * IdPlan : INTEGER <<PK>>
+}
+
+RolesSistema ||--o{ Usuarios : asigna
+Planes ||--o{ Usuarios : plan vigente
+Usuarios ||--o{ TokensRecuperacionPassword : posee
+Usuarios |o--o{ SolicitudesRecuperacionPassword : cuenta identificada
+Usuarios ||--o{ SesionesBackoffice : inicia
+note right of Planes
+  Referencia externa al módulo 9.
+  Solo se muestra su clave primaria.
+end note
+note bottom of SolicitudesConfirmacionEmail
+  Sin FK a Usuarios.
+  EmailHash permite registrar solicitudes
+  sin identificar ni revelar una cuenta.
+end note
+legend bottom
+  PK: clave primaria · FK: clave foránea · UQ: unicidad
+  * Campo NOT NULL · Sin *: admite NULL
+  TIMESTAMPTZ: TIMESTAMP WITH TIME ZONE
+  Cardinalidades basadas en las FK del esquema físico.
+  Vista resumida: consultar atributos restantes en el diccionario y DER físico completo.
+endlegend
+@enduml

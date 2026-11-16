@@ -1,0 +1,51 @@
+@startuml
+title Creación de actividad con validación de horarios
+skinparam backgroundColor #FFFFFF
+skinparam defaultFontName Arial
+skinparam defaultFontSize 13
+skinparam shadowing false
+skinparam roundcorner 8
+skinparam sequence {
+  ArrowColor #234E70
+  LifeLineBorderColor #78909C
+  ParticipantBorderColor #234E70
+  ParticipantBackgroundColor #EAF2F8
+  ParticipantFontColor #17324D
+  ActorBorderColor #234E70
+  GroupBorderColor #78909C
+  GroupBackgroundColor #F6F9FB
+  NoteBackgroundColor #FFF7DD
+  NoteBorderColor #B79947
+}
+hide footbox
+autonumber
+actor Participante as U
+participant "Aplicación Expo / Web" as UI
+participant "API de itinerario" as API
+participant "Análisis de horarios" as S
+participant "Google Places / IA" as EXT
+database PostgreSQL as DB
+U -> UI: Completar actividad, día, lugar y horario
+UI -> API: POST /trips/{viaje}/days/{dia}/activities
+API -> API: Validar participación aceptada, viaje\nno finalizado y pertenencia del día
+API -> S: Analizar horario de la actividad
+opt Análisis externo habilitado y aplicable
+  S -> EXT: Identificar establecimiento y consultar horarios
+  EXT --> S: Información disponible del lugar
+end
+S --> API: Advertencia, aviso o análisis sin observaciones
+opt Se requiere advertencia y aún no fue confirmada
+  API --> UI: AdvertenciaHorario; no guardar actividad
+  UI --> U: Mostrar advertencia y pedir decisión
+  U -> UI: Confirmar que desea continuar
+  UI -> API: Repetir POST con ignorar_advertencia=true\ny datos de la advertencia
+  API -> API: Revalidar acceso y datos
+end
+API -> API: Evaluar recomendación de entradas si corresponde
+note right of API: El fallo de esta recomendación\nno impide registrar la actividad.
+API -> DB: Insertar ActividadesItinerario; COMMIT
+API -> API: Emitir actividad_creada, sincronizar ruta\ny despachar notificación del viaje
+API --> UI: Actividad creada y recomendaciones disponibles
+UI --> U: Actualizar itinerario
+note over U,UI: Si el usuario cancela ante la advertencia,\nno se realiza el segundo POST ni se crea la actividad.
+@enduml
