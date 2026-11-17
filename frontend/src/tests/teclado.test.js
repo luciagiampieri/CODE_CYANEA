@@ -6,9 +6,24 @@ import { Platform } from "react-native";
 // incluido el que hace la pantalla para mostrar el campo enfocado: el teclado se abría
 // y se cerraba al primer toque. Toda lista o formulario usa MODO_CIERRE_TECLADO.
 
-// MODO_CIERRE_TECLADO se calcula al cargar el módulo: se carga aparte con la plataforma
-// pedida. jest.isolateModules usa su propia copia de react-native, así que la plataforma se
+// MODO_CIERRE_TECLADO y SIN_AUTORRELLENO se calculan al cargar el módulo: se carga aparte
+// con la plataforma pedida. jest.isolateModules usa su propia copia de react-native, así que la plataforma se
 // cambia en esa copia (y también en la de afuera, por si el entorno la comparte).
+function autorrellenoEn(os) {
+  const original = Platform.OS;
+  let valor;
+  try {
+    Platform.OS = os;
+    jest.isolateModules(() => {
+      require("react-native").Platform.OS = os;
+      valor = require("../utils/teclado").SIN_AUTORRELLENO;
+    });
+  } finally {
+    Platform.OS = original;
+  }
+  return valor;
+}
+
 function modoEn(os) {
   const original = Platform.OS;
   let modo;
@@ -50,5 +65,36 @@ describe("MODO_CIERRE_TECLADO", () => {
       .map((archivo) => path.relative(src, archivo));
 
     expect(conOnDrag).toEqual([]);
+  });
+});
+
+describe("ocultarConTeclado", () => {
+  const osOriginal = Platform.OS;
+  afterEach(() => {
+    Platform.OS = osOriginal;
+  });
+
+  it("en Android/iOS oculta lo que se saca con el teclado abierto", () => {
+    const { ocultarConTeclado } = require("../utils/teclado");
+    Platform.OS = "ios";
+    expect(ocultarConTeclado(true)).toBe(true);
+    expect(ocultarConTeclado(false)).toBe(false);
+  });
+
+  it("en la web nunca oculta: sacarlo y volverlo a poner hacía saltar la pantalla", () => {
+    const { ocultarConTeclado } = require("../utils/teclado");
+    Platform.OS = "web";
+    expect(ocultarConTeclado(true)).toBe(false);
+  });
+});
+
+describe("SIN_AUTORRELLENO", () => {
+  it("en la web apaga el autorrelleno para que Safari no ofrezca contactos", () => {
+    expect(autorrellenoEn("web")).toEqual({ autoComplete: "off" });
+  });
+
+  it("en Android/iOS no agrega nada", () => {
+    expect(autorrellenoEn("android")).toEqual({});
+    expect(autorrellenoEn("ios")).toEqual({});
   });
 });

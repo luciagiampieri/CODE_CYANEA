@@ -29,6 +29,7 @@ import {
 
 import { colors, radii, spacing, surfaces, textStyles } from "../theme/tokens";
 import useScrollAlCampo from "../hooks/useScrollAlCampo";
+import { SIN_AUTORRELLENO } from "../utils/teclado";
 
 import { esErrorDeLimite, irAPlanes, mostrarLimiteAlcanzado } from "../utils/limitesPlan";
 
@@ -499,6 +500,7 @@ export default function DocumentsScreen({
                                     >
                                         <FontAwesome6 name="pen" size={13} color={colors.overlay} />
                                         <TextInput
+                                            {...SIN_AUTORRELLENO}
                                             style={styles.inputInner}
                                             value={nombreDocumento}
                                             onFocus={() => formScroll.enfocar("nombre")}

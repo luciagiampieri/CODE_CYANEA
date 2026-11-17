@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef, useCallback } from "react";
-import { MODO_CIERRE_TECLADO } from "../utils/teclado";
+import { MODO_CIERRE_TECLADO, SIN_AUTORRELLENO } from "../utils/teclado";
 import {
   View,
   Text,
@@ -1332,6 +1332,7 @@ export default function AddGastoScreen({
                   >
                     <FontAwesome6 name="pen" size={14} color={colors.overlay} />
                     <TextInput
+                      {...SIN_AUTORRELLENO}
                       style={styles.input}
                       placeholder="Cena"
                       placeholderTextColor={colors.overlay}

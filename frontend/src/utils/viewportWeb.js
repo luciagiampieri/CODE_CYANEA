@@ -6,9 +6,52 @@
 // iPhone a veces no avisa ese cierre (o informa un desplazamiento viejo) y la app
 // quedaba chica y corrida hacia abajo, con un espacio en blanco arriba: por eso
 // también se reajusta cuando un campo pierde el foco.
+//
+// Al cerrar el teclado, Safari manda varios eventos con alturas intermedias: si la app
+// se reacomodaba con cada uno, crecía en varios pasos. Al pasar a "sin teclado" se espera
+// a que el área visible quede quieta y se reacomoda una sola vez (esperarViewportQuieto).
+// Al abrirlo se aplica enseguida, para que el campo quede sobre el teclado.
+
+import { colors } from "../theme/tokens";
 
 const DIFERENCIA_TECLADO_PX = 120;
-const REAJUSTES_AL_SALIR_MS = [60, 250, 600];
+const INTERVALO_QUIETO_MS = 80;
+const ESPERA_MAXIMA_QUIETO_MS = 600;
+
+/**
+ * Llama a `alTerminar` cuando el visualViewport deja de cambiar: dos lecturas seguidas
+ * iguales (alto y desplazamiento) cada `intervalo` ms, o al llegar a `maximo` ms.
+ * Devuelve una función para cancelar la espera.
+ */
+export function esperarViewportQuieto(
+  win,
+  alTerminar,
+  { intervalo = INTERVALO_QUIETO_MS, maximo = ESPERA_MAXIMA_QUIETO_MS } = {}
+) {
+  const leer = () => {
+    const vv = win.visualViewport;
+    return vv ? `${vv.height}|${vv.offsetTop}|${win.innerHeight}` : `${win.innerHeight}`;
+  };
+  let anterior = leer();
+  let transcurrido = 0;
+  let id = null;
+  const revisar = () => {
+    transcurrido += intervalo;
+    const actual = leer();
+    if (actual === anterior || transcurrido >= maximo) {
+      id = null;
+      alTerminar();
+      return;
+    }
+    anterior = actual;
+    id = win.setTimeout(revisar, intervalo);
+  };
+  id = win.setTimeout(revisar, intervalo);
+  return () => {
+    if (id != null) win.clearTimeout(id);
+    id = null;
+  };
+}
 
 export function tecladoAbierto(win) {
   const vv = win.visualViewport;
@@ -57,6 +100,9 @@ export function instalarAjusteViewport(win = window, doc = document) {
   doc.documentElement.style.height = "100%";
   doc.body.style.height = "100%";
   doc.body.style.overflow = "hidden";
+  // Mientras el área cambia de tamaño se ve el fondo de <body>: con el de la app no
+  // aparece una franja blanca donde estaba el teclado.
+  doc.body.style.backgroundColor = colors.background;
   root.style.position = "fixed";
   root.style.left = "0";
   root.style.right = "0";
@@ -100,13 +146,70 @@ export function instalarAjusteViewport(win = window, doc = document) {
     });
   };
 
-  const ajustar = () => {
+  // Aplica el área visible actual a #root y a los modales.
+  let conTeclado = false;
+  let altoAplicado = null;
+  const aplicar = () => {
     const { top, height } = calcularAreaRoot(win);
+    conTeclado = tecladoAbierto(win);
+    altoAplicado = height;
     root.style.top = `${top}px`;
     root.style.height = `${height}px`;
     // Sin teclado, la página no tiene que quedar desplazada.
     if (top === 0 && win.scrollY) win.scrollTo(0, 0);
     ajustarPortales();
+  };
+
+  // Cierre en un solo paso: se espera a que el área quede quieta y se aplica una vez.
+  // `soloSinCampoEnfocado`: al salir de un campo, si el foco pasó a otro, el teclado sigue
+  // abierto y no se reacomoda (los avisos del visualViewport se aplican siempre).
+  let cancelarCierre = null;
+  let cierreSoloSinCampo = false;
+  const esperarCierre = (soloSinCampoEnfocado) => {
+    if (cancelarCierre) {
+      // Si llega un aviso del visualViewport, ese manda.
+      if (!soloSinCampoEnfocado) cierreSoloSinCampo = false;
+      return;
+    }
+    cierreSoloSinCampo = soloSinCampoEnfocado;
+    cancelarCierre = esperarViewportQuieto(win, () => {
+      cancelarCierre = null;
+      if (cierreSoloSinCampo && !tecladoAbierto(win) && hayCampoEnfocado(doc)) return;
+      aplicar();
+    });
+  };
+  const cancelarEsperaDeCierre = () => {
+    cancelarCierre?.();
+    cancelarCierre = null;
+  };
+
+  // Si el área se achica (se abre el teclado) o solo se desplaza, se aplica enseguida.
+  // Si crece (se está cerrando, con alturas intermedias), se espera a que quede quieta.
+  const ajustarAhora = () => {
+    const { height } = calcularAreaRoot(win);
+    const crece = altoAplicado != null && height > altoAplicado + 1;
+    if (tecladoAbierto(win) && !crece) {
+      cancelarEsperaDeCierre();
+      aplicar();
+    } else if (conTeclado) {
+      esperarCierre(false);
+    } else {
+      aplicar();
+    }
+  };
+
+  // Los eventos de un mismo cuadro se juntan en uno.
+  let cuadroPendiente = null;
+  const ajustar = () => {
+    if (typeof win.requestAnimationFrame !== "function") {
+      ajustarAhora();
+      return;
+    }
+    if (cuadroPendiente != null) return;
+    cuadroPendiente = win.requestAnimationFrame(() => {
+      cuadroPendiente = null;
+      ajustarAhora();
+    });
   };
 
   // Un modal que se abre con el teclado ya abierto no dispara un resize: se ajusta al
@@ -115,19 +218,13 @@ export function instalarAjusteViewport(win = window, doc = document) {
     if (tecladoAbierto(win)) ajustarPortales();
   };
 
-  const timers = new Set();
+  // Safari a veces no avisa que se cerró el teclado: al salir de un campo se espera a que
+  // el área quede quieta y se reacomoda una vez (si el foco no pasó a otro campo).
   const alSalirDeUnCampo = () => {
-    REAJUSTES_AL_SALIR_MS.forEach((ms) => {
-      const id = win.setTimeout(() => {
-        timers.delete(id);
-        // Si el foco pasó a otro campo, el teclado sigue abierto.
-        if (!hayCampoEnfocado(doc)) ajustar();
-      }, ms);
-      timers.add(id);
-    });
+    esperarCierre(true);
   };
 
-  ajustar();
+  aplicar();
   vv?.addEventListener("resize", ajustar);
   vv?.addEventListener("scroll", ajustar);
   win.addEventListener("resize", ajustar);
@@ -140,7 +237,8 @@ export function instalarAjusteViewport(win = window, doc = document) {
     win.removeEventListener("resize", ajustar);
     doc.removeEventListener("focusout", alSalirDeUnCampo);
     doc.removeEventListener("focusin", alEntrarAUnCampo);
-    timers.forEach((id) => win.clearTimeout(id));
+    cancelarEsperaDeCierre();
+    if (cuadroPendiente != null) win.cancelAnimationFrame?.(cuadroPendiente);
     restaurarPortales();
   };
 }

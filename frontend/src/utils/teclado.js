@@ -7,3 +7,17 @@ import { Platform } from "react-native";
 // pantalla para mostrarlo, eso cuenta como desplazamiento y el teclado se cierra
 // en el acto (no se puede escribir). En la web el teclado lo maneja el navegador.
 export const MODO_CIERRE_TECLADO = Platform.OS === "web" ? "none" : "on-drag";
+
+// Si algo se oculta mientras el teclado está abierto (para ganar lugar). Solo en
+// Android/iOS: en la web, sacarlo y volverlo a poner hacía saltar toda la pantalla al
+// abrir y cerrar el teclado (Safari ya mueve la página por su cuenta).
+export function ocultarConTeclado(tecladoVisible) {
+  return Boolean(tecladoVisible) && Platform.OS !== "web";
+}
+
+// Campos que no son datos personales (nombre de documento, concepto, actividad, votación,
+// viaje, tarea): en la web se apaga el autorrelleno para que Safari no ofrezca
+// "Autorrellenar contacto". En Android/iOS no se agrega nada (allí "off" apagaría el
+// autorrelleno del sistema). Safari a veces lo ignora por sus propias reglas.
+// Uso: <TextInput {...SIN_AUTORRELLENO} ... />. No va en correo ni contraseña.
+export const SIN_AUTORRELLENO = Platform.OS === "web" ? { autoComplete: "off" } : {};

@@ -190,4 +190,77 @@ describe("useScrollAlCampo", () => {
       expect(result.current.registrarNodo("nombre")).toBeUndefined();
     });
   });
+
+  // En el iPhone cada scrollTo suave que se reiniciaba hacia el mismo lugar se veía en
+  // escalones: en la web no se repite el destino y no está el intento de los 120 ms.
+  describe("web: un solo desplazamiento al campo", () => {
+    it("no repite el scrollTo si el destino no cambió", async () => {
+      Platform.OS = "web";
+      const { result, scrollTo } = await montar();
+      await verVisible(result, 300);
+      await medir(() => result.current.registrar("nombre")(layout(400, 50)));
+
+      await enfocarYEsperar(result, "nombre");
+      // El onLayout del ScrollView vuelve a calcular con el mismo alto: mismo destino.
+      await verVisible(result, 300);
+      await act(async () => {
+        jest.advanceTimersByTime(100);
+      });
+
+      expect(scrollTo).toHaveBeenCalledTimes(1);
+      expect(scrollTo).toHaveBeenLastCalledWith({ y: 170, animated: true });
+    });
+
+    it("si el área cambió y el destino es otro, sí desplaza de nuevo", async () => {
+      Platform.OS = "web";
+      const { result, scrollTo } = await montar();
+      await verVisible(result, 300);
+      await medir(() => result.current.registrar("nombre")(layout(400, 50)));
+
+      await enfocarYEsperar(result, "nombre");
+      await verVisible(result, 250);
+      await act(async () => {
+        jest.advanceTimersByTime(100);
+      });
+
+      expect(scrollTo).toHaveBeenCalledTimes(2);
+      expect(scrollTo).toHaveBeenLastCalledWith({ y: 220, animated: true });
+    });
+
+    it("no desplaza si el scroll ya está en el destino", async () => {
+      Platform.OS = "web";
+      const { result, scrollTo } = await montar();
+      await verVisible(result, 300);
+      await medir(() => {
+        result.current.scrollProps.onScroll(scroll(170));
+        result.current.registrar("nombre")(layout(400, 50));
+      });
+
+      await enfocarYEsperar(result, "nombre");
+
+      expect(scrollTo).not.toHaveBeenCalled();
+    });
+
+    it("en la web no hay intento a los 120 ms; en Android/iOS sigue", async () => {
+      Platform.OS = "web";
+      const web = await montar();
+      await verVisible(web.result, 300);
+      await medir(() => web.result.current.registrar("nombre")(layout(400, 50)));
+      await act(async () => {
+        web.result.current.enfocar("nombre");
+        jest.advanceTimersByTime(200);
+      });
+      expect(web.scrollTo).not.toHaveBeenCalled();
+
+      Platform.OS = "ios";
+      const ios = await montar();
+      await verVisible(ios.result, 300);
+      await medir(() => ios.result.current.registrar("nombre")(layout(400, 50)));
+      await act(async () => {
+        ios.result.current.enfocar("nombre");
+        jest.advanceTimersByTime(200);
+      });
+      expect(ios.scrollTo).toHaveBeenCalledTimes(1);
+    });
+  });
 });
