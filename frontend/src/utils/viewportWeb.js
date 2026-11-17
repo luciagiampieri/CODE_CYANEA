@@ -6,18 +6,48 @@
 // iPhone a veces no avisa ese cierre (o informa un desplazamiento viejo) y la app
 // quedaba chica y corrida hacia abajo, con un espacio en blanco arriba: por eso
 // también se reajusta cuando un campo pierde el foco.
+//
+// En Chrome de Android la meta viewport (public/index.html) pide resizes-content: la
+// ventana se achica sola con el teclado y #root toma ese alto con el `resize`, sin
+// desplazamientos propios del navegador. Para saber si el teclado está abierto se compara
+// contra el alto sin teclado (ver tecladoAbierto).
 
 import { colors } from "../theme/tokens";
 
 const DIFERENCIA_TECLADO_PX = 120;
 const REAJUSTES_AL_SALIR_MS = [60, 250, 600];
 
+export function esAndroid(win) {
+  return /Android/i.test(win?.navigator?.userAgent ?? "");
+}
+
+// Alto de la ventana sin teclado, por ventana. Solo se usa en Android.
+const altosSinTeclado = new WeakMap();
+
+/**
+ * En Android, con `interactive-widget=resizes-content` (public/index.html), Chrome achica
+ * la ventana entera al abrir el teclado: innerHeight y el área visible bajan juntos y la
+ * diferencia entre ellos ya no sirve. Se recuerda el alto más grande visto con el mismo
+ * ancho (al rotar cambia el ancho y se vuelve a medir) y se compara contra ese.
+ */
+function altoSinTeclado(win) {
+  const ancho = win.innerWidth;
+  const anterior = altosSinTeclado.get(win);
+  const alto =
+    anterior && anterior.ancho === ancho ? Math.max(anterior.alto, win.innerHeight) : win.innerHeight;
+  altosSinTeclado.set(win, { ancho, alto });
+  return alto;
+}
+
 export function tecladoAbierto(win) {
   const vv = win.visualViewport;
   if (!vv) return false;
   // Con zoom (pellizco) el área visible también se achica, pero no es el teclado.
   if (vv.scale && vv.scale > 1.01) return false;
-  return win.innerHeight - vv.height > DIFERENCIA_TECLADO_PX;
+  // En la compu y en el iPhone se compara con la ventana, como siempre: en la compu achicar
+  // la ventana no tiene que contar como teclado.
+  const referencia = esAndroid(win) ? altoSinTeclado(win) : win.innerHeight;
+  return referencia - vv.height > DIFERENCIA_TECLADO_PX;
 }
 
 export function calcularAreaRoot(win) {

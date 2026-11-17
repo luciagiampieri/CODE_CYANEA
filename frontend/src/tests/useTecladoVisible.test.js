@@ -49,6 +49,35 @@ describe("useTecladoVisible", () => {
     expect(result.current).toBe(false);
   });
 
+  it("en Chrome de Android (resizes-content) detecta el teclado aunque la ventana se achique", async () => {
+    Platform.OS = "web";
+    const navegadorOriginal = window.navigator;
+    const anchoOriginal = window.innerWidth;
+    window.navigator = { userAgent: "Mozilla/5.0 (Linux; Android 14; Pixel 8) Chrome/130.0 Mobile Safari/537.36" };
+    window.innerWidth = 412;
+    try {
+      const vv = simularVisualViewport({ height: 800 });
+      const { result } = await renderHook(() => useTecladoVisible());
+      expect(result.current).toBe(false);
+
+      // Chrome achica la ventana y el área visible juntas.
+      await act(async () => {
+        window.innerHeight = 430;
+        vv.cambiar(430);
+      });
+      expect(result.current).toBe(true);
+
+      await act(async () => {
+        window.innerHeight = 800;
+        vv.cambiar(800);
+      });
+      expect(result.current).toBe(false);
+    } finally {
+      window.navigator = navegadorOriginal;
+      window.innerWidth = anchoOriginal;
+    }
+  });
+
   it("en la web un zoom (pellizco) no cuenta como teclado", async () => {
     Platform.OS = "web";
     simularVisualViewport({ height: 400, scale: 2 });

@@ -1,7 +1,7 @@
 const fs = require("fs");
 const path = require("path");
 
-const PLUGINS_REQUERIDOS = ["expo-sharing"];
+const PLUGINS_REQUERIDOS = ["expo-sharing", "./plugins/withAndroidWorkManager"];
 
 function configurarGoogleMapsAndroid(plugins) {
   const googleMapsAndroidApiKey = process.env.GOOGLE_MAPS_ANDROID_API_KEY;
