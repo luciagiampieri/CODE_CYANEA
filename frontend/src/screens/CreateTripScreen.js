@@ -31,7 +31,6 @@ import SearchPickerHeader, { SEARCH_PICKER_EDGES } from "../components/ui/Search
 import CerrarTecladoAlTocar from "../components/ui/CerrarTecladoAlTocar";
 import PrimaryButton from "../components/ui/PrimaryButton";
 import AICoverGenerator from "../components/trip/AICoverGenerator";
-import { tecladoAbierto } from "../utils/viewportWeb";
 import useResponsive from "../hooks/useResponsive";
 import {
   createTrip,
@@ -48,6 +47,7 @@ import {
 import { esErrorDeLimite, irAPlanes, mostrarLimiteAlcanzado } from "../utils/limitesPlan";
 import { colors, radii, spacing, surfaces, textStyles } from "../theme/tokens";
 import useScrollAlCampo from "../hooks/useScrollAlCampo";
+import useTecladoVisible from "../hooks/useTecladoVisible";
 import RecorridoViaje, { EncabezadoDestinos } from "../components/trip/RecorridoViaje";
 import AvisoDeshacer from "../components/trip/AvisoDeshacer";
 import useDeshacerDestino from "../hooks/useDeshacerDestino";
@@ -135,30 +135,6 @@ function describeDuration(startDate, endDate) {
   return `${nights} ${nights === 1 ? "noche" : "noches"} · ${days} días`;
 }
 
-function useKeyboardVisible() {
-  const [visible, setVisible] = useState(false);
-  useEffect(() => {
-    if (Platform.OS === "web") {
-      const vv = typeof window !== "undefined" ? window.visualViewport : null;
-      if (!vv) return undefined;
-      // Mismo criterio que el ajuste de App.js (un zoom no cuenta como teclado).
-      const check = () => setVisible(tecladoAbierto(window));
-      check();
-      vv.addEventListener("resize", check);
-      return () => vv.removeEventListener("resize", check);
-    }
-
-    const showEvent = Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
-    const hideEvent = Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide";
-    const showSub = Keyboard.addListener(showEvent, () => setVisible(true));
-    const hideSub = Keyboard.addListener(hideEvent, () => setVisible(false));
-    return () => {
-      showSub.remove();
-      hideSub.remove();
-    };
-  }, []);
-  return visible;
-}
 
 
 
@@ -513,7 +489,7 @@ function DestinationPickerModal({
 
 
 
-  const keyboardOpen = useKeyboardVisible();
+  const keyboardOpen = useTecladoVisible();
   const keyboardVisible = visible && keyboardOpen;
 
   const prevCountRef = useRef(count);
@@ -851,7 +827,7 @@ export default function CreateTripScreen({ navigation }) {
     Boolean(viajesActivos) && !viajesActivos.ilimitado && viajesActivos.limite != null;
   const sinViajesDisponibles = viajesLimitados && viajesActivos.usoActual >= viajesActivos.limite;
 
-  const tecladoVisible = useKeyboardVisible();
+  const tecladoVisible = useTecladoVisible();
   const formScroll = useScrollAlCampo();
 
   const titleInputRef = useRef(null);

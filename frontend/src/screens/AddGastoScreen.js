@@ -45,6 +45,7 @@ import {
 
 import { colors, radii, spacing, textStyles } from "../theme/tokens";
 import useScrollAlCampo from "../hooks/useScrollAlCampo";
+import useTecladoVisible from "../hooks/useTecladoVisible";
 import {
   MONEDA_PESOS_ARGENTINOS,
   mensajeFechaFueraDelViaje,
@@ -133,20 +134,6 @@ function montoParaInput(valor) {
   return Number.isFinite(numero) && numero > 0 ? String(numero) : "";
 }
 
-function useKeyboardVisible() {
-  const [visible, setVisible] = useState(false);
-  useEffect(() => {
-    const showEvent = Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
-    const hideEvent = Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide";
-    const showSub = Keyboard.addListener(showEvent, () => setVisible(true));
-    const hideSub = Keyboard.addListener(hideEvent, () => setVisible(false));
-    return () => {
-      showSub.remove();
-      hideSub.remove();
-    };
-  }, []);
-  return visible;
-}
 
 
 function Avatar({ persona, small = false }) {
@@ -331,7 +318,7 @@ export default function AddGastoScreen({
   const monedaBase = Moneda || "USD";
   const modoEdicion = Boolean(gastoAEditar);
   const edicion = useEdicionGasto(gastoAEditar?.IdGasto, modoEdicion && visible);
-  const tecladoVisible = useKeyboardVisible();
+  const tecladoVisible = useTecladoVisible();
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);

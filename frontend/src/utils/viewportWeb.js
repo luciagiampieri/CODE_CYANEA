@@ -84,20 +84,31 @@ function desplazar(contenedor, delta, behavior) {
  * desplaza el contenedor con scroll más cercano; si ese no alcanza (por ejemplo, ya está al
  * final), el resto lo desplaza el siguiente hacia arriba. Un solo movimiento por
  * contenedor. Devuelve cuánto se pidió desplazar (0 si no hizo nada).
+ *
+ * Lo visible es la parte del área visible que también está dentro del contenedor con
+ * scroll más cercano: un pie o un encabezado fijos fuera del ScrollView (por ejemplo los
+ * botones de Nuevo gasto) recortan el campo aunque esté por arriba del teclado.
  */
 export function mostrarCampoEnfocado(win, doc, { margen = MARGEN_CAMPO_PX, behavior = "smooth" } = {}) {
   const campo = doc.activeElement;
   if (!hayCampoEnfocado(doc) || typeof campo.getBoundingClientRect !== "function") return 0;
-  const altoVisible = win.visualViewport ? win.visualViewport.height : win.innerHeight;
+  const contenedores = contenedoresConScroll(win, campo);
+  if (!contenedores.length) return 0;
+
+  let visibleArriba = 0;
+  let visibleAbajo = win.visualViewport ? win.visualViewport.height : win.innerHeight;
+  const cercano = contenedores[0];
+  if (typeof cercano.getBoundingClientRect === "function") {
+    const marco = cercano.getBoundingClientRect();
+    if (Number.isFinite(marco.top)) visibleArriba = Math.max(visibleArriba, marco.top);
+    if (Number.isFinite(marco.bottom)) visibleAbajo = Math.min(visibleAbajo, marco.bottom);
+  }
   const { top, bottom } = campo.getBoundingClientRect();
 
   let delta = 0;
-  if (bottom + margen > altoVisible) delta = bottom + margen - altoVisible;
-  else if (top - margen < 0) delta = top - margen;
+  if (bottom + margen > visibleAbajo) delta = bottom + margen - visibleAbajo;
+  else if (top - margen < visibleArriba) delta = top - margen - visibleArriba;
   if (!delta) return 0;
-
-  const contenedores = contenedoresConScroll(win, campo);
-  if (!contenedores.length) return 0;
   let resto = delta;
   for (const contenedor of contenedores) {
     const actual = contenedor.scrollTop || 0;

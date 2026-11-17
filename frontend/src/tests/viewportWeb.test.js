@@ -446,3 +446,53 @@ describe("técnica B: pasar de un campo a otro con el teclado abierto", () => {
     expect(contenedor.scrollBy).not.toHaveBeenCalled();
   });
 });
+
+// Nuevo gasto: el pie con los botones queda fuera del ScrollView, arriba del teclado. El
+// campo podía estar por arriba del teclado pero recortado por el borde del ScrollView.
+describe("mostrarCampoEnfocado contra el borde visible del contenedor", () => {
+  function entorno({ marco, campo, scrollTop = 0 }) {
+    const { win, doc } = crearEntorno({ vvHeight: 420 });
+    const contenedor = {
+      scrollHeight: 2000,
+      clientHeight: 150,
+      scrollTop,
+      scrollBy: jest.fn(),
+      parentElement: doc.body,
+      getBoundingClientRect: () => marco,
+    };
+    win.getComputedStyle = (nodo) => ({ overflowY: nodo === contenedor ? "auto" : "visible" });
+    doc.activeElement = {
+      tagName: "INPUT",
+      parentElement: contenedor,
+      ownerDocument: doc,
+      getBoundingClientRect: () => campo,
+    };
+    return { win, doc, contenedor };
+  }
+
+  it("un campo arriba del teclado pero debajo del borde del ScrollView (pie fijo) se lleva a la vista", () => {
+    // El ScrollView se ve de 100 a 250; el pie ocupa de 250 a 420, justo arriba del teclado.
+    const { win, doc, contenedor } = entorno({ marco: { top: 100, bottom: 250 }, campo: { top: 260, bottom: 300 } });
+
+    expect(mostrarCampoEnfocado(win, doc)).toBe(70);
+    expect(contenedor.scrollBy).toHaveBeenCalledWith({ top: 70, behavior: "smooth" });
+  });
+
+  it("un campo que se ve dentro del ScrollView no se mueve", () => {
+    const { win, doc, contenedor } = entorno({ marco: { top: 100, bottom: 250 }, campo: { top: 150, bottom: 200 } });
+
+    expect(mostrarCampoEnfocado(win, doc)).toBe(0);
+    expect(contenedor.scrollBy).not.toHaveBeenCalled();
+  });
+
+  it("un campo tapado por un encabezado fijo (arriba del ScrollView) baja lo justo", () => {
+    const { win, doc, contenedor } = entorno({
+      marco: { top: 100, bottom: 400 },
+      campo: { top: 90, bottom: 130 },
+      scrollTop: 200,
+    });
+
+    expect(mostrarCampoEnfocado(win, doc)).toBe(-30);
+    expect(contenedor.scrollBy).toHaveBeenCalledWith({ top: -30, behavior: "smooth" });
+  });
+});
