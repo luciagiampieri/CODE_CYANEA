@@ -1,4 +1,9 @@
-import { calcularAreaRoot, instalarAjusteViewport, tecladoAbierto } from "../utils/viewportWeb";
+import {
+  calcularAreaRoot,
+  instalarAjusteViewport,
+  mostrarCampoEnfocado,
+  tecladoAbierto,
+} from "../utils/viewportWeb";
 
 function crearEntorno({ innerHeight = 800, vvHeight = 800, offsetTop = 0, scale = 1 } = {}) {
   const oyentes = {};
@@ -184,5 +189,99 @@ describe("ajuste del área visible en la web", () => {
 
       expect(sinEstilosInline(portal)).toBe(true);
     });
+  });
+});
+
+// Modo experimental, técnica B (?teclado=b): se deshace el desplazamiento propio de Safari.
+describe("técnica B: anular el desplazamiento de Safari", () => {
+  afterEach(() => jest.useRealTimers());
+
+  function agregarModal(doc) {
+    const portal = { style: {}, parentElement: doc.body };
+    doc.modales.push({ style: {}, parentElement: portal });
+    return portal;
+  }
+
+  it("sin la opción (sin parámetro) queda como siempre: sigue el desplazamiento de Safari", () => {
+    const { win, doc, root } = crearEntorno({ vvHeight: 420, offsetTop: 260 });
+    instalarAjusteViewport(win, doc);
+
+    expect(win.scrollTo).not.toHaveBeenCalled();
+    expect(root.style).toMatchObject({ top: "260px", height: "420px" });
+  });
+
+  it("con anularPan vuelve la página a 0 y deja #root y los modales arriba de todo", () => {
+    const { win, doc, root } = crearEntorno({ vvHeight: 420, offsetTop: 260 });
+    const portal = agregarModal(doc);
+
+    instalarAjusteViewport(win, doc, { anularPan: true });
+
+    expect(win.scrollTo).toHaveBeenCalledWith(0, 0);
+    expect(root.style).toMatchObject({ top: "0px", height: "420px" });
+    expect(portal.style).toMatchObject({ top: "0px", height: "420px" });
+  });
+
+  it("con anularPan y sin teclado no hace nada distinto", () => {
+    const { win, doc, root } = crearEntorno();
+    instalarAjusteViewport(win, doc, { anularPan: true });
+
+    expect(win.scrollTo).not.toHaveBeenCalled();
+    expect(root.style).toMatchObject({ top: "0px", height: "800px" });
+  });
+
+  it("con anularPan, después de abrirse el teclado lleva el campo a la vista una sola vez", () => {
+    jest.useFakeTimers();
+    const { win, doc, emitir } = crearEntorno({ vvHeight: 420, offsetTop: 0 });
+    const contenedor = { scrollHeight: 2000, clientHeight: 400, scrollBy: jest.fn(), parentElement: doc.body };
+    win.getComputedStyle = (nodo) => ({ overflowY: nodo === contenedor ? "auto" : "visible" });
+    doc.activeElement = {
+      tagName: "INPUT",
+      parentElement: contenedor,
+      ownerDocument: doc,
+      getBoundingClientRect: () => ({ top: 450, bottom: 500 }),
+    };
+
+    instalarAjusteViewport(win, doc, { anularPan: true });
+    emitir("vv:resize");
+    emitir("vv:resize");
+    jest.advanceTimersByTime(200);
+
+    // abajo (500) + margen (20) - visible (420)
+    expect(contenedor.scrollBy).toHaveBeenCalledTimes(1);
+    expect(contenedor.scrollBy).toHaveBeenCalledWith({ top: 100, behavior: "smooth" });
+  });
+});
+
+describe("mostrarCampoEnfocado", () => {
+  function entornoConCampo({ top, bottom, vvHeight = 420 }) {
+    const { win, doc } = crearEntorno({ vvHeight });
+    const contenedor = { scrollHeight: 2000, clientHeight: 400, scrollBy: jest.fn(), parentElement: doc.body };
+    win.getComputedStyle = (nodo) => ({ overflowY: nodo === contenedor ? "auto" : "visible" });
+    doc.activeElement = {
+      tagName: "TEXTAREA",
+      parentElement: contenedor,
+      ownerDocument: doc,
+      getBoundingClientRect: () => ({ top, bottom }),
+    };
+    return { win, doc, contenedor };
+  }
+
+  it("si el campo ya se ve no desplaza", () => {
+    const { win, doc, contenedor } = entornoConCampo({ top: 100, bottom: 150 });
+
+    expect(mostrarCampoEnfocado(win, doc)).toBe(0);
+    expect(contenedor.scrollBy).not.toHaveBeenCalled();
+  });
+
+  it("si quedó tapado desplaza lo justo, no al medio de la pantalla", () => {
+    const { win, doc, contenedor } = entornoConCampo({ top: 440, bottom: 480 });
+
+    expect(mostrarCampoEnfocado(win, doc)).toBe(80);
+    expect(contenedor.scrollBy).toHaveBeenCalledWith({ top: 80, behavior: "smooth" });
+  });
+
+  it("sin campo enfocado no hace nada", () => {
+    const { win, doc } = crearEntorno({ vvHeight: 420 });
+    expect(mostrarCampoEnfocado(win, doc)).toBe(0);
   });
 });

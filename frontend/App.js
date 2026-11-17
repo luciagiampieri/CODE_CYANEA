@@ -16,6 +16,7 @@ import { DialogHost } from "./src/components/ui/AppDialog";
 import { colors } from "./src/theme/tokens";
 import { injectWebFocusStyles } from "./src/theme/webFocusStyles";
 import { instalarAjusteViewport } from "./src/utils/viewportWeb";
+import { activarModoTeclado } from "./src/utils/tecladoExperimental";
 
 import { inicializarBaseDeDatos } from "./src/database/database";
 import { sincronizarGastosOffline } from "./src/database/gastosLocal";
@@ -132,7 +133,15 @@ function Navegacion() {
 export default function App() {
   useEffect(() => {
     if (Platform.OS !== "web") return undefined;
-    return instalarAjusteViewport();
+    // Modo experimental del teclado (?teclado=a|b|ab): sin el parámetro no hace nada.
+    const experimental = activarModoTeclado(window, document);
+    const desinstalarViewport = instalarAjusteViewport(window, document, {
+      anularPan: experimental.modo.b,
+    });
+    return () => {
+      desinstalarViewport();
+      experimental.desinstalar();
+    };
   }, []);
 
   useEffect(() => {

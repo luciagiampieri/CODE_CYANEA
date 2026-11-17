@@ -49,10 +49,76 @@ export function portalesDeModales(doc, root) {
   return Array.from(portales);
 }
 
-export function instalarAjusteViewport(win = window, doc = document) {
+const MARGEN_CAMPO_PX = 20;
+const ESPERA_MOSTRAR_CAMPO_MS = 150;
+
+// Contenedor con scroll vertical más cercano a `el` (en web, el div de un ScrollView).
+function contenedorConScroll(win, el) {
+  let nodo = el?.parentElement;
+  while (nodo && nodo !== el.ownerDocument?.body) {
+    const estilo = win.getComputedStyle?.(nodo);
+    const overflow = estilo ? estilo.overflowY : "";
+    if ((overflow === "auto" || overflow === "scroll") && nodo.scrollHeight > nodo.clientHeight) {
+      return nodo;
+    }
+    nodo = nodo.parentElement;
+  }
+  return null;
+}
+
+/**
+ * Modo experimental (técnica B): con el área visible en top 0, lleva el campo enfocado a
+ * la vista con un único desplazamiento de su contenedor, solo si queda tapado (o por
+ * arriba del área visible). Devuelve cuánto desplazó (0 si no hizo nada).
+ */
+export function mostrarCampoEnfocado(win, doc, margen = MARGEN_CAMPO_PX) {
+  const campo = doc.activeElement;
+  if (!hayCampoEnfocado(doc) || typeof campo.getBoundingClientRect !== "function") return 0;
+  const altoVisible = win.visualViewport ? win.visualViewport.height : win.innerHeight;
+  const { top, bottom } = campo.getBoundingClientRect();
+
+  let delta = 0;
+  if (bottom + margen > altoVisible) delta = bottom + margen - altoVisible;
+  else if (top - margen < 0) delta = top - margen;
+  if (!delta) return 0;
+
+  const contenedor = contenedorConScroll(win, campo);
+  if (!contenedor) return 0;
+  if (typeof contenedor.scrollBy === "function") {
+    contenedor.scrollBy({ top: delta, behavior: "smooth" });
+  } else {
+    contenedor.scrollTop += delta;
+  }
+  return delta;
+}
+
+/**
+ * `anularPan` (modo experimental, técnica B; apagado por defecto): con el teclado abierto,
+ * si Safari desplazó la página para mostrar el campo (offsetTop o scrollY > 0) se vuelve
+ * a 0, #root y los modales quedan arriba de todo con el alto del área visible y el campo
+ * se lleva a la vista con un único desplazamiento de su contenedor, solo si queda tapado.
+ */
+export function instalarAjusteViewport(win = window, doc = document, { anularPan = false } = {}) {
   const root = doc.getElementById("root");
   if (!root) return () => {};
   const vv = win.visualViewport;
+
+  // Área que toman #root y los modales. Con `anularPan` queda arriba de todo.
+  const areaVisible = () => {
+    const area = calcularAreaRoot(win);
+    return anularPan && tecladoAbierto(win) ? { top: 0, height: area.height } : area;
+  };
+
+  // Técnica B: se espera a que lleguen los avisos del teclado y se muestra el campo una vez.
+  let esperaCampo = null;
+  const programarMostrarCampo = () => {
+    if (!anularPan) return;
+    if (esperaCampo != null) win.clearTimeout(esperaCampo);
+    esperaCampo = win.setTimeout(() => {
+      esperaCampo = null;
+      if (tecladoAbierto(win)) mostrarCampoEnfocado(win, doc);
+    }, ESPERA_MOSTRAR_CAMPO_MS);
+  };
 
   doc.documentElement.style.height = "100%";
   doc.body.style.height = "100%";
@@ -82,7 +148,7 @@ export function instalarAjusteViewport(win = window, doc = document) {
       restaurarPortales();
       return;
     }
-    const { top, height } = calcularAreaRoot(win);
+    const { top, height } = areaVisible();
     portalesDeModales(doc, root).forEach((portal) => {
       if (!portalesAjustados.has(portal)) {
         const originales = {};
@@ -101,18 +167,24 @@ export function instalarAjusteViewport(win = window, doc = document) {
   };
 
   const ajustar = () => {
-    const { top, height } = calcularAreaRoot(win);
+    // Técnica B: se deshace el desplazamiento propio de Safari.
+    const anularAhora = anularPan && tecladoAbierto(win) && ((vv?.offsetTop ?? 0) > 0 || win.scrollY > 0);
+    if (anularAhora) win.scrollTo(0, 0);
+    const { top, height } = areaVisible();
     root.style.top = `${top}px`;
     root.style.height = `${height}px`;
     // Sin teclado, la página no tiene que quedar desplazada.
-    if (top === 0 && win.scrollY) win.scrollTo(0, 0);
+    if (!anularAhora && top === 0 && win.scrollY) win.scrollTo(0, 0);
     ajustarPortales();
+    if (tecladoAbierto(win)) programarMostrarCampo();
   };
 
   // Un modal que se abre con el teclado ya abierto no dispara un resize: se ajusta al
   // enfocar su campo. No toca #root ni hace nada sin teclado (en la compu queda igual).
   const alEntrarAUnCampo = () => {
-    if (tecladoAbierto(win)) ajustarPortales();
+    if (!tecladoAbierto(win)) return;
+    ajustarPortales();
+    programarMostrarCampo();
   };
 
   const timers = new Set();
@@ -141,6 +213,7 @@ export function instalarAjusteViewport(win = window, doc = document) {
     doc.removeEventListener("focusout", alSalirDeUnCampo);
     doc.removeEventListener("focusin", alEntrarAUnCampo);
     timers.forEach((id) => win.clearTimeout(id));
+    if (esperaCampo != null) win.clearTimeout(esperaCampo);
     restaurarPortales();
   };
 }
