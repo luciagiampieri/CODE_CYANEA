@@ -57,26 +57,35 @@ export function portalesDeModales(doc, root) {
 const MARGEN_CAMPO_PX = 20;
 const ESPERA_MOSTRAR_CAMPO_MS = 150;
 
-// Contenedor con scroll vertical más cercano a `el` (en web, el div de un ScrollView).
-function contenedorConScroll(win, el) {
+// Contenedores con scroll vertical de `el`, del más cercano al más lejano (en web, los
+// divs de los ScrollView).
+function contenedoresConScroll(win, el) {
+  const contenedores = [];
   let nodo = el?.parentElement;
   while (nodo && nodo !== el.ownerDocument?.body) {
     const estilo = win.getComputedStyle?.(nodo);
     const overflow = estilo ? estilo.overflowY : "";
     if ((overflow === "auto" || overflow === "scroll") && nodo.scrollHeight > nodo.clientHeight) {
-      return nodo;
+      contenedores.push(nodo);
     }
     nodo = nodo.parentElement;
   }
-  return null;
+  return contenedores;
+}
+
+function desplazar(contenedor, delta, behavior) {
+  if (typeof contenedor.scrollBy === "function") contenedor.scrollBy({ top: delta, behavior });
+  else contenedor.scrollTop += delta;
 }
 
 /**
- * Modo experimental (técnica B): con el área visible en top 0, lleva el campo enfocado a
- * la vista con un único desplazamiento de su contenedor, solo si queda tapado (o por
- * arriba del área visible). Devuelve cuánto desplazó (0 si no hizo nada).
+ * Técnica B: con el área visible en top 0, lleva el campo enfocado a la vista solo si
+ * quedó tapado (o por arriba del área visible), lo justo para dejarlo con `margen`. Lo
+ * desplaza el contenedor con scroll más cercano; si ese no alcanza (por ejemplo, ya está al
+ * final), el resto lo desplaza el siguiente hacia arriba. Un solo movimiento por
+ * contenedor. Devuelve cuánto se pidió desplazar (0 si no hizo nada).
  */
-export function mostrarCampoEnfocado(win, doc, margen = MARGEN_CAMPO_PX) {
+export function mostrarCampoEnfocado(win, doc, { margen = MARGEN_CAMPO_PX, behavior = "smooth" } = {}) {
   const campo = doc.activeElement;
   if (!hayCampoEnfocado(doc) || typeof campo.getBoundingClientRect !== "function") return 0;
   const altoVisible = win.visualViewport ? win.visualViewport.height : win.innerHeight;
@@ -87,12 +96,19 @@ export function mostrarCampoEnfocado(win, doc, margen = MARGEN_CAMPO_PX) {
   else if (top - margen < 0) delta = top - margen;
   if (!delta) return 0;
 
-  const contenedor = contenedorConScroll(win, campo);
-  if (!contenedor) return 0;
-  if (typeof contenedor.scrollBy === "function") {
-    contenedor.scrollBy({ top: delta, behavior: "smooth" });
-  } else {
-    contenedor.scrollTop += delta;
+  const contenedores = contenedoresConScroll(win, campo);
+  if (!contenedores.length) return 0;
+  let resto = delta;
+  for (const contenedor of contenedores) {
+    const actual = contenedor.scrollTop || 0;
+    const maximo = Math.max(0, contenedor.scrollHeight - contenedor.clientHeight);
+    // Lo que este contenedor todavía puede desplazar en esa dirección.
+    const posible = resto > 0 ? Math.min(resto, maximo - actual) : Math.max(resto, -actual);
+    if (posible) {
+      desplazar(contenedor, posible, behavior);
+      resto -= posible;
+    }
+    if (!resto) break;
   }
   return delta;
 }
@@ -208,6 +224,10 @@ export function instalarAjusteViewport(win = window, doc = document, { anularPan
     }
     if (!tecladoAbierto(win)) return;
     ajustarPortales();
+    // Con el teclado abierto se pasa de un campo a otro (por ejemplo con las flechas de
+    // Safari, sin toque): el campo nuevo se lleva a la vista en el acto, para que Safari no
+    // desplace la página por su cuenta. El de 150 ms queda de respaldo.
+    if (anularPan) mostrarCampoEnfocado(win, doc, { behavior: "auto" });
     programarMostrarCampo();
   };
 

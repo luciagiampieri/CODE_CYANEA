@@ -4,6 +4,7 @@ import { Alert, Platform } from "react-native";
 import TripDetailScreen from "../screens/TripDetailScreen";
 import ChecklistsByCategory from "../components/trip/ChecklistsByCategory";
 import { centerInScroll } from "../utils/scrollHelpers";
+import { activarTecladoUnificado } from "./helpers/tecladoWeb";
 import {
   getActivitySuggestions,
   getChecklistCategories,
@@ -617,5 +618,37 @@ describe("buscadores y categorías: llevar a la vista la tarjeta correcta", () =
 
       expect(centerInScroll).not.toHaveBeenCalled();
     });
+
+    test("en la web con la técnica B del teclado no desplaza: lo hace mostrarCampoEnfocado", async () => {
+      Platform.OS = "web";
+      const desactivar = activarTecladoUnificado();
+      try {
+        await enfocarBuscadorInvitar();
+        await new Promise((resolve) => setTimeout(resolve, 450));
+
+        expect(centerInScroll).not.toHaveBeenCalled();
+      } finally {
+        desactivar();
+      }
+    });
+  });
+
+  test("con la técnica B en la web, enfocar el buscador de documentos no salta a la tarjeta", async () => {
+    const osOriginal = Platform.OS;
+    Platform.OS = "web";
+    const desactivar = activarTecladoUnificado();
+    try {
+      const utils = await renderPantalla();
+      await fireEvent.press(await utils.findByRole("tab", { name: "Docs" }));
+      await act(async () => {
+        fireEvent(await utils.findByTestId("documentos-buscador"), "focus");
+      });
+      await new Promise((resolve) => setTimeout(resolve, 450));
+
+      expect(centerInScroll).not.toHaveBeenCalled();
+    } finally {
+      desactivar();
+      Platform.OS = osOriginal;
+    }
   });
 });

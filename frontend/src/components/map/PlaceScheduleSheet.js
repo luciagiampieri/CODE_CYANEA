@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { MODO_CIERRE_TECLADO } from "../../utils/teclado";
+import { tecladoUnificado } from "../../utils/tecladoExperimental";
 import {
   ActivityIndicator,
   FlatList,
@@ -84,6 +85,8 @@ export default function PlaceScheduleSheet({ days = [], onClose, onSubmit, place
   const fieldY = useRef({});
 
   function scrollToField(key) {
+    // En web, con la técnica B, el campo lo lleva a la vista mostrarCampoEnfocado.
+    if (tecladoUnificado()) return;
     setTimeout(() => {
       const y = fieldY.current[key];
       if (y == null) return;

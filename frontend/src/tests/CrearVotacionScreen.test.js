@@ -2,6 +2,7 @@ import { Alert, Platform, ScrollView } from "react-native";
 import { act, fireEvent, render, waitFor } from "@testing-library/react-native";
 
 import CrearVotacionScreen from "../screens/CreateVotationScreen";
+import { activarTecladoUnificado } from "./helpers/tecladoWeb";
 import { createVotacion } from "../services/api";
 
 jest.mock("../services/api", () => ({
@@ -242,5 +243,24 @@ describe("Crear votación: la propuesta nueva queda a la vista", () => {
     await new Promise((resolve) => setTimeout(resolve, 400));
 
     expect(scrollToSpy).not.toHaveBeenCalled();
+  });
+
+  it("con la técnica B en la web, enfocar un campo no desplaza y 'Agregar' sigue llevando la fila a la vista", async () => {
+    Platform.OS = "web";
+    const desactivar = activarTecladoUnificado();
+    try {
+      const utils = await renderPantallaCargada();
+
+      await act(async () => {
+        fireEvent(utils.getByPlaceholderText("Propuesta 1"), "focus");
+      });
+      await new Promise((resolve) => setTimeout(resolve, 400));
+      expect(scrollToSpy).not.toHaveBeenCalled();
+
+      await agregarYDibujar(utils);
+      await waitFor(() => expect(scrollToSpy).toHaveBeenCalled());
+    } finally {
+      desactivar();
+    }
   });
 });

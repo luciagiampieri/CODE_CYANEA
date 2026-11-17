@@ -389,3 +389,60 @@ describe("fondo", () => {
     expect(doc.body.style.backgroundColor).toBe(colors.background);
   });
 });
+
+describe("mostrarCampoEnfocado con contenedores anidados", () => {
+  it("si el más cercano ya está al final, el resto lo desplaza el de afuera", () => {
+    const { win, doc } = crearEntorno({ vvHeight: 420 });
+    const afuera = { scrollHeight: 3000, clientHeight: 800, scrollTop: 0, scrollBy: jest.fn(), parentElement: doc.body };
+    const lista = { scrollHeight: 600, clientHeight: 400, scrollTop: 170, scrollBy: jest.fn(), parentElement: afuera };
+    win.getComputedStyle = () => ({ overflowY: "auto" });
+    doc.activeElement = {
+      tagName: "INPUT",
+      parentElement: lista,
+      ownerDocument: doc,
+      getBoundingClientRect: () => ({ top: 450, bottom: 500 }),
+    };
+
+    // Hace falta 100: la lista solo puede 30 (máximo 200, está en 170) y el resto, afuera.
+    expect(mostrarCampoEnfocado(win, doc)).toBe(100);
+    expect(lista.scrollBy).toHaveBeenCalledWith({ top: 30, behavior: "smooth" });
+    expect(afuera.scrollBy).toHaveBeenCalledWith({ top: 70, behavior: "smooth" });
+  });
+});
+
+describe("técnica B: pasar de un campo a otro con el teclado abierto", () => {
+  function conCampoTapado(doc, win) {
+    const contenedor = { scrollHeight: 2000, clientHeight: 400, scrollTop: 0, scrollBy: jest.fn(), parentElement: doc.body };
+    win.getComputedStyle = (nodo) => ({ overflowY: nodo === contenedor ? "auto" : "visible" });
+    doc.activeElement = {
+      tagName: "INPUT",
+      parentElement: contenedor,
+      ownerDocument: doc,
+      getBoundingClientRect: () => ({ top: 450, bottom: 500 }),
+    };
+    return contenedor;
+  }
+
+  it("con las flechas de Safari (sin toque) el campo nuevo se lleva a la vista en el acto", () => {
+    jest.useFakeTimers();
+    const { win, doc, emitir } = crearEntorno({ vvHeight: 420, offsetTop: 0 });
+    instalarAjusteViewport(win, doc, { anularPan: true });
+    const contenedor = conCampoTapado(doc, win);
+
+    emitir("doc:focusin");
+
+    expect(contenedor.scrollBy).toHaveBeenCalledTimes(1);
+    expect(contenedor.scrollBy).toHaveBeenCalledWith({ top: 100, behavior: "auto" });
+    jest.useRealTimers();
+  });
+
+  it("sin la técnica B, enfocar otro campo no desplaza", () => {
+    const { win, doc, emitir } = crearEntorno({ vvHeight: 420, offsetTop: 0 });
+    instalarAjusteViewport(win, doc);
+    const contenedor = conCampoTapado(doc, win);
+
+    emitir("doc:focusin");
+
+    expect(contenedor.scrollBy).not.toHaveBeenCalled();
+  });
+});

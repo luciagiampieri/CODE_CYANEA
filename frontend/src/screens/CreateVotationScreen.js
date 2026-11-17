@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { MODO_CIERRE_TECLADO } from "../utils/teclado";
+import { tecladoUnificado } from "../utils/tecladoExperimental";
 import {
   View,
   Text,
@@ -78,6 +79,11 @@ export default function CrearVotacionScreen({ visible, onClose, IdViaje, onVotac
 
     function actualizarPropuesta(index, valor) {
         setPropuestas((prev) => prev.map((p, i) => (i === index ? valor : p)));
+    }
+
+    // Al enfocar: en web, con la técnica B, el campo lo lleva a la vista mostrarCampoEnfocado.
+    function alEnfocar(key) {
+        if (!tecladoUnificado()) scrollToField(key);
     }
 
     function agregarPropuesta() {
@@ -212,7 +218,7 @@ export default function CrearVotacionScreen({ visible, onClose, IdViaje, onVotac
                                     placeholderTextColor={colors.overlay} 
                                     value={titulo}
                                     onChangeText={setTitulo}
-                                    onFocus={() => scrollToField("titulo")}
+                                    onFocus={() => alEnfocar("titulo")}
                                     maxLength={150}
                                 />
                             </View>
@@ -409,7 +415,7 @@ export default function CrearVotacionScreen({ visible, onClose, IdViaje, onVotac
                                             placeholderTextColor={colors.overlay} 
                                             value={propuesta}
                                             onChangeText={(val) => actualizarPropuesta(index, val)}
-                                            onFocus={() => scrollToField(`propuesta-${index}`)}
+                                            onFocus={() => alEnfocar(`propuesta-${index}`)}
                                             maxLength={255}
                                         />
                                     </View>

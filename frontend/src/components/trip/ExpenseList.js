@@ -17,6 +17,7 @@ import CalendarPicker from "react-native-calendar-picker";
 import { formatMoney } from "../../utils/money";
 import { colors, radii, spacing, textStyles } from "../../theme/tokens";
 import { centerInScroll } from "../../utils/scrollHelpers";
+import { tecladoUnificado } from "../../utils/tecladoExperimental";
 
 const MONTHS = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"];
 
@@ -647,6 +648,7 @@ export default function ExpenseList({
             onChangeText={setSearch}
             onFocus={() => {
               searchFocused.current = true;
+              if (tecladoUnificado()) return; // en web lo desplaza mostrarCampoEnfocado
               if (scrollRef?.current && cardRef?.current) {
                 setTimeout(() => {
                   centerInScroll(scrollRef.current, cardRef.current, {

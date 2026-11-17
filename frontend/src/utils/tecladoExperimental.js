@@ -1,33 +1,54 @@
-// Modo experimental para probar en el iPhone cómo evitar el desplazamiento propio de Safari
-// al enfocar un campo. Solo se activa con ?teclado=a, ?teclado=b o ?teclado=ab en la URL
-// (queda en sessionStorage para que siga activo al navegar; ?teclado=0 lo apaga). Sin el
-// parámetro no hace nada y la app funciona como siempre.
+// Teclado en la web: cómo evitar el desplazamiento propio de Safari al enfocar un campo.
 //
 // - A (preventScroll): al tocar un campo que no tiene el foco, se evita el foco por
-//   defecto y se enfoca con focus({ preventScroll: true }), así Safari no desplaza.
+//   defecto y se enfoca con focus({ preventScroll: true }), así Safari no desplaza. Solo
+//   con toques (touchstart/touchend): un clic con mouse no pasa por acá.
 // - B (anular el pan): lo aplica instalarAjusteViewport con `anularPan` (viewportWeb.js).
+//   Con B, el único desplazamiento al enfocar es el de mostrarCampoEnfocado: los de cada
+//   pantalla no hacen nada en web (tecladoUnificado()).
+//
+// Por defecto: "ab" en iOS (Safari y cualquier navegador del iPhone/iPad, que usan WebKit);
+// en Android y en la compu queda apagado, porque Chrome maneja el teclado distinto y no se
+// probó. Para comparar: ?teclado=a, ?teclado=b, ?teclado=ab (en cualquier dispositivo) o
+// ?teclado=0 (apagado). Queda en sessionStorage al navegar. El indicador "teclado: <modo>"
+// aparece solo si el parámetro vino en la URL.
+
+import { Platform } from "react-native";
 
 export const CLAVE_MODO_TECLADO = "cyanea_teclado_experimental";
 const MODOS_VALIDOS = ["a", "b", "ab"];
+const APAGADO = "0";
+const MODO_POR_DEFECTO_IOS = "ab";
 const MOVIMIENTO_MAXIMO_PX = 10;
 
-const SIN_MODO = { a: false, b: false, valor: null };
+const SIN_MODO = { a: false, b: false, valor: null, desdeUrl: false };
 
-function crearModo(valor) {
-  if (!MODOS_VALIDOS.includes(valor)) return SIN_MODO;
-  return { a: valor.includes("a"), b: valor.includes("b"), valor };
+function crearModo(valor, desdeUrl = false) {
+  if (valor === APAGADO) return { ...SIN_MODO, valor: APAGADO, desdeUrl };
+  if (!MODOS_VALIDOS.includes(valor)) return { ...SIN_MODO, desdeUrl };
+  return { a: valor.includes("a"), b: valor.includes("b"), valor, desdeUrl };
 }
 
 function guardar(win, valor) {
   try {
-    if (valor) win.sessionStorage?.setItem(CLAVE_MODO_TECLADO, valor);
-    else win.sessionStorage?.removeItem(CLAVE_MODO_TECLADO);
+    win.sessionStorage?.setItem(CLAVE_MODO_TECLADO, valor);
   } catch {
     // Sin sessionStorage (navegación privada): rige solo mientras la URL lo tenga.
   }
 }
 
-/** Lee el modo de la URL (y lo guarda) o, si no está, de sessionStorage. */
+/** iPhone, iPod o iPad (también el iPad con iPadOS, que se presenta como Mac). */
+export function esIOS(win) {
+  const nav = win?.navigator;
+  if (!nav) return false;
+  if (/iPhone|iPad|iPod/i.test(nav.userAgent || "")) return true;
+  return nav.platform === "MacIntel" && (nav.maxTouchPoints || 0) > 1;
+}
+
+/**
+ * Lee el modo de la URL (y lo guarda); si no está, el guardado en sessionStorage; si no
+ * hay nada, el de por defecto ("ab" en iOS, apagado en el resto).
+ */
 export function leerModoTeclado(win = typeof window !== "undefined" ? window : undefined) {
   if (!win) return SIN_MODO;
   let parametro = null;
@@ -37,15 +58,33 @@ export function leerModoTeclado(win = typeof window !== "undefined" ? window : u
     parametro = null;
   }
   if (parametro != null) {
-    const modo = crearModo(parametro.toLowerCase());
-    guardar(win, modo.valor);
-    return modo;
+    const valor = parametro.toLowerCase();
+    if (valor === APAGADO || MODOS_VALIDOS.includes(valor)) {
+      guardar(win, valor);
+      return crearModo(valor, true);
+    }
   }
+  let guardado = null;
   try {
-    return crearModo(win.sessionStorage?.getItem(CLAVE_MODO_TECLADO) || "");
+    guardado = win.sessionStorage?.getItem(CLAVE_MODO_TECLADO) ?? null;
   } catch {
-    return SIN_MODO;
+    guardado = null;
   }
+  if (guardado === APAGADO || MODOS_VALIDOS.includes(guardado)) return crearModo(guardado);
+  return esIOS(win) ? crearModo(MODO_POR_DEFECTO_IOS) : SIN_MODO;
+}
+
+// Modo activo, lo fija activarModoTeclado (App.js).
+let modoActivo = SIN_MODO;
+
+/**
+ * En web con la técnica B activa, el único desplazamiento al enfocar un campo es el de
+ * mostrarCampoEnfocado (viewportWeb.js): los de cada pantalla (useScrollAlCampo,
+ * useScrollACampo, centerInScroll de los buscadores) no hacen nada. En Android/iOS
+ * siempre es false.
+ */
+export function tecladoUnificado() {
+  return Platform.OS === "web" && modoActivo.b;
 }
 
 function esCampo(el) {
@@ -107,9 +146,9 @@ export function instalarEnfoqueSinDesplazar(doc = document) {
   };
 }
 
-/** Indicador chico ("teclado: ab") para saber que el modo experimental está activo. */
+/** Indicador chico ("teclado: ab") cuando el modo vino en la URL. */
 export function mostrarIndicadorModo(doc, modo) {
-  if (!modo?.valor || !doc?.body) return () => {};
+  if (!modo?.valor || !modo.desdeUrl || !doc?.body) return () => {};
   const indicador = doc.createElement("div");
   indicador.textContent = `teclado: ${modo.valor}`;
   indicador.setAttribute("data-testid", "indicador-teclado-experimental");
@@ -131,12 +170,12 @@ export function mostrarIndicadorModo(doc, modo) {
 }
 
 /**
- * Activa el modo experimental si corresponde. Devuelve { modo, desinstalar }. Sin modo
- * no instala nada.
+ * Activa el modo que corresponda (ver arriba). Devuelve { modo, desinstalar }. Apagado no
+ * instala nada (solo el indicador, si vino ?teclado=0 en la URL).
  */
 export function activarModoTeclado(win = window, doc = document) {
   const modo = leerModoTeclado(win);
-  if (!modo.valor) return { modo, desinstalar: () => {} };
+  modoActivo = modo;
   const quitarA = modo.a ? instalarEnfoqueSinDesplazar(doc) : () => {};
   const quitarIndicador = mostrarIndicadorModo(doc, modo);
   return {
@@ -144,6 +183,7 @@ export function activarModoTeclado(win = window, doc = document) {
     desinstalar: () => {
       quitarA();
       quitarIndicador();
+      if (modoActivo === modo) modoActivo = SIN_MODO;
     },
   };
 }

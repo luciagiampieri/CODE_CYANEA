@@ -138,6 +138,7 @@ import { getTripLock } from "../utils/tripLock";
 import { formatMoney, formatMoneyCompacto } from "../utils/money";
 import TextoAjustable from "../components/ui/TextoAjustable";
 import { centerInScroll } from "../utils/scrollHelpers";
+import { tecladoUnificado } from "../utils/tecladoExperimental";
 import { confirmacionDeMovimiento } from "../utils/moverActividad";
 import ActivitySuggestionsScreen from "./ActivitySuggestionsScreen";
 import CompleteFreeDaysScreen from "./CompleteFreeDaysScreen";
@@ -589,6 +590,8 @@ export default function TripDetailScreen({ navigation, route }) {
   // En Android/iOS no cambia nada.
   function mostrarBuscadorInvitar() {
     if (Platform.OS !== "web") return;
+    // Con la técnica B lo lleva a la vista mostrarCampoEnfocado, solo si quedó tapado.
+    if (tecladoUnificado()) return;
     setTimeout(() => {
       if (scrollRef.current && invitePanelRef.current) {
         centerInScroll(scrollRef.current, invitePanelRef.current, { align: "top", margin: spacing.sm });

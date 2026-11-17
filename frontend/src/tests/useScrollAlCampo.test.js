@@ -2,6 +2,7 @@ import { Platform } from "react-native";
 import { act, renderHook } from "@testing-library/react-native";
 
 import useScrollAlCampo from "../hooks/useScrollAlCampo";
+import { activarTecladoUnificado } from "./helpers/tecladoWeb";
 
 // El hook reemplaza las copias que tenían CreateTripScreen (con base) y AddGastoScreen
 // (sin base): el cálculo tiene que dar el mismo resultado que antes.
@@ -188,6 +189,38 @@ describe("useScrollAlCampo", () => {
       Platform.OS = "ios";
       const { result } = await montar({ soloWeb: true });
       expect(result.current.registrarNodo("nombre")).toBeUndefined();
+    });
+  });
+
+  // En web con la técnica B el único desplazamiento al enfocar es el de
+  // mostrarCampoEnfocado (viewportWeb.js): el hook no suma otro movimiento.
+  describe("con la técnica B del teclado en la web", () => {
+    let desactivar;
+    afterEach(() => desactivar?.());
+
+    it("en web, enfocar no desplaza", async () => {
+      Platform.OS = "web";
+      desactivar = activarTecladoUnificado();
+      const { result, scrollTo } = await montar();
+      await verVisible(result, 300);
+      await medir(() => result.current.registrar("nombre")(layout(400, 50)));
+
+      await enfocarYEsperar(result, "nombre");
+      await verVisible(result, 250);
+
+      expect(scrollTo).not.toHaveBeenCalled();
+    });
+
+    it("en iOS sigue desplazando como siempre", async () => {
+      Platform.OS = "ios";
+      desactivar = activarTecladoUnificado();
+      const { result, scrollTo } = await montar();
+      await verVisible(result, 300);
+      await medir(() => result.current.registrar("nombre")(layout(400, 50)));
+
+      await enfocarYEsperar(result, "nombre");
+
+      expect(scrollTo).toHaveBeenLastCalledWith({ y: 170, animated: true });
     });
   });
 });

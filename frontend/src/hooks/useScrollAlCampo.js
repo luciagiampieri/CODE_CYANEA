@@ -1,6 +1,8 @@
 import { useCallback, useRef } from "react";
 import { Platform } from "react-native";
 
+import { tecladoUnificado } from "../utils/tecladoExperimental";
+
 /**
  * Mantiene visible el campo que se está editando moviendo el scroll SOLO lo necesario:
  * - Si el campo ya se ve completo sobre el teclado, no se mueve nada.
@@ -132,6 +134,8 @@ export default function useScrollAlCampo({ margen = 20, soloWeb = false } = {}) 
   const enfocar = useCallback(
     (key, opciones = {}) => {
       if (inerte || (opciones.soloWeb && Platform.OS !== "web")) return;
+      // En web, con la técnica B, el campo lo lleva a la vista mostrarCampoEnfocado.
+      if (tecladoUnificado()) return;
       activo.current = key;
       setTimeout(asegurarVisible, 120);
       setTimeout(asegurarVisible, 380);
