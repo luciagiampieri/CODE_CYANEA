@@ -2,7 +2,8 @@ import { FontAwesome6 } from "@expo/vector-icons";
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
 
 import PrimaryButton from "../ui/PrimaryButton";
-import { formatMoney } from "../../utils/money";
+import TextoAjustable from "../ui/TextoAjustable";
+import { formatMoney, formatMoneyCompacto } from "../../utils/money";
 import { colors, radii, spacing, textStyles } from "../../theme/tokens";
 
 /**
@@ -85,14 +86,14 @@ export default function ExpenseSummaryCard({
           <Text numberOfLines={1} style={styles.statLabel}>
             Gastos del grupo
           </Text>
-          <Text
-            adjustsFontSizeToFit
+          <TextoAjustable
             minimumFontScale={0.7}
-            numberOfLines={1}
             style={styles.statValue}
+            textoCompacto={formatMoneyCompacto(totalSpent, currency)}
+            testID="expense-group-total-value"
           >
             {totalSpentText}
-          </Text>
+          </TextoAjustable>
         </View>
 
         <View style={styles.statDivider} />
@@ -102,14 +103,14 @@ export default function ExpenseSummaryCard({
             <Text numberOfLines={1} style={styles.statLabel}>
               Tu gasto
             </Text>
-            <Text
-              adjustsFontSizeToFit
+            <TextoAjustable
               minimumFontScale={0.7}
-              numberOfLines={1}
               style={styles.statValue}
+              textoCompacto={formatMoneyCompacto(myExpense, currency)}
+              testID="expense-my-total-value"
             >
               {formatMoney(myExpense, currency)}
-            </Text>
+            </TextoAjustable>
             {personal > 0 ? (
               <Text numberOfLines={2} style={styles.statNote} testID="expense-my-personal">
                 Incluye {formatMoney(personal, currency)} personales
@@ -121,14 +122,14 @@ export default function ExpenseSummaryCard({
             <Text numberOfLines={1} style={styles.statLabel}>
               Por saldar
             </Text>
-            <Text
-              adjustsFontSizeToFit
+            <TextoAjustable
               minimumFontScale={0.7}
-              numberOfLines={1}
               style={styles.statValue}
+              textoCompacto={formatMoneyCompacto(pendingTotal, currency)}
+              testID="expense-por-saldar-value"
             >
               {formatMoney(pendingTotal, currency)}
-            </Text>
+            </TextoAjustable>
           </View>
         )}
 

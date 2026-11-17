@@ -135,7 +135,8 @@ import { buildRouteMarkers } from "../utils/routeMarkers";
 import DayAgenda from "../components/trip/DayAgenda";
 import { isTodayISO, resumenDelDia } from "../utils/agenda";
 import { getTripLock } from "../utils/tripLock";
-import { formatMoney } from "../utils/money";
+import { formatMoney, formatMoneyCompacto } from "../utils/money";
+import TextoAjustable from "../components/ui/TextoAjustable";
 import { centerInScroll } from "../utils/scrollHelpers";
 import { confirmacionDeMovimiento } from "../utils/moverActividad";
 import ActivitySuggestionsScreen from "./ActivitySuggestionsScreen";
@@ -468,7 +469,12 @@ export default function TripDetailScreen({ navigation, route }) {
   const [itinerarioView, setItinerarioView] = useItinerarioViewPreference();
 
   const scrollRef = useRef(null);
+  // Cada tarjeta con buscador tiene su propia ref: si dos comparten una, al enfocar el
+  // buscador de la primera la pantalla salta a la segunda.
   const gastosCardRef = useRef(null);
+  const documentosCardRef = useRef(null);
+  const informacionCardRef = useRef(null);
+  const checklistsCardRef = useRef(null);
   const pendingCenterGastos = useRef(false);
 
   const [keyboardInset, setKeyboardInset] = useState(0);
@@ -2820,12 +2826,19 @@ export default function TripDetailScreen({ navigation, route }) {
                   <View style={styles.summaryIconWrap}>
                     <FontAwesome6 name="sack-dollar" size={22} color={colors.primary} />
                   </View>
-                  <Text style={styles.summaryValue} numberOfLines={1} adjustsFontSizeToFit>
+                  <TextoAjustable
+                    style={styles.summaryValue}
+                    textoCompacto={formatMoneyCompacto(
+                      tripSummaryMetrics.totalGastadoMonto,
+                      settlement?.Moneda || trip?.currency
+                    )}
+                    testID="resumen-gastos-grupo-valor"
+                  >
                     {formatMoney(
                       tripSummaryMetrics.totalGastadoMonto,
                       settlement?.Moneda || trip?.currency
                     )}
-                  </Text>
+                  </TextoAjustable>
                   <Text style={styles.summaryLabel}>
                     Gastos del grupo ({settlement?.Moneda || trip?.currency || "ARS"})
                   </Text>
@@ -3394,8 +3407,9 @@ export default function TripDetailScreen({ navigation, route }) {
             <>
               <View
                 collapsable={false}
-                ref={gastosCardRef}
+                ref={documentosCardRef}
                 style={styles.sectionCard}
+                testID="docs-documentos-card"
               >
                 <Text style={styles.sectionHeading}>Documentos</Text>
                 {loadingDocumentos ? (
@@ -3423,7 +3437,7 @@ export default function TripDetailScreen({ navigation, route }) {
                       descargandoDocId={descargandoDocId}
                       eliminandoDocId={eliminandoDocId}
                       scrollRef={scrollRef}
-                      cardRef={gastosCardRef}
+                      cardRef={documentosCardRef}
                       idsOffline={idsOffline}
                       onAlternarOffline={puedeGuardarOffline ? handleAlternarOffline : undefined}
                       guardandoOfflineId={guardandoOfflineId}
@@ -3445,8 +3459,9 @@ export default function TripDetailScreen({ navigation, route }) {
 
               <View
                 collapsable={false}
-                ref={gastosCardRef}
+                ref={informacionCardRef}
                 style={[styles.sectionCard, { marginTop: spacing.md }]}
+                testID="docs-informacion-card"
               >
                 <Text style={styles.sectionHeading}>Información relevante</Text>
 
@@ -3477,7 +3492,7 @@ export default function TripDetailScreen({ navigation, route }) {
                       }
                       eliminandoItemId={eliminandoItemId}
                       scrollRef={scrollRef}
-                      cardRef={gastosCardRef}
+                      cardRef={informacionCardRef}
                     />
                   </View>
                 )}
@@ -3546,8 +3561,11 @@ export default function TripDetailScreen({ navigation, route }) {
                   <Text style={styles.sectionCopy}>{checklistsError}</Text>
                 </View>
               ) : (
+                <View collapsable={false} ref={checklistsCardRef} testID="checklists-lista">
                 <ChecklistsByCategory
                   checklists={checklists}
+                  scrollRef={scrollRef}
+                  cardRef={checklistsCardRef}
                   categorias={categoriasChecklist}
                   categoriaFiltro={categoriaChecklistFiltro}
                   onCategoriaChange={setCategoriaChecklistFiltro}
@@ -3566,6 +3584,7 @@ export default function TripDetailScreen({ navigation, route }) {
                     lock.canEdit("documentos") ? (tarea) => abrirSubidaDesdeTarea(tarea) : undefined
                   }
                 />
+                </View>
               )}
             </View>
           ) : null}

@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import { MODO_CIERRE_TECLADO } from "../utils/teclado";
 import {
   View,
   Text,
@@ -177,7 +178,7 @@ export default function CrearVotacionScreen({ visible, onClose, IdViaje, onVotac
                     <ScrollView 
                         ref={scrollRef}
                         keyboardShouldPersistTaps="handled"
-                        keyboardDismissMode="on-drag"
+                        keyboardDismissMode={MODO_CIERRE_TECLADO}
                         showsVerticalScrollIndicator={false}
                         contentContainerStyle={{ paddingBottom: spacing.xl }}
                     >

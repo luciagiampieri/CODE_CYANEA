@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useRef, useCallback } from "react";
+import { MODO_CIERRE_TECLADO } from "../utils/teclado";
 import {
   View,
   Text,
@@ -1205,7 +1206,7 @@ export default function AddGastoScreen({
                     { paddingBottom: tecladoVisible ? spacing.lg : 120 },
                   ]}
                   keyboardShouldPersistTaps="handled"
-                  keyboardDismissMode="on-drag"
+                  keyboardDismissMode={MODO_CIERRE_TECLADO}
                   showsVerticalScrollIndicator={false}
                 >
                   {modoEdicion ? (
@@ -1788,7 +1789,7 @@ export default function AddGastoScreen({
             style={styles.divisionScroll}
             contentContainerStyle={{ paddingBottom: tecladoVisible ? spacing.lg : spacing.sm }}
             keyboardShouldPersistTaps="handled"
-            keyboardDismissMode="on-drag"
+            keyboardDismissMode={MODO_CIERRE_TECLADO}
             showsVerticalScrollIndicator={false}
           >
             {datosIntegrantes.map((item) => {

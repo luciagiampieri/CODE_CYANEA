@@ -2,8 +2,12 @@ import { act, fireEvent, render, waitFor } from "@testing-library/react-native";
 import { Alert } from "react-native";
 
 import TripDetailScreen from "../screens/TripDetailScreen";
+import ChecklistsByCategory from "../components/trip/ChecklistsByCategory";
+import { centerInScroll } from "../utils/scrollHelpers";
 import {
   getActivitySuggestions,
+  getChecklistCategories,
+  getChecklists,
   getCurrentUser,
   getExpenseCategories,
   getItinerarySocketUrl,
@@ -79,10 +83,23 @@ jest.mock("../services/api", () => ({
   onTripFinishedError: jest.fn(),
   getItinerarySocketUrl: jest.fn(),
   getActivitySuggestions: jest.fn(),
+  getChecklists: jest.fn(),
+  getChecklistCategories: jest.fn(),
   createTransfer: jest.fn(),
   updateTransfer: jest.fn(),
   hideTransfer: jest.fn(),
 }));
+
+// Se espía a quién se lleva a la vista al enfocar un buscador.
+jest.mock("../utils/scrollHelpers", () => ({ centerInScroll: jest.fn() }));
+
+// El componente real, envuelto para poder ver qué props le pasa la pantalla.
+jest.mock("../components/trip/ChecklistsByCategory", () => {
+  const actual = jest.requireActual("../components/trip/ChecklistsByCategory");
+  const ReactActual = require("react");
+  const ChecklistsEspiado = jest.fn((props) => ReactActual.createElement(actual.default, props));
+  return { ...actual, __esModule: true, default: ChecklistsEspiado };
+});
 
 jest.mock("../database/offlineViajes", () => ({
   esErrorDeRed: (error) => error instanceof TypeError,
@@ -478,5 +495,95 @@ describe("US 136 - Agendar traslados", () => {
 
     expect(await utils.findByText("Traslado a Bariloche")).toBeTruthy();
     expect(hideTransfer).not.toHaveBeenCalled();
+  });
+});
+
+// Cada tarjeta con buscador tiene su propia ref. Antes "Documentos" e "Información
+// relevante" compartían la de gastos: al enfocar el buscador de documentos la pantalla
+// saltaba a "Información relevante". A Checklists no le llegaban ni el scroll ni la ref,
+// así que no se desplazaba al abrir una categoría ni al enfocar el buscador.
+describe("buscadores y categorías: llevar a la vista la tarjeta correcta", () => {
+  let alertSpy;
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockNetInfoListener = null;
+
+    getCurrentUser.mockResolvedValue({ id: 1, nombre: "Juan", apellido: "Pérez" });
+    getTripDetail.mockResolvedValue(viaje);
+    getVotaciones.mockResolvedValue([]);
+    getTripDocuments.mockResolvedValue([documento()]);
+    getRepositorioItems.mockResolvedValue([]);
+    getTripSettlement.mockResolvedValue({});
+    getTripParticipants.mockResolvedValue([]);
+    getExpenseCategories.mockResolvedValue([]);
+    getSentInvitations.mockResolvedValue([]);
+    getTripExpenses.mockResolvedValue([]);
+    getActivitySuggestions.mockResolvedValue([]);
+    getChecklists.mockResolvedValue([]);
+    getChecklistCategories.mockResolvedValue([]);
+    onTripFinishedError.mockImplementation(() => jest.fn());
+    getItinerarySocketUrl.mockReturnValue(new Promise(() => {}));
+
+    offlineDisponible.mockReturnValue(true);
+    guardarItinerarioOffline.mockReturnValue("2026-10-28T17:00:00.000Z");
+    obtenerItinerarioOffline.mockReturnValue(null);
+    listarDocumentosOffline.mockReturnValue([]);
+
+    alertSpy = jest.spyOn(Alert, "alert").mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    alertSpy.mockRestore();
+  });
+
+  const nodoCentrado = () => centerInScroll.mock.calls.at(-1)?.[1];
+
+  test("CP7 enfocar el buscador de documentos lleva a la tarjeta Documentos, no a Información relevante", async () => {
+    const utils = await renderPantalla();
+
+    await fireEvent.press(await utils.findByText("Docs"));
+    expect(await utils.findByTestId("docs-informacion-card")).toBeTruthy();
+
+    await act(async () => {
+      fireEvent(await utils.findByTestId("documentos-buscador"), "focus");
+    });
+
+    await waitFor(() => expect(centerInScroll).toHaveBeenCalled());
+    expect(nodoCentrado()?.props.testID).toBe("docs-documentos-card");
+  });
+
+  test("CP8 y CP9 Checklists recibe el scroll y su propia tarjeta, y enfocar el buscador la lleva a la vista", async () => {
+    // Sin tareas no se muestra el buscador.
+    getChecklists.mockResolvedValue([
+      {
+        IdChecklist: 5,
+        Nombre: "Comprar vuelos",
+        Completada: false,
+        EsPropio: true,
+        Responsables: [],
+        CategoriaChecklist: { IdCategoriaChecklist: 1, Nombre: "Documentación" },
+        PuedeCompletar: true,
+        PuedeSerPrivada: true,
+        EsPrivada: false,
+      },
+    ]);
+    const utils = await renderPantalla();
+
+    // "Checklist" también es el título de una tarjeta del Resumen: se toca la pestaña.
+    await fireEvent.press(await utils.findByRole("tab", { name: "Checklist" }));
+    const buscador = await utils.findByTestId("checklist-buscador");
+
+    // Con estas props, abrir una categoría usa el mismo desplazamiento que Gastos y Documentos.
+    const props = ChecklistsByCategory.mock.calls.at(-1)[0];
+    expect(props.scrollRef?.current).toBeTruthy();
+    expect(props.cardRef?.current?.props.testID).toBe("checklists-lista");
+
+    await act(async () => {
+      fireEvent(buscador, "focus");
+    });
+
+    await waitFor(() => expect(centerInScroll).toHaveBeenCalled());
+    expect(nodoCentrado()?.props.testID).toBe("checklists-lista");
   });
 });

@@ -1,4 +1,5 @@
-import { fireEvent, render } from "@testing-library/react-native";
+import { act, fireEvent, render } from "@testing-library/react-native";
+import { Platform } from "react-native";
 
 import ExpenseSummaryCard from "../components/trip/ExpenseSummaryCard";
 
@@ -128,5 +129,50 @@ describe("ExpenseSummaryCard", () => {
     expect(queryByText(/Por saldar/)).toBeNull();
     expect(queryByText(/Las cuentas se recalculan/)).toBeNull();
     expect(getByText("Recalcular liquidación")).toBeTruthy();
+  });
+
+  // En la web adjustsFontSizeToFit no existe y los montos altos se cortaban.
+  describe("montos altos", () => {
+    const osOriginal = Platform.OS;
+    afterEach(() => {
+      Platform.OS = osOriginal;
+    });
+
+    async function medir(utils, testID, ancho) {
+      await act(async () => {
+        fireEvent(utils.getByTestId(testID).parent, "layout", {
+          nativeEvent: { layout: { width: ancho, height: 30 } },
+        });
+      });
+    }
+
+    it("CP5 en la web los montos de 'Gastos del grupo' y 'Tu gasto' se ven enteros o abreviados", async () => {
+      Platform.OS = "web";
+      const utils = await render(
+        <ExpenseSummaryCard currency="ARS" myExpense={987654321.5} totalSpent={123456789012.5} />
+      );
+
+      await medir(utils, "expense-group-total-value", 120);
+      await medir(utils, "expense-my-total-value", 120);
+
+      const grupo = utils.getByTestId("expense-group-total-value");
+      // No entra ni con la letra mínima: abreviado y el completo para accesibilidad.
+      expect(grupo.props.children).not.toBe(grupo.props.accessibilityLabel);
+      expect(grupo.props.accessibilityLabel).toMatch(/123\.456\.789\.012/);
+      expect(grupo.props.children.length).toBeLessThan(grupo.props.accessibilityLabel.length);
+
+      const tuGasto = utils.getByTestId("expense-my-total-value");
+      expect(tuGasto.props.accessibilityLabel).toMatch(/987\.654\.321/);
+    });
+
+    it("en Android/iOS siguen achicándose con adjustsFontSizeToFit", async () => {
+      const utils = await render(
+        <ExpenseSummaryCard currency="ARS" myExpense={100} totalSpent={123456789012.5} />
+      );
+
+      const grupo = utils.getByTestId("expense-group-total-value");
+      expect(grupo.props.adjustsFontSizeToFit).toBe(true);
+      expect(grupo.props.minimumFontScale).toBe(0.7);
+    });
   });
 });

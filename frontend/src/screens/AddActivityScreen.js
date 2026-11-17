@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import { MODO_CIERRE_TECLADO } from "../utils/teclado";
 import {
   Platform,
   Pressable,
@@ -501,7 +502,7 @@ export default function AddActivityScreen({
                         <ScrollView
                             ref={scrollRef}
                             keyboardShouldPersistTaps="handled"
-                            keyboardDismissMode="on-drag"
+                            keyboardDismissMode={MODO_CIERRE_TECLADO}
                             showsVerticalScrollIndicator={false}
                             contentContainerStyle={{ paddingBottom: spacing.xl }}
                         >
@@ -750,7 +751,7 @@ export default function AddActivityScreen({
                                                 data={locationResults}
                                                 keyExtractor={(place) => place.placeId}
                                                 keyboardShouldPersistTaps="handled"
-                                                keyboardDismissMode="on-drag"
+                                                keyboardDismissMode={MODO_CIERRE_TECLADO}
                                                 showsVerticalScrollIndicator={false}
                                                 style={{ flex: 1 }}
                                                 contentContainerStyle={styles.locationList}

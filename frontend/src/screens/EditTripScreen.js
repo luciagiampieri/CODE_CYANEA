@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { MODO_CIERRE_TECLADO } from "../utils/teclado";
 import { FontAwesome6 } from "@expo/vector-icons";
 import {
     ActivityIndicator,
@@ -390,7 +391,7 @@ function DestinationPickerModal({
                       data={options}
                       keyExtractor={(item, index) => `${item.name}-${item.country}-${index}`}
                       keyboardShouldPersistTaps="handled"
-                      keyboardDismissMode="on-drag"
+                      keyboardDismissMode={MODO_CIERRE_TECLADO}
                       showsVerticalScrollIndicator={false}
                       contentContainerStyle={styles.dpListContent}
                       ListHeaderComponent={keyboardVisible ? null : <Text style={styles.dpResultsLabel}>Resultados · tocá para agregar</Text>}

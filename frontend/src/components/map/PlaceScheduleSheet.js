@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { MODO_CIERRE_TECLADO } from "../../utils/teclado";
 import {
   ActivityIndicator,
   FlatList,
@@ -303,7 +304,7 @@ export default function PlaceScheduleSheet({ days = [], onClose, onSubmit, place
             <ScrollView
               ref={scrollRef}
               keyboardShouldPersistTaps="handled"
-              keyboardDismissMode="on-drag"
+              keyboardDismissMode={MODO_CIERRE_TECLADO}
               showsVerticalScrollIndicator={false}
               contentContainerStyle={{ paddingBottom: spacing.xl }}
             >
