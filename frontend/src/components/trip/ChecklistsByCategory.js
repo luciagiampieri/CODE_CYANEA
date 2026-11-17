@@ -1386,10 +1386,11 @@ const styles = StyleSheet.create({
         color: colors.textPrimary,
     },
     cardCompletada: {
-        opacity: 0.6,
+        backgroundColor: "#d9eddf",
+        borderWidth: 1,
+        borderColor: "#cfe5d6",
     },
     cardNombreCompletada: {
-        textDecorationLine: "line-through",
         color: colors.textSecondary,
     },
     cardMeta: {

@@ -472,8 +472,6 @@ export default function TripDetailScreen({ navigation, route }) {
   const [itinerarioView, setItinerarioView] = useItinerarioViewPreference();
 
   const scrollRef = useRef(null);
-  // Cada tarjeta con buscador tiene su propia ref: si dos comparten una, al enfocar el
-  // buscador de la primera la pantalla salta a la segunda.
   const gastosCardRef = useRef(null);
   const documentosCardRef = useRef(null);
   const informacionCardRef = useRef(null);
@@ -587,12 +585,8 @@ export default function TripDetailScreen({ navigation, route }) {
     };
   }, []);
 
-  // En la web el teclado no avisa por Keyboard (keyboardInset queda en 0): al enfocar el
-  // buscador de invitar se lo lleva arriba, igual que los buscadores de Documentos.
-  // En Android/iOS no cambia nada.
   function mostrarBuscadorInvitar() {
     if (Platform.OS !== "web") return;
-    // Con la técnica B lo lleva a la vista mostrarCampoEnfocado, solo si quedó tapado.
     if (tecladoUnificado()) return;
     setTimeout(() => {
       if (scrollRef.current && invitePanelRef.current) {
@@ -1630,8 +1624,6 @@ export default function TripDetailScreen({ navigation, route }) {
         return {
           id: act.idActividad ?? act.IdActividad,
           idLugarInteres: act.idLugarInteres ?? act.IdLugarInteres ?? null,
-          // Vinculada a un lugar guardado del viaje (desde Explorar o desde Nueva actividad).
-          idLugarInteresViaje: act.idLugarInteresViaje ?? act.IdLugarInteresViaje ?? null,
           lugarInteres: act.lugarInteres ?? act.LugarInteres ?? null,
           horaInicio,
           horaFin,
@@ -1981,6 +1973,11 @@ export default function TripDetailScreen({ navigation, route }) {
     const porcentaje = total > 0 ? Math.round((completadas / total) * 100) : 0;
     return { total, completadas, porcentaje };
   }, [checklists]);
+
+  const checklistsOrdenados = useMemo(
+    () => [...checklists].sort((a, b) => Number(Boolean(a.Completada)) - Number(Boolean(b.Completada))),
+    [checklists]
+  );
 
   function handleAddParticipant(user) {
     if (!lock.canEdit("participantes")) return;
@@ -2804,7 +2801,6 @@ export default function TripDetailScreen({ navigation, route }) {
             </View>
           ) : null}
 
-          {/* TAB 0: RESUMEN */}
           {activeTab === "resumen" ? (
             <View style={styles.summaryContainer}>
               <View style={styles.summaryGrid}>
@@ -3001,7 +2997,6 @@ export default function TripDetailScreen({ navigation, route }) {
             </View>
           ) : null}
 
-          {/* TAB 1: ITINERARIO */}
           {activeTab === "itinerario" ? (
             <>
               {mostrarBannerDiasLibres ? (
@@ -3213,7 +3208,6 @@ export default function TripDetailScreen({ navigation, route }) {
                           }
                         />
 
-                        {/* SUGERENCIAS */}
                         <DaySuggestionsSection
                           tripId={trip?.id}
                           tripTitle={trip?.title}
@@ -3332,7 +3326,6 @@ export default function TripDetailScreen({ navigation, route }) {
             </Pressable>
           ) : null}
 
-          {/* TAB 2: GASTOS */}
           {activeTab === "gastos" ? (
             <View style={styles.sectionStack}>
               <View style={styles.sectionCard}>
@@ -3422,7 +3415,6 @@ export default function TripDetailScreen({ navigation, route }) {
             </View>
           ) : null}
 
-          {/* TAB 3: DOCS */}
           {activeTab === "docs" ? (
             <>
               <View
@@ -3533,7 +3525,6 @@ export default function TripDetailScreen({ navigation, route }) {
             </>
           ) : null}
 
-          {/* TAB 4: CHECKLIST */}
           {activeTab === "checklist" ? (
             <View style={styles.sectionStack}>
               <View style={styles.checklistProgressCard}>
@@ -3583,7 +3574,7 @@ export default function TripDetailScreen({ navigation, route }) {
               ) : (
                 <View collapsable={false} ref={checklistsCardRef} testID="checklists-lista">
                 <ChecklistsByCategory
-                  checklists={checklists}
+                  checklists={checklistsOrdenados}
                   scrollRef={scrollRef}
                   cardRef={checklistsCardRef}
                   categorias={categoriasChecklist}
@@ -3609,7 +3600,6 @@ export default function TripDetailScreen({ navigation, route }) {
             </View>
           ) : null}
 
-          {/* TAB 5: VOTAR */}
           {activeTab === "votar" ? (
             <View style={styles.sectionStack}>
               {lock.canEdit("votaciones") ? (
@@ -4101,7 +4091,6 @@ export default function TripDetailScreen({ navigation, route }) {
             </View>
           ) : null}
 
-          {/* TAB 6: GRUPO */}
           {activeTab === "grupo" ? (
             <View style={styles.sectionStack}>
               <View style={[styles.sectionCard, styles.groupCard]}>
@@ -4264,9 +4253,6 @@ export default function TripDetailScreen({ navigation, route }) {
         }}
         dias={itinerarioDias}
         diaActualId={activityModalDay?.id ?? null}
-        destinos={trip?.destinations}
-        fechaInicio={trip?.startDate}
-        fechaFin={trip?.endDate}
       />
       <AddTrasladoScreen
         visible={!!trasladoModal}
