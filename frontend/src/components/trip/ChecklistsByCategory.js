@@ -25,6 +25,7 @@ import {
     normalizarNombreCategoria,
 } from "../../utils/iconosCategorias";
 import { dominioDe, urlSegura } from "../../utils/recomendacionEntradas";
+import { normalizarTexto } from "../../utils/textoBusqueda";
 
 export const ID_TODAS = "TODAS";
 
@@ -49,12 +50,6 @@ const iconoCategoria = (categoria) =>
 
 const TINTE_PRIMARIO = colors.primarySoft ? `${colors.primarySoft}22` : "#eef4ff";
 
-const normalizarTexto = (texto) =>
-    (texto || "")
-        .normalize("NFD")
-        .replace(/[\u0300-\u036f]/g, "")
-        .toLowerCase()
-        .trim();
 
 function coincideBusqueda(tarea, busquedaNormalizada) {
     if (!busquedaNormalizada) return true;

@@ -154,10 +154,37 @@ def _load_trip_place(db: Session, trip_id: int, trip_place_id: int) -> LugarInte
     )
 
 
-def _serialize_trip_place(trip_place: LugarInteresViaje) -> TripPlaceRead:
+def _dias_por_lugar_global(db: Session, trip_id: int, ids_lugar: list[int]) -> dict[int, list[DiaCronograma]]:
+    """Días del viaje con actividades que usan el lugar global directamente (IdLugarInteres).
+
+    Son las actividades con ubicación elegida en Google desde Nueva actividad: también
+    cuentan como "en el itinerario" del guardado con ese mismo lugar. Una sola consulta
+    para todos los lugares.
+    """
+    if not ids_lugar:
+        return {}
+    filas = db.execute(
+        select(ActividadItinerario.IdLugarInteres, DiaCronograma)
+        .join(DiaCronograma, ActividadItinerario.IdDiaCronograma == DiaCronograma.IdDiaCronograma)
+        .where(
+            DiaCronograma.IdViaje == trip_id,
+            ActividadItinerario.IdLugarInteres.in_(ids_lugar),
+        )
+    ).all()
+    dias: dict[int, list[DiaCronograma]] = {}
+    for id_lugar, dia in filas:
+        dias.setdefault(id_lugar, []).append(dia)
+    return dias
+
+
+def _serialize_trip_place(
+    trip_place: LugarInteresViaje, dias_lugar_global: list[DiaCronograma] | None = None
+) -> TripPlaceRead:
+    """`scheduledDays`: días con actividades vinculadas al guardado o con su mismo lugar global."""
     scheduled_days_by_id: dict[int, TripPlaceDayRead] = {}
-    for activity in trip_place.Actividades or []:
-        day = activity.DiaCronograma
+    dias = [activity.DiaCronograma for activity in trip_place.Actividades or []]
+    dias.extend(dias_lugar_global or [])
+    for day in dias:
         if day is None:
             continue
         scheduled_days_by_id[day.IdDiaCronograma] = TripPlaceDayRead(
@@ -436,7 +463,8 @@ def list_trip_places(
         .order_by(LugarInteresViaje.FechaAlta.desc())
     ).all()
 
-    return [_serialize_trip_place(place) for place in places]
+    dias_globales = _dias_por_lugar_global(db, trip_id, [place.IdLugarInteres for place in places])
+    return [_serialize_trip_place(place, dias_globales.get(place.IdLugarInteres)) for place in places]
 
 @router.post("/trips/{trip_id}/places/location")
 def create_activity_location(
@@ -496,7 +524,8 @@ def get_trip_place_detail(
     trip_place = _load_trip_place(db, trip_id, trip_place_id)
     if trip_place is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Lugar de interés no encontrado")
-    return _serialize_trip_place(trip_place)
+    dias_globales = _dias_por_lugar_global(db, trip_id, [trip_place.IdLugarInteres])
+    return _serialize_trip_place(trip_place, dias_globales.get(trip_place.IdLugarInteres))
 
 
 @router.post("/trips/{trip_id}/places", response_model=TripPlaceMutationResponse, status_code=status.HTTP_201_CREATED)
@@ -561,7 +590,9 @@ def create_trip_place(
 
     return TripPlaceMutationResponse(
         message="Lugar guardado en el viaje correctamente.",
-        place=_serialize_trip_place(created),
+        place=_serialize_trip_place(
+            created, _dias_por_lugar_global(db, trip_id, [created.IdLugarInteres]).get(created.IdLugarInteres)
+        ),
     )
 
 

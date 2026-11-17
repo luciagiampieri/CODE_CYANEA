@@ -103,6 +103,9 @@ class ActividadCreate(BaseModel):
     icono: str = Field(default="location-dot", max_length=50)
     advertenciaHorario: AdvertenciaHorarioAceptada | None = None
     googlePlaceIdEntradas: str | None = Field(default=None, max_length=255)
+    # Lo manda la app cuando el usuario eligió un lugar de los guardados del viaje: la
+    # actividad queda vinculada a ese guardado (como al agendarlo desde Explorar).
+    vincularGuardado: bool = False
 
     @model_validator(mode="after")
     def validate_horarios(self):
@@ -145,6 +148,9 @@ class ActividadUpdate(BaseModel):
     advertenciaHorario: AdvertenciaHorarioAceptada | None = None
     googlePlaceIdEntradas: str | None = Field(default=None, max_length=255)
     tareasEntradasAEliminar: list[int] = Field(default_factory=list, max_length=50)
+    # Lo manda la app cuando el usuario eligió un lugar de los guardados del viaje: la
+    # actividad queda vinculada a ese guardado (como al agendarlo desde Explorar).
+    vincularGuardado: bool = False
 
     @model_validator(mode="after")
     def validate_horarios(self):

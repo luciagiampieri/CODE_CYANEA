@@ -22,6 +22,7 @@ import Modal from "../components/ui/AppModal";
 import ScreenContainer from "../components/layout/ScreenContainer";
 import ScreenHeader from "../components/ui/ScreenHeader";
 import SearchPickerHeader, { SEARCH_PICKER_EDGES } from "../components/ui/SearchPickerHeader";
+import ResaltarCoincidencia from "../components/ui/ResaltarCoincidencia";
 import CerrarTecladoAlTocar from "../components/ui/CerrarTecladoAlTocar";
 import MetricCard from "../components/ui/MetricCard";
 import PrimaryButton from "../components/ui/PrimaryButton";
@@ -136,27 +137,6 @@ function CardHeader({ icon, title, subtitle }) {
   );
 }
 
-function HighlightMatch({ text, query, style, matchStyle }) {
-  const value = String(text || "");
-  const q = String(query || "").trim();
-  const normalize = (v) => v.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
-  const index = q ? normalize(value).indexOf(normalize(q)) : -1;
-
-  if (index < 0) {
-    return (
-      <Text style={style} numberOfLines={1}>
-        {value}
-      </Text>
-    );
-  }
-  return (
-    <Text style={style} numberOfLines={1}>
-      {value.slice(0, index)}
-      <Text style={matchStyle}>{value.slice(index, index + q.length)}</Text>
-      {value.slice(index + q.length)}
-    </Text>
-  );
-}
 
 // Avatar redondo de un destino ya elegido: foto de Google o, si no hay, ícono de ubicación.
 function DestinationAvatar({ uri, size = 32 }) {
@@ -420,7 +400,7 @@ function DestinationPickerModal({
                               />
                             </View>
                             <View style={styles.dpItemTexts}>
-                              <HighlightMatch
+                              <ResaltarCoincidencia
                                 text={item.name}
                                 query={query}
                                 style={[styles.dpItemName, isSelected && styles.dpItemNameActive]}

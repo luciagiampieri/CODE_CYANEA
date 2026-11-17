@@ -2,6 +2,7 @@ import {
   calcularAreaRoot,
   instalarAjusteViewport,
   mostrarCampoEnfocado,
+  mostrarElemento,
   tecladoAbierto,
 } from "../utils/viewportWeb";
 import { colors } from "../theme/tokens";
@@ -494,5 +495,43 @@ describe("mostrarCampoEnfocado contra el borde visible del contenedor", () => {
 
     expect(mostrarCampoEnfocado(win, doc)).toBe(-30);
     expect(contenedor.scrollBy).toHaveBeenCalledWith({ top: -30, behavior: "smooth" });
+  });
+});
+
+// Nueva actividad: la lista de guardados aparece debajo del campo "Nombre" y tiene que
+// quedar arriba del teclado sin un segundo movimiento si ya se ve.
+describe("mostrarElemento", () => {
+  function entorno(rectLista) {
+    const { win, doc } = crearEntorno({ vvHeight: 420 });
+    const contenedor = {
+      scrollHeight: 2000,
+      clientHeight: 400,
+      scrollTop: 0,
+      scrollBy: jest.fn(),
+      parentElement: doc.body,
+      getBoundingClientRect: () => ({ top: 0, bottom: 420 }),
+    };
+    win.getComputedStyle = (nodo) => ({ overflowY: nodo === contenedor ? "auto" : "visible" });
+    const lista = { parentElement: contenedor, ownerDocument: doc, getBoundingClientRect: () => rectLista };
+    return { win, lista, contenedor };
+  }
+
+  it("si la lista quedó tapada por el teclado la sube lo justo", () => {
+    const { win, lista, contenedor } = entorno({ top: 300, bottom: 470 });
+
+    expect(mostrarElemento(win, lista)).toBe(70);
+    expect(contenedor.scrollBy).toHaveBeenCalledWith({ top: 70, behavior: "smooth" });
+  });
+
+  it("si la lista ya se ve no se mueve nada", () => {
+    const { win, lista, contenedor } = entorno({ top: 200, bottom: 350 });
+
+    expect(mostrarElemento(win, lista)).toBe(0);
+    expect(contenedor.scrollBy).not.toHaveBeenCalled();
+  });
+
+  it("sin elemento no hace nada", () => {
+    const { win } = entorno({ top: 0, bottom: 0 });
+    expect(mostrarElemento(win, null)).toBe(0);
   });
 });

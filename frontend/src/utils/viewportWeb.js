@@ -89,9 +89,17 @@ function desplazar(contenedor, delta, behavior) {
  * scroll más cercano: un pie o un encabezado fijos fuera del ScrollView (por ejemplo los
  * botones de Nuevo gasto) recortan el campo aunque esté por arriba del teclado.
  */
-export function mostrarCampoEnfocado(win, doc, { margen = MARGEN_CAMPO_PX, behavior = "smooth" } = {}) {
-  const campo = doc.activeElement;
-  if (!hayCampoEnfocado(doc) || typeof campo.getBoundingClientRect !== "function") return 0;
+export function mostrarCampoEnfocado(win, doc, opciones = {}) {
+  if (!hayCampoEnfocado(doc)) return 0;
+  return mostrarElemento(win, doc.activeElement, opciones);
+}
+
+/**
+ * Lo mismo que mostrarCampoEnfocado para cualquier elemento (por ejemplo la lista de
+ * sugerencias que aparece debajo de un campo): solo desplaza si quedó tapado, lo justo.
+ */
+export function mostrarElemento(win, campo, { margen = MARGEN_CAMPO_PX, behavior = "smooth" } = {}) {
+  if (!campo || typeof campo.getBoundingClientRect !== "function") return 0;
   const contenedores = contenedoresConScroll(win, campo);
   if (!contenedores.length) return 0;
 

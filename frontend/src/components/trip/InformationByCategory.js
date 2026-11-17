@@ -15,6 +15,7 @@ import { FontAwesome6 } from "@expo/vector-icons";
 import { colors, radii, spacing, surfaces, textStyles } from "../../theme/tokens";
 import { centerInScroll } from "../../utils/scrollHelpers";
 import { tecladoUnificado } from "../../utils/tecladoExperimental";
+import { normalizarTexto } from "../../utils/textoBusqueda";
 
 export const ID_TODAS = "TODAS";
 
@@ -56,12 +57,6 @@ const iconoParaTipo = (tipo) => {
 
 const TINTE_PRIMARIO = colors.primarySoft ? `${colors.primarySoft}22` : "#eef4ff";
 
-const normalizarTexto = (texto) =>
-    (texto || "")
-        .normalize("NFD")
-        .replace(/[\u0300-\u036f]/g, "")
-        .toLowerCase()
-        .trim();
 
 function coincideBusqueda(item, busquedaNormalizada) {
     if (!busquedaNormalizada) return true;

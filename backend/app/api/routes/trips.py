@@ -32,6 +32,7 @@ from app.models.viaje import Viaje
 from app.models.destino_viaje import DestinoViaje
 from app.models.destino import Destino
 from app.models.lugar_interes import LugarInteres
+from app.models.lugar_interes_viaje import LugarInteresViaje
 from app.models.notificacion import Notificacion
 from app.schemas.trip import (
     ActividadCreate,
@@ -305,6 +306,27 @@ def _recomendacion_read(entradas: EvaluacionEntradas) -> RecomendacionEntradas |
     return RecomendacionEntradas(**entradas.recomendacion) if entradas.recomendacion else None
 
 
+def _lugar_guardado_del_viaje(db: Session, id_viaje: int, id_lugar_interes: int) -> LugarInteresViaje:
+    """Lugar guardado del viaje para vincular una actividad (vincularGuardado).
+
+    Si ya no está en los guardados (por ejemplo, alguien lo quitó mientras se cargaba la
+    actividad) responde 404 SAVED_PLACE_NOT_FOUND y no se guarda nada.
+    """
+    guardado = db.scalar(
+        select(LugarInteresViaje).where(
+            LugarInteresViaje.IdViaje == id_viaje,
+            LugarInteresViaje.IdLugarInteres == id_lugar_interes,
+        )
+    )
+    if guardado is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Ese lugar ya no está en los guardados del viaje.",
+            headers={"X-Error-Code": "SAVED_PLACE_NOT_FOUND"},
+        )
+    return guardado
+
+
 def _id_lugar_actividad(actividad: ActividadItinerario) -> int | None:
     """IdLugarInteres efectivo de la actividad (directo o vía el lugar guardado del viaje)."""
     if actividad.IdLugarInteres is not None:
@@ -407,6 +429,7 @@ def _build_actividad_read(
     return ActividadRead(
         IdActividad=actividad.IdActividad,
         IdLugarInteres=lugar.IdLugarInteres if lugar else None,
+        IdLugarInteresViaje=actividad.IdLugarInteresViaje,
         LugarInteres=_build_trip_place(lugar),
         Nombre=actividad.Nombre,
         Descripcion=actividad.Descripcion,
@@ -1355,12 +1378,21 @@ async def create_activity(
                 detail="El lugar de interés seleccionado no existe.",
             )
 
+    # Elegido de los guardados del viaje: se vincula el guardado (como desde Explorar) y el
+    # lugar se resuelve por él. La validación de horarios ya usó el mismo lugar global.
+    guardado = (
+        _lugar_guardado_del_viaje(db, viaje.IdViaje, payload.idLugarInteres)
+        if payload.vincularGuardado and payload.idLugarInteres is not None
+        else None
+    )
+
     entradas = await _evaluar_entradas_actividad(None, contexto_lugar, payload, ignorar_advertencia)
 
     actividad = ActividadItinerario(
         IdDiaCronograma=dia.IdDiaCronograma,
         Nombre=payload.nombre.strip(),
-        IdLugarInteres=payload.idLugarInteres,
+        IdLugarInteres=None if guardado is not None else payload.idLugarInteres,
+        IdLugarInteresViaje=guardado.IdLugarInteresViaje if guardado is not None else None,
         Descripcion=payload.descripcion.strip() if payload.descripcion else None,
         HoraInicio=payload.horaInicio,
         HoraFin=payload.horaFin,
@@ -1568,12 +1600,21 @@ async def update_activity(
                 detail="El lugar de interés no existe.",
             )
 
+    guardado = (
+        _lugar_guardado_del_viaje(db, viaje.IdViaje, payload.idLugarInteres)
+        if payload.vincularGuardado and payload.idLugarInteres is not None
+        else None
+    )
+
     entradas = await _evaluar_entradas_actividad(
         actividad.GooglePlaceIdEntradas, contexto_lugar, payload, ignorar_advertencia
     )
 
     actividad.Nombre = payload.nombre.strip()
-    if payload.idLugarInteres is not None:
+    if payload.idLugarInteres is not None and payload.vincularGuardado:
+        actividad.IdLugarInteresViaje = guardado.IdLugarInteresViaje
+        actividad.IdLugarInteres = None
+    elif payload.idLugarInteres is not None:
         actividad.IdLugarInteres = payload.idLugarInteres if lugar else None
         actividad.IdLugarInteresViaje = None
     elif getattr(payload, "idLugarInteresViaje", None) is not None:

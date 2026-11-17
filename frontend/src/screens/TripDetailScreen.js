@@ -1628,6 +1628,8 @@ export default function TripDetailScreen({ navigation, route }) {
         return {
           id: act.idActividad ?? act.IdActividad,
           idLugarInteres: act.idLugarInteres ?? act.IdLugarInteres ?? null,
+          // Vinculada a un lugar guardado del viaje (desde Explorar o desde Nueva actividad).
+          idLugarInteresViaje: act.idLugarInteresViaje ?? act.IdLugarInteresViaje ?? null,
           lugarInteres: act.lugarInteres ?? act.LugarInteres ?? null,
           horaInicio,
           horaFin,

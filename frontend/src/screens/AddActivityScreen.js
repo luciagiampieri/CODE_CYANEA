@@ -26,10 +26,16 @@ import { FontAwesome6 } from "@expo/vector-icons";
 
 import PrimaryButton from "../components/ui/PrimaryButton";
 import {
+    getTripPlaces,
     searchTripPlaces,
     saveActivityLocation,
     resolveTripPlace,
 } from "../services/api";
+import SugerenciasGuardados, { FilaGuardado } from "../components/trip/SugerenciasGuardados";
+import HojaGuardados from "../components/trip/HojaGuardados";
+import { ordenGuardadosUbicacion } from "../utils/sugerenciasGuardados";
+import { mostrarElemento } from "../utils/viewportWeb";
+import { tecladoUnificado } from "../utils/tecladoExperimental";
 import { colors, radii, spacing, textStyles } from "../theme/tokens";
 import ScreenContainer from "../components/layout/ScreenContainer";
 import SearchPickerHeader, { SEARCH_PICKER_EDGES } from "../components/ui/SearchPickerHeader";
@@ -98,6 +104,15 @@ export default function AddActivityScreen({
 
     const lastQueryLengthRef = useRef(0);
 
+    // Lugares guardados del viaje: se sugieren desde "Nombre" y en "Ubicación". Elegir uno
+    // vincula la actividad al guardado (vincularGuardado), para que figure en el mapa.
+    const [lugaresGuardados, setLugaresGuardados] = useState([]);
+    const [nombreEnfocado, setNombreEnfocado] = useState(false);
+    const [lugarVinculado, setLugarVinculado] = useState(false);
+    const [hojaGuardadosVisible, setHojaGuardadosVisible] = useState(false);
+    const sugerenciasRef = useRef(null);
+    const ocultarSugerenciasRef = useRef(null);
+
     const { scrollRef, fieldY, scrollToField } = useScrollACampo();
 
     const opcionesDia =
@@ -124,6 +139,7 @@ export default function AddActivityScreen({
             setIcono(activityToEdit.icon ?? "location-dot");
             setIconoModificadoManual(true);
             setUbicacion(activityToEdit.lugarInteres ?? null);
+            setLugarVinculado(Boolean(activityToEdit.idLugarInteresViaje && activityToEdit.lugarInteres));
         } else {
             setNombre("");
             setDescripcion("");
@@ -132,8 +148,11 @@ export default function AddActivityScreen({
             setIcono("location-dot");
             setIconoModificadoManual(false);
             setUbicacion(null);
+            setLugarVinculado(false);
         }
 
+        setNombreEnfocado(false);
+        setHojaGuardadosVisible(false);
         setError("");
         selectorHora.cerrar();
         setShowLocationPicker(false);
@@ -142,6 +161,25 @@ export default function AddActivityScreen({
         setLocationResults([]);
         setHasSearchedLocations(false);
     }, [visible, activityToEdit, diaActualId]);
+
+    useEffect(() => {
+        if (!visible || !tripId) return undefined;
+        let activo = true;
+        Promise.resolve()
+            .then(() => getTripPlaces(tripId))
+            .then((lugares) => {
+                if (activo) setLugaresGuardados(Array.isArray(lugares) ? lugares : []);
+            })
+            .catch(() => {
+                // Sin guardados (o sin conexión): no se sugiere nada y el formulario sigue igual.
+                if (activo) setLugaresGuardados([]);
+            });
+        return () => {
+            activo = false;
+        };
+    }, [visible, tripId]);
+
+    useEffect(() => () => clearTimeout(ocultarSugerenciasRef.current), []);
 
     useEffect(() => {
         let active = true;
@@ -196,6 +234,7 @@ export default function AddActivityScreen({
         if (activityToEdit?.id) {
             onCancelEdit?.(activityToEdit.id);
         }
+        setHojaGuardadosVisible(false);
         setNombre("");
         setDescripcion("");
         setHoraInicio("");
@@ -356,6 +395,7 @@ export default function AddActivityScreen({
                     horaFin: `${horaFin}:00`,
                     icono,
                     idLugarInteres: ubicacion?.id || null,
+                    ...(lugarVinculado && ubicacion?.id ? { vincularGuardado: true } : {}),
                     ...(ignorarAdvertencia && advertenciaHorario ? { advertenciaHorario } : {}),
                     ...(ignorarAdvertencia && googlePlaceIdEntradas ? { googlePlaceIdEntradas } : {}),
                     ...(tareasEntradasAEliminar.length > 0 ? { tareasEntradasAEliminar } : {}),
@@ -453,6 +493,48 @@ export default function AddActivityScreen({
         }
     }
 
+    // Elegir un guardado: nombre (desde "Nombre"), ubicación y vínculo en un solo paso,
+    // sin volver a buscarlo en Google: el guardado ya tiene el lugar.
+    function elegirGuardado(lugar, { conNombre = true } = {}) {
+        clearTimeout(ocultarSugerenciasRef.current);
+        if (conNombre) setNombre(lugar.name);
+        setUbicacion(lugar);
+        setLugarVinculado(true);
+        setNombreEnfocado(false);
+        setError("");
+    }
+
+    // "Ver todos tus guardados": hoja con todos, buscador y grupos.
+    function abrirHojaGuardados() {
+        clearTimeout(ocultarSugerenciasRef.current);
+        Keyboard.dismiss();
+        setNombreEnfocado(false);
+        setHojaGuardadosVisible(true);
+    }
+
+    function elegirGuardadoDesdeHoja(lugar) {
+        elegirGuardado(lugar);
+        setHojaGuardadosVisible(false);
+    }
+
+    function desvincularGuardado() {
+        setLugarVinculado(false);
+        setUbicacion(null);
+        setError("");
+    }
+
+    function elegirGuardadoDesdeUbicacion(lugar) {
+        elegirGuardado(lugar, { conNombre: !nombre.trim() });
+        closeLocationPicker();
+    }
+
+    // En la web, con el teclado de Safari unificado, la lista se lleva a la vista solo si
+    // quedó tapada (mismo cálculo que el campo enfocado).
+    function alDibujarSugerencias() {
+        if (Platform.OS !== "web" || !tecladoUnificado() || typeof window === "undefined") return;
+        setTimeout(() => mostrarElemento(window, sugerenciasRef.current), 0);
+    }
+
     async function handleSelectLocation(place) {
         try {
             Keyboard.dismiss();
@@ -471,6 +553,7 @@ export default function AddActivityScreen({
             });
 
             setUbicacion(response);
+            setLugarVinculado(false);
             closeLocationPicker();
         } catch (err) {
             setError(err.message || "No se pudo guardar la ubicación.");
@@ -481,6 +564,7 @@ export default function AddActivityScreen({
 
     function handleRemoveLocation() {
         setUbicacion(null);
+        setLugarVinculado(false);
         setError("");
     }
 
@@ -533,13 +617,48 @@ export default function AddActivityScreen({
                                                 setNombre(text);
                                                 if (error) setError("");
                                             }}
-                                            onFocus={() => scrollToField("nombre")}
+                                            onFocus={() => {
+                                                clearTimeout(ocultarSugerenciasRef.current);
+                                                setNombreEnfocado(true);
+                                                scrollToField("nombre");
+                                            }}
+                                            onBlur={() => {
+                                                // Con demora: si se tocó una sugerencia, el toque llega antes de ocultarlas.
+                                                ocultarSugerenciasRef.current = setTimeout(() => setNombreEnfocado(false), 200);
+                                            }}
                                             placeholder="Visita al museo"
                                             placeholderTextColor={colors.overlay}
                                             style={styles.inputInner}
                                             value={nombre}
+                                            testID="actividad-nombre"
                                         />
                                     </View>
+
+                                    {lugarVinculado && ubicacion ? (
+                                        <View style={styles.avisoGuardado} testID="aviso-guardado-vinculado">
+                                            <FontAwesome6 name="bookmark" size={11} color={colors.primary} />
+                                            <Text style={styles.avisoGuardadoTexto}>Lugar de tus guardados vinculado</Text>
+                                            <Pressable
+                                                onPress={desvincularGuardado}
+                                                hitSlop={10}
+                                                accessibilityRole="button"
+                                                accessibilityLabel="Desvincular lugar guardado"
+                                            >
+                                                <FontAwesome6 name="xmark" size={12} color={colors.textMuted} />
+                                            </Pressable>
+                                        </View>
+                                    ) : null}
+
+                                    {nombreEnfocado && !lugarVinculado && !(activityToEdit && ubicacion) ? (
+                                        <SugerenciasGuardados
+                                            ref={sugerenciasRef}
+                                            lugares={lugaresGuardados}
+                                            texto={nombre}
+                                            onElegir={(lugar) => elegirGuardado(lugar)}
+                                            onVerTodos={abrirHojaGuardados}
+                                            onLayout={alDibujarSugerencias}
+                                        />
+                                    ) : null}
 
                                     {opcionesDia.length > 1 ? (
                                         <>
@@ -724,6 +843,22 @@ export default function AddActivityScreen({
                                     />
 
                                     <View style={styles.locationBody}>
+                                        {locationQuery.trim().length < 2 && lugaresGuardados.length > 0 ? (
+                                            <View style={styles.ubicacionGuardados} testID="ubicacion-guardados">
+                                                <Text style={styles.locationResultsLabel}>Guardados del viaje</Text>
+                                                <ScrollView keyboardShouldPersistTaps="handled" style={styles.ubicacionGuardadosLista}>
+                                                    {ordenGuardadosUbicacion(lugaresGuardados).map((lugar) => (
+                                                        <FilaGuardado
+                                                            key={lugar.id}
+                                                            lugar={lugar}
+                                                            onElegir={elegirGuardadoDesdeUbicacion}
+                                                            testID={`ubicacion-guardado-${lugar.id}`}
+                                                        />
+                                                    ))}
+                                                </ScrollView>
+                                            </View>
+                                        ) : null}
+
                                         {locationQuery.trim().length < 2 ? (
                                             <View style={styles.locationIdle}>
                                                 <View style={styles.locationIdleIcon}>
@@ -809,6 +944,13 @@ export default function AddActivityScreen({
                                 </KeyboardAvoidingView>
                             </ScreenContainer>
                         </Modal>
+
+                        <HojaGuardados
+                            visible={hojaGuardadosVisible}
+                            lugares={lugaresGuardados}
+                            onElegir={elegirGuardadoDesdeHoja}
+                            onCerrar={() => setHojaGuardadosVisible(false)}
+                        />
 
                         <SelectorHora selector={selectorHora} />
                     </View>
@@ -938,6 +1080,29 @@ const estilosPropios = StyleSheet.create({
         textTransform: "none",
         color: colors.textSecondary,
         marginBottom: spacing.sm,
+    },
+    ubicacionGuardados: {
+        paddingHorizontal: spacing.lg,
+        paddingTop: spacing.md,
+    },
+    ubicacionGuardadosLista: {
+        maxHeight: 260,
+    },
+    avisoGuardado: {
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 6,
+        alignSelf: "flex-start",
+        marginTop: spacing.xs,
+        paddingHorizontal: spacing.sm,
+        paddingVertical: 4,
+        borderRadius: radii.pill,
+        backgroundColor: COLOR_SOFT,
+    },
+    avisoGuardadoTexto: {
+        ...textStyles.meta,
+        color: colors.primary,
+        fontWeight: "600",
     },
     locationItem: {
         flexDirection: "row",

@@ -28,6 +28,7 @@ import ParticipantSearch from "../components/trip/ParticipantSearch";
 import CurrencySelector from "../components/trip/CurrencySelector";
 import IconCircleButton from "../components/ui/IconCircleButton";
 import SearchPickerHeader, { SEARCH_PICKER_EDGES } from "../components/ui/SearchPickerHeader";
+import ResaltarCoincidencia from "../components/ui/ResaltarCoincidencia";
 import CerrarTecladoAlTocar from "../components/ui/CerrarTecladoAlTocar";
 import PrimaryButton from "../components/ui/PrimaryButton";
 import AICoverGenerator from "../components/trip/AICoverGenerator";
@@ -402,27 +403,6 @@ function SummaryItem({ icon, label, value }) {
   );
 }
 
-function HighlightMatch({ text, query, style, matchStyle }) {
-  const value = String(text || "");
-  const q = String(query || "").trim();
-  const normalize = (v) => v.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
-  const index = q ? normalize(value).indexOf(normalize(q)) : -1;
-
-  if (index < 0) {
-    return (
-      <Text style={style} numberOfLines={1}>
-        {value}
-      </Text>
-    );
-  }
-  return (
-    <Text style={style} numberOfLines={1}>
-      {value.slice(0, index)}
-      <Text style={matchStyle}>{value.slice(index, index + q.length)}</Text>
-      {value.slice(index + q.length)}
-    </Text>
-  );
-}
 
 function pickDestinationImage(dest) {
   if (!dest) return null;
@@ -696,7 +676,7 @@ function DestinationPickerModal({
                                 />
                               </View>
                               <View style={styles.dpItemTexts}>
-                                <HighlightMatch
+                                <ResaltarCoincidencia
                                   text={item.name}
                                   query={query}
                                   style={[styles.dpItemName, isSelected && styles.dpItemNameActive]}
