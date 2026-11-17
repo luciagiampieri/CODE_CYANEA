@@ -7,6 +7,8 @@
 // quedaba chica y corrida hacia abajo, con un espacio en blanco arriba: por eso
 // también se reajusta cuando un campo pierde el foco.
 
+import { colors } from "../theme/tokens";
+
 const DIFERENCIA_TECLADO_PX = 120;
 const REAJUSTES_AL_SALIR_MS = [60, 250, 600];
 
@@ -26,11 +28,14 @@ export function calcularAreaRoot(win) {
   return { top: 0, height: win.innerHeight };
 }
 
+function esCampoDeTexto(el) {
+  if (!el) return false;
+  const tag = (el.tagName || "").toLowerCase();
+  return tag === "input" || tag === "textarea" || el.isContentEditable === true;
+}
+
 function hayCampoEnfocado(doc) {
-  const activo = doc.activeElement;
-  if (!activo) return false;
-  const tag = (activo.tagName || "").toLowerCase();
-  return tag === "input" || tag === "textarea" || activo.isContentEditable === true;
+  return esCampoDeTexto(doc.activeElement);
 }
 
 const PROPIEDADES_PORTAL = ["position", "left", "right", "top", "height", "transform"];
@@ -123,6 +128,10 @@ export function instalarAjusteViewport(win = window, doc = document, { anularPan
   doc.documentElement.style.height = "100%";
   doc.body.style.height = "100%";
   doc.body.style.overflow = "hidden";
+  // Mientras el área cambia de tamaño puede verse una franja de <html>/<body>: con el fondo
+  // de la app no aparece blanca.
+  doc.documentElement.style.backgroundColor = colors.background;
+  doc.body.style.backgroundColor = colors.background;
   root.style.position = "fixed";
   root.style.left = "0";
   root.style.right = "0";
@@ -166,7 +175,16 @@ export function instalarAjusteViewport(win = window, doc = document, { anularPan
     });
   };
 
+  // Técnica B, cierre: al salir del campo la app ya quedó a pantalla completa. Los avisos del
+  // visualViewport que llegan después traen valores intermedios del cierre (la pantalla se
+  // veía un instante corrida hacia abajo): se ignoran mientras no haya un campo enfocado.
+  let cerrando = false;
+
   const ajustar = () => {
+    if (cerrando) {
+      if (hayCampoEnfocado(doc) || !tecladoAbierto(win)) cerrando = false;
+      else return;
+    }
     // Técnica B: se deshace el desplazamiento propio de Safari.
     const anularAhora = anularPan && tecladoAbierto(win) && ((vv?.offsetTop ?? 0) > 0 || win.scrollY > 0);
     if (anularAhora) win.scrollTo(0, 0);
@@ -182,13 +200,35 @@ export function instalarAjusteViewport(win = window, doc = document, { anularPan
   // Un modal que se abre con el teclado ya abierto no dispara un resize: se ajusta al
   // enfocar su campo. No toca #root ni hace nada sin teclado (en la compu queda igual).
   const alEntrarAUnCampo = () => {
+    if (cerrando) {
+      // Se enfocó otro campo mientras se cerraba: vuelve a seguir al teclado.
+      cerrando = false;
+      ajustar();
+      return;
+    }
     if (!tecladoAbierto(win)) return;
     ajustarPortales();
     programarMostrarCampo();
   };
 
+  // Técnica B: al salir del campo (sin pasar a otro) se cierra en el acto, sin esperar los
+  // avisos del visualViewport.
+  const cerrarEnElActo = () => {
+    cerrando = true;
+    if (esperaCampo != null) win.clearTimeout(esperaCampo);
+    esperaCampo = null;
+    root.style.top = "0px";
+    root.style.height = `${win.innerHeight}px`;
+    restaurarPortales();
+    win.scrollTo(0, 0);
+  };
+
   const timers = new Set();
-  const alSalirDeUnCampo = () => {
+  const alSalirDeUnCampo = (e) => {
+    if (anularPan) {
+      if (!esCampoDeTexto(e?.relatedTarget) && !hayCampoEnfocado(doc)) cerrarEnElActo();
+      return;
+    }
     REAJUSTES_AL_SALIR_MS.forEach((ms) => {
       const id = win.setTimeout(() => {
         timers.delete(id);

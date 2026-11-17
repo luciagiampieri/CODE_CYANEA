@@ -4,6 +4,7 @@ import {
   mostrarCampoEnfocado,
   tecladoAbierto,
 } from "../utils/viewportWeb";
+import { colors } from "../theme/tokens";
 
 function crearEntorno({ innerHeight = 800, vvHeight = 800, offsetTop = 0, scale = 1 } = {}) {
   const oyentes = {};
@@ -283,5 +284,108 @@ describe("mostrarCampoEnfocado", () => {
   it("sin campo enfocado no hace nada", () => {
     const { win, doc } = crearEntorno({ vvHeight: 420 });
     expect(mostrarCampoEnfocado(win, doc)).toBe(0);
+  });
+});
+
+// Modo b, cierre: al tocar afuera la pantalla se veía un instante corrida hacia abajo, con
+// una franja arriba y la barra de Safari en el medio. Ahora se cierra en el acto.
+describe("técnica B: cierre del teclado en el acto", () => {
+  afterEach(() => jest.useRealTimers());
+
+  function agregarModal(doc) {
+    const portal = { style: {}, parentElement: doc.body };
+    doc.modales.push({ style: {}, parentElement: portal });
+    return portal;
+  }
+
+  const salir = (doc, emitirFocusout, relatedTarget = null) => {
+    doc.activeElement = null;
+    emitirFocusout({ relatedTarget });
+  };
+
+  // emitir del entorno no pasa el evento: se usa el oyente guardado.
+  function oyente(doc, tipo) {
+    return doc.addEventListener.mock
+      ? doc.addEventListener.mock.calls.filter(([t]) => t === tipo).map(([, fn]) => fn).pop()
+      : null;
+  }
+
+  function entorno(opciones) {
+    const env = crearEntorno(opciones);
+    const original = env.doc.addEventListener;
+    env.doc.addEventListener = jest.fn(original);
+    return env;
+  }
+
+  it("al salir del campo pasa #root a pantalla completa y la página a 0 enseguida", () => {
+    const { win, doc, root } = entorno({ vvHeight: 420, offsetTop: 0 });
+    const portal = agregarModal(doc);
+    instalarAjusteViewport(win, doc, { anularPan: true });
+    expect(root.style).toMatchObject({ top: "0px", height: "420px" });
+    win.scrollTo.mockClear();
+
+    salir(doc, oyente(doc, "focusout"));
+
+    expect(root.style).toMatchObject({ top: "0px", height: "800px" });
+    expect(win.scrollTo).toHaveBeenCalledWith(0, 0);
+    expect(["position", "top", "height", "transform"].every((prop) => !portal.style[prop])).toBe(true);
+  });
+
+  it("ignora los avisos intermedios del cierre mientras no haya un campo enfocado", () => {
+    const { win, vv, doc, root, emitir } = entorno({ vvHeight: 420, offsetTop: 0 });
+    instalarAjusteViewport(win, doc, { anularPan: true });
+    salir(doc, oyente(doc, "focusout"));
+
+    vv.height = 560;
+    vv.offsetTop = 120;
+    emitir("vv:resize");
+    emitir("vv:scroll");
+
+    expect(root.style).toMatchObject({ top: "0px", height: "800px" });
+
+    // Llega el aviso final (sin teclado): queda igual.
+    vv.height = 800;
+    vv.offsetTop = 0;
+    emitir("vv:resize");
+    expect(root.style).toMatchObject({ top: "0px", height: "800px" });
+  });
+
+  it("si el foco pasa a otro campo no cierra", () => {
+    const { win, doc, root } = entorno({ vvHeight: 420, offsetTop: 0 });
+    instalarAjusteViewport(win, doc, { anularPan: true });
+
+    oyente(doc, "focusout")({ relatedTarget: { tagName: "INPUT" } });
+
+    expect(root.style).toMatchObject({ top: "0px", height: "420px" });
+  });
+
+  it("si se enfoca otro campo mientras se cerraba, vuelve a seguir al teclado", () => {
+    const { win, doc, root } = entorno({ vvHeight: 420, offsetTop: 0 });
+    instalarAjusteViewport(win, doc, { anularPan: true });
+    salir(doc, oyente(doc, "focusout"));
+
+    doc.activeElement = { tagName: "INPUT" };
+    oyente(doc, "focusin")();
+
+    expect(root.style).toMatchObject({ top: "0px", height: "420px" });
+  });
+
+  it("sin la opción (sin parámetro) salir del campo no cierra en el acto", () => {
+    const { win, doc, root } = entorno({ vvHeight: 420, offsetTop: 260 });
+    instalarAjusteViewport(win, doc);
+
+    salir(doc, oyente(doc, "focusout"));
+
+    expect(root.style).toMatchObject({ top: "260px", height: "420px" });
+  });
+});
+
+describe("fondo", () => {
+  it("<html> y <body> tienen el fondo de la app, también sin el modo experimental", () => {
+    const { win, doc } = crearEntorno();
+    instalarAjusteViewport(win, doc);
+
+    expect(doc.documentElement.style.backgroundColor).toBe(colors.background);
+    expect(doc.body.style.backgroundColor).toBe(colors.background);
   });
 });

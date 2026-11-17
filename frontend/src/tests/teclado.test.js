@@ -52,3 +52,23 @@ describe("MODO_CIERRE_TECLADO", () => {
     expect(conOnDrag).toEqual([]);
   });
 });
+
+describe("ocultarConTeclado", () => {
+  const osOriginal = Platform.OS;
+  afterEach(() => {
+    Platform.OS = osOriginal;
+  });
+
+  it("en Android/iOS oculta lo que se saca con el teclado abierto", () => {
+    const { ocultarConTeclado } = require("../utils/teclado");
+    Platform.OS = "ios";
+    expect(ocultarConTeclado(true)).toBe(true);
+    expect(ocultarConTeclado(false)).toBe(false);
+  });
+
+  it("en la web nunca oculta: sacarlo y volverlo a poner hacía saltar la pantalla", () => {
+    const { ocultarConTeclado } = require("../utils/teclado");
+    Platform.OS = "web";
+    expect(ocultarConTeclado(true)).toBe(false);
+  });
+});

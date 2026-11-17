@@ -59,7 +59,7 @@ import {
   resumenRecorrido,
 } from "../utils/recorrido";
 import * as ImagePicker from "expo-image-picker";
-import { MODO_CIERRE_TECLADO } from "../utils/teclado";
+import { MODO_CIERRE_TECLADO, ocultarConTeclado } from "../utils/teclado";
 
 const MONTH_NAMES_ES = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
 
@@ -1521,7 +1521,9 @@ export default function CreateTripScreen({ navigation }) {
               <Text style={styles.heroTitle}>Nuevo viaje</Text>
             </View>
           </View>
-          {!tecladoVisible ? <Stepper step={step} /> : null}
+          {/* En la web la barra de pasos no se oculta con el teclado: al sacarla y volverla
+              a poner, todo el formulario saltaba de golpe. */}
+          {!ocultarConTeclado(tecladoVisible) ? <Stepper step={step} /> : null}
         </View>
 
         <ScrollView
