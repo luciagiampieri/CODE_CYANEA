@@ -74,6 +74,7 @@ CODE_CYANEA/
 |  `- README.md          (stub requerido por pyproject y Dockerfile)
 |- frontend/
 |  |- assets/
+|  |- plugins/         (config plugins Expo y reglas nativas versionadas)
 |  |- public/          (index.html: plantilla de la web, ver "Teclado en Chrome de Android")
 |  |- src/
 |  |  |- components/
@@ -193,6 +194,8 @@ Build Android nativa en carpetas sincronizadas:
 - Si la development build Android abre Metro pero falla con `Compiling JS failed` sobre `transform.bytecode=1`, levantar Expo con `CYANEA_DISABLE_HERMES_BYTECODE=1`; `frontend/metro.config.js` conserva Hermes y solo quita `transform.bytecode` de las URLs servidas por Metro en desarrollo
 
 Notas del frontend Expo:
+
+- La compilacion Android release conserva `androidx.work.impl.WorkDatabase` y `WorkDatabase_Impl` mediante `frontend/plugins/android-workmanager.pro`, conectado a Gradle por `withAndroidWorkManager` desde `app.config.js`. Room instancia esa base por reflexion durante AndroidX Startup; eliminar u optimizar sus constructores puede cerrar la app antes de React Native. Mantener estas reglas especificas al regenerar `android/` con Expo prebuild/EAS; no resolverlo editando solo archivos nativos ignorados ni desactivando toda la optimizacion R8. Una entrega APK requiere instalar la version release y verificar un arranque real, ademas de tests JS y firma; actualizar sobre la app existente sin borrar sus datos para comprobar compatibilidad.
 
 - `npm run web` levanta el frontend en `http://localhost:8081`
 - Los scripts ya incluyen `EXPO_NO_METRO_WORKSPACE_ROOT=1`
