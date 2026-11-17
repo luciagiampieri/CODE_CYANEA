@@ -535,3 +535,101 @@ describe("mostrarElemento", () => {
     expect(mostrarElemento(win, null)).toBe(0);
   });
 });
+
+describe("Chrome de Android con resizes-content (la ventana se achica con el teclado)", () => {
+  const UA_ANDROID = "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 Chrome/130.0 Mobile Safari/537.36";
+  const UA_IPHONE = "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 Version/18.0 Mobile Safari/604.1";
+
+  function crearAndroid({ userAgent = UA_ANDROID, ancho = 412 } = {}) {
+    const entorno = crearEntorno({ innerHeight: 800, vvHeight: 800 });
+    entorno.win.navigator = { userAgent };
+    entorno.win.innerWidth = ancho;
+    // Abre o cierra el teclado como Chrome con resizes-content: bajan juntos la ventana y el
+    // área visible, sin desplazamiento.
+    entorno.achicar = (alto) => {
+      entorno.win.innerHeight = alto;
+      entorno.vv.height = alto;
+      entorno.emitir("win:resize");
+      entorno.emitir("vv:resize");
+    };
+    return entorno;
+  }
+
+  it("detecta el teclado aunque innerHeight y el área visible bajen juntos", () => {
+    const { win, vv } = crearAndroid();
+    expect(tecladoAbierto(win)).toBe(false);
+
+    win.innerHeight = 430;
+    vv.height = 430;
+    expect(tecladoAbierto(win)).toBe(true);
+
+    win.innerHeight = 800;
+    vv.height = 800;
+    expect(tecladoAbierto(win)).toBe(false);
+  });
+
+  it("la barra de direcciones de Chrome (cambio chico) no cuenta como teclado", () => {
+    const { win, vv } = crearAndroid();
+    tecladoAbierto(win);
+    win.innerHeight = 744;
+    vv.height = 744;
+    expect(tecladoAbierto(win)).toBe(false);
+  });
+
+  it("al rotar (cambia el ancho) vuelve a medir el alto sin teclado", () => {
+    const { win, vv } = crearAndroid();
+    tecladoAbierto(win);
+
+    // Horizontal: más ancha y más baja, sin teclado.
+    win.innerWidth = 800;
+    win.innerHeight = 412;
+    vv.height = 412;
+    expect(tecladoAbierto(win)).toBe(false);
+  });
+
+  it("#root toma el alto de la ventana achicada y queda arriba, sin desplazamientos", () => {
+    const { win, doc, root, achicar } = crearAndroid();
+    instalarAjusteViewport(win, doc);
+    expect(root.style).toMatchObject({ top: "0px", height: "800px" });
+
+    achicar(430);
+    expect(root.style).toMatchObject({ top: "0px", height: "430px" });
+    expect(win.scrollTo).not.toHaveBeenCalled();
+
+    achicar(800);
+    expect(root.style).toMatchObject({ top: "0px", height: "800px" });
+  });
+
+  it("los modales toman el área visible achicada y vuelven al cerrar el teclado", () => {
+    const { win, doc, root, achicar } = crearAndroid();
+    const portal = { style: {}, parentElement: doc.body };
+    doc.modales.push({ parentElement: portal });
+    instalarAjusteViewport(win, doc);
+
+    achicar(430);
+    expect(portal.style).toMatchObject({ top: "0px", height: "430px" });
+
+    achicar(800);
+    expect(portal.style.height).toBe("");
+    expect(root.style.height).toBe("800px");
+  });
+
+  it("en el iPhone y en la compu se sigue comparando con la ventana (achicar la ventana no es teclado)", () => {
+    const iphone = crearAndroid({ userAgent: UA_IPHONE });
+    tecladoAbierto(iphone.win);
+    iphone.win.innerHeight = 430;
+    iphone.vv.height = 430;
+    expect(tecladoAbierto(iphone.win)).toBe(false);
+
+    const compu = crearAndroid({ userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/130.0" });
+    tecladoAbierto(compu.win);
+    compu.win.innerHeight = 430;
+    compu.vv.height = 430;
+    expect(tecladoAbierto(compu.win)).toBe(false);
+
+    // El caso de siempre en el iPhone: la ventana queda y el área visible baja.
+    iphone.win.innerHeight = 800;
+    iphone.vv.height = 420;
+    expect(tecladoAbierto(iphone.win)).toBe(true);
+  });
+});
