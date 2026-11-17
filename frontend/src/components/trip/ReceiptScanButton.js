@@ -5,12 +5,10 @@ import { FontAwesome6 } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
 
 import PrimaryButton from "../ui/PrimaryButton";
-import { getCurrentUser, getMyLimits, scanReceipt, updateAiConsent } from "../../services/api";
+import { getCurrentUser, getMyLimits, getReceiptScanConfig, scanReceipt, updateAiConsent } from "../../services/api";
 import { comprimirImagenComprobante, validarImagenComprobante } from "../../utils/receiptImage";
 import { esErrorDeLimite, irAPlanes } from "../../utils/limitesPlan";
 import { colors, radii, spacing, textStyles } from "../../theme/tokens";
-
-export const RECEIPT_SCAN_TIMEOUT_MS = 15000;
 
 export const MENSAJE_TIEMPO_AGOTADO =
   "El escaneo tardó demasiado. Podés intentar nuevamente o completar el gasto manualmente.";
@@ -66,7 +64,6 @@ export default function ReceiptScanButton({
   tripId,
   onScanned,
   disabled = false,
-  timeoutMs = RECEIPT_SCAN_TIMEOUT_MS,
   onVerPlanes,
 }) {
   const [origenVisible, setOrigenVisible] = useState(false);
@@ -169,8 +166,13 @@ export default function ReceiptScanButton({
 
     setEscaneando(true);
     try {
+      const configuracion = await getReceiptScanConfig();
+      const tiempoEspera = configuracion?.TiempoEsperaSegundos;
+      if (typeof tiempoEspera !== "number" || !Number.isFinite(tiempoEspera) || tiempoEspera <= 0) {
+        throw new Error("Configuración de escaneo inválida");
+      }
       const imagen = await comprimirImagenComprobante(asset);
-      const datos = await conTiempoMaximo(scanReceipt(tripId, imagen), timeoutMs);
+      const datos = await conTiempoMaximo(scanReceipt(tripId, imagen), tiempoEspera * 1000);
       if (montadoRef.current) onScanned?.(datos, imagen);
       cargarLimites();
     } catch (e) {

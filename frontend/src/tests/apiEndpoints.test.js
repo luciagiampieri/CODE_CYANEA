@@ -79,6 +79,7 @@ const CASOS = [
   ["getUsers", "GET", "/users?q=ana&limit=5", [" ana ", 5]],
   ["getCurrentUser", "GET", "/users/me", []],
   ["getMyLimits", "GET", "/users/me/limites", []],
+  ["getReceiptScanConfig", "GET", "/gastos/escaneo/configuracion", []],
   ["changePassword", "PUT", "/users/me/password", [{ passwordActual: "a", passwordNueva: "b", confirmacion: "b" }], { passwordActual: "a", passwordNueva: "b", confirmacion: "b" }],
   ["getPrivacySettings", "GET", "/users/me/privacidad", []],
   ["updatePrivacySettings", "PUT", "/users/me/privacidad", [DATOS], DATOS],

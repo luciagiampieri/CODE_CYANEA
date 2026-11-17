@@ -914,6 +914,14 @@ export async function updateAiConsent(consiente) {
 }
 
 
+export async function getReceiptScanConfig() {
+  const response = await fetch(`${API_BASE_URL}/gastos/escaneo/configuracion`, {
+    headers: await authHeaders(),
+    cache: "no-store",
+  });
+  return parseResponse(response, "No se pudo consultar la configuración del escaneo");
+}
+
 export async function scanReceipt(tripId, imagen) {
   const url = `${API_BASE_URL}/gastos/trips/${tripId}/escanear-comprobante`;
   const mensajeError = "No se pudo escanear el comprobante";

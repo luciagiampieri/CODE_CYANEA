@@ -10,11 +10,12 @@ import ReceiptScanButton, {
   MENSAJE_VIAJE_FINALIZADO,
   mensajeParaError,
 } from "../components/trip/ReceiptScanButton";
-import { getCurrentUser, scanReceipt, updateAiConsent } from "../services/api";
+import { getCurrentUser, getReceiptScanConfig, scanReceipt, updateAiConsent } from "../services/api";
 import { MENSAJE_FORMATO_INVALIDO, MENSAJE_TAMANIO_EXCEDIDO } from "../utils/receiptImage";
 
 jest.mock("../services/api", () => ({
   getCurrentUser: jest.fn(),
+  getReceiptScanConfig: jest.fn(),
   scanReceipt: jest.fn(),
   updateAiConsent: jest.fn(),
 }));
@@ -73,6 +74,7 @@ describe("US 93 - ReceiptScanButton", () => {
     jest.clearAllMocks();
     onScanned = jest.fn();
     getCurrentUser.mockResolvedValue({ consienteProcesamientoIA: true });
+    getReceiptScanConfig.mockResolvedValue({ TiempoEsperaSegundos: 15 });
     updateAiConsent.mockResolvedValue({ consienteProcesamientoIA: true });
     scanReceipt.mockResolvedValue(DATOS);
     ImagePicker.requestCameraPermissionsAsync.mockResolvedValue({ granted: true });
@@ -254,13 +256,45 @@ describe("US 93 - ReceiptScanButton", () => {
 
   it("AC15: si supera el tiempo máximo corta la espera y ofrece la carga manual", async () => {
     scanReceipt.mockReturnValue(new Promise(() => {}));
-    const utils = await renderizar({ timeoutMs: 50 });
+    getReceiptScanConfig.mockResolvedValue({ TiempoEsperaSegundos: 0.05 });
+    const utils = await renderizar();
 
     await escanearDesde(utils);
 
     await waitFor(() => expect(utils.getByText(MENSAJE_TIEMPO_AGOTADO)).toBeTruthy());
     expect(utils.queryByTestId("receipt-scan-progress")).toBeNull();
     expect(onScanned).not.toHaveBeenCalled();
+  });
+
+  it("vuelve a consultar el tiempo en cada escaneo y acepta una respuesta posterior al limite anterior", async () => {
+    getReceiptScanConfig.mockResolvedValueOnce({ TiempoEsperaSegundos: 0.02 })
+      .mockResolvedValueOnce({ TiempoEsperaSegundos: 0.5 });
+    scanReceipt.mockImplementation(() => new Promise((resolve) => setTimeout(() => resolve(DATOS), 80)));
+    const utils = await renderizar();
+    await escanearDesde(utils);
+    await waitFor(() => expect(utils.getByText(MENSAJE_TIEMPO_AGOTADO)).toBeTruthy());
+    expect(onScanned).not.toHaveBeenCalled();
+    await escanearDesde(utils);
+    await waitFor(() => expect(onScanned).toHaveBeenCalledTimes(1));
+    expect(getReceiptScanConfig).toHaveBeenCalledTimes(2);
+  });
+
+  it.each([null, {}, { TiempoEsperaSegundos: 0 }, { TiempoEsperaSegundos: -1 }])(
+    "no envia la imagen si el servidor devuelve una configuracion invalida: %j", async (configuracion) => {
+      getReceiptScanConfig.mockResolvedValue(configuracion);
+      const utils = await renderizar();
+      await escanearDesde(utils);
+      await waitFor(() => expect(utils.getByTestId("receipt-scan-error")).toBeTruthy());
+      expect(scanReceipt).not.toHaveBeenCalled();
+    }
+  );
+
+  it("si falla la consulta de configuracion ofrece carga manual sin enviar la imagen", async () => {
+    getReceiptScanConfig.mockRejectedValue(new TypeError("Network request failed"));
+    const utils = await renderizar();
+    await escanearDesde(utils);
+    await waitFor(() => expect(utils.getByText(MENSAJE_SIN_CONEXION)).toBeTruthy());
+    expect(scanReceipt).not.toHaveBeenCalled();
   });
 
   it("sin permiso de cámara no abre la cámara", async () => {

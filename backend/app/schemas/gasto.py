@@ -117,6 +117,10 @@ class GastoRead(BaseModel):
         "from_attributes": True
     }
 
+class ConfiguracionEscaneoRead(BaseModel):
+    TiempoEsperaSegundos: float
+
+
 class EscaneoComprobanteRead(BaseModel):
     """Datos extraídos de un comprobante para precargar el formulario (US 93).
 

@@ -10,6 +10,7 @@ from fastapi import (
     File,
     HTTPException,
     Query,
+    Response,
     UploadFile,
     WebSocket,
     WebSocketDisconnect,
@@ -44,6 +45,7 @@ from app.schemas.gasto import (
     GastoRead,
     GastoListItemRead,
     EscaneoComprobanteRead,
+    ConfiguracionEscaneoRead,
     GastoUpdate,
     GastoDetalleRead,
     GastoPosibleDuplicadoRead,
@@ -722,6 +724,16 @@ def _error_escaneo(error: ReceiptScanError) -> HTTPException:
         detail=error.message,
         headers={"X-Error-Code": error.code},
     )
+
+
+@router.get("/escaneo/configuracion", response_model=ConfiguracionEscaneoRead)
+def configuracion_escaneo(
+    response: Response,
+    current_user: Usuario = Depends(get_current_user),
+) -> ConfiguracionEscaneoRead:
+    # Un segundo para el limite exterior de la IA y dos para la comunicacion.
+    response.headers["Cache-Control"] = "no-store"
+    return ConfiguracionEscaneoRead(TiempoEsperaSegundos=settings.ai_receipt_timeout_seconds + 3)
 
 
 @router.post("/trips/{trip_id}/escanear-comprobante", response_model=EscaneoComprobanteRead)

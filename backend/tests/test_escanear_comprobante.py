@@ -43,6 +43,20 @@ PDF = b"%PDF-1.7\n" + b"\x00" * 256
 CATEGORIAS = ["Comida y Bebida", "Transporte", "Alojamiento", "Otros"]
 
 
+@pytest.mark.parametrize("segundos", [12.0, 30.0, 0.5])
+def test_configuracion_escaneo_deriva_la_espera_del_timeout_ia(client, auth_headers, monkeypatch, segundos):
+    monkeypatch.setattr(settings, "ai_receipt_timeout_seconds", segundos)
+    response = client.get("/api/v1/gastos/escaneo/configuracion", headers=auth_headers)
+    assert response.status_code == 200
+    assert response.json() == {"TiempoEsperaSegundos": segundos + 3}
+    assert response.headers["Cache-Control"] == "no-store"
+
+
+def test_configuracion_escaneo_requiere_sesion(client):
+    response = client.get("/api/v1/gastos/escaneo/configuracion")
+    assert response.status_code == 401
+
+
 def _respuesta_ia(**cambios):
     """Respuesta válida del modelo; `cambios` pisa campos puntuales."""
     base = {
