@@ -58,6 +58,7 @@ export default function MapCanvas({
   fullscreen = false,
   topInset = 0,
   bottomInset = 0,
+  centrarEn = null,
 }) {
   const mapRef = useRef(null);
   const hasMountedRegionRef = useRef(false);
@@ -98,6 +99,15 @@ export default function MapCanvas({
       lng: nextRegion.longitude,
     });
   }, [initialCenter, onViewportChange]);
+
+  // Centrar el mapa desde afuera (selector de destino de Explorar). `clave` cambia en
+  // cada pedido, aunque sea el mismo punto.
+  useEffect(() => {
+    if (!mapRef.current) return;
+    if (typeof centrarEn?.lat !== "number" || typeof centrarEn?.lng !== "number") return;
+    mapRef.current.animateToRegion?.(buildInitialRegion(centrarEn), 400);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [centrarEn?.clave]);
 
   function handleRegionChangeComplete(nextRegion) {
     setRegion(nextRegion);

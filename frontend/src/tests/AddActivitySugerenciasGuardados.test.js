@@ -355,3 +355,87 @@ describe("'Ver todos tus guardados'", () => {
     expect(utils.queryByTestId("aviso-guardado-vinculado")).toBeNull();
   });
 });
+
+describe("con varios destinos: primero los guardados del destino del día", () => {
+  const MADRID = { id: 21, name: "Madrid", lat: 40.4168, lng: -3.7038, noches: 3, nochesEnViaje: 0 };
+  const BARCELONA = { id: 22, name: "Barcelona", lat: 41.3874, lng: 2.1686, noches: 2, nochesEnViaje: 0 };
+  const SAGRADA = { id: 11, name: "Sagrada Familia", address: "Barcelona", lat: 41.4036, lng: 2.1744, category: "Iglesia", scheduledDays: [] };
+  const BATLLO = { id: 12, name: "Casa Batlló", address: "Barcelona", lat: 41.3916, lng: 2.1649, category: "Museo", scheduledDays: [] };
+  const BOQUERIA = { id: 13, name: "La Boqueria", address: "Barcelona", lat: 41.3817, lng: 2.1716, category: "Mercado", scheduledDays: [] };
+
+  // 1 → 4 dic en Madrid, 4 → 6 dic en Barcelona.
+  const dias = [1, 2, 3, 4, 5, 6].map((n) => ({
+    dayId: 100 + n,
+    dayIndex: n,
+    fechaRaw: `2030-12-0${n}`,
+    dayDateText: `${n} dic`,
+    actividades: [],
+  }));
+  const propsViaje = {
+    dias,
+    destinos: [MADRID, BARCELONA],
+    fechaInicio: "2030-12-01",
+    fechaFin: "2030-12-06",
+  };
+  const ids = (utils) => utils.getAllByTestId(/^guardado-opcion-/).map((nodo) => nodo.props.testID);
+
+  beforeEach(() => {
+    // Del más nuevo al más viejo, como la API: primero los de Barcelona.
+    getTripPlaces.mockResolvedValue([SAGRADA, BATLLO, BOQUERIA, PRADO, RETIRO]);
+  });
+
+  it("en un día de Madrid, el campo vacío sugiere primero los de Madrid y completa con otros", async () => {
+    const utils = await renderPantalla({ ...propsViaje, diaActualId: 101 });
+    await enfocarNombre(utils);
+
+    expect(ids(utils)).toEqual(["guardado-opcion-1", "guardado-opcion-3", "guardado-opcion-11"]);
+    expect(utils.getByText("Iglesia · Barcelona · Sin día asignado")).toBeTruthy();
+    expect(utils.getByText("Ver todos tus guardados (5)")).toBeTruthy();
+  });
+
+  it("mientras se escribe también prioriza el destino del día", async () => {
+    const utils = await renderPantalla({ ...propsViaje, diaActualId: 101 });
+    await enfocarNombre(utils);
+    await escribirNombre(utils, "a");
+
+    expect(ids(utils)).toEqual(["guardado-opcion-1", "guardado-opcion-3", "guardado-opcion-11"]);
+  });
+
+  it("la hoja muestra 'En <destino>' y 'Otros destinos', todos elegibles", async () => {
+    const utils = await renderPantalla({ ...propsViaje, diaActualId: 105 });
+    await enfocarNombre(utils);
+    await act(async () => {
+      fireEvent.press(utils.getByTestId("guardados-ver-todos"));
+    });
+
+    expect(utils.getByTestId("hoja-guardados-grupo-destino-del-dia")).toHaveTextContent(/En Barcelona/);
+    expect(utils.getByTestId("hoja-guardados-grupo-otros-destinos")).toHaveTextContent(/Otros destinos/);
+
+    await act(async () => {
+      fireEvent.press(utils.getByTestId("hoja-guardado-1"));
+    });
+    expect(utils.queryByTestId("hoja-guardados")).toBeNull();
+    expect(utils.getByTestId("actividad-nombre").props.value).toBe("Museo del Prado");
+  });
+
+  it("al editar, cambiar de día cambia el destino que se prioriza", async () => {
+    const actividad = { id: 5, title: "", note: "", time: "09:00 - 10:00", icon: "utensils", lugarInteres: null };
+    const utils = await renderPantalla({ ...propsViaje, diaActualId: 101, activityToEdit: actividad });
+    await enfocarNombre(utils);
+    expect(ids(utils)[0]).toBe("guardado-opcion-1");
+
+    await act(async () => {
+      fireEvent.press(utils.getByTestId("actividad-dia-105"));
+    });
+    await enfocarNombre(utils);
+    expect(ids(utils)).toEqual(["guardado-opcion-11", "guardado-opcion-12", "guardado-opcion-13"]);
+  });
+
+  it("con un solo destino queda como siempre", async () => {
+    const utils = await renderPantalla({ ...propsViaje, destinos: [MADRID], diaActualId: 101 });
+    await enfocarNombre(utils);
+
+    expect(ids(utils)).toEqual(["guardado-opcion-11", "guardado-opcion-12", "guardado-opcion-13"]);
+    expect(utils.getByText("Iglesia · Sin día asignado")).toBeTruthy();
+  });
+});

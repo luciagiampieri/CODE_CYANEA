@@ -67,19 +67,79 @@ describe("buscarGuardados (mientras se escribe)", () => {
 describe("gruposGuardados (hoja 'Tus guardados')", () => {
   const lugares = [lugar(1, "Café Gijón", enDias(2)), lugar(2, "Museo del Prado"), lugar(3, "Parque del Retiro")];
 
+  const resumen = (grupos) => grupos.map((g) => [g.clave, g.titulo, g.data.map((l) => l.id)]);
+
   it("todos en dos grupos: sin agendar y ya en el itinerario", () => {
-    const { sinAgendar, enItinerario } = gruposGuardados(lugares);
-    expect(sinAgendar.map((l) => l.id)).toEqual([2, 3]);
-    expect(enItinerario.map((l) => l.id)).toEqual([1]);
+    expect(resumen(gruposGuardados(lugares))).toEqual([
+      ["sin-agendar", "Sin agendar", [2, 3]],
+      ["itinerario", "Ya en el itinerario", [1]],
+    ]);
   });
 
-  it("el buscador filtra sin distinguir mayúsculas ni tildes y puede dejar un grupo vacío", () => {
-    const { sinAgendar, enItinerario } = gruposGuardados(lugares, "GIJON");
-    expect(sinAgendar).toEqual([]);
-    expect(enItinerario.map((l) => l.id)).toEqual([1]);
+  it("el buscador filtra sin distinguir mayúsculas ni tildes y no devuelve grupos vacíos", () => {
+    expect(resumen(gruposGuardados(lugares, "GIJON"))).toEqual([["itinerario", "Ya en el itinerario", [1]]]);
+    expect(gruposGuardados(lugares, "zzz")).toEqual([]);
+  });
+});
 
-    const nada = gruposGuardados(lugares, "zzz");
-    expect(nada).toEqual({ sinAgendar: [], enItinerario: [] });
+describe("con el destino del día (viaje con varios destinos)", () => {
+  const MADRID = { name: "Madrid", lat: 40.4168, lng: -3.7038 };
+  const TOLEDO = { name: "Toledo", lat: 39.8628, lng: -4.0273 };
+  const BARCELONA = { name: "Barcelona", lat: 41.3874, lng: 2.1686 };
+  const destinos = [MADRID, TOLEDO, BARCELONA];
+  const enMadrid = { lat: 40.4138, lng: -3.6921 };
+  const enBarcelona = { lat: 41.4036, lng: 2.1744 };
+  const enToledo = { lat: 39.8571, lng: -4.0237 };
+
+  // Del más nuevo al más viejo, como la API.
+  const lugares = [
+    lugar(1, "Museo del Prado", enMadrid),
+    lugar(2, "Sagrada Familia", enBarcelona),
+    lugar(3, "Casa Batlló", enBarcelona),
+    lugar(4, "Catedral de Toledo", enToledo),
+    lugar(5, "Parque Güell", { ...enBarcelona, ...enDias(4) }),
+    lugar(6, "Retiro", enMadrid),
+  ];
+  const diaEnBarcelona = { destinos, indicesDia: [2] };
+
+  it("campo vacío: primero los sin agendar del destino del día y después se completa con otros", () => {
+    expect(ultimosSinAgendar(lugares, diaEnBarcelona).map((l) => l.id)).toEqual([2, 3, 1]);
+    expect(ultimosSinAgendar(lugares).map((l) => l.id)).toEqual([1, 2, 3]);
+  });
+
+  it("al escribir: sin agendar del destino, sin agendar de otros y al final los agendados", () => {
+    const opciones = buscarGuardados(lugares, "a", diaEnBarcelona).map((o) => o.lugar.id);
+    expect(opciones).toEqual([2, 3, 1]);
+    const conAgendado = buscarGuardados([lugares[4], lugares[0]], "a", diaEnBarcelona).map((o) => o.lugar.id);
+    expect(conAgendado).toEqual([1, 5]);
+  });
+
+  it("la hoja agrupa 'En <destino del día>' y 'Otros destinos', con los sin agendar primero", () => {
+    const grupos = gruposGuardados(lugares, "", diaEnBarcelona);
+    expect(grupos.map((g) => [g.clave, g.titulo, g.data.map((l) => l.id)])).toEqual([
+      ["destino-del-dia", "En Barcelona", [2, 3, 5]],
+      ["otros-destinos", "Otros destinos", [1, 4, 6]],
+    ]);
+  });
+
+  it("en un día de traslado prioriza los dos destinos", () => {
+    const traslado = { destinos, indicesDia: [1, 2] };
+    expect(gruposGuardados(lugares, "", traslado)[0].titulo).toBe("En Toledo y Barcelona");
+    expect(ultimosSinAgendar(lugares, traslado).map((l) => l.id)).toEqual([2, 3, 4]);
+  });
+
+  it("un guardado de otro destino muestra su nombre en el detalle", () => {
+    expect(textoDetalleGuardado(lugares[0], diaEnBarcelona)).toBe("Museo · Madrid · Sin día asignado");
+    expect(textoDetalleGuardado(lugares[1], diaEnBarcelona)).toBe("Museo · Sin día asignado");
+    expect(textoDetalleGuardado(lugares[4], { destinos, indicesDia: [0] })).toBe(
+      "Ya en el itinerario · Barcelona · Día 4"
+    );
+  });
+
+  it("sin destino del día (en viaje) o con un solo destino queda como siempre", () => {
+    expect(ultimosSinAgendar(lugares, { destinos, indicesDia: [] }).map((l) => l.id)).toEqual([1, 2, 3]);
+    expect(ultimosSinAgendar(lugares, { destinos: [MADRID], indicesDia: [0] }).map((l) => l.id)).toEqual([1, 2, 3]);
+    expect(textoDetalleGuardado(lugares[0], { destinos: [MADRID], indicesDia: [0] })).toBe("Museo · Sin día asignado");
   });
 });
 

@@ -20,9 +20,10 @@ import { colors, radii, spacing, textStyles } from "../../theme/tokens";
  * - mientras se escribe: hasta 3 que coinciden (los que ya están en el itinerario, al
  *   final y apagados).
  * Si no hay nada que sugerir no dibuja nada: elegir uno nunca es obligatorio.
+ * `contexto` ({ destinos, indicesDia }) pone primero los guardados del destino del día.
  */
 const SugerenciasGuardados = forwardRef(function SugerenciasGuardados(
-  { lugares, texto, onElegir, onVerTodos, onLayout },
+  { lugares, texto, contexto = null, onElegir, onVerTodos, onLayout },
   ref
 ) {
   const conTexto = String(texto || "").trim().length > 0;
@@ -30,9 +31,9 @@ const SugerenciasGuardados = forwardRef(function SugerenciasGuardados(
   let filas;
   let verTodos = false;
   if (conTexto) {
-    filas = buscarGuardados(lugares, texto).map(({ lugar }) => lugar);
+    filas = buscarGuardados(lugares, texto, contexto).map(({ lugar }) => lugar);
   } else {
-    filas = ultimosSinAgendar(lugares);
+    filas = ultimosSinAgendar(lugares, contexto);
     verTodos = mostrarVerTodos(lugares) && Boolean(onVerTodos);
   }
   if (!filas.length && !verTodos) return null;
@@ -44,6 +45,7 @@ const SugerenciasGuardados = forwardRef(function SugerenciasGuardados(
           key={lugar.id}
           lugar={lugar}
           busqueda={conTexto ? texto : ""}
+          contexto={contexto}
           onElegir={onElegir}
           testID={`guardado-opcion-${lugar.id}`}
         />
@@ -70,10 +72,10 @@ export default SugerenciasGuardados;
  * Fila de un guardado: nombre completo en hasta 2 líneas (con la parte que coincide con
  * `busqueda` en negrita) y la línea de detalle. Los que ya están en el itinerario se ven
  * apagados. La usan las sugerencias de "Nombre", la hoja "Tus guardados" y el selector
- * de "Ubicación".
+ * de "Ubicación". Con `contexto`, un guardado de otro destino muestra su nombre.
  */
-export function FilaGuardado({ lugar, busqueda = "", onElegir, testID }) {
-  const detalle = textoDetalleGuardado(lugar);
+export function FilaGuardado({ lugar, busqueda = "", contexto = null, onElegir, testID }) {
+  const detalle = textoDetalleGuardado(lugar, contexto);
   const apagada = enItinerario(lugar);
   return (
     <Pressable

@@ -17,6 +17,8 @@ export default function PlaceListItem({
   highlighted = false,
   onPress,
   action = null,
+  dimmed = false,
+  testID,
 }) {
   const ratingCount = formatRatingCount(place.userRatingsTotal);
   const hasRating = typeof place.rating === "number";
@@ -27,10 +29,12 @@ export default function PlaceListItem({
       accessibilityRole="button"
       accessibilityLabel={`Ver detalle de ${place.name}`}
       onPress={() => onPress?.(place)}
+      testID={testID}
       style={({ pressed }) => [
         styles.row,
         highlighted && styles.rowHighlighted,
         pressed && styles.rowPressed,
+        dimmed && !highlighted && styles.rowDimmed,
       ]}
     >
       {rank !== null ? (
@@ -101,6 +105,10 @@ export default function PlaceListItem({
 }
 
 const styles = StyleSheet.create({
+  // Guardados ya agendados en la pestaña Guardados con varios destinos.
+  rowDimmed: {
+    opacity: 0.55,
+  },
   row: {
     flexDirection: "row",
     alignItems: "center",

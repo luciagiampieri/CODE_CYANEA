@@ -13,20 +13,18 @@ import { colors, spacing, textStyles } from "../../theme/tokens";
  * Hoja "Tus guardados" de Nueva actividad ("Ver todos tus guardados"): todos los guardados
  * del viaje con buscador arriba (sin distinguir mayúsculas ni tildes) y dos grupos, "Sin
  * agendar" primero y "Ya en el itinerario" después, apagados. Mismo patrón que el
- * selector de Ubicación. Elegir uno llama a `onElegir`; la hoja la cierra la pantalla.
+ * selector de Ubicación. Con `contexto` (viaje con varios destinos) los grupos son "En
+ * <destino del día>" y "Otros destinos". Elegir uno llama a `onElegir`; la hoja la
+ * cierra la pantalla.
  */
-export default function HojaGuardados({ visible, lugares, onElegir, onCerrar }) {
+export default function HojaGuardados({ visible, lugares, contexto = null, onElegir, onCerrar }) {
   const [busqueda, setBusqueda] = useState("");
 
   useEffect(() => {
     if (visible) setBusqueda("");
   }, [visible]);
 
-  const { sinAgendar, enItinerario } = gruposGuardados(lugares, busqueda);
-  const secciones = [
-    { clave: "sin-agendar", titulo: "Sin agendar", data: sinAgendar },
-    { clave: "itinerario", titulo: "Ya en el itinerario", data: enItinerario },
-  ].filter((seccion) => seccion.data.length > 0);
+  const secciones = gruposGuardados(lugares, busqueda, contexto);
 
   return (
     <Modal statusBarTranslucent animationType="slide" visible={visible} onRequestClose={onCerrar}>
@@ -58,6 +56,7 @@ export default function HojaGuardados({ visible, lugares, onElegir, onCerrar }) 
                   <FilaGuardado
                     lugar={item}
                     busqueda={busqueda}
+                    contexto={contexto}
                     onElegir={onElegir}
                     testID={`hoja-guardado-${item.id}`}
                   />

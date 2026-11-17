@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { MODO_CIERRE_TECLADO } from "../utils/teclado";
 import {
   Platform,
@@ -34,6 +34,7 @@ import {
 import SugerenciasGuardados, { FilaGuardado } from "../components/trip/SugerenciasGuardados";
 import HojaGuardados from "../components/trip/HojaGuardados";
 import { ordenGuardadosUbicacion } from "../utils/sugerenciasGuardados";
+import { indicesDestinoDeFecha } from "../utils/destinoGuardado";
 import { mostrarElemento } from "../utils/viewportWeb";
 import { tecladoUnificado } from "../utils/tecladoExperimental";
 import { colors, radii, spacing, textStyles } from "../theme/tokens";
@@ -74,6 +75,9 @@ export default function AddActivityScreen({
     onCancelEdit,
     dias = [],
     diaActualId = null,
+    destinos = [],
+    fechaInicio = null,
+    fechaFin = null,
 }) {
     const pantalla = useWindowDimensions();
     const [nombre, setNombre] = useState("");
@@ -118,6 +122,14 @@ export default function AddActivityScreen({
     const opcionesDia =
         activityToEdit && !activityToEdit.traslado ? diasParaMover(dias, diaActualId) : [];
     const mueveDeDia = Boolean(activityToEdit) && diaDestinoId != null && diaDestinoId !== diaActualId;
+
+    // Destino del día de la actividad (sigue al selector de día al editar): las sugerencias
+    // de guardados ponen primero los de ese destino. Con un solo destino no cambia nada.
+    const fechaDelDia = dias.find((dia) => dia.dayId === diaDestinoId)?.fechaRaw ?? null;
+    const contextoGuardados = useMemo(() => {
+        const indicesDia = indicesDestinoDeFecha(destinos, fechaInicio, fechaFin, fechaDelDia);
+        return indicesDia.length > 0 ? { destinos, indicesDia } : null;
+    }, [destinos, fechaInicio, fechaFin, fechaDelDia]);
 
     useEffect(() => {
         if (!iconoModificadoManual) {
@@ -654,6 +666,7 @@ export default function AddActivityScreen({
                                             ref={sugerenciasRef}
                                             lugares={lugaresGuardados}
                                             texto={nombre}
+                                            contexto={contextoGuardados}
                                             onElegir={(lugar) => elegirGuardado(lugar)}
                                             onVerTodos={abrirHojaGuardados}
                                             onLayout={alDibujarSugerencias}
@@ -948,6 +961,7 @@ export default function AddActivityScreen({
                         <HojaGuardados
                             visible={hojaGuardadosVisible}
                             lugares={lugaresGuardados}
+                            contexto={contextoGuardados}
                             onElegir={elegirGuardadoDesdeHoja}
                             onCerrar={() => setHojaGuardadosVisible(false)}
                         />

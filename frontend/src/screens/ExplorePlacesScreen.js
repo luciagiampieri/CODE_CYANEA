@@ -18,13 +18,16 @@ import ExploreSheet, {
   useIsSidePanel,
   useSheetHeights,
 } from "../components/explore/ExploreSheet";
+import HojaDestinos from "../components/explore/HojaDestinos";
 import PlaceListItem from "../components/explore/PlaceListItem";
+import SelectorDestino from "../components/explore/SelectorDestino";
 import {
   NEARBY_CATEGORIES,
   NEARBY_PAGE_SIZE,
   formatDistance,
   getMarkerKey,
   groupSavedPlacesByDay,
+  groupSavedPlacesByDestination,
   hasCoordinates,
   hasMovedEnough,
   mergeWithSaved,
@@ -51,6 +54,7 @@ import {
 import { colors, radii, shadows, spacing, textStyles } from "../theme/tokens";
 import { getTripLock } from "../utils/tripLock";
 import { recomendacionDeRespuesta } from "../utils/recomendacionEntradas";
+import { destinoInicial, esMultidestino, resumenDestinos, textoDias } from "../utils/destinoGuardado";
 
 // Altura aproximada de buscador + chips; el mapa la usa como padding superior.
 const TOP_OVERLAY_HEIGHT = 124;
@@ -82,6 +86,16 @@ export default function ExplorePlacesScreen({ navigation, route }) {
   // searchCenter: sobre qué zona se cargaron imperdibles y cercanos.
   const [viewportCenter, setViewportCenter] = useState(null);
   const [searchCenter, setSearchCenter] = useState(null);
+  // destinoActivo: índice del destino elegido en el selector (null hasta cargar el viaje).
+  // centrarEn: pedido al mapa para centrarse en un destino.
+  // filtroGuardados: destino que filtra la pestaña Guardados (null = "Todos los destinos").
+  // Es independiente del destino de Descubrir.
+  const [destinoActivo, setDestinoActivo] = useState(null);
+  const [hojaDestinosVisible, setHojaDestinosVisible] = useState(false);
+  const [centrarEn, setCentrarEn] = useState(null);
+  const [filtroGuardados, setFiltroGuardados] = useState(null);
+  // El filtro de Guardados movió el mapa: al volver a Descubrir se recentra en su zona.
+  const centradoPorFiltroRef = useRef(false);
 
   // --- Imperdibles ---
   const [popularRaw, setPopularRaw] = useState([]);
@@ -219,14 +233,38 @@ export default function ExplorePlacesScreen({ navigation, route }) {
 
   const savedGroups = useMemo(() => groupSavedPlacesByDay(places, tripDays), [places, tripDays]);
 
+  // --- Destinos del recorrido (selector de destino y Guardados por destino) ---
+  const multidestino = esMultidestino(trip?.destinations);
+  const destinosResumen = useMemo(
+    () => resumenDestinos(trip?.destinations, trip?.startDate, trip?.endDate),
+    [trip?.destinations, trip?.startDate, trip?.endDate]
+  );
+  const inicioDestino = useMemo(
+    () => destinoInicial(trip?.destinations, trip?.startDate, trip?.endDate),
+    [trip?.destinations, trip?.startDate, trip?.endDate]
+  );
+  const savedByDestination = useMemo(
+    () => groupSavedPlacesByDestination(places, trip?.destinations, trip?.startDate, trip?.endDate),
+    [places, trip?.destinations, trip?.startDate, trip?.endDate]
+  );
+  const destinoActual = destinoActivo !== null ? destinosResumen[destinoActivo] ?? null : null;
+  // Zona personalizada: se buscó lejos del destino activo ("Buscar en esta zona" o un chip
+  // de categoría con el mapa movido). No se guarda: se deriva de searchCenter.
+  const zonaPersonalizada = Boolean(destinoActual?.conUbicacion && hasMovedEnough(destinoActual, searchCenter));
+  const nombreZona = multidestino && destinoActual && !zonaPersonalizada ? destinoActual.nombre : null;
+  const destinoFiltro = filtroGuardados !== null ? destinosResumen[filtroGuardados] ?? null : null;
+
   const activeCategoryConfig = NEARBY_CATEGORIES.find((item) => item.key === activeCategory) ?? null;
 
   const listMode = activeTab === "saved" ? "saved" : activeCategory ? "nearby" : "popular";
 
+  // Con varios destinos arranca en el de hoy (viaje en curso) o en el primero.
   const initialCenter = useMemo(() => {
+    const inicial = destinosResumen[inicioDestino.indice];
+    if (inicial?.conUbicacion) return { lat: inicial.lat, lng: inicial.lng };
     const first = destinationMarkers[0] ?? savedPlaceMarkers[0];
     return first ? { lat: first.lat, lng: first.lng } : null;
-  }, [destinationMarkers, savedPlaceMarkers]);
+  }, [destinosResumen, inicioDestino.indice, destinationMarkers, savedPlaceMarkers]);
 
   // El mapa muestra lo que corresponde a la lista abierta, para que ambos cuenten lo mismo.
   const mapMarkers = useMemo(() => {
@@ -280,6 +318,17 @@ export default function ExplorePlacesScreen({ navigation, route }) {
     setViewportCenter((current) => current ?? initialCenter);
     setSearchCenter((current) => current ?? initialCenter);
   }, [initialCenter]);
+
+  // Destino con el que se abre: el de hoy si el viaje está en curso, si no el primero. Con
+  // varios destinos el mapa se centra en él (con uno, el mapa queda como siempre).
+  useEffect(() => {
+    if (destinoActivo !== null || destinosResumen.length === 0) return;
+    const inicial = destinosResumen[inicioDestino.indice] ?? destinosResumen[0];
+    setDestinoActivo(inicial.indice);
+    if (multidestino && inicial.conUbicacion) {
+      setCentrarEn({ lat: inicial.lat, lng: inicial.lng, clave: `inicio-${inicial.indice}` });
+    }
+  }, [destinoActivo, destinosResumen, inicioDestino.indice, multidestino]);
 
   // Imperdibles: se piden solo cuando cambia la zona elegida, no en cada movimiento.
   useEffect(() => {
@@ -479,6 +528,20 @@ export default function ExplorePlacesScreen({ navigation, route }) {
     if (sheetSnap === "peek") setSheetSnap("half");
   }
 
+  // Elegir un destino del selector: centra el mapa y busca ahí, igual que "Buscar en esta
+  // zona" (imperdibles y cercanos se recargan con searchCenter).
+  function handleChooseDestination(destino) {
+    setHojaDestinosVisible(false);
+    if (!destino?.conUbicacion) return;
+    const center = { lat: destino.lat, lng: destino.lng };
+    setSelectedPlace(null);
+    setDestinoActivo(destino.indice);
+    setViewportCenter(center);
+    setSearchCenter(center);
+    setCentrarEn({ ...center, clave: `destino-${destino.indice}-${Date.now()}` });
+    if (sheetSnap === "peek") setSheetSnap("half");
+  }
+
   function closeSearch({ clear = true } = {}) {
     Keyboard.dismiss();
     searchInputRef.current?.blur?.();
@@ -510,14 +573,42 @@ export default function ExplorePlacesScreen({ navigation, route }) {
       return;
     }
     setActiveCategory(categoryKey);
-    // Buscamos donde el usuario está mirando ahora.
-    if (viewportCenter) setSearchCenter(viewportCenter);
+    // Buscamos donde el usuario está mirando ahora, salvo que el mapa lo haya movido el
+    // filtro de Guardados: ahí se vuelve a la zona de Descubrir.
+    if (!volverALaZonaDeDescubrir() && viewportCenter) setSearchCenter(viewportCenter);
     setSheetSnap("half");
   }
 
   function handleTabChange(tab) {
     setSelectedPlace(null);
     setActiveTab(tab);
+    // Guardados abre siempre con "Todos los destinos".
+    if (tab === "saved") setFiltroGuardados(null);
+    if (tab === "discover") volverALaZonaDeDescubrir();
+    if (sheetSnap === "peek") setSheetSnap("half");
+  }
+
+  // Si el filtro de Guardados centró el mapa en otro destino, al volver a Descubrir el mapa
+  // vuelve a su zona (searchCenter), así no aparece "Buscar en esta zona" sin haberlo movido.
+  function volverALaZonaDeDescubrir() {
+    if (!centradoPorFiltroRef.current) return false;
+    centradoPorFiltroRef.current = false;
+    if (!searchCenter) return false;
+    setViewportCenter(searchCenter);
+    setCentrarEn({ lat: searchCenter.lat, lng: searchCenter.lng, clave: `descubrir-${Date.now()}` });
+    return true;
+  }
+
+  // Filtro de Guardados: null = todos; un destino muestra solo sus guardados y centra el
+  // mapa en él sin cambiar la zona de Descubrir.
+  function handleChooseSavedFilter(destino) {
+    setHojaDestinosVisible(false);
+    setSelectedPlace(null);
+    setFiltroGuardados(destino ? destino.indice : null);
+    if (destino?.conUbicacion) {
+      centradoPorFiltroRef.current = true;
+      setCentrarEn({ lat: destino.lat, lng: destino.lng, clave: `guardados-${destino.indice}-${Date.now()}` });
+    }
     if (sheetSnap === "peek") setSheetSnap("half");
   }
 
@@ -726,6 +817,23 @@ export default function ExplorePlacesScreen({ navigation, route }) {
           </Pressable>
         </View>
 
+        {/* Selector de destino: solo con varios destinos. En peek el panel lo recorta. */}
+        {multidestino ? (
+          listMode === "saved" ? (
+            <SelectorDestino
+              destino={destinoFiltro}
+              todos={!destinoFiltro}
+              onAbrir={() => setHojaDestinosVisible(true)}
+            />
+          ) : (
+            <SelectorDestino
+              destino={destinoActual}
+              personalizada={zonaPersonalizada}
+              onAbrir={() => setHojaDestinosVisible(true)}
+            />
+          )
+        ) : null}
+
         <View style={styles.listHeading}>{renderListTitle()}</View>
       </View>
     );
@@ -751,7 +859,9 @@ export default function ExplorePlacesScreen({ navigation, route }) {
     if (listMode === "nearby") {
       return (
         <>
-          <Text style={styles.listTitle}>{activeCategoryConfig?.label} en esta zona</Text>
+          <Text style={styles.listTitle}>
+            {activeCategoryConfig?.label} en {nombreZona ?? "esta zona"}
+          </Text>
           <Text style={styles.listSubtitle}>
             {nearbyLoading
               ? "Buscando…"
@@ -766,7 +876,11 @@ export default function ExplorePlacesScreen({ navigation, route }) {
     return (
       <>
         <Text style={styles.listTitle}>
-          {popularContext ? `Imperdibles de ${popularContext}` : "Imperdibles de la zona"}
+          {nombreZona
+            ? `Imperdibles de ${nombreZona}`
+            : popularContext
+              ? `Imperdibles de ${popularContext}`
+              : "Imperdibles de la zona"}
         </Text>
         <Text style={styles.listSubtitle}>Los lugares mejor valorados cerca del centro del mapa</Text>
       </>
@@ -869,6 +983,61 @@ export default function ExplorePlacesScreen({ navigation, route }) {
     }
 
     const scheduleAction = readOnly ? null : { label: "Agendar", onPress: handleOpenSchedule };
+
+    // Con varios destinos: un grupo por destino (y "Otros lugares"), primero los sin agendar
+    // y después los agendados, apagados y con su día. Con uno, por día como siempre.
+    if (savedByDestination) {
+      // Con un destino elegido en el filtro, solo su grupo ("Otros lugares" solo en "Todos").
+      const visibleGroups =
+        filtroGuardados === null
+          ? savedByDestination
+          : savedByDestination.filter((group) => group.destinationIndex === filtroGuardados);
+      if (visibleGroups.length === 0) {
+        return renderStateMessage({
+          icon: "bookmark",
+          title: `Todavía no guardaste lugares en ${destinoFiltro?.nombre ?? "este destino"}.`,
+          copy: "Elegí “Todos los destinos” para ver el resto de tus guardados.",
+        });
+      }
+      return (
+        <>
+          {visibleGroups.map((group) => (
+            <View key={group.key} style={styles.group} testID={`saved-group-${group.key}`}>
+              <View style={styles.groupHeading}>
+                <Text style={styles.groupTitle}>
+                  {group.dateLabel ? `${group.title} · ${group.dateLabel}` : group.title}
+                </Text>
+                <Text style={styles.groupDate}>{group.count}</Text>
+              </View>
+              {group.unscheduled.map((place) => (
+                <PlaceListItem
+                  key={`${group.key}-${place.id}`}
+                  action={scheduleAction}
+                  highlighted={highlightedMarkerKey === getMarkerKey({ ...place, kind: "savedPlace" })}
+                  onPress={(item) => handleSelectPlace({ ...item, kind: "savedPlace" })}
+                  place={{ ...place, kind: "savedPlace" }}
+                  detail={place.address}
+                  badge={scheduleAction ? null : { label: "Sin día", tone: "pending" }}
+                  testID={`saved-place-${place.id}`}
+                />
+              ))}
+              {group.scheduled.map((place) => (
+                <PlaceListItem
+                  key={`${group.key}-${place.id}`}
+                  dimmed
+                  highlighted={highlightedMarkerKey === getMarkerKey({ ...place, kind: "savedPlace" })}
+                  onPress={(item) => handleSelectPlace({ ...item, kind: "savedPlace" })}
+                  place={{ ...place, kind: "savedPlace" }}
+                  detail={place.address}
+                  badge={{ label: textoDias(place) }}
+                  testID={`saved-place-${place.id}`}
+                />
+              ))}
+            </View>
+          ))}
+        </>
+      );
+    }
 
     return (
       <>
@@ -981,6 +1150,7 @@ export default function ExplorePlacesScreen({ navigation, route }) {
           onPlacePick={handleSelectPlace}
           onViewportChange={handleViewportChange}
           topInset={isSidePanel ? 0 : TOP_OVERLAY_HEIGHT}
+          centrarEn={centrarEn}
         />
 
         {!searchFocused ? (
@@ -1103,6 +1273,18 @@ export default function ExplorePlacesScreen({ navigation, route }) {
         tripId={tripId}
         visible={!!scheduleTarget}
       />
+
+      {multidestino ? (
+        <HojaDestinos
+          visible={hojaDestinosVisible}
+          destinos={destinosResumen}
+          activo={listMode === "saved" ? filtroGuardados : zonaPersonalizada ? null : destinoActivo}
+          conTodos={listMode === "saved"}
+          indicesHoy={inicioDestino.indicesHoy}
+          onElegir={listMode === "saved" ? handleChooseSavedFilter : handleChooseDestination}
+          onCerrar={() => setHojaDestinosVisible(false)}
+        />
+      ) : null}
     </ScreenContainer>
   );
 }

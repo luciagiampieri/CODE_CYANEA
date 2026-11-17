@@ -1,3 +1,5 @@
+import { destinoDeLugar, esMultidestino, resumenDestinos } from "../../utils/destinoGuardado";
+
 export const NEARBY_CATEGORIES = [
   { key: "todos", apiKey: null, label: "Todo cerca", icon: "border-all" },
   { key: "restaurantes", apiKey: "restaurantes", label: "Restaurantes", icon: "utensils" },
@@ -163,4 +165,48 @@ export function groupSavedPlacesByDay(places, tripDays = []) {
     .map((group) => ({ ...group, places: [...group.places].sort(byName) }));
 
   return { unscheduled: unscheduled.sort(byName), dayGroups };
+}
+
+/**
+ * Pestaña Guardados con varios destinos: un grupo por destino del recorrido (el más
+ * cercano por coordenadas, `destinoDeLugar`) y al final "Otros lugares" con los que
+ * quedan lejos de todos o no tienen ubicación. Dentro de cada grupo, primero los sin
+ * agendar y después los agendados. Los grupos vacíos no se devuelven. Con un solo
+ * destino devuelve null y la pestaña sigue con `groupSavedPlacesByDay`.
+ */
+export function groupSavedPlacesByDestination(places, destinations, startDate, endDate) {
+  if (!esMultidestino(destinations)) return null;
+  const resumen = resumenDestinos(destinations, startDate, endDate);
+  const groups = resumen.map((destino) => ({
+    key: `destination-${destino.indice}`,
+    destinationIndex: destino.indice,
+    title: destino.nombre,
+    dateLabel: destino.rango,
+    unscheduled: [],
+    scheduled: [],
+  }));
+  const others = {
+    key: "others",
+    destinationIndex: null,
+    title: "Otros lugares",
+    dateLabel: null,
+    unscheduled: [],
+    scheduled: [],
+  };
+
+  (places || []).forEach((place) => {
+    const index = destinoDeLugar(place, destinations);
+    const group = index === null ? others : groups[index];
+    const scheduled = (place.scheduledDays || []).length > 0;
+    (scheduled ? group.scheduled : group.unscheduled).push(place);
+  });
+
+  return [...groups, others]
+    .map((group) => ({
+      ...group,
+      unscheduled: group.unscheduled.sort(byName),
+      scheduled: group.scheduled.sort(byName),
+      count: group.unscheduled.length + group.scheduled.length,
+    }))
+    .filter((group) => group.count > 0);
 }

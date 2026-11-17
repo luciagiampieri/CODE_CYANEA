@@ -4264,6 +4264,9 @@ export default function TripDetailScreen({ navigation, route }) {
         }}
         dias={itinerarioDias}
         diaActualId={activityModalDay?.id ?? null}
+        destinos={trip?.destinations}
+        fechaInicio={trip?.startDate}
+        fechaFin={trip?.endDate}
       />
       <AddTrasladoScreen
         visible={!!trasladoModal}

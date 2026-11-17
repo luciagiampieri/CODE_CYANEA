@@ -100,6 +100,7 @@ export default function MapCanvas({
   topInset = 0,
   bottomInset = 0,
   leftInset = 0,
+  centrarEn = null,
 }) {
   const containerRef = useRef(null);
   const mapRef = useRef(null);
@@ -334,6 +335,18 @@ export default function MapCanvas({
       lastAutoViewportKeyRef.current = stableMarkersKey;
     }
   }, [fallbackCenter, initialCenter, markers, onMarkerPress, status]);
+
+  // Centrar el mapa desde afuera (selector de destino de Explorar). Va después del
+  // encuadre automático para ganarle al abrir y lo desactiva, como si lo hubiera movido el
+  // usuario. `clave` cambia en cada pedido, aunque sea el mismo punto.
+  useEffect(() => {
+    if (status !== "ready" || !mapRef.current) return;
+    if (typeof centrarEn?.lat !== "number" || typeof centrarEn?.lng !== "number") return;
+    hasUserMovedMapRef.current = true;
+    mapRef.current.panTo({ lat: centrarEn.lat, lng: centrarEn.lng });
+    mapRef.current.setZoom(12);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [centrarEn?.clave, status]);
 
   useEffect(() => {
     if (status !== "ready" || !mapRef.current || !window.google?.maps) return undefined;
