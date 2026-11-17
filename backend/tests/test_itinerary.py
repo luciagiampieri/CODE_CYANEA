@@ -2,19 +2,12 @@ import pytest
 from datetime import date as date_type
 from datetime import time
 
-from app.api.routes import itinerary as itinerary_module
 from app.core.security import create_access_token, hash_password
 from app.models.actividad_itinerario import ActividadItinerario
 from app.models.lugar_interes import LugarInteres
 from app.models.dia_cronograma import DiaCronograma
 from app.models.usuario import Usuario
-from tests.conftest import TestingSessionLocal
 from tests.test_trips import _agregar_participante, _crear_usuario, _token_de
-
-
-@pytest.fixture(autouse=True)
-def _ws_usa_sesion_de_test(monkeypatch):
-    monkeypatch.setattr(itinerary_module, "SessionLocal", TestingSessionLocal)
 
 
 @pytest.fixture()

@@ -1,12 +1,10 @@
 import logging
 
 from fastapi import APIRouter, HTTPException, Query, WebSocket, WebSocketDisconnect, status
-from jose import JWTError
-from sqlalchemy.orm import Session
 from starlette.concurrency import run_in_threadpool
 
-from app.core.security import decode_access_token
-from app.db.session import SessionLocal
+from app.api.deps import autenticar_usuario_ws
+from app.db import session as session_module
 from app.models.usuario import Usuario
 from app.services.trip_access import get_trip_with_relations, require_trip_access
 from app.services.websocket_manager import manager
@@ -16,23 +14,6 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 
 
-def _autenticar_ws(token: str, db: Session) -> Usuario | None:
-    try:
-        payload = decode_access_token(token)
-    except JWTError:
-        return None
-
-    user_id = payload.get("user_id")
-    if user_id is None:
-        return None
-
-    usuario = db.get(Usuario, user_id)
-    if usuario is None or not usuario.Activo:
-        return None
-
-    return usuario
-
-
 def _validar_acceso(token: str, trip_id: int) -> int | None:
     """Autentica al usuario y verifica que tenga acceso al viaje.
 
@@ -40,8 +21,8 @@ def _validar_acceso(token: str, trip_id: int) -> int | None:
     en lugar de quedar tomada mientras el WebSocket esté abierto.
     Devuelve el id del usuario, o None si no está autorizado.
     """
-    with SessionLocal() as db:
-        usuario = _autenticar_ws(token, db)
+    with session_module.SessionLocal() as db:
+        usuario = autenticar_usuario_ws(token, db)
         if usuario is None:
             return None
 
@@ -59,7 +40,7 @@ def _nombre_completo(id_usuario: int | None) -> str:
     if id_usuario is None:
         return "Otro usuario"
 
-    with SessionLocal() as db:
+    with session_module.SessionLocal() as db:
         usuario = db.get(Usuario, id_usuario)
         if usuario is None:
             return "Otro usuario"

@@ -16,6 +16,8 @@ class Settings(BaseSettings):
     # transacción queda trabada, la que espera falla en lugar de colgar al servidor.
     db_lock_timeout: str = "5s"
     db_statement_timeout: str = "30s"
+    # Medición temporal de rendimiento (ver app/core/diagnostico.py). Apagada por defecto.
+    diagnostico_rendimiento: bool = False
     cors_origins: str = Field(
         default="http://localhost:5173,http://127.0.0.1:5173,http://localhost:8081,http://127.0.0.1:8081,http://localhost:19006,http://127.0.0.1:19006"
     )
