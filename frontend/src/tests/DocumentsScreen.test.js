@@ -1,5 +1,5 @@
 import React from "react";
-import { Alert } from "react-native";
+import { Alert, Platform, ScrollView } from "react-native";
 import { act, fireEvent, render, waitFor } from "@testing-library/react-native";
 
 import DocumentsScreen from "../screens/DocumentsScreen";
@@ -513,5 +513,55 @@ describe("US 84 - Detectar gastos asociados a documentos", () => {
 
     await pulsarBotonDelAlert(alertMock, "Éxito", "Aceptar");
     expect(mockGoBack).toHaveBeenCalledTimes(1);
+  });
+});
+
+// CP6: en la web el teclado tapaba el nombre del documento. Al enfocarlo se lo lleva por
+// encima del teclado. En Android/iOS no cambia nada.
+describe("Subir documento: el nombre queda a la vista", () => {
+  const osOriginal = Platform.OS;
+  let scrollToSpy;
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    getDocumentCategories.mockResolvedValue(categorias);
+    scrollToSpy = jest.spyOn(ScrollView.prototype, "scrollTo").mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    Platform.OS = osOriginal;
+    scrollToSpy.mockRestore();
+  });
+
+  const layout = (y, height) => ({ nativeEvent: { layout: { x: 0, y, width: 300, height } } });
+
+  async function enfocarNombre(utils) {
+    const input = utils.getByPlaceholderText("Seguro médico");
+    await act(async () => {
+      fireEvent(utils.getByTestId("documentos-scroll"), "layout", layout(0, 250));
+      // Input > caja del nombre (la View registrada).
+      fireEvent(input.parent, "layout", layout(500, 48));
+      fireEvent(input, "focus");
+    });
+  }
+
+  it("CP6 en la web enfocar el nombre lo lleva por encima del teclado", async () => {
+    Platform.OS = "web";
+    const utils = await renderPantallaCargada();
+
+    await enfocarNombre(utils);
+
+    await waitFor(() => expect(scrollToSpy).toHaveBeenCalled());
+    // abajo (548) + margen (20) - visible (250)
+    expect(scrollToSpy).toHaveBeenLastCalledWith({ y: 318, animated: true });
+  });
+
+  it("en Android/iOS no desplaza nada", async () => {
+    const utils = await renderPantallaCargada();
+
+    await enfocarNombre(utils);
+    await new Promise((resolve) => setTimeout(resolve, 450));
+
+    expect(scrollToSpy).not.toHaveBeenCalled();
   });
 });

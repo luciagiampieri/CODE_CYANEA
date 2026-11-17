@@ -51,6 +51,8 @@ export default function CrearVotacionScreen({ visible, onClose, IdViaje, onVotac
     const scrollRef = useRef(null);
     const contentY = useRef(0);
     const fieldY = useRef({});
+    // En la web, la propuesta que se acaba de agregar se lleva a la vista cuando se dibuja.
+    const propuestaPendiente = useRef(null);
 
     function scrollToField(key) {
         // Delay para esperar a que el teclado termine de aparecer
@@ -79,6 +81,7 @@ export default function CrearVotacionScreen({ visible, onClose, IdViaje, onVotac
     }
 
     function agregarPropuesta() {
+        if (Platform.OS === "web") propuestaPendiente.current = propuestas.length;
         setPropuestas((prev) => [...prev, ""]);
     }
 
@@ -392,6 +395,10 @@ export default function CrearVotacionScreen({ visible, onClose, IdViaje, onVotac
                                     style={styles.propuestaRow}
                                     onLayout={(e) => {
                                         fieldY.current[`propuesta-${index}`] = e.nativeEvent.layout.y;
+                                        if (propuestaPendiente.current === index) {
+                                            propuestaPendiente.current = null;
+                                            scrollToField(`propuesta-${index}`);
+                                        }
                                     }}
                                 >
                                     <View style={[styles.inputBox, { flex: 1, marginBottom: 0 }]}>

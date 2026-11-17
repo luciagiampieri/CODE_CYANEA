@@ -19,11 +19,15 @@ function crearEntorno({ innerHeight = 800, vvHeight = 800, offsetTop = 0, scale 
     addEventListener: (tipo, fn) => ((oyentes[`win:${tipo}`] ||= []).push(fn)),
     removeEventListener: jest.fn(),
   };
-  const root = { style: {} };
+  const body = { style: {} };
+  const root = { style: {}, parentElement: body };
+  const modales = [];
   const doc = {
     activeElement: null,
     documentElement: { style: {} },
-    body: { style: {} },
+    body,
+    modales,
+    querySelectorAll: (selector) => (selector === '[aria-modal="true"]' ? modales : []),
     getElementById: () => root,
     addEventListener: (tipo, fn) => ((oyentes[`doc:${tipo}`] ||= []).push(fn)),
     removeEventListener: jest.fn(),
@@ -78,5 +82,107 @@ describe("ajuste del área visible en la web", () => {
     jest.runAllTimers();
 
     expect(root.style).toMatchObject({ top: "260px", height: "420px" });
+  });
+
+  describe("modales (react-native-web los monta fuera de #root)", () => {
+    // Igual que react-native-web: div en <body> > animación > contenido con aria-modal.
+    function agregarModal(doc) {
+      const portal = { style: {}, parentElement: doc.body };
+      const animacion = { style: {}, parentElement: portal };
+      const contenido = { style: {}, parentElement: animacion };
+      doc.modales.push(contenido);
+      return portal;
+    }
+
+    const ESTILOS_PORTAL = ["position", "left", "right", "top", "height", "transform"];
+    const sinEstilosInline = (portal) =>
+      ESTILOS_PORTAL.every((prop) => !portal.style[prop]);
+
+    it("con el teclado abierto el modal toma el área visible", () => {
+      const { win, doc } = crearEntorno({ vvHeight: 420, offsetTop: 260 });
+      const portal = agregarModal(doc);
+
+      instalarAjusteViewport(win, doc);
+
+      expect(portal.style).toEqual({
+        position: "fixed",
+        left: "0",
+        right: "0",
+        top: "260px",
+        height: "420px",
+        transform: "translateZ(0)",
+      });
+    });
+
+    it("sin teclado el modal queda como hoy, sin estilos inline", () => {
+      const { win, doc } = crearEntorno();
+      const portal = agregarModal(doc);
+
+      instalarAjusteViewport(win, doc);
+
+      expect(portal.style).toEqual({});
+    });
+
+    it("al cerrar el teclado se quitan por completo los estilos del modal", () => {
+      const { win, vv, doc, emitir } = crearEntorno({ vvHeight: 420, offsetTop: 260 });
+      const portal = agregarModal(doc);
+      instalarAjusteViewport(win, doc);
+      expect(portal.style.top).toBe("260px");
+
+      vv.height = 800;
+      vv.offsetTop = 0;
+      emitir("vv:resize");
+
+      expect(sinEstilosInline(portal)).toBe(true);
+    });
+
+    it("no toca #root como modal ni lo que no tiene aria-modal", () => {
+      const { win, doc, root } = crearEntorno({ vvHeight: 420, offsetTop: 260 });
+      // Algo con aria-modal dentro de #root y un div de <body> sin aria-modal.
+      doc.modales.push({ style: {}, parentElement: root });
+      const otroDiv = { style: {}, parentElement: doc.body };
+
+      instalarAjusteViewport(win, doc);
+
+      expect(root.style.transform).toBeUndefined();
+      expect(root.style).toMatchObject({ position: "fixed", top: "260px", height: "420px" });
+      expect(otroDiv.style).toEqual({});
+    });
+
+    it("un modal que se abre con el teclado ya abierto se ajusta al enfocar su campo", () => {
+      const { win, doc, emitir } = crearEntorno({ vvHeight: 420, offsetTop: 260 });
+      instalarAjusteViewport(win, doc);
+      const portal = agregarModal(doc);
+      expect(portal.style).toEqual({});
+
+      emitir("doc:focusin");
+
+      expect(portal.style).toMatchObject({ top: "260px", height: "420px" });
+    });
+
+    it("en la compu enfocar un campo no cambia nada: ni #root ni los modales", () => {
+      const { win, doc, root, emitir } = crearEntorno();
+      const portal = agregarModal(doc);
+      instalarAjusteViewport(win, doc);
+      const rootAntes = { ...root.style };
+      win.scrollTo.mockClear();
+
+      doc.activeElement = { tagName: "INPUT" };
+      emitir("doc:focusin");
+
+      expect(root.style).toEqual(rootAntes);
+      expect(portal.style).toEqual({});
+      expect(win.scrollTo).not.toHaveBeenCalled();
+    });
+
+    it("al desinstalar el ajuste los modales vuelven a quedar sin estilos", () => {
+      const { win, doc } = crearEntorno({ vvHeight: 420, offsetTop: 260 });
+      const portal = agregarModal(doc);
+      const desinstalar = instalarAjusteViewport(win, doc);
+
+      desinstalar();
+
+      expect(sinEstilosInline(portal)).toBe(true);
+    });
   });
 });

@@ -475,6 +475,7 @@ export default function TripDetailScreen({ navigation, route }) {
   const documentosCardRef = useRef(null);
   const informacionCardRef = useRef(null);
   const checklistsCardRef = useRef(null);
+  const invitePanelRef = useRef(null);
   const pendingCenterGastos = useRef(false);
 
   const [keyboardInset, setKeyboardInset] = useState(0);
@@ -582,6 +583,18 @@ export default function TripDetailScreen({ navigation, route }) {
       hideSubscription.remove();
     };
   }, []);
+
+  // En la web el teclado no avisa por Keyboard (keyboardInset queda en 0): al enfocar el
+  // buscador de invitar se lo lleva arriba, igual que los buscadores de Documentos.
+  // En Android/iOS no cambia nada.
+  function mostrarBuscadorInvitar() {
+    if (Platform.OS !== "web") return;
+    setTimeout(() => {
+      if (scrollRef.current && invitePanelRef.current) {
+        centerInScroll(scrollRef.current, invitePanelRef.current, { align: "top", margin: spacing.sm });
+      }
+    }, 300);
+  }
 
   function centerGastosCardTop() {
     if (scrollRef.current && gastosCardRef.current) {
@@ -4074,7 +4087,12 @@ export default function TripDetailScreen({ navigation, route }) {
                 </View>
 
                 {canInviteToGroup && showInvitePanel ? (
-                  <View style={styles.invitePanel}>
+                  <View
+                    collapsable={false}
+                    ref={invitePanelRef}
+                    style={styles.invitePanel}
+                    testID="grupo-invite-panel"
+                  >
                     <ParticipantSearch
                       canInviteExternal={canInviteExternal}
                       message={participantMessage}
@@ -4084,6 +4102,7 @@ export default function TripDetailScreen({ navigation, route }) {
                       search={participantSearch}
                       showLabel={false}
                       suggestions={selectableUsers}
+                      onFocus={mostrarBuscadorInvitar}
                     />
                     {trip.status === "activo" ? <TripInvitationLink tripId={trip.id} /> : null}
                   </View>

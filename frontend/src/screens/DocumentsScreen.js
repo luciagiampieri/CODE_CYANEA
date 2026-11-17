@@ -28,6 +28,7 @@ import {
 } from "../services/api";
 
 import { colors, radii, spacing, surfaces, textStyles } from "../theme/tokens";
+import useScrollAlCampo from "../hooks/useScrollAlCampo";
 
 import { esErrorDeLimite, irAPlanes, mostrarLimiteAlcanzado } from "../utils/limitesPlan";
 
@@ -70,6 +71,9 @@ export default function DocumentsScreen({
     tarea = null,
     puedeGuardarOffline = false,
 }) {
+    // En la web el teclado tapaba el nombre del documento: se lo lleva a la vista.
+    // En Android/iOS no hace nada.
+    const formScroll = useScrollAlCampo({ soloWeb: true });
 
     const [loading, setLoading] = useState(true);
     const [loadError, setLoadError] = useState("");
@@ -391,7 +395,13 @@ export default function DocumentsScreen({
             <Modal animationType="slide" transparent visible={visible} onRequestClose={onClose}>
                 <View style={styles.overlay}>
                     <View style={styles.sheet}>
-                        <ScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+                        <ScrollView
+                            ref={formScroll.ref}
+                            {...formScroll.scrollProps}
+                            keyboardShouldPersistTaps="handled"
+                            showsVerticalScrollIndicator={false}
+                            testID="documentos-scroll"
+                        >
                             <View style={styles.headerRow}>
                                 <Text style={styles.title}>Subir documento</Text>
                                 <TouchableOpacity onPress={onClose} testID="close-modal-button">
@@ -408,7 +418,7 @@ export default function DocumentsScreen({
                                     <Text style={styles.error}>{loadError}</Text>
                                 </View>
                             ) : (
-                                <View style={styles.content}>
+                                <View style={styles.content} onLayout={formScroll.registrarContenedor("contenido")}>
 
                                     {tarea ? (
                                         <View style={styles.tareaBox} testID="documentos-tarea">
@@ -479,11 +489,15 @@ export default function DocumentsScreen({
                                     ) : null}
 
                                     <Text style={styles.label}>Nombre del documento</Text>
-                                    <View style={[styles.inputBox, errores.nombre && { borderColor: colors.danger }]}>
+                                    <View
+                                        style={[styles.inputBox, errores.nombre && { borderColor: colors.danger }]}
+                                        onLayout={formScroll.registrar("nombre", "contenido")}
+                                    >
                                         <FontAwesome6 name="pen" size={13} color={colors.overlay} />
                                         <TextInput
                                             style={styles.inputInner}
                                             value={nombreDocumento}
+                                            onFocus={() => formScroll.enfocar("nombre")}
                                             onChangeText={(text) => {
                                                 setNombreDocumento(text);
                                                 limpiarError("nombre");

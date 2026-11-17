@@ -1,5 +1,6 @@
 import React from "react";
 import { act, fireEvent, render, waitFor } from "@testing-library/react-native";
+import { Platform, ScrollView } from "react-native";
 
 import LoginScreen from "../screens/LoginScreen";
 import { loginUser } from "../services/api";
@@ -173,5 +174,59 @@ describe("US - Iniciar sesión (LoginScreen)", () => {
     await press(utils, "Reenviar confirmación");
     expect(mockNavigate).toHaveBeenCalledWith("ResendConfirmation", { email: "persona@mail.com" });
     expect(mockLogin).not.toHaveBeenCalled();
+  });
+});
+
+// En la web el teclado tapaba el campo que se estaba completando: al enfocarlo se lo lleva
+// por encima del teclado. En Android/iOS no cambia nada.
+describe("Login: el campo enfocado queda a la vista", () => {
+  const osOriginal = Platform.OS;
+  let scrollToSpy;
+
+  beforeEach(() => {
+    scrollToSpy = jest.spyOn(ScrollView.prototype, "scrollTo").mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    Platform.OS = osOriginal;
+    scrollToSpy.mockRestore();
+  });
+
+  // persist: en Android/iOS el ScrollView y el campo no tienen onLayout (el hook es solo web)
+  // y el evento sube hasta el KeyboardAvoidingView, que lo llama.
+  const layout = (y, height) => ({
+    persist: () => {},
+    nativeEvent: { layout: { x: 0, y, width: 300, height } },
+  });
+
+  // Área visible chica (teclado abierto) y la contraseña más abajo.
+  async function enfocarPassword(utils) {
+    const input = utils.getByTestId("login-password-input");
+    await act(async () => {
+      fireEvent(utils.getByTestId("login-scroll"), "layout", layout(0, 300));
+      // Input > caja del input > View del campo.
+      fireEvent(input.parent.parent, "layout", layout(600, 60));
+      fireEvent(input, "focus");
+    });
+  }
+
+  it("CP1 en la web enfocar la contraseña la lleva por encima del teclado", async () => {
+    Platform.OS = "web";
+    const utils = await render(<LoginScreen navigation={{ navigate: jest.fn() }} />);
+
+    await enfocarPassword(utils);
+
+    await waitFor(() => expect(scrollToSpy).toHaveBeenCalled());
+    // abajo (660) + margen (20) - visible (300)
+    expect(scrollToSpy).toHaveBeenLastCalledWith({ y: 380, animated: true });
+  });
+
+  it("en Android/iOS no desplaza nada", async () => {
+    const utils = await render(<LoginScreen navigation={{ navigate: jest.fn() }} />);
+
+    await enfocarPassword(utils);
+    await new Promise((resolve) => setTimeout(resolve, 450));
+
+    expect(scrollToSpy).not.toHaveBeenCalled();
   });
 });

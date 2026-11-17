@@ -1,5 +1,5 @@
 import React from "react";
-import { Keyboard, Platform, TextInput } from "react-native";
+import { Keyboard, Platform, ScrollView, TextInput } from "react-native";
 import { act, fireEvent, render, waitFor } from "@testing-library/react-native";
 
 import CreateTripScreen from "../screens/CreateTripScreen";
@@ -1249,6 +1249,65 @@ describe("US - Crear viaje (CreateTripScreen)", () => {
 
       await tocarBuscadorYAgregar(utils, CAFAYATE, 2);
       expect(focusSpy).not.toHaveBeenCalled();
+    });
+  });
+
+  // CP2: en la web el teclado tapaba el buscador de participantes del paso 3. Al enfocarlo
+  // se lo lleva por encima del teclado. En Android/iOS no cambia nada.
+  describe("paso 3: el buscador de participantes queda a la vista", () => {
+    const osOriginal = Platform.OS;
+    let scrollToSpy;
+
+    beforeEach(() => {
+      searchDestinations.mockResolvedValue([BARILOCHE_SUGERENCIA]);
+      resolveDestination.mockResolvedValue(BARILOCHE_RESUELTO);
+      scrollToSpy = jest.spyOn(ScrollView.prototype, "scrollTo").mockImplementation(() => {});
+    });
+
+    afterEach(() => {
+      Platform.OS = osOriginal;
+      scrollToSpy.mockRestore();
+    });
+
+    const layout = (y, height) => ({ nativeEvent: { layout: { x: 0, y, width: 300, height } } });
+
+    async function irAlPaso3ConDestino() {
+      const utils = await abrirBuscadorDeDestinos();
+      await agregarBariloche(utils);
+      await press(utils, "Listo · 1 destino");
+      await irAlPaso3(utils);
+      return utils;
+    }
+
+    async function enfocarBuscador(utils) {
+      scrollToSpy.mockClear();
+      const input = utils.getByPlaceholderText("Busca por usuario o correo");
+      await act(async () => {
+        fireEvent(utils.getByTestId("create-trip-scroll"), "layout", layout(0, 300));
+        // Input > caja del buscador (la View registrada).
+        fireEvent(input.parent, "layout", layout(600, 50));
+        fireEvent(input, "focus");
+      });
+    }
+
+    it("CP2 en la web enfocar el buscador lo lleva por encima del teclado", async () => {
+      const utils = await irAlPaso3ConDestino();
+      Platform.OS = "web";
+
+      await enfocarBuscador(utils);
+
+      await waitFor(() => expect(scrollToSpy).toHaveBeenCalled());
+      // abajo (650) + margen (20) - visible (300)
+      expect(scrollToSpy).toHaveBeenLastCalledWith({ y: 370, animated: true });
+    });
+
+    it("en Android/iOS enfocar el buscador no desplaza nada", async () => {
+      const utils = await irAlPaso3ConDestino();
+
+      await enfocarBuscador(utils);
+      await new Promise((resolve) => setTimeout(resolve, 450));
+
+      expect(scrollToSpy).not.toHaveBeenCalled();
     });
   });
 

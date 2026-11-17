@@ -33,6 +33,22 @@ function hayCampoEnfocado(doc) {
   return tag === "input" || tag === "textarea" || activo.isContentEditable === true;
 }
 
+const PROPIEDADES_PORTAL = ["position", "left", "right", "top", "height", "transform"];
+
+// Contenedor (hijo directo de <body>, que no sea #root) de cada modal con aria-modal.
+export function portalesDeModales(doc, root) {
+  const modales = Array.from(doc.querySelectorAll?.('[aria-modal="true"]') ?? []);
+  const portales = new Set();
+  modales.forEach((modal) => {
+    let nodo = modal;
+    while (nodo && nodo.parentElement && nodo.parentElement !== doc.body) {
+      nodo = nodo.parentElement;
+    }
+    if (nodo && nodo.parentElement === doc.body && nodo !== root) portales.add(nodo);
+  });
+  return Array.from(portales);
+}
+
 export function instalarAjusteViewport(win = window, doc = document) {
   const root = doc.getElementById("root");
   if (!root) return () => {};
@@ -45,12 +61,58 @@ export function instalarAjusteViewport(win = window, doc = document) {
   root.style.left = "0";
   root.style.right = "0";
 
+  // Modales: react-native-web los monta en un div agregado a <body>, fuera de #root, con
+  // `position: fixed` a pantalla completa, así que no se achicaban con el teclado y la hoja
+  // quedaba detrás. Solo MIENTRAS el teclado está abierto, el portal toma el área visible
+  // (el `transform` hace que sus hijos `fixed` se ubiquen respecto de él). Al cerrarlo se
+  // restauran los valores inline originales (vacíos): sin teclado nada cambia.
+  const portalesAjustados = new Map();
+
+  const restaurarPortales = () => {
+    portalesAjustados.forEach((originales, portal) => {
+      PROPIEDADES_PORTAL.forEach((prop) => {
+        portal.style[prop] = originales[prop];
+      });
+    });
+    portalesAjustados.clear();
+  };
+
+  const ajustarPortales = () => {
+    if (!tecladoAbierto(win)) {
+      restaurarPortales();
+      return;
+    }
+    const { top, height } = calcularAreaRoot(win);
+    portalesDeModales(doc, root).forEach((portal) => {
+      if (!portalesAjustados.has(portal)) {
+        const originales = {};
+        PROPIEDADES_PORTAL.forEach((prop) => {
+          originales[prop] = portal.style[prop] ?? "";
+        });
+        portalesAjustados.set(portal, originales);
+      }
+      portal.style.position = "fixed";
+      portal.style.left = "0";
+      portal.style.right = "0";
+      portal.style.top = `${top}px`;
+      portal.style.height = `${height}px`;
+      portal.style.transform = "translateZ(0)";
+    });
+  };
+
   const ajustar = () => {
     const { top, height } = calcularAreaRoot(win);
     root.style.top = `${top}px`;
     root.style.height = `${height}px`;
     // Sin teclado, la página no tiene que quedar desplazada.
     if (top === 0 && win.scrollY) win.scrollTo(0, 0);
+    ajustarPortales();
+  };
+
+  // Un modal que se abre con el teclado ya abierto no dispara un resize: se ajusta al
+  // enfocar su campo. No toca #root ni hace nada sin teclado (en la compu queda igual).
+  const alEntrarAUnCampo = () => {
+    if (tecladoAbierto(win)) ajustarPortales();
   };
 
   const timers = new Set();
@@ -70,12 +132,15 @@ export function instalarAjusteViewport(win = window, doc = document) {
   vv?.addEventListener("scroll", ajustar);
   win.addEventListener("resize", ajustar);
   doc.addEventListener("focusout", alSalirDeUnCampo);
+  doc.addEventListener("focusin", alEntrarAUnCampo);
 
   return () => {
     vv?.removeEventListener("resize", ajustar);
     vv?.removeEventListener("scroll", ajustar);
     win.removeEventListener("resize", ajustar);
     doc.removeEventListener("focusout", alSalirDeUnCampo);
+    doc.removeEventListener("focusin", alEntrarAUnCampo);
     timers.forEach((id) => win.clearTimeout(id));
+    restaurarPortales();
   };
 }

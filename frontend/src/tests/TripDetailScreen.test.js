@@ -1,5 +1,5 @@
 import { act, fireEvent, render, waitFor } from "@testing-library/react-native";
-import { Alert } from "react-native";
+import { Alert, Platform } from "react-native";
 
 import TripDetailScreen from "../screens/TripDetailScreen";
 import ChecklistsByCategory from "../components/trip/ChecklistsByCategory";
@@ -585,5 +585,37 @@ describe("buscadores y categorías: llevar a la vista la tarjeta correcta", () =
 
     await waitFor(() => expect(centerInScroll).toHaveBeenCalled());
     expect(nodoCentrado()?.props.testID).toBe("checklists-lista");
+  });
+
+  describe("CP2 invitar participante desde Grupo", () => {
+    const osOriginal = Platform.OS;
+    afterEach(() => {
+      Platform.OS = osOriginal;
+    });
+
+    async function enfocarBuscadorInvitar() {
+      const utils = await renderPantalla();
+      await fireEvent.press(await utils.findByRole("tab", { name: "Grupo" }));
+      await fireEvent.press(await utils.findByTestId("group-invite-toggle"));
+      await act(async () => {
+        fireEvent(await utils.findByPlaceholderText("Busca por usuario o correo"), "focus");
+      });
+      return utils;
+    }
+
+    test("en la web, enfocar el buscador lleva el panel de invitar por encima del teclado", async () => {
+      Platform.OS = "web";
+      await enfocarBuscadorInvitar();
+
+      await waitFor(() => expect(centerInScroll).toHaveBeenCalled());
+      expect(nodoCentrado()?.props.testID).toBe("grupo-invite-panel");
+    });
+
+    test("en Android/iOS no desplaza nada", async () => {
+      await enfocarBuscadorInvitar();
+      await new Promise((resolve) => setTimeout(resolve, 450));
+
+      expect(centerInScroll).not.toHaveBeenCalled();
+    });
   });
 });
