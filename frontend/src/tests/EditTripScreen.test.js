@@ -1,5 +1,5 @@
 import React from "react";
-import { Image, Keyboard } from "react-native";
+import { Image, Keyboard, Platform, TextInput } from "react-native";
 import { act, fireEvent, render, waitFor } from "@testing-library/react-native";
 
 import EditTripScreen from "../screens/EditTripScreen";
@@ -1464,6 +1464,79 @@ describe("US - Editar viaje (EditTripScreen)", () => {
   // ---------------------------------------------------------------------------
   // Portada
   // ---------------------------------------------------------------------------
+  // En web, TouchableWithoutFeedback + Keyboard.dismiss alrededor del buscador le quitaba el
+  // foco al campo al tocarlo: solo se podía agregar el primer destino (el del autoFocus).
+  describe("buscador de destinos: agregar dos destinos seguidos", () => {
+    const SALTA = { name: "Salta", country: "Argentina", placeId: "google:salta-id" };
+    const CAFAYATE = { name: "Cafayate", country: "Argentina", placeId: "google:cafayate-id" };
+    const osOriginal = Platform.OS;
+    let dismissSpy;
+    let focusSpy;
+
+    beforeEach(() => {
+      getTripDetail.mockResolvedValue({ ...tripFuturo, destinations: [] });
+      searchDestinations.mockResolvedValue([]);
+      resolveDestination.mockImplementation(async (placeId) =>
+        [SALTA, CAFAYATE].find((d) => d.placeId === placeId)
+      );
+      dismissSpy = jest.spyOn(Keyboard, "dismiss").mockImplementation(() => {});
+      focusSpy = jest.spyOn(TextInput.prototype, "focus").mockImplementation(() => {});
+    });
+
+    afterEach(() => {
+      Platform.OS = osOriginal;
+      dismissSpy.mockRestore();
+      focusSpy.mockRestore();
+    });
+
+    // Toca el buscador (como para volver a escribir) y agrega el destino.
+    async function tocarBuscadorYAgregar(utils, destino, cantidad) {
+      await act(async () => {
+        fireEvent.press(utils.getByPlaceholderText(PLACEHOLDER_BUSCADOR));
+      });
+      searchDestinations.mockResolvedValue([destino]);
+      await buscarDestino(utils, destino.name);
+      await waitFor(() => expect(utils.getByLabelText(`Agregar ${destino.name}`)).toBeTruthy());
+      await act(async () => {
+        fireEvent.press(utils.getByLabelText(`Agregar ${destino.name}`));
+      });
+      await waitFor(() =>
+        expect(utils.getByText(`Listo · ${cantidad} ${cantidad === 1 ? "destino" : "destinos"}`)).toBeTruthy()
+      );
+    }
+
+    it("CP1 en web tocar el buscador no le quita el foco y se agregan dos destinos seguidos", async () => {
+      const utils = await renderPantallaCargada();
+      Platform.OS = "web";
+      await abrirBuscadorDeDestinos(utils, "Buscar ciudad o país...");
+      dismissSpy.mockClear(); // al abrir se cierra el teclado de la pantalla de fondo
+
+      await tocarBuscadorYAgregar(utils, SALTA, 1);
+      // Después de agregar, el buscador vuelve a quedar listo para escribir.
+      expect(focusSpy).toHaveBeenCalledTimes(1);
+      expect(utils.getByPlaceholderText(PLACEHOLDER_BUSCADOR).props.value).toBe("");
+
+      await tocarBuscadorYAgregar(utils, CAFAYATE, 2);
+      expect(focusSpy).toHaveBeenCalledTimes(2);
+
+      expect(dismissSpy).not.toHaveBeenCalled();
+      expect(utils.getAllByText("Salta").length).toBeGreaterThan(0);
+      expect(utils.getAllByText("Cafayate").length).toBeGreaterThan(0);
+    });
+
+    it("CP2 en Android/iOS tocar el buscador sigue cerrando el teclado y no fuerza el foco", async () => {
+      const utils = await renderPantallaCargada();
+      await abrirBuscadorDeDestinos(utils, "Buscar ciudad o país...");
+      dismissSpy.mockClear();
+
+      await tocarBuscadorYAgregar(utils, SALTA, 1);
+      expect(dismissSpy).toHaveBeenCalled();
+
+      await tocarBuscadorYAgregar(utils, CAFAYATE, 2);
+      expect(focusSpy).not.toHaveBeenCalled();
+    });
+  });
+
   describe("portada del viaje", () => {
     it("muestra la portada según el destino cuando no hay una personalizada", async () => {
       getTripDetail.mockResolvedValue(tripConPortadaGoogle);

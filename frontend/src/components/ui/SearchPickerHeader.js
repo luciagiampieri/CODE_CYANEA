@@ -29,6 +29,7 @@ export default function SearchPickerHeader({
   autoFocus = true,
   backLabel = "Volver",
   testID,
+  inputRef,
 }) {
   const [focused, setFocused] = useState(false);
   const insets = useContext(SafeAreaInsetsContext) || { top: 0 };
@@ -55,6 +56,7 @@ export default function SearchPickerHeader({
       <View style={[styles.search, focused && styles.searchFocused]}>
         <FontAwesome6 name="magnifying-glass" size={14} color={colors.primary} />
         <TextInput
+          ref={inputRef}
           value={value}
           onChangeText={onChangeText}
           onFocus={() => setFocused(true)}

@@ -1,7 +1,7 @@
 import React from "react";
 import { act, fireEvent, render } from "@testing-library/react-native";
 
-import { StyleSheet } from "react-native";
+import { StyleSheet, TextInput } from "react-native";
 import { SafeAreaInsetsContext } from "react-native-safe-area-context";
 
 import SearchPickerHeader, { SEARCH_PICKER_EDGES } from "../components/ui/SearchPickerHeader";
@@ -45,6 +45,13 @@ describe("SearchPickerHeader", () => {
     const utils = await render(<SearchPickerHeader {...props} value="Roma" loading />);
 
     expect(utils.queryByLabelText("Borrar búsqueda")).toBeNull();
+  });
+
+  it("inputRef apunta al campo de búsqueda para poder devolverle el foco", async () => {
+    const inputRef = React.createRef();
+    await render(<SearchPickerHeader {...props} inputRef={inputRef} />);
+
+    expect(inputRef.current).toBeInstanceOf(TextInput);
   });
 
   it("deja el margen de la barra de estado una sola vez", async () => {
