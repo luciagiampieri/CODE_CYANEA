@@ -141,4 +141,53 @@ describe("useScrollAlCampo", () => {
 
     expect(scrollTo).not.toHaveBeenCalled();
   });
+
+  // En la web onLayout solo avisa cambios de tamaño: si lo de arriba del campo cambia después
+  // (barra de espacio, tarjeta del archivo en Subir documento), la posición guardada queda vieja.
+  describe("registrarNodo: medir el campo al enfocarlo", () => {
+    function conNodo(result, key, medir) {
+      const contenido = {};
+      result.current.ref.current.getInnerViewRef = () => contenido;
+      const nodo = { measureLayout: jest.fn((relativoA, ok, error) => medir(relativoA, ok, error)) };
+      result.current.registrarNodo(key)(nodo);
+      return { nodo, contenido };
+    }
+
+    it("usa la posición medida aunque la de onLayout haya quedado vieja", async () => {
+      Platform.OS = "web";
+      const { result, scrollTo } = await montar({ soloWeb: true });
+      await verVisible(result, 300);
+      // onLayout dijo 100 (se ve), pero lo de arriba creció y el campo ahora está en 400.
+      await medir(() => result.current.registrar("nombre")(layout(100, 50)));
+      const { nodo, contenido } = conNodo(result, "nombre", (_rel, ok) => ok(0, 400, 300, 50));
+
+      await enfocarYEsperar(result, "nombre");
+
+      expect(nodo.measureLayout).toHaveBeenCalledWith(contenido, expect.any(Function), expect.any(Function));
+      expect(scrollTo).toHaveBeenLastCalledWith({ y: 170, animated: true });
+    });
+
+    it("si la medición falla usa la posición de onLayout", async () => {
+      Platform.OS = "web";
+      const { result, scrollTo } = await montar({ soloWeb: true });
+      await verVisible(result, 300);
+      await medir(() => result.current.registrar("nombre")(layout(400, 50)));
+      conNodo(result, "nombre", (_rel, _ok, error) => error());
+
+      await enfocarYEsperar(result, "nombre");
+
+      expect(scrollTo).toHaveBeenLastCalledWith({ y: 170, animated: true });
+    });
+
+    it("el ref es el mismo en cada render, así no se registra de nuevo", async () => {
+      const { result } = await montar();
+      expect(result.current.registrarNodo("nombre")).toBe(result.current.registrarNodo("nombre"));
+    });
+
+    it("con soloWeb en Android/iOS no devuelve ref", async () => {
+      Platform.OS = "ios";
+      const { result } = await montar({ soloWeb: true });
+      expect(result.current.registrarNodo("nombre")).toBeUndefined();
+    });
+  });
 });

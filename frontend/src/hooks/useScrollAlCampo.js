@@ -16,6 +16,10 @@ import { Platform } from "react-native";
  *   `registrar(key, clave)`: la posición suma la cadena de contenedores.
  * - `registrarBase` es el contenedor "base", el que usan los campos registrados sin contenedor
  *   (si nadie lo registra vale 0).
+ * - `registrarNodo(key)` devuelve un `ref` para la View del campo: con él la posición se mide
+ *   al enfocar (`measureLayout`) en lugar de usar la de `onLayout`. Hace falta cuando lo que
+ *   está arriba del campo cambia después de montarse (en la web `onLayout` solo avisa cuando el
+ *   campo cambia de tamaño, no cuando se mueve). Si la medición falla, se usa la de `onLayout`.
  * - `soloWeb: true` (opción del hook): fuera de la web el hook no hace nada y no agrega props.
  *   `enfocar(key, { soloWeb: true })` hace lo mismo para un solo campo.
  *
@@ -28,6 +32,8 @@ export default function useScrollAlCampo({ margen = 20, soloWeb = false } = {}) 
   const alturaVisible = useRef(0);
   const campos = useRef({});
   const contenedores = useRef({});
+  const nodos = useRef({});
+  const refsDeNodos = useRef({});
   const activo = useRef(null);
   const inerte = soloWeb && Platform.OS !== "web";
 
@@ -46,25 +52,50 @@ export default function useScrollAlCampo({ margen = 20, soloWeb = false } = {}) 
     return total;
   }, []);
 
+  // Mueve el scroll lo justo para que el campo (arriba/alto en el contenido) quede visible.
+  const desplazarHasta = useCallback(
+    (arriba, alto) => {
+      if (!alturaVisible.current) return;
+      const abajo = arriba + alto;
+      const visibleArriba = scrollY.current;
+      const visibleAbajo = scrollY.current + alturaVisible.current;
+
+      let destino = null;
+      if (abajo + margen > visibleAbajo) {
+        destino = abajo + margen - alturaVisible.current;
+      } else if (arriba - margen < visibleArriba) {
+        destino = arriba - margen;
+      }
+      if (destino !== null) {
+        ref.current?.scrollTo?.({ y: Math.max(0, destino), animated: true });
+      }
+    },
+    [margen]
+  );
+
   const asegurarVisible = useCallback(() => {
-    const campo = activo.current != null ? campos.current[activo.current] : null;
-    if (!campo || !alturaVisible.current) return;
+    const key = activo.current;
+    if (key == null || !alturaVisible.current) return;
+    const campo = campos.current[key];
+    const desdeOnLayout = () => {
+      if (campo) desplazarHasta(desplazamiento(campo.contenedor) + campo.y, campo.h);
+    };
 
-    const arriba = desplazamiento(campo.contenedor) + campo.y;
-    const abajo = arriba + campo.h;
-    const visibleArriba = scrollY.current;
-    const visibleAbajo = scrollY.current + alturaVisible.current;
-
-    let destino = null;
-    if (abajo + margen > visibleAbajo) {
-      destino = abajo + margen - alturaVisible.current;
-    } else if (arriba - margen < visibleArriba) {
-      destino = arriba - margen;
+    // Con nodo registrado se mide la posición real en este momento: en la web onLayout solo
+    // avisa cuando el campo cambia de tamaño, no cuando se mueve porque cambió lo de arriba.
+    const nodo = nodos.current[key];
+    const scroller = ref.current;
+    const contenido = scroller?.getInnerViewRef?.() ?? scroller?.getScrollableNode?.();
+    if (!nodo || !contenido || typeof nodo.measureLayout !== "function") {
+      desdeOnLayout();
+      return;
     }
-    if (destino !== null) {
-      ref.current?.scrollTo?.({ y: Math.max(0, destino), animated: true });
+    try {
+      nodo.measureLayout(contenido, (_x, y, _ancho, alto) => desplazarHasta(y, alto), desdeOnLayout);
+    } catch {
+      desdeOnLayout();
     }
-  }, [margen, desplazamiento]);
+  }, [desplazamiento, desplazarHasta]);
 
   const registrarContenedor = useCallback(
     (clave, padre = null) =>
@@ -87,6 +118,17 @@ export default function useScrollAlCampo({ margen = 20, soloWeb = false } = {}) 
     []
   );
 
+  // Ref (estable por campo) para la View del campo: permite medir su posición real al enfocar.
+  const registrarNodo = useCallback((key) => {
+    if (!refsDeNodos.current[key]) {
+      refsDeNodos.current[key] = (nodo) => {
+        if (nodo) nodos.current[key] = nodo;
+        else delete nodos.current[key];
+      };
+    }
+    return refsDeNodos.current[key];
+  }, []);
+
   const enfocar = useCallback(
     (key, opciones = {}) => {
       if (inerte || (opciones.soloWeb && Platform.OS !== "web")) return;
@@ -108,6 +150,7 @@ export default function useScrollAlCampo({ margen = 20, soloWeb = false } = {}) 
       scrollProps: {},
       registrar: sinMedir,
       registrarContenedor: sinMedir,
+      registrarNodo: sinMedir,
       registrarBase: undefined,
       enfocar,
       limpiar,
@@ -130,6 +173,7 @@ export default function useScrollAlCampo({ margen = 20, soloWeb = false } = {}) 
     scrollProps,
     registrar,
     registrarContenedor,
+    registrarNodo,
     registrarBase,
     enfocar,
     limpiar,

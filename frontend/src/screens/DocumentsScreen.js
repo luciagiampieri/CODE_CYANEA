@@ -489,7 +489,11 @@ export default function DocumentsScreen({
                                     ) : null}
 
                                     <Text style={styles.label}>Nombre del documento</Text>
+                                    {/* La barra de espacio y la tarjeta del archivo aparecen después y mueven este
+                                        campo sin cambiarle el tamaño: por eso se mide al enfocarlo (registrarNodo). */}
                                     <View
+                                        ref={formScroll.registrarNodo("nombre")}
+                                        collapsable={false}
                                         style={[styles.inputBox, errores.nombre && { borderColor: colors.danger }]}
                                         onLayout={formScroll.registrar("nombre", "contenido")}
                                     >
