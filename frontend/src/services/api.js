@@ -1171,6 +1171,17 @@ export async function cancelarVotacion(idVotacion) {
   return parseResponse(response, "No se pudo cancelar la votación");
 }
 
+export async function resolverEmpateVotacion(idVotacion, idPropuesta) {
+  const response = await fetch(`${API_BASE_URL}/votaciones/${idVotacion}/desempate`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(await authHeaders()),
+    },
+    body: JSON.stringify({ idPropuesta }),
+  });
+  return parseResponse(response, "No se pudo elegir la propuesta ganadora");
+}
 
 function activityWarningQuery(options = {}) {
   return options.ignorarAdvertencia ? "?ignorar_advertencia=true" : "";

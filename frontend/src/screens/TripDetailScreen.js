@@ -47,6 +47,7 @@ import {
   emitirVoto,
   modificarVoto,
   cancelarVotacion,
+  resolverEmpateVotacion,
   getCurrentUser,
   getTripSettlement,
   getTripDetail,
@@ -416,6 +417,7 @@ export default function TripDetailScreen({ navigation, route }) {
   const [cancelandoId, setCancelandoId] = useState(null);
   const [votosSeleccionados, setVotosSeleccionados] = useState({});
   const [cambiandoVotoId, setCambiandoVotoId] = useState(null);
+  const [eligiendoGanadoraId, setEligiendoGanadoraId] = useState(null); 
   const [resultadosPorVotacion, setResultadosPorVotacion] = useState({});
   const votacionesVisibles = useMemo(
     () =>
@@ -3659,6 +3661,7 @@ export default function TripDetailScreen({ navigation, route }) {
                 const esCreador =
                   currentUser && String(currentUser.id) === String(votacion.IdCreador);
                 const puedeCancelar = esCreador && !finalizada && lock.canEdit("votaciones");
+                const puedeDesempatar = Boolean(esCreador) && lock.canEdit("votaciones");
                 const estadoVotacion =
                   votacion.Estado || (finalizada ? "cerrada" : "abierta");
                 const estadoLabel =
@@ -3812,6 +3815,44 @@ export default function TripDetailScreen({ navigation, route }) {
                   );
                 };
 
+                const elegirGanadora = (propuesta) => {
+                  if (!puedeDesempatar || eligiendoGanadoraId) return;
+                  confirmar(
+                    "Elegir ganadora",
+                    `¿Agregar "${propuesta.Texto}" al itinerario? Las demás opciones se van a descartar.`,
+                    async () => {
+                      try {
+                        setEligiendoGanadoraId(votacion.IdVotacion);
+                        await resolverEmpateVotacion(votacion.IdVotacion, propuesta.IdPropuesta);
+                        const data = await getResultadosVotacion(votacion.IdVotacion);
+                        setResultadosPorVotacion((prev) => ({
+                          ...prev,
+                          [votacion.IdVotacion]: data,
+                        }));
+                        await loadVotaciones();
+                        cargarSugerencias();
+                        loadTripDetail({ silencioso: true });
+                        avisar("¡Listo!", "La actividad elegida se agregó al itinerario.");
+                      } catch (error) {
+                        avisar(
+                          "No se pudo elegir la ganadora",
+                          error.message || "Ocurrió un error. Intentá nuevamente."
+                        );
+                        if (error?.status === 409) {
+                          setResultadosPorVotacion((prev) => {
+                            const { [votacion.IdVotacion]: _descartado, ...resto } = prev;
+                            return resto;
+                          });
+                          loadVotaciones();
+                          cargarSugerencias();
+                        }
+                      } finally {
+                        setEligiendoGanadoraId(null);
+                      }
+                    }
+                  );
+                };
+
                 return (
                   <View key={votacion.IdVotacion} style={styles.sectionCard}>
                     <View
@@ -3931,6 +3972,9 @@ export default function TripDetailScreen({ navigation, route }) {
                               titulo={votacion.Titulo}
                               onElegirOpcion={puedeCambiarVoto ? cambiarVoto : undefined}
                               cambiandoVoto={cambiandoVotoId === votacion.IdVotacion}
+                              puedeDesempatar={puedeDesempatar}
+                              eligiendo={eligiendoGanadoraId === votacion.IdVotacion}
+                              onElegirGanadora={elegirGanadora}
                             />
                           );
                         })()
