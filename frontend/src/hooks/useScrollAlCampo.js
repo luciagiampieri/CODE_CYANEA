@@ -26,9 +26,6 @@ import { Platform } from "react-native";
  * No confundir con `useScrollACampo`, que en las hojas de actividad y traslado lleva el campo
  * a 80 px del borde superior siempre.
  */
-// Diferencia por debajo de la cual dos destinos se consideran el mismo (solo web).
-const UMBRAL_MISMO_DESTINO_PX = 4;
-
 export default function useScrollAlCampo({ margen = 20, soloWeb = false } = {}) {
   const ref = useRef(null);
   const scrollY = useRef(0);
@@ -38,7 +35,6 @@ export default function useScrollAlCampo({ margen = 20, soloWeb = false } = {}) 
   const nodos = useRef({});
   const refsDeNodos = useRef({});
   const activo = useRef(null);
-  const ultimoDestino = useRef(null);
   const inerte = soloWeb && Platform.OS !== "web";
 
   // Posición de un contenedor respecto del contenido del ScrollView.
@@ -70,16 +66,9 @@ export default function useScrollAlCampo({ margen = 20, soloWeb = false } = {}) 
       } else if (arriba - margen < visibleArriba) {
         destino = arriba - margen;
       }
-      if (destino === null) return;
-      const y = Math.max(0, destino);
-      // En la web se calcula varias veces mientras se abre el teclado: no se repite un
-      // desplazamiento al mismo lugar (cada scrollTo suave reiniciado se veía en escalones).
-      if (Platform.OS === "web") {
-        const igual = (a, b) => a != null && Math.abs(a - b) < UMBRAL_MISMO_DESTINO_PX;
-        if (igual(scrollY.current, y) || igual(ultimoDestino.current, y)) return;
-        ultimoDestino.current = y;
+      if (destino !== null) {
+        ref.current?.scrollTo?.({ y: Math.max(0, destino), animated: true });
       }
-      ref.current?.scrollTo?.({ y, animated: true });
     },
     [margen]
   );
@@ -144,10 +133,7 @@ export default function useScrollAlCampo({ margen = 20, soloWeb = false } = {}) 
     (key, opciones = {}) => {
       if (inerte || (opciones.soloWeb && Platform.OS !== "web")) return;
       activo.current = key;
-      ultimoDestino.current = null;
-      // En la web el intento de los 120 ms calculaba con el área todavía sin achicar y
-      // sumaba un desplazamiento más: quedan el de 380 ms y el del onLayout del ScrollView.
-      if (Platform.OS !== "web") setTimeout(asegurarVisible, 120);
+      setTimeout(asegurarVisible, 120);
       setTimeout(asegurarVisible, 380);
     },
     [asegurarVisible, inerte]

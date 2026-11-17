@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { MODO_CIERRE_TECLADO, SIN_AUTORRELLENO } from "../utils/teclado";
+import { MODO_CIERRE_TECLADO } from "../utils/teclado";
 import { FontAwesome6 } from "@expo/vector-icons";
 import {
   Keyboard,
@@ -350,7 +350,6 @@ export default function AddTrasladoScreen({
                       style={styles.inputBoxMultilineIcon}
                     />
                     <TextInput
-                      {...SIN_AUTORRELLENO}
                       accessibilityLabel="Notas"
                       multiline
                       onChangeText={(texto) => {

@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { MODO_CIERRE_TECLADO, SIN_AUTORRELLENO } from "../utils/teclado";
+import { MODO_CIERRE_TECLADO } from "../utils/teclado";
 import {
   Platform,
   Pressable,
@@ -529,7 +529,6 @@ export default function AddActivityScreen({
                                     >
                                         <FontAwesome6 name="pen" size={14} color={colors.overlay} />
                                         <TextInput
-                                            {...SIN_AUTORRELLENO}
                                             onChangeText={(text) => {
                                                 setNombre(text);
                                                 if (error) setError("");
@@ -658,7 +657,6 @@ export default function AddActivityScreen({
                                             style={styles.inputBoxMultilineIcon}
                                         />
                                         <TextInput
-                                            {...SIN_AUTORRELLENO}
                                             multiline
                                             onChangeText={setDescripcion}
                                             onFocus={() => scrollToField("descripcion")}

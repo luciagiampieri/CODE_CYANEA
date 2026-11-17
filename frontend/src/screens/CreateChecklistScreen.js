@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { MODO_CIERRE_TECLADO, SIN_AUTORRELLENO } from "../utils/teclado";
+import { MODO_CIERRE_TECLADO } from "../utils/teclado";
 import {
   View,
   Text,
@@ -356,7 +356,6 @@ export default function CrearChecklistScreen({
                 <View style={[styles.inputBox, errores.nombre && { borderColor: colors.danger }]}>
                   <FontAwesome6 name="list-check" size={13} color={colors.overlay} />
                   <TextInput
-                    {...SIN_AUTORRELLENO}
                     style={styles.inputInner}
                     value={nombre}
                     onChangeText={(text) => {

@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { MODO_CIERRE_TECLADO, SIN_AUTORRELLENO } from "../utils/teclado";
+import { MODO_CIERRE_TECLADO } from "../utils/teclado";
 import {
   View,
   Text,
@@ -207,7 +207,6 @@ export default function CrearVotacionScreen({ visible, onClose, IdViaje, onVotac
                             >
                                 <FontAwesome6 name="pen" size={14} color={colors.overlay} />
                                 <TextInput
-                                    {...SIN_AUTORRELLENO}
                                     style={styles.input}
                                     placeholder="¿Qué hacemos el segundo día?"
                                     placeholderTextColor={colors.overlay} 
@@ -405,7 +404,6 @@ export default function CrearVotacionScreen({ visible, onClose, IdViaje, onVotac
                                     <View style={[styles.inputBox, { flex: 1, marginBottom: 0 }]}>
                                         <Text style={styles.propuestaIndex}>{index + 1}</Text>
                                         <TextInput
-                                            {...SIN_AUTORRELLENO}
                                             style={styles.input}
                                             placeholder={`Propuesta ${index + 1}`}
                                             placeholderTextColor={colors.overlay} 

@@ -1,10 +1,4 @@
-import {
-  calcularAreaRoot,
-  esperarViewportQuieto,
-  instalarAjusteViewport,
-  tecladoAbierto,
-} from "../utils/viewportWeb";
-import { colors } from "../theme/tokens";
+import { calcularAreaRoot, instalarAjusteViewport, tecladoAbierto } from "../utils/viewportWeb";
 
 function crearEntorno({ innerHeight = 800, vvHeight = 800, offsetTop = 0, scale = 1 } = {}) {
   const oyentes = {};
@@ -130,7 +124,6 @@ describe("ajuste del área visible en la web", () => {
     });
 
     it("al cerrar el teclado se quitan por completo los estilos del modal", () => {
-      jest.useFakeTimers();
       const { win, vv, doc, emitir } = crearEntorno({ vvHeight: 420, offsetTop: 260 });
       const portal = agregarModal(doc);
       instalarAjusteViewport(win, doc);
@@ -139,8 +132,6 @@ describe("ajuste del área visible en la web", () => {
       vv.height = 800;
       vv.offsetTop = 0;
       emitir("vv:resize");
-      // Se reacomoda cuando el área quedó quieta (cierre en un solo paso).
-      jest.runAllTimers();
 
       expect(sinEstilosInline(portal)).toBe(true);
     });
@@ -192,125 +183,6 @@ describe("ajuste del área visible en la web", () => {
       desinstalar();
 
       expect(sinEstilosInline(portal)).toBe(true);
-    });
-  });
-
-  describe("cierre del teclado en un solo paso", () => {
-    it("mientras Safari informa alturas intermedias no se reacomoda; al quedar quieta, una sola vez", () => {
-      jest.useFakeTimers();
-      const { win, vv, doc, root, emitir } = crearEntorno({ vvHeight: 420, offsetTop: 260 });
-      instalarAjusteViewport(win, doc);
-      const alturas = [];
-      let alto = root.style.height;
-      Object.defineProperty(root.style, "height", {
-        get: () => alto,
-        set: (valor) => {
-          alto = valor;
-          alturas.push(valor);
-        },
-      });
-
-      // Se cierra el teclado: Safari avisa alturas intermedias.
-      [[560, 120], [690, 40], [800, 0]].forEach(([altura, desplazamiento]) => {
-        vv.height = altura;
-        vv.offsetTop = desplazamiento;
-        emitir("vv:resize");
-        jest.advanceTimersByTime(40);
-      });
-      expect(alturas).toEqual([]);
-
-      jest.runAllTimers();
-
-      expect(alturas).toEqual(["800px"]);
-      expect(root.style.top).toBe("0px");
-    });
-
-    it("al abrir el teclado se aplica enseguida", () => {
-      jest.useFakeTimers();
-      const { win, vv, doc, root, emitir } = crearEntorno();
-      instalarAjusteViewport(win, doc);
-
-      vv.height = 420;
-      vv.offsetTop = 260;
-      emitir("vv:resize");
-
-      expect(root.style).toMatchObject({ top: "260px", height: "420px" });
-    });
-
-    it("si el teclado se vuelve a abrir antes de quedar quieta, no se agranda", () => {
-      jest.useFakeTimers();
-      const { win, vv, doc, root, emitir } = crearEntorno({ vvHeight: 420, offsetTop: 260 });
-      instalarAjusteViewport(win, doc);
-
-      vv.height = 800;
-      vv.offsetTop = 0;
-      emitir("vv:resize");
-      vv.height = 420;
-      vv.offsetTop = 260;
-      emitir("vv:resize");
-      jest.runAllTimers();
-
-      expect(root.style).toMatchObject({ top: "260px", height: "420px" });
-    });
-
-    it("sin teclado (en la compu) un resize de la ventana se aplica enseguida", () => {
-      const { win, doc, root, emitir } = crearEntorno();
-      instalarAjusteViewport(win, doc);
-
-      win.innerHeight = 700;
-      win.visualViewport.height = 700;
-      emitir("win:resize");
-
-      expect(root.style).toMatchObject({ top: "0px", height: "700px" });
-    });
-
-    it("el fondo de <body> es el de la app, para que no se vea una franja blanca", () => {
-      const { win, doc } = crearEntorno();
-      instalarAjusteViewport(win, doc);
-
-      expect(doc.body.style.backgroundColor).toBe(colors.background);
-    });
-  });
-
-  describe("esperarViewportQuieto", () => {
-    it("avisa cuando dos lecturas seguidas son iguales", () => {
-      jest.useFakeTimers();
-      const { win, vv } = crearEntorno();
-      const alTerminar = jest.fn();
-
-      esperarViewportQuieto(win, alTerminar);
-      vv.height = 700;
-      jest.advanceTimersByTime(80);
-      expect(alTerminar).not.toHaveBeenCalled();
-
-      jest.advanceTimersByTime(80);
-      expect(alTerminar).toHaveBeenCalledTimes(1);
-    });
-
-    it("no espera más del máximo aunque siga cambiando", () => {
-      jest.useFakeTimers();
-      const { win, vv } = crearEntorno();
-      const alTerminar = jest.fn();
-
-      esperarViewportQuieto(win, alTerminar, { intervalo: 80, maximo: 240 });
-      [700, 600, 500, 400].forEach((altura) => {
-        vv.height = altura;
-        jest.advanceTimersByTime(80);
-      });
-
-      expect(alTerminar).toHaveBeenCalledTimes(1);
-    });
-
-    it("se puede cancelar", () => {
-      jest.useFakeTimers();
-      const { win } = crearEntorno();
-      const alTerminar = jest.fn();
-
-      const cancelar = esperarViewportQuieto(win, alTerminar);
-      cancelar();
-      jest.runAllTimers();
-
-      expect(alTerminar).not.toHaveBeenCalled();
     });
   });
 });
