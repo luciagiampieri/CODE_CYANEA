@@ -397,7 +397,7 @@ export default function AddGastoScreen({
   }, [tecladoVisible]);
 
   const desdeComprobante = escaneoAplicado;
-  const requiereConversion = desdeComprobante && requiereConversionARS(monedaSeleccionada);
+  const requiereConversion = desdeComprobante && requiereConversionARS(monedaSeleccionada, monedaBase);
   const monedaGastoMayus = monedaSeleccionada.toUpperCase();
   const monedaBaseMayus = monedaBase.toUpperCase();
   const mostrarVistaConversion = !requiereConversion && monedaGastoMayus !== monedaBaseMayus;

@@ -96,7 +96,9 @@ async function renderFormulario(props = {}) {
     />
   );
   await waitFor(() => expect(utils.getByText("Simular escaneo")).toBeTruthy());
-  await waitFor(() => expect(utils.getByText("Peso argentino")).toBeTruthy());
+  const moneda = props.initialData?.MonedaOriginal || props.Moneda || "ARS";
+  const nombreMoneda = { ARS: "Peso argentino", EUR: "Euro", USD: "Dólar estadounidense" }[moneda];
+  await waitFor(() => expect(utils.getByText(nombreMoneda)).toBeTruthy());
   return { ...utils, onClose, onGastoCreado };
 }
 
@@ -153,6 +155,7 @@ describe("US 94 - Confirmar gasto precargado desde un comprobante", () => {
     getCurrencies.mockResolvedValue([
       { Codigo: "ARS", Nombre: "Peso argentino" },
       { Codigo: "USD", Nombre: "Dólar estadounidense" },
+      { Codigo: "EUR", Nombre: "Euro" },
     ]);
     createExpense.mockResolvedValue({ IdGasto: 99 });
     // Cotización automática (US-85): 1 USD = 1200 ARS
@@ -507,6 +510,41 @@ describe("US 94 - Confirmar gasto precargado desde un comprobante", () => {
     );
   });
 
+  it.each(["documento", "escaneo"])("conserva una entrada EUR en un viaje EUR desde %s sin convertir a ARS", async (origen) => {
+    const datos = { ...COMPROBANTE, Nombre: "Entrada al museo", MontoOriginal: "50", MonedaOriginal: "EUR" };
+    const utils = await renderFormulario({
+      Moneda: "EUR",
+      ...(origen === "documento" ? { initialData: datos } : {}),
+    });
+    if (origen === "escaneo") await escanear(utils, datos);
+    await waitFor(() => expect(utils.getByDisplayValue("Entrada al museo")).toBeTruthy());
+    await esperar(450);
+
+    expect(utils.queryByTestId("monto-ars-input")).toBeNull();
+    expect(utils.queryByTestId("preview-conversion")).toBeNull();
+    expect(getExchangeRate).not.toHaveBeenCalled();
+    await presionar(utils, "Registrar gasto");
+    expect(createExpense).toHaveBeenCalledWith(expect.objectContaining({
+      MonedaOriginal: "EUR", MontoOriginal: 50, DesdeComprobante: true, MontoConvertidoARS: null,
+    }));
+  });
+
+  it("convierte un documento USD directamente a EUR cuando el viaje es en EUR", async () => {
+    const utils = await renderFormulario({
+      Moneda: "EUR",
+      initialData: { ...COMPROBANTE, MontoOriginal: "50", MonedaOriginal: "USD" },
+    });
+    await waitFor(() => expect(getExchangeRate).toHaveBeenCalledWith({
+      origen: "USD", destino: "EUR", monto: 50, fecha: AYER,
+    }));
+    expect(getExchangeRate.mock.calls.every(([pedido]) => pedido.destino === "EUR")).toBe(true);
+    expect(utils.queryByTestId("monto-ars-input")).toBeNull();
+    await presionar(utils, "Registrar gasto");
+    expect(createExpense).toHaveBeenCalledWith(expect.objectContaining({
+      MonedaOriginal: "USD", DesdeComprobante: true, MontoConvertidoARS: null,
+    }));
+  });
+
   it("la carga manual no aplica las reglas del comprobante", async () => {
     const utils = await renderFormulario();
 
@@ -529,10 +567,13 @@ describe("US 94 - reglas del comprobante", () => {
     expect(parsearMonto("0").error).toBe("El monto debe ser mayor a cero");
   });
 
-  it("requiereConversionARS solo para monedas distintas de ARS", () => {
-    expect(requiereConversionARS("USD")).toBe(true);
-    expect(requiereConversionARS("ars")).toBe(false);
-    expect(requiereConversionARS(null)).toBe(false);
+  it("requiereConversionARS solo si el viaje es ARS y el comprobante tiene otra moneda", () => {
+    expect(requiereConversionARS("USD", "ARS")).toBe(true);
+    expect(requiereConversionARS("ars", "ARS")).toBe(false);
+    expect(requiereConversionARS(null, "ARS")).toBe(false);
+    expect(requiereConversionARS("EUR", "EUR")).toBe(false);
+    expect(requiereConversionARS("USD", "EUR")).toBe(false);
+    expect(requiereConversionARS("USD", "usd")).toBe(false);
   });
 
   it("mensajeFechaFueraDelViaje distingue antes y después del viaje", () => {

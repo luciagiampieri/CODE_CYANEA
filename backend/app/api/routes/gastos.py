@@ -172,6 +172,8 @@ def _origen_cotizacion(
     moneda_base: str,
     fecha_gasto: date,
 ) -> tuple[str | None, date | None]:
+    if moneda_gasto == moneda_base:
+        return None, None
     if data.MontoConvertidoARS is not None and moneda_gasto != MONEDA_PESOS_ARGENTINOS:
         return FUENTE_COTIZACION_MANUAL, fecha_gasto
     if moneda_gasto != moneda_base:
@@ -189,10 +191,14 @@ def _resolver_conversion(
 
     - Carga manual (US-85): si la moneda difiere de la del viaje, se convierte
       con el servicio de cotización.
-    - Gasto confirmado desde un comprobante (US 94): si la moneda no es ARS, el
-      usuario informa el monto convertido a pesos argentinos (RN-39) y se usa
-      ese valor en lugar de la cotización automática.
+    - Comprobante en la moneda del viaje: se conserva el importe original.
+    - Comprobante en otra moneda: en viajes en ARS se confirma el monto en pesos;
+      en los demas se convierte directamente a la moneda base del viaje.
+      Se admite el monto en ARS de clientes anteriores cuando las monedas difieren.
     """
+    if moneda_gasto == moneda_base:
+        return data.MontoOriginal, Decimal("1.0")
+
     en_otra_moneda = moneda_gasto != MONEDA_PESOS_ARGENTINOS
 
     if data.MontoConvertidoARS is not None and en_otra_moneda:
@@ -209,7 +215,7 @@ def _resolver_conversion(
         tipo_cambio = (monto_convertido / data.MontoOriginal).quantize(TIPO_CAMBIO_PRECISION)
         return monto_convertido, tipo_cambio
 
-    if data.DesdeComprobante and en_otra_moneda:
+    if data.DesdeComprobante and en_otra_moneda and moneda_base == MONEDA_PESOS_ARGENTINOS:
         raise HTTPException(
             status_code=400,
             detail=(

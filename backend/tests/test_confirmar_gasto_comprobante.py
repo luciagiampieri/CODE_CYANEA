@@ -257,6 +257,54 @@ def test_viaje_en_otra_moneda_convierte_el_monto_en_ars(client, db_session, auth
     assert cotizacion == [("ARS", "USD")]
 
 
+@pytest.mark.parametrize("moneda", ["EUR", "USD", "ARS"])
+@pytest.mark.parametrize("monto_ars", [None, "60000"])
+def test_comprobante_en_moneda_del_viaje_no_convierte(
+    client, db_session, auth_headers, viaje_con_admin, categoria_gasto, cotizacion, moneda, monto_ars
+):
+    viaje, _ = viaje_con_admin
+    viaje.Moneda = moneda
+    db_session.commit()
+    response = client.post(URL, json=_payload(
+        viaje, categoria_gasto, MontoOriginal="50", MonedaOriginal=moneda, MontoConvertidoARS=monto_ars
+    ), headers=auth_headers)
+    assert response.status_code == 200, response.text
+    gasto = db_session.get(Gasto, response.json()["IdGasto"])
+    assert gasto.Monto == gasto.MontoOriginal == Decimal("50")
+    assert gasto.TipoCambio == Decimal("1")
+    assert gasto.FuenteCotizacion is None
+    assert gasto.FechaCotizacion is None
+    assert cotizacion == []
+
+    # La edicion comparte la misma regla, incluso con el campo ARS de un cliente anterior.
+    editado = client.put(f"{URL}{gasto.IdGasto}", json=_payload(
+        viaje, categoria_gasto, MontoOriginal="55", MonedaOriginal=moneda, MontoConvertidoARS=monto_ars
+    ), headers=auth_headers)
+    assert editado.status_code == 200, editado.text
+    db_session.refresh(gasto)
+    assert gasto.Monto == gasto.MontoOriginal == Decimal("55")
+    assert gasto.TipoCambio == Decimal("1")
+    assert gasto.FuenteCotizacion is None
+    assert cotizacion == []
+
+
+def test_comprobante_en_otra_moneda_convierte_directamente_a_la_del_viaje(
+    client, db_session, auth_headers, viaje_con_admin, categoria_gasto, cotizacion
+):
+    viaje, _ = viaje_con_admin
+    viaje.Moneda = "EUR"
+    db_session.commit()
+    response = client.post(URL, json=_payload(
+        viaje, categoria_gasto, MontoOriginal="50", MonedaOriginal="USD"
+    ), headers=auth_headers)
+    assert response.status_code == 200, response.text
+    gasto = db_session.get(Gasto, response.json()["IdGasto"])
+    assert gasto.Monto == Decimal("0.05")
+    assert gasto.MonedaOriginal == "USD"
+    assert gasto.FuenteCotizacion == "referencia"
+    assert cotizacion == [("USD", "EUR")]
+
+
 def test_la_carga_manual_sigue_convirtiendo_automaticamente(client, auth_headers, viaje_con_admin, categoria_gasto, cotizacion):
     """Sin DesdeComprobante se mantiene el comportamiento de la US-85."""
     viaje, _ = viaje_con_admin

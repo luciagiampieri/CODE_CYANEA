@@ -20,9 +20,10 @@ export function parsearMonto(texto, { obligatorio = "El monto es obligatorio" } 
   return { valor };
 }
 
-/** RN-39: un gasto escaneado en otra moneda requiere el monto convertido a ARS. */
-export function requiereConversionARS(moneda) {
-  return Boolean(moneda) && String(moneda).toUpperCase() !== MONEDA_PESOS_ARGENTINOS;
+/** El monto en pesos del comprobante solo corresponde a viajes cuya moneda es ARS. */
+export function requiereConversionARS(moneda, monedaViaje) {
+  return String(monedaViaje).toUpperCase() === MONEDA_PESOS_ARGENTINOS
+    && Boolean(moneda) && String(moneda).toUpperCase() !== MONEDA_PESOS_ARGENTINOS;
 }
 
 function soloFecha(valor) {
