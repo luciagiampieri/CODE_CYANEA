@@ -8,6 +8,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.core.security import decode_access_token
+from app.db import session as session_module
 from app.db.session import get_db
 from app.models.usuario import Usuario
 
@@ -44,7 +45,7 @@ def get_current_user(
         headers={"WWW-Authenticate": "Bearer"},
     )
     try:
-        payload = decode_access_token(token)
+        payload = decode_access_token(token, db)
         user_id: int | None = payload.get("user_id")
         if user_id is None:
             raise credentials_error
@@ -57,3 +58,37 @@ def get_current_user(
 
     _registrar_acceso(db, usuario)
     return usuario
+
+
+def autenticar_usuario_ws(token: str, db: Session) -> Usuario | None:
+    """Usuario activo del token de un WebSocket, o None si no es válido.
+
+    Es sincrónica: los WebSocket la llaman desde el threadpool (ver `id_usuario_ws`).
+    """
+    try:
+        payload = decode_access_token(token, db)
+    except JWTError:
+        return None
+
+    user_id = payload.get("user_id")
+    if user_id is None:
+        return None
+
+    usuario = db.get(Usuario, user_id)
+    if usuario is None or not usuario.Activo:
+        return None
+
+    return usuario
+
+
+def id_usuario_ws(token: str) -> int | None:
+    """Id del usuario de un WebSocket, validado con una sesión corta.
+
+    Se llama con `run_in_threadpool` antes de aceptar el socket: la conexión vuelve al
+    pool apenas termina la validación, en lugar de quedar tomada mientras el socket esté
+    abierto, y la consulta no frena el event loop. Devuelve solo el id para que ningún
+    objeto ORM sobreviva a la sesión.
+    """
+    with session_module.SessionLocal() as db:
+        usuario = autenticar_usuario_ws(token, db)
+        return usuario.IdUsuario if usuario is not None else None

@@ -19,6 +19,7 @@ import {
 import { useAuth } from "../context/AuthContext";
 import { loginUser, loginWithFacebook, loginWithGoogle } from "../services/api";
 import AuthSwitch from "../components/ui/AuthSwitch";
+import useScrollAlCampo from "../hooks/useScrollAlCampo";
 import {
   colors,
   fontFamilies,
@@ -59,6 +60,8 @@ export default function LoginScreen({ navigation }) {
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState(null);
   const passwordRef = useRef(null);
+  // En la web el teclado tapaba el campo: se lo lleva a la vista. En Android/iOS no hace nada.
+  const formScroll = useScrollAlCampo({ soloWeb: true });
   const [confirmationEmail, setConfirmationEmail] = useState(null);
   const [loading, setLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
@@ -315,7 +318,13 @@ export default function LoginScreen({ navigation }) {
         behavior={Platform.OS === "ios" ? "padding" : undefined}
         style={styles.flex}
       >
-        <ScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
+        <ScrollView
+          ref={formScroll.ref}
+          {...formScroll.scrollProps}
+          contentContainerStyle={styles.scrollContent}
+          keyboardShouldPersistTaps="handled"
+          testID="login-scroll"
+        >
           <View style={styles.topPanel}>
             <View style={styles.brandRow}>
               <Image resizeMode="contain" source={CyaneaLogo} style={styles.logoImage} />
@@ -324,10 +333,10 @@ export default function LoginScreen({ navigation }) {
             <Text style={styles.brandClaim}>MUCHAS MANOS, UN ÚNICO DESTINO</Text>
           </View>
 
-          <View style={styles.body}>
+          <View style={styles.body} onLayout={formScroll.registrarContenedor("body")}>
             <AuthSwitch active="login" onChange={(key) => key === "register" && navigation.navigate("Register")} />
 
-            <View style={styles.form}>
+            <View style={styles.form} onLayout={formScroll.registrarContenedor("form", "body")}>
               <Field
                 icon="envelope"
                 keyboardType="email-address"
@@ -335,6 +344,8 @@ export default function LoginScreen({ navigation }) {
                 onChangeText={cambiarEmail}
                 testID="login-email-input"
                 value={email}
+                onLayoutCampo={formScroll.registrar("email", "form")}
+                onFocus={() => formScroll.enfocar("email")}
                 returnKeyType="next"
                 blurOnSubmit={false}
                 onSubmitEditing={() => passwordRef.current?.focus()}
@@ -352,6 +363,8 @@ export default function LoginScreen({ navigation }) {
                 secureTextEntry={!showPassword}
                 testID="login-password-input"
                 value={password}
+                onLayoutCampo={formScroll.registrar("password", "form")}
+                onFocus={() => formScroll.enfocar("password")}
               />
 
               <Pressable
@@ -426,10 +439,11 @@ function Field({
   rightIcon,
   onPressRightIcon,
   inputRef,
+  onLayoutCampo,
   ...props
 }) {
   return (
-    <View style={styles.field}>
+    <View style={styles.field} onLayout={onLayoutCampo}>
       <Text style={styles.fieldLabel}>{label}</Text>
       <View style={styles.inputShell}>
         <FontAwesome6 color={colors.textMuted} name={icon} size={14} style={styles.inputIcon} />

@@ -15,7 +15,6 @@ import {
   TouchableOpacity,
   Keyboard,
   ActivityIndicator,
-  TouchableWithoutFeedback,
 } from "react-native";
 import Modal from "../components/ui/AppModal";
 
@@ -29,9 +28,9 @@ import ParticipantSearch from "../components/trip/ParticipantSearch";
 import CurrencySelector from "../components/trip/CurrencySelector";
 import IconCircleButton from "../components/ui/IconCircleButton";
 import SearchPickerHeader, { SEARCH_PICKER_EDGES } from "../components/ui/SearchPickerHeader";
+import CerrarTecladoAlTocar from "../components/ui/CerrarTecladoAlTocar";
 import PrimaryButton from "../components/ui/PrimaryButton";
 import AICoverGenerator from "../components/trip/AICoverGenerator";
-import { tecladoAbierto } from "../utils/viewportWeb";
 import useResponsive from "../hooks/useResponsive";
 import {
   createTrip,
@@ -47,6 +46,8 @@ import {
 } from "../services/api.js";
 import { esErrorDeLimite, irAPlanes, mostrarLimiteAlcanzado } from "../utils/limitesPlan";
 import { colors, radii, spacing, surfaces, textStyles } from "../theme/tokens";
+import useScrollAlCampo from "../hooks/useScrollAlCampo";
+import useTecladoVisible from "../hooks/useTecladoVisible";
 import RecorridoViaje, { EncabezadoDestinos } from "../components/trip/RecorridoViaje";
 import AvisoDeshacer from "../components/trip/AvisoDeshacer";
 import useDeshacerDestino from "../hooks/useDeshacerDestino";
@@ -58,7 +59,7 @@ import {
   resumenRecorrido,
 } from "../utils/recorrido";
 import * as ImagePicker from "expo-image-picker";
-import { MODO_CIERRE_TECLADO } from "../utils/teclado";
+import { MODO_CIERRE_TECLADO, ocultarConTeclado } from "../utils/teclado";
 
 const MONTH_NAMES_ES = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
 
@@ -134,98 +135,8 @@ function describeDuration(startDate, endDate) {
   return `${nights} ${nights === 1 ? "noche" : "noches"} · ${days} días`;
 }
 
-function useKeyboardVisible() {
-  const [visible, setVisible] = useState(false);
-  useEffect(() => {
-    if (Platform.OS === "web") {
-      const vv = typeof window !== "undefined" ? window.visualViewport : null;
-      if (!vv) return undefined;
-      // Mismo criterio que el ajuste de App.js (un zoom no cuenta como teclado).
-      const check = () => setVisible(tecladoAbierto(window));
-      check();
-      vv.addEventListener("resize", check);
-      return () => vv.removeEventListener("resize", check);
-    }
-
-    const showEvent = Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
-    const hideEvent = Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide";
-    const showSub = Keyboard.addListener(showEvent, () => setVisible(true));
-    const hideSub = Keyboard.addListener(hideEvent, () => setVisible(false));
-    return () => {
-      showSub.remove();
-      hideSub.remove();
-    };
-  }, []);
-  return visible;
-}
 
 
-function useScrollAlCampo(margen = 20) {
-  const ref = useRef(null);
-  const scrollY = useRef(0);
-  const alturaVisible = useRef(0);
-  const campos = useRef({});
-  const base = useRef(0);
-  const activo = useRef(null);
-
-  const asegurarVisible = useCallback(() => {
-    const campo = activo.current != null ? campos.current[activo.current] : null;
-    if (!campo || !alturaVisible.current) return;
-
-    const arriba = base.current + campo.y;
-    const abajo = arriba + campo.h;
-    const visibleArriba = scrollY.current;
-    const visibleAbajo = scrollY.current + alturaVisible.current;
-
-    let destino = null;
-    if (abajo + margen > visibleAbajo) {
-      destino = abajo + margen - alturaVisible.current;
-    } else if (arriba - margen < visibleArriba) {
-      destino = arriba - margen;
-    }
-    if (destino !== null) {
-      ref.current?.scrollTo?.({ y: Math.max(0, destino), animated: true });
-    }
-  }, [margen]);
-
-  const registrarBase = useCallback((e) => {
-    base.current = e.nativeEvent.layout.y;
-  }, []);
-
-  const registrar = useCallback(
-    (key) => (e) => {
-      const { y, height } = e.nativeEvent.layout;
-      campos.current[key] = { y, h: height };
-    },
-    []
-  );
-
-  const enfocar = useCallback(
-    (key) => {
-      activo.current = key;
-      setTimeout(asegurarVisible, 120);
-      setTimeout(asegurarVisible, 380);
-    },
-    [asegurarVisible]
-  );
-
-  const limpiar = useCallback(() => {
-    activo.current = null;
-  }, []);
-
-  const scrollProps = {
-    scrollEventThrottle: 16,
-    onScroll: (e) => {
-      scrollY.current = e.nativeEvent.contentOffset.y;
-    },
-    onLayout: (e) => {
-      alturaVisible.current = e.nativeEvent.layout.height;
-      if (activo.current != null) setTimeout(asegurarVisible, 50);
-    },
-  };
-
-  return { ref, scrollProps, registrar, registrarBase, enfocar, limpiar };
-}
 
 
 function Stepper({ step }) {
@@ -578,7 +489,7 @@ function DestinationPickerModal({
 
 
 
-  const keyboardOpen = useKeyboardVisible();
+  const keyboardOpen = useTecladoVisible();
   const keyboardVisible = visible && keyboardOpen;
 
   const prevCountRef = useRef(count);
@@ -600,13 +511,22 @@ function DestinationPickerModal({
     };
   }, [count, visible]);
 
+  const inputRef = useRef(null);
+
+  // En web, al tocar un resultado el foco pasa al resultado: se devuelve al buscador
+  // dentro del mismo toque (antes de resolver el destino) para que el navegador del
+  // celular mantenga el teclado abierto. En Android/iOS el campo conserva el foco
+  // por keyboardShouldPersistTaps.
+  function agregarYSeguirBuscando(item) {
+    onSelect(item);
+    if (Platform.OS === "web") inputRef.current?.focus?.();
+  }
+
   return (
     <Modal statusBarTranslucent visible={visible} animationType="slide" onRequestClose={onClose} transparent={false}>
       <ScreenContainer fullWidth padded={false} edges={SEARCH_PICKER_EDGES}>
         <KeyboardAvoidingView style={styles.flex} behavior="padding">
-          {/* View intermedia: TouchableWithoutFeedback necesita un hijo nativo para detectar el toque fuera del teclado. */}
-          <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
-            <View style={styles.flex}>
+          <CerrarTecladoAlTocar style={styles.flex}>
               {/* ENCABEZADO: volver, título, "Listo" y buscador */}
               <SearchPickerHeader
                 title="Agregar destino"
@@ -615,6 +535,7 @@ function DestinationPickerModal({
                 onChangeText={onSearchChange}
                 placeholder="Ej: Bariloche, Roma, Chile..."
                 loading={resolving}
+                inputRef={inputRef}
               />
 
               <View style={styles.dpBody}>
@@ -760,7 +681,7 @@ function DestinationPickerModal({
                           const isSelected = Boolean(selectedMatch);
                           return (
                             <TouchableOpacity
-                              onPress={() => (isSelected ? onRemoveSelected(selectedMatch) : onSelect(item))}
+                              onPress={() => (isSelected ? onRemoveSelected(selectedMatch) : agregarYSeguirBuscando(item))}
                               disabled={resolving && !isSelected}
                               activeOpacity={0.7}
                               style={[styles.dpItem, isSelected && styles.dpItemActive]}
@@ -839,8 +760,7 @@ function DestinationPickerModal({
                   />
                 </View>
               ) : null}
-            </View>
-          </TouchableWithoutFeedback>
+          </CerrarTecladoAlTocar>
         </KeyboardAvoidingView>
       </ScreenContainer>
     </Modal>
@@ -907,7 +827,7 @@ export default function CreateTripScreen({ navigation }) {
     Boolean(viajesActivos) && !viajesActivos.ilimitado && viajesActivos.limite != null;
   const sinViajesDisponibles = viajesLimitados && viajesActivos.usoActual >= viajesActivos.limite;
 
-  const tecladoVisible = useKeyboardVisible();
+  const tecladoVisible = useTecladoVisible();
   const formScroll = useScrollAlCampo();
 
   const titleInputRef = useRef(null);
@@ -1577,12 +1497,15 @@ export default function CreateTripScreen({ navigation }) {
               <Text style={styles.heroTitle}>Nuevo viaje</Text>
             </View>
           </View>
-          {!tecladoVisible ? <Stepper step={step} /> : null}
+          {/* En la web la barra de pasos no se oculta con el teclado: al sacarla y volverla
+              a poner, todo el formulario saltaba de golpe. */}
+          {!ocultarConTeclado(tecladoVisible) ? <Stepper step={step} /> : null}
         </View>
 
         <ScrollView
           ref={formScroll.ref}
           {...formScroll.scrollProps}
+          testID="create-trip-scroll"
           style={styles.scroll}
           contentContainerStyle={styles.scrollContent}
           showsVerticalScrollIndicator={false}
@@ -1821,22 +1744,27 @@ export default function CreateTripScreen({ navigation }) {
           {/* PASO 3: PARTICIPANTES Y CONFIRMACIÓN */}
           {step === 3 && (
             <>
-              <View style={styles.card}>
+              <View style={styles.card} onLayout={formScroll.registrarContenedor("paso3")}>
                 <CardHeader
                   icon="user-plus"
                   title="Invitar participantes (Opcional)"
                   subtitle="Buscá por nombre, usuario o correo. Si no tiene cuenta, escribí su correo para invitarlo."
                 />
 
-                <ParticipantSearch
-                  canInviteExternal={canInviteExternal}
-                  message={inviteMessage}
-                  onInviteExternal={addExternalInvite}
-                  onSearchChange={handleParticipantSearchChange}
-                  onSelectUser={addParticipant}
-                  search={participantSearch}
-                  suggestions={selectableUsers}
-                />
+                {/* En la web, al enfocar el buscador se lo lleva por encima del teclado. */}
+                <View onLayout={formScroll.registrarContenedor("buscadorParticipantes", "paso3")}>
+                  <ParticipantSearch
+                    canInviteExternal={canInviteExternal}
+                    message={inviteMessage}
+                    onInviteExternal={addExternalInvite}
+                    onSearchChange={handleParticipantSearchChange}
+                    onSelectUser={addParticipant}
+                    search={participantSearch}
+                    suggestions={selectableUsers}
+                    onLayoutCampo={formScroll.registrar("participantes", "buscadorParticipantes")}
+                    onFocus={() => formScroll.enfocar("participantes", { soloWeb: true })}
+                  />
+                </View>
 
                 <ParticipantList onRemove={removeParticipant} participants={participantItems} />
 

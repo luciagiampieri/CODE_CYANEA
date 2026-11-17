@@ -489,3 +489,30 @@ def test_crear_votacion_desde_sugerencias_la_marca_para_resolverla(
     assert respuesta.json()["EsDeSugerencias"] is True
     votacion = _votacion(db_session, respuesta.json()["IdVotacion"])
     assert votacion.IdDiaCronograma == dia.IdDiaCronograma
+
+def test_busqueda_de_pendientes_corre_fuera_del_hilo_del_event_loop(db_session):
+    """Las consultas periódicas del scheduler corren en el threadpool."""
+    import threading
+
+    from sqlalchemy import event
+
+    from tests.conftest import engine
+
+    hilos = {"busqueda": set()}
+
+    def registrar(conn, cursor, statement, parameters, context, executemany):
+        if "Votaciones" in statement:
+            hilos["busqueda"].add(threading.get_ident())
+
+    async def procesar():
+        hilos["event_loop"] = threading.get_ident()
+        return await resolucion_votaciones.procesar_pendientes(db_session)
+
+    event.listen(engine, "before_cursor_execute", registrar)
+    try:
+        asyncio.run(procesar())
+    finally:
+        event.remove(engine, "before_cursor_execute", registrar)
+
+    assert hilos["busqueda"], "la búsqueda debería consultar la base"
+    assert hilos["event_loop"] not in hilos["busqueda"]

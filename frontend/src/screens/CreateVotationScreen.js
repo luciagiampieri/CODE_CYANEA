@@ -1,4 +1,6 @@
 import { useState, useEffect, useRef } from "react";
+import { MODO_CIERRE_TECLADO } from "../utils/teclado";
+import { tecladoUnificado } from "../utils/tecladoExperimental";
 import {
   View,
   Text,
@@ -50,6 +52,8 @@ export default function CrearVotacionScreen({ visible, onClose, IdViaje, onVotac
     const scrollRef = useRef(null);
     const contentY = useRef(0);
     const fieldY = useRef({});
+    // En la web, la propuesta que se acaba de agregar se lleva a la vista cuando se dibuja.
+    const propuestaPendiente = useRef(null);
 
     function scrollToField(key) {
         // Delay para esperar a que el teclado termine de aparecer
@@ -77,7 +81,13 @@ export default function CrearVotacionScreen({ visible, onClose, IdViaje, onVotac
         setPropuestas((prev) => prev.map((p, i) => (i === index ? valor : p)));
     }
 
+    // Al enfocar: en web, con la técnica B, el campo lo lleva a la vista mostrarCampoEnfocado.
+    function alEnfocar(key) {
+        if (!tecladoUnificado()) scrollToField(key);
+    }
+
     function agregarPropuesta() {
+        if (Platform.OS === "web") propuestaPendiente.current = propuestas.length;
         setPropuestas((prev) => [...prev, ""]);
     }
 
@@ -177,7 +187,7 @@ export default function CrearVotacionScreen({ visible, onClose, IdViaje, onVotac
                     <ScrollView 
                         ref={scrollRef}
                         keyboardShouldPersistTaps="handled"
-                        keyboardDismissMode="on-drag"
+                        keyboardDismissMode={MODO_CIERRE_TECLADO}
                         showsVerticalScrollIndicator={false}
                         contentContainerStyle={{ paddingBottom: spacing.xl }}
                     >
@@ -208,7 +218,7 @@ export default function CrearVotacionScreen({ visible, onClose, IdViaje, onVotac
                                     placeholderTextColor={colors.overlay} 
                                     value={titulo}
                                     onChangeText={setTitulo}
-                                    onFocus={() => scrollToField("titulo")}
+                                    onFocus={() => alEnfocar("titulo")}
                                     maxLength={150}
                                 />
                             </View>
@@ -391,6 +401,10 @@ export default function CrearVotacionScreen({ visible, onClose, IdViaje, onVotac
                                     style={styles.propuestaRow}
                                     onLayout={(e) => {
                                         fieldY.current[`propuesta-${index}`] = e.nativeEvent.layout.y;
+                                        if (propuestaPendiente.current === index) {
+                                            propuestaPendiente.current = null;
+                                            scrollToField(`propuesta-${index}`);
+                                        }
                                     }}
                                 >
                                     <View style={[styles.inputBox, { flex: 1, marginBottom: 0 }]}>
@@ -401,7 +415,7 @@ export default function CrearVotacionScreen({ visible, onClose, IdViaje, onVotac
                                             placeholderTextColor={colors.overlay} 
                                             value={propuesta}
                                             onChangeText={(val) => actualizarPropuesta(index, val)}
-                                            onFocus={() => scrollToField(`propuesta-${index}`)}
+                                            onFocus={() => alEnfocar(`propuesta-${index}`)}
                                             maxLength={255}
                                         />
                                     </View>

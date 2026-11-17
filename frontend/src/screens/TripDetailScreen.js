@@ -136,8 +136,10 @@ import { buildRouteMarkers } from "../utils/routeMarkers";
 import DayAgenda from "../components/trip/DayAgenda";
 import { isTodayISO, resumenDelDia } from "../utils/agenda";
 import { getTripLock } from "../utils/tripLock";
-import { formatMoney } from "../utils/money";
+import { formatMoney, formatMoneyCompacto } from "../utils/money";
+import TextoAjustable from "../components/ui/TextoAjustable";
 import { centerInScroll } from "../utils/scrollHelpers";
+import { tecladoUnificado } from "../utils/tecladoExperimental";
 import { confirmacionDeMovimiento } from "../utils/moverActividad";
 import ActivitySuggestionsScreen from "./ActivitySuggestionsScreen";
 import CompleteFreeDaysScreen from "./CompleteFreeDaysScreen";
@@ -470,7 +472,13 @@ export default function TripDetailScreen({ navigation, route }) {
   const [itinerarioView, setItinerarioView] = useItinerarioViewPreference();
 
   const scrollRef = useRef(null);
+  // Cada tarjeta con buscador tiene su propia ref: si dos comparten una, al enfocar el
+  // buscador de la primera la pantalla salta a la segunda.
   const gastosCardRef = useRef(null);
+  const documentosCardRef = useRef(null);
+  const informacionCardRef = useRef(null);
+  const checklistsCardRef = useRef(null);
+  const invitePanelRef = useRef(null);
   const pendingCenterGastos = useRef(false);
 
   const [keyboardInset, setKeyboardInset] = useState(0);
@@ -578,6 +586,20 @@ export default function TripDetailScreen({ navigation, route }) {
       hideSubscription.remove();
     };
   }, []);
+
+  // En la web el teclado no avisa por Keyboard (keyboardInset queda en 0): al enfocar el
+  // buscador de invitar se lo lleva arriba, igual que los buscadores de Documentos.
+  // En Android/iOS no cambia nada.
+  function mostrarBuscadorInvitar() {
+    if (Platform.OS !== "web") return;
+    // Con la técnica B lo lleva a la vista mostrarCampoEnfocado, solo si quedó tapado.
+    if (tecladoUnificado()) return;
+    setTimeout(() => {
+      if (scrollRef.current && invitePanelRef.current) {
+        centerInScroll(scrollRef.current, invitePanelRef.current, { align: "top", margin: spacing.sm });
+      }
+    }, 300);
+  }
 
   function centerGastosCardTop() {
     if (scrollRef.current && gastosCardRef.current) {
@@ -2822,12 +2844,19 @@ export default function TripDetailScreen({ navigation, route }) {
                   <View style={styles.summaryIconWrap}>
                     <FontAwesome6 name="sack-dollar" size={22} color={colors.primary} />
                   </View>
-                  <Text style={styles.summaryValue} numberOfLines={1} adjustsFontSizeToFit>
+                  <TextoAjustable
+                    style={styles.summaryValue}
+                    textoCompacto={formatMoneyCompacto(
+                      tripSummaryMetrics.totalGastadoMonto,
+                      settlement?.Moneda || trip?.currency
+                    )}
+                    testID="resumen-gastos-grupo-valor"
+                  >
                     {formatMoney(
                       tripSummaryMetrics.totalGastadoMonto,
                       settlement?.Moneda || trip?.currency
                     )}
-                  </Text>
+                  </TextoAjustable>
                   <Text style={styles.summaryLabel}>
                     Gastos del grupo ({settlement?.Moneda || trip?.currency || "ARS"})
                   </Text>
@@ -3396,8 +3425,9 @@ export default function TripDetailScreen({ navigation, route }) {
             <>
               <View
                 collapsable={false}
-                ref={gastosCardRef}
+                ref={documentosCardRef}
                 style={styles.sectionCard}
+                testID="docs-documentos-card"
               >
                 <Text style={styles.sectionHeading}>Documentos</Text>
                 {loadingDocumentos ? (
@@ -3425,7 +3455,7 @@ export default function TripDetailScreen({ navigation, route }) {
                       descargandoDocId={descargandoDocId}
                       eliminandoDocId={eliminandoDocId}
                       scrollRef={scrollRef}
-                      cardRef={gastosCardRef}
+                      cardRef={documentosCardRef}
                       idsOffline={idsOffline}
                       onAlternarOffline={puedeGuardarOffline ? handleAlternarOffline : undefined}
                       guardandoOfflineId={guardandoOfflineId}
@@ -3447,8 +3477,9 @@ export default function TripDetailScreen({ navigation, route }) {
 
               <View
                 collapsable={false}
-                ref={gastosCardRef}
+                ref={informacionCardRef}
                 style={[styles.sectionCard, { marginTop: spacing.md }]}
+                testID="docs-informacion-card"
               >
                 <Text style={styles.sectionHeading}>Información relevante</Text>
 
@@ -3479,7 +3510,7 @@ export default function TripDetailScreen({ navigation, route }) {
                       }
                       eliminandoItemId={eliminandoItemId}
                       scrollRef={scrollRef}
-                      cardRef={gastosCardRef}
+                      cardRef={informacionCardRef}
                     />
                   </View>
                 )}
@@ -3548,8 +3579,11 @@ export default function TripDetailScreen({ navigation, route }) {
                   <Text style={styles.sectionCopy}>{checklistsError}</Text>
                 </View>
               ) : (
+                <View collapsable={false} ref={checklistsCardRef} testID="checklists-lista">
                 <ChecklistsByCategory
                   checklists={checklists}
+                  scrollRef={scrollRef}
+                  cardRef={checklistsCardRef}
                   categorias={categoriasChecklist}
                   categoriaFiltro={categoriaChecklistFiltro}
                   onCategoriaChange={setCategoriaChecklistFiltro}
@@ -3568,6 +3602,7 @@ export default function TripDetailScreen({ navigation, route }) {
                     lock.canEdit("documentos") ? (tarea) => abrirSubidaDesdeTarea(tarea) : undefined
                   }
                 />
+                </View>
               )}
             </View>
           ) : null}
@@ -4099,7 +4134,12 @@ export default function TripDetailScreen({ navigation, route }) {
                 </View>
 
                 {canInviteToGroup && showInvitePanel ? (
-                  <View style={styles.invitePanel}>
+                  <View
+                    collapsable={false}
+                    ref={invitePanelRef}
+                    style={styles.invitePanel}
+                    testID="grupo-invite-panel"
+                  >
                     <ParticipantSearch
                       canInviteExternal={canInviteExternal}
                       message={participantMessage}
@@ -4109,6 +4149,7 @@ export default function TripDetailScreen({ navigation, route }) {
                       search={participantSearch}
                       showLabel={false}
                       suggestions={selectableUsers}
+                      onFocus={mostrarBuscadorInvitar}
                     />
                     {trip.status === "activo" ? <TripInvitationLink tripId={trip.id} /> : null}
                   </View>

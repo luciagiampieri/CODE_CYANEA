@@ -17,6 +17,7 @@ import { FontAwesome6 } from "@expo/vector-icons";
 
 import { colors, radii, spacing, surfaces, textStyles } from "../../theme/tokens";
 import { centerInScroll } from "../../utils/scrollHelpers";
+import { tecladoUnificado } from "../../utils/tecladoExperimental";
 import {
     NOMBRES_CATEGORIAS_BASE,
     TIPOS_CATEGORIA,
@@ -396,6 +397,7 @@ export default function ChecklistsByCategory({
                         autoCapitalize="none"
                         testID="checklist-buscador"
                         onFocus={() => {
+                            if (tecladoUnificado()) return; // en web lo desplaza mostrarCampoEnfocado
                             if (scrollRef?.current && cardRef?.current) {
                                 setTimeout(() => {
                                     centerInScroll(scrollRef.current, cardRef.current, { align: "top", margin: spacing.xs });

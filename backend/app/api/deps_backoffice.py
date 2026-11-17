@@ -27,7 +27,7 @@ def require_admin_sistema(
         raise no_autenticado
 
     try:
-        payload = decode_backoffice_token(credenciales.credentials)
+        payload = decode_backoffice_token(credenciales.credentials, db)
     except JWTError:
         raise no_autenticado
 

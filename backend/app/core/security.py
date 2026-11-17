@@ -52,34 +52,58 @@ def create_access_token(data: dict) -> str:
     return jwt.encode(to_encode, settings.secret_key, algorithm=settings.jwt_algorithm)
 
 
-def _verificar_sesion_vigente(payload: dict) -> None:
+def _fechas_cierre_sesion(db, user_id: int) -> tuple:
+    """Último restablecimiento, último cambio de contraseña y cierre de sesiones del
+    usuario, en una sola consulta. Devuelve Nones si el usuario no existe."""
+    from sqlalchemy import func, select
+
+    from app.models.recuperacion_password import TokenRecuperacionPassword
+    from app.models.usuario import Usuario
+
+    ultimo_restablecimiento = (
+        select(func.max(TokenRecuperacionPassword.FechaUso))
+        .where(TokenRecuperacionPassword.IdUsuario == user_id)
+        .scalar_subquery()
+    )
+    fila = db.execute(
+        select(
+            ultimo_restablecimiento,
+            Usuario.FechaCambioPassword,
+            Usuario.FechaCierreSesiones,
+        ).where(Usuario.IdUsuario == user_id)
+    ).first()
+    return tuple(fila) if fila is not None else (None, None, None)
+
+
+def _verificar_sesion_vigente(payload: dict, db=None) -> None:
+    """Rechaza los tokens emitidos antes de un cambio o restablecimiento de contraseña
+    o de un cierre de todas las sesiones (suspensión).
+
+    Si se pasa `db` (la sesión del request) se usa esa, así cada request trabaja con una
+    sola sesión; si no, se abre una corta.
+    """
     user_id = payload.get("user_id")
     if user_id is None:
         return
 
-    from sqlalchemy import func, select
-
-    from app.db.session import SessionLocal
-    from app.models.recuperacion_password import TokenRecuperacionPassword
-    from app.models.usuario import Usuario
-
     try:
-        with SessionLocal() as db:
-            ultimo_restablecimiento = db.scalar(
-                select(func.max(TokenRecuperacionPassword.FechaUso)).where(
-                    TokenRecuperacionPassword.IdUsuario == user_id
-                )
-            )
-            ultimo_cambio_cuenta = db.scalar(
-                select(Usuario.FechaCambioPassword).where(Usuario.IdUsuario == user_id)
-            )
-            cierre_sesiones = db.scalar(
-                select(Usuario.FechaCierreSesiones).where(Usuario.IdUsuario == user_id)
-            )
+        if db is not None:
+            try:
+                fechas = _fechas_cierre_sesion(db, user_id)
+            except SQLAlchemyError:
+                # La sesión del request no puede quedar con la transacción fallida.
+                db.rollback()
+                raise
+        else:
+            from app.db import session as session_module
+
+            with session_module.SessionLocal() as sesion_corta:
+                fechas = _fechas_cierre_sesion(sesion_corta, user_id)
     except SQLAlchemyError:
         logger.warning("No se pudo verificar el cierre de sesión por cambio de contraseña")
         return
 
+    ultimo_restablecimiento, ultimo_cambio_cuenta, cierre_sesiones = fechas
     cambios = [
         fecha if fecha.tzinfo is not None else fecha.replace(tzinfo=timezone.utc)
         for fecha in (ultimo_restablecimiento, ultimo_cambio_cuenta, cierre_sesiones)
@@ -93,11 +117,11 @@ def _verificar_sesion_vigente(payload: dict) -> None:
         raise JWTError("Sesión cerrada por cambio de contraseña o suspensión de la cuenta.")
 
 
-def decode_access_token(token: str) -> dict:
+def decode_access_token(token: str, db=None) -> dict:
     payload = jwt.decode(token, settings.secret_key, algorithms=[settings.jwt_algorithm])
     if payload.get("type", TOKEN_ACCESO) != TOKEN_ACCESO:
         raise JWTError("Tipo de token inválido.")
-    _verificar_sesion_vigente(payload)
+    _verificar_sesion_vigente(payload, db)
     return payload
 
 
@@ -117,11 +141,11 @@ def create_backoffice_token(user_id: int, id_sesion: str) -> str:
     )
 
 
-def decode_backoffice_token(token: str) -> dict:
+def decode_backoffice_token(token: str, db=None) -> dict:
     payload = jwt.decode(token, settings.secret_key, algorithms=[settings.jwt_algorithm])
     if payload.get("type") != TOKEN_BACKOFFICE:
         raise JWTError("El token no es de backoffice.")
-    _verificar_sesion_vigente(payload)
+    _verificar_sesion_vigente(payload, db)
     return payload
 
 

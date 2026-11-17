@@ -213,8 +213,11 @@ function CajitaDestino({
 
   return (
     <Animated.View
+      testID={`recorrido-destino-${index}`}
       style={[
         styles.cajita,
+        // En web, mantener apretado el cuadro seleccionaría el texto en lugar de arrastrar.
+        Platform.OS === "web" && styles.cajitaSinSeleccion,
         { transform: [{ translateY: desplazamiento }] },
         arrastrando && styles.cajitaArrastrada,
       ]}
@@ -236,8 +239,12 @@ function CajitaDestino({
               delayLongPress={DEMORA_ARRASTRE_MS}
               onLongPress={alMantener}
               onPressOut={alSoltar}
-              style={styles.fotoArrastrable}
+              style={[styles.manija, styles.fotoArrastrable]}
             >
+              {/* Agarradera: misma pulsación larga que la foto, marca dónde agarrar y agranda la zona. */}
+              <View style={styles.agarradera}>
+                <FontAwesome6 name="grip-vertical" size={14} color={colors.iconMuted} />
+              </View>
               {foto}
             </Pressable>
           </View>
@@ -516,6 +523,20 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "flex-start",
     gap: spacing.sm,
+  },
+  cajitaSinSeleccion: {
+    userSelect: "none",
+  },
+  manija: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 2,
+  },
+  agarradera: {
+    width: 16,
+    alignItems: "center",
+    justifyContent: "center",
+    alignSelf: "stretch",
   },
   fotoArrastrable: Platform.select({
     web: { cursor: "grab", userSelect: "none" },

@@ -1,7 +1,8 @@
-import { Alert } from "react-native";
+import { Alert, Platform, ScrollView } from "react-native";
 import { act, fireEvent, render, waitFor } from "@testing-library/react-native";
 
 import CrearVotacionScreen from "../screens/CreateVotationScreen";
+import { activarTecladoUnificado } from "./helpers/tecladoWeb";
 import { createVotacion } from "../services/api";
 
 jest.mock("../services/api", () => ({
@@ -199,5 +200,67 @@ describe("CrearVotacionScreen", () => {
     });
 
     expect(mockOnClose).toHaveBeenCalled();
+  });
+});
+
+// CP10: en la web, al tocar "Agregar" la propuesta nueva quedaba tapada por el teclado.
+// Ahora se la lleva a la vista apenas se dibuja. En Android/iOS no cambia nada.
+describe("Crear votación: la propuesta nueva queda a la vista", () => {
+  const osOriginal = Platform.OS;
+  let scrollToSpy;
+
+  beforeEach(() => {
+    scrollToSpy = jest.spyOn(ScrollView.prototype, "scrollTo").mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    Platform.OS = osOriginal;
+    scrollToSpy.mockRestore();
+  });
+
+  async function agregarYDibujar(utils) {
+    await press(utils, "Agregar");
+    const fila = utils.getByPlaceholderText("Propuesta 3").parent.parent;
+    await act(async () => {
+      fireEvent(fila, "layout", { nativeEvent: { layout: { x: 0, y: 420, width: 300, height: 48 } } });
+    });
+  }
+
+  it("CP10 en la web, al agregar una propuesta la lleva a la vista", async () => {
+    Platform.OS = "web";
+    const utils = await renderPantallaCargada();
+
+    await agregarYDibujar(utils);
+
+    await waitFor(() => expect(scrollToSpy).toHaveBeenCalled());
+    expect(scrollToSpy.mock.calls.at(-1)[0]).toEqual(expect.objectContaining({ animated: true }));
+  });
+
+  it("en Android/iOS agregar una propuesta no desplaza nada", async () => {
+    const utils = await renderPantallaCargada();
+
+    await agregarYDibujar(utils);
+    await new Promise((resolve) => setTimeout(resolve, 400));
+
+    expect(scrollToSpy).not.toHaveBeenCalled();
+  });
+
+  it("con la técnica B en la web, enfocar un campo no desplaza y 'Agregar' sigue llevando la fila a la vista", async () => {
+    Platform.OS = "web";
+    const desactivar = activarTecladoUnificado();
+    try {
+      const utils = await renderPantallaCargada();
+
+      await act(async () => {
+        fireEvent(utils.getByPlaceholderText("Propuesta 1"), "focus");
+      });
+      await new Promise((resolve) => setTimeout(resolve, 400));
+      expect(scrollToSpy).not.toHaveBeenCalled();
+
+      await agregarYDibujar(utils);
+      await waitFor(() => expect(scrollToSpy).toHaveBeenCalled());
+    } finally {
+      desactivar();
+    }
   });
 });

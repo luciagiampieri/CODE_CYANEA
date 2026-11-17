@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useRef, useCallback } from "react";
+import { MODO_CIERRE_TECLADO } from "../utils/teclado";
 import {
   View,
   Text,
@@ -43,6 +44,8 @@ import {
 } from "../services/api";
 
 import { colors, radii, spacing, textStyles } from "../theme/tokens";
+import useScrollAlCampo from "../hooks/useScrollAlCampo";
+import useTecladoVisible from "../hooks/useTecladoVisible";
 import {
   MONEDA_PESOS_ARGENTINOS,
   mensajeFechaFueraDelViaje,
@@ -131,90 +134,7 @@ function montoParaInput(valor) {
   return Number.isFinite(numero) && numero > 0 ? String(numero) : "";
 }
 
-function useKeyboardVisible() {
-  const [visible, setVisible] = useState(false);
-  useEffect(() => {
-    const showEvent = Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
-    const hideEvent = Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide";
-    const showSub = Keyboard.addListener(showEvent, () => setVisible(true));
-    const hideSub = Keyboard.addListener(hideEvent, () => setVisible(false));
-    return () => {
-      showSub.remove();
-      hideSub.remove();
-    };
-  }, []);
-  return visible;
-}
 
-/**
- * Mantiene visible el campo que se está editando moviendo el scroll SOLO lo necesario:
- * - Si el campo ya se ve completo sobre el teclado, no se mueve nada.
- * - Si queda tapado, se desplaza justo lo suficiente para que quede apenas por encima del teclado.
- * Usa la altura real visible del ScrollView (que ya descuenta el teclado), por eso se adapta
- * a cualquier dispositivo y tamaño de teclado.
- */
-function useScrollAlCampo(margen = 20) {
-  const ref = useRef(null);
-  const scrollY = useRef(0);
-  const alturaVisible = useRef(0);
-  const campos = useRef({});
-  const activo = useRef(null);
-
-  const asegurarVisible = useCallback(() => {
-    const campo = activo.current != null ? campos.current[activo.current] : null;
-    if (!campo || !alturaVisible.current) return;
-
-    const arriba = campo.y;
-    const abajo = campo.y + campo.h;
-    const visibleArriba = scrollY.current;
-    const visibleAbajo = scrollY.current + alturaVisible.current;
-
-    let destino = null;
-    if (abajo + margen > visibleAbajo) {
-      destino = abajo + margen - alturaVisible.current;
-    } else if (arriba - margen < visibleArriba) {
-      destino = arriba - margen;
-    }
-
-    if (destino !== null) {
-      ref.current?.scrollTo({ y: Math.max(0, destino), animated: true });
-    }
-  }, [margen]);
-
-  const registrar = useCallback(
-    (key) => (e) => {
-      const { y, height } = e.nativeEvent.layout;
-      campos.current[key] = { y, h: height };
-    },
-    []
-  );
-
-  const enfocar = useCallback(
-    (key) => {
-      activo.current = key;
-      setTimeout(asegurarVisible, 120);
-      setTimeout(asegurarVisible, 380);
-    },
-    [asegurarVisible]
-  );
-
-  const limpiar = useCallback(() => {
-    activo.current = null;
-  }, []);
-
-  const scrollProps = {
-    scrollEventThrottle: 16,
-    onScroll: (e) => {
-      scrollY.current = e.nativeEvent.contentOffset.y;
-    },
-    onLayout: (e) => {
-      alturaVisible.current = e.nativeEvent.layout.height;
-      if (activo.current != null) setTimeout(asegurarVisible, 50);
-    },
-  };
-
-  return { ref, scrollProps, registrar, enfocar, limpiar };
-}
 
 function Avatar({ persona, small = false }) {
   return (
@@ -398,7 +318,7 @@ export default function AddGastoScreen({
   const monedaBase = Moneda || "USD";
   const modoEdicion = Boolean(gastoAEditar);
   const edicion = useEdicionGasto(gastoAEditar?.IdGasto, modoEdicion && visible);
-  const tecladoVisible = useKeyboardVisible();
+  const tecladoVisible = useTecladoVisible();
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -1205,7 +1125,7 @@ export default function AddGastoScreen({
                     { paddingBottom: tecladoVisible ? spacing.lg : 120 },
                   ]}
                   keyboardShouldPersistTaps="handled"
-                  keyboardDismissMode="on-drag"
+                  keyboardDismissMode={MODO_CIERRE_TECLADO}
                   showsVerticalScrollIndicator={false}
                 >
                   {modoEdicion ? (
@@ -1788,7 +1708,7 @@ export default function AddGastoScreen({
             style={styles.divisionScroll}
             contentContainerStyle={{ paddingBottom: tecladoVisible ? spacing.lg : spacing.sm }}
             keyboardShouldPersistTaps="handled"
-            keyboardDismissMode="on-drag"
+            keyboardDismissMode={MODO_CIERRE_TECLADO}
             showsVerticalScrollIndicator={false}
           >
             {datosIntegrantes.map((item) => {

@@ -14,6 +14,7 @@ import { FontAwesome6 } from "@expo/vector-icons";
 
 import { colors, radii, spacing, surfaces, textStyles } from "../../theme/tokens";
 import { centerInScroll } from "../../utils/scrollHelpers";
+import { tecladoUnificado } from "../../utils/tecladoExperimental";
 
 export const ID_TODAS = "TODAS";
 
@@ -365,6 +366,7 @@ export default function InformacionRelevantePorTipo({
                         autoCapitalize="none"
                         testID="repositorio-buscador"
                         onFocus={() => {
+                            if (tecladoUnificado()) return; // en web lo desplaza mostrarCampoEnfocado
                             if (scrollRef?.current && cardRef?.current) {
                                 setTimeout(() => {
                                     centerInScroll(scrollRef.current, cardRef.current, { align: "top", margin: spacing.xs });

@@ -15,6 +15,11 @@ from app.api.router import api_router
 from app.api.routes.itinerary import router as itinerary_router
 from app.api.routes.offline import router as offline_router
 from app.core.config import settings
+from app.core.diagnostico import (
+    MedicionRequestsMiddleware,
+    detener_vigilancia_event_loop,
+    iniciar_vigilancia_event_loop,
+)
 from app.services.notifications.activity_reminders import (
     start_activity_reminders_scheduler,
     stop_activity_reminders_scheduler,
@@ -39,9 +44,11 @@ async def lifespan(app: FastAPI):
     resolucion_votaciones_task = start_resolucion_votaciones_scheduler()
     estado_viajes_task = start_estado_viajes_scheduler()
     fin_suscripciones_task = start_fin_suscripciones_scheduler()
+    vigilancia_task = iniciar_vigilancia_event_loop()
     try:
         yield
     finally:
+        await detener_vigilancia_event_loop(vigilancia_task)
         await stop_fin_suscripciones_scheduler(fin_suscripciones_task)
         await stop_estado_viajes_scheduler(estado_viajes_task)
         await stop_resolucion_votaciones_scheduler(resolucion_votaciones_task)
@@ -77,6 +84,11 @@ app.add_middleware(
     allow_headers=["*"],
     expose_headers=["X-Error-Code", "Retry-After"],
 )
+
+# Medición temporal (DIAGNOSTICO_RENDIMIENTO=true): se agrega último para quedar por
+# fuera de CORS y medir el request completo.
+if settings.diagnostico_rendimiento:
+    app.add_middleware(MedicionRequestsMiddleware)
 
 
 @app.get("/health", tags=["health"])

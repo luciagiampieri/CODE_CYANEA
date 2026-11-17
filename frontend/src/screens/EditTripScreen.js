@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { MODO_CIERRE_TECLADO } from "../utils/teclado";
 import { FontAwesome6 } from "@expo/vector-icons";
 import {
     ActivityIndicator,
@@ -14,7 +15,6 @@ import {
     ImageBackground,
     FlatList,
     TouchableOpacity,
-    TouchableWithoutFeedback,
     Keyboard,
 } from "react-native";
 import Modal from "../components/ui/AppModal";
@@ -22,6 +22,7 @@ import Modal from "../components/ui/AppModal";
 import ScreenContainer from "../components/layout/ScreenContainer";
 import ScreenHeader from "../components/ui/ScreenHeader";
 import SearchPickerHeader, { SEARCH_PICKER_EDGES } from "../components/ui/SearchPickerHeader";
+import CerrarTecladoAlTocar from "../components/ui/CerrarTecladoAlTocar";
 import MetricCard from "../components/ui/MetricCard";
 import PrimaryButton from "../components/ui/PrimaryButton";
 import AICoverGenerator from "../components/trip/AICoverGenerator";
@@ -234,13 +235,22 @@ function DestinationPickerModal({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [count, visible]);
 
+  const inputRef = useRef(null);
+
+  // En web, al tocar un resultado el foco pasa al resultado: se devuelve al buscador
+  // dentro del mismo toque (antes de resolver el destino) para que el navegador del
+  // celular mantenga el teclado abierto. En Android/iOS el campo conserva el foco
+  // por keyboardShouldPersistTaps.
+  function agregarYSeguirBuscando(item) {
+    onSelect(item);
+    if (Platform.OS === "web") inputRef.current?.focus?.();
+  }
+
   return (
     <Modal statusBarTranslucent visible={visible} animationType="slide" onRequestClose={onClose} transparent={false}>
       <ScreenContainer fullWidth padded={false} edges={SEARCH_PICKER_EDGES}>
         <KeyboardAvoidingView style={styles.flex} behavior="padding">
-          {/* View intermedia: TouchableWithoutFeedback necesita un hijo nativo para detectar el toque fuera del teclado. */}
-          <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
-            <View style={styles.flex}>
+          <CerrarTecladoAlTocar style={styles.flex}>
               {/* ENCABEZADO: volver, título, "Listo" y buscador */}
               <SearchPickerHeader
                 title="Agregar destino"
@@ -249,6 +259,7 @@ function DestinationPickerModal({
                 onChangeText={onSearchChange}
                 placeholder="Ej: Bariloche, Roma, Chile..."
                 loading={resolving}
+                inputRef={inputRef}
               />
 
               <View style={styles.dpBody}>
@@ -380,7 +391,7 @@ function DestinationPickerModal({
                       data={options}
                       keyExtractor={(item, index) => `${item.name}-${item.country}-${index}`}
                       keyboardShouldPersistTaps="handled"
-                      keyboardDismissMode="on-drag"
+                      keyboardDismissMode={MODO_CIERRE_TECLADO}
                       showsVerticalScrollIndicator={false}
                       contentContainerStyle={styles.dpListContent}
                       ListHeaderComponent={keyboardVisible ? null : <Text style={styles.dpResultsLabel}>Resultados · tocá para agregar</Text>}
@@ -394,7 +405,7 @@ function DestinationPickerModal({
                         const isSelected = Boolean(selectedMatch);
                         return (
                           <TouchableOpacity
-                            onPress={() => (isSelected ? onRemoveSelected(selectedMatch) : onSelect(item))}
+                            onPress={() => (isSelected ? onRemoveSelected(selectedMatch) : agregarYSeguirBuscando(item))}
                             disabled={resolving && !isSelected}
                             activeOpacity={0.7}
                             style={[styles.dpItem, isSelected && styles.dpItemActive]}
@@ -473,8 +484,7 @@ function DestinationPickerModal({
                 />
               </View>
               ) : null}
-            </View>
-          </TouchableWithoutFeedback>
+          </CerrarTecladoAlTocar>
         </KeyboardAvoidingView>
       </ScreenContainer>
     </Modal>

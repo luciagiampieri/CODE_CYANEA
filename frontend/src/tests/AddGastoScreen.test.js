@@ -1,5 +1,5 @@
 import React from "react";
-import { Alert } from "react-native";
+import { Alert, Platform } from "react-native";
 import { act, fireEvent, render, waitFor } from "@testing-library/react-native";
 
 import AddGastoScreen, { montosEnMonedaDelGasto } from "../screens/AddGastoScreen";
@@ -364,5 +364,62 @@ describe("montosEnMonedaDelGasto", () => {
         { IdParticipanteViaje: 8, MontoAsignado: "400.00" },
       ])
     ).toEqual({ 6: "500", 8: "400" });
+  });
+});
+
+// En la web AddGasto no detectaba el teclado: el pie con "Registrar gasto" quedaba arriba
+// del teclado y tapaba el Concepto. Ahora usa useTecladoVisible, como Crear viaje.
+describe("Nuevo gasto en la web con el teclado abierto", () => {
+  const osOriginal = Platform.OS;
+  const vvOriginal = window.visualViewport;
+  const altoOriginal = window.innerHeight;
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    getExpenseCategories.mockResolvedValue([...categorias]);
+    getTripParticipants.mockResolvedValue(participantes);
+    getCurrencies.mockResolvedValue([{ Codigo: "ARS", Nombre: "Peso argentino" }]);
+    useEdicionGasto.mockReturnValue(estadoEdicion(EDICION_GASTO.INACTIVA));
+  });
+
+  afterEach(() => {
+    Platform.OS = osOriginal;
+    window.visualViewport = vvOriginal;
+    window.innerHeight = altoOriginal;
+  });
+
+  function simularTeclado(abierto) {
+    window.innerHeight = 800;
+    window.visualViewport = {
+      height: abierto ? 420 : 800,
+      scale: 1,
+      offsetTop: 0,
+      addEventListener: jest.fn(),
+      removeEventListener: jest.fn(),
+    };
+  }
+
+  async function renderAlta() {
+    const utils = await render(<AddGastoScreen visible IdViaje={10} Moneda="ARS" onClose={onClose} />);
+    await waitFor(() => expect(utils.getByText("Nuevo gasto")).toBeTruthy());
+    return utils;
+  }
+
+  it("con el teclado abierto se oculta el pie con los botones", async () => {
+    Platform.OS = "web";
+    simularTeclado(true);
+
+    const utils = await renderAlta();
+
+    expect(utils.queryByTestId("add-gasto-guardar")).toBeNull();
+  });
+
+  it("sin teclado el pie se ve como siempre", async () => {
+    Platform.OS = "web";
+    simularTeclado(false);
+
+    const utils = await renderAlta();
+
+    expect(utils.getByTestId("add-gasto-guardar")).toBeTruthy();
   });
 });

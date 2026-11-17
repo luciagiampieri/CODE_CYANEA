@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
+import { MODO_CIERRE_TECLADO } from "../utils/teclado";
 import {
   View,
   Text,
@@ -347,7 +348,7 @@ export default function CrearChecklistScreen({
             <ScrollView
               style={styles.mainScroll}
               keyboardShouldPersistTaps="handled"
-              keyboardDismissMode="on-drag"
+              keyboardDismissMode={MODO_CIERRE_TECLADO}
               showsVerticalScrollIndicator={false}
             >
               <View style={styles.content}>

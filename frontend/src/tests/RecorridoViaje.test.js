@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { Pressable, Text } from "react-native";
+import { Platform, Pressable, StyleSheet, Text } from "react-native";
 import { act, fireEvent, render } from "@testing-library/react-native";
 
 import RecorridoViaje, { AvisoRecorrido, EncabezadoDestinos } from "../components/trip/RecorridoViaje";
@@ -132,6 +132,7 @@ describe("RecorridoViaje", () => {
     expect(utils.getByText("9 noches")).toBeTruthy();
     expect(utils.queryByLabelText("Sumar una noche a Salta")).toBeNull();
     expect(utils.queryByTestId("recorrido-mover-0")).toBeNull();
+    expect(utils.queryByText("icono-grip-vertical")).toBeNull();
   });
 
   it("muestra el rango corto de cada destino y sin 'Llegás el'", async () => {
@@ -145,6 +146,8 @@ describe("RecorridoViaje", () => {
     expect(utils.queryByText(/Llegás/)).toBeNull();
     expect(utils.getByText("Las 9 noches están repartidas.")).toBeTruthy();
     expect(utils.getByTestId("recorrido-mover-2")).toBeTruthy();
+    // Con más de un destino cada cuadro muestra la agarradera para reordenar.
+    expect(utils.getAllByText("icono-grip-vertical")).toHaveLength(3);
   });
 
   it("muestra la región debajo del nombre y omite lo que se repite", async () => {
@@ -319,6 +322,57 @@ describe("RecorridoViaje", () => {
     });
     expect(onArrastreChange).toHaveBeenLastCalledWith(false);
     expect(onCambio).not.toHaveBeenCalled();
+  });
+
+  it("mantener apretada la agarradera activa el arrastre igual que la foto", async () => {
+    const onArrastreChange = jest.fn();
+    const onCambio = jest.fn();
+    const utils = await render(
+      <Recorrido
+        inicial={[destino("Mendoza", 2), destino("Salta", 4)]}
+        onArrastreChange={onArrastreChange}
+        onCambio={onCambio}
+      />
+    );
+    const agarradera = utils.getAllByText("icono-grip-vertical")[0];
+
+    await act(async () => {
+      fireEvent(agarradera, "longPress");
+    });
+    expect(onArrastreChange).toHaveBeenLastCalledWith(true);
+
+    await act(async () => {
+      fireEvent(agarradera, "pressOut");
+    });
+    expect(onArrastreChange).toHaveBeenLastCalledWith(false);
+    expect(onCambio).not.toHaveBeenCalled();
+  });
+
+  describe("selección del texto del cuadro", () => {
+    const osOriginal = Platform.OS;
+
+    afterEach(() => {
+      Platform.OS = osOriginal;
+    });
+
+    const estiloCuadro = (utils) =>
+      StyleSheet.flatten(utils.getByTestId("recorrido-destino-0").props.style);
+
+    it("en web el cuadro no deja seleccionar el texto, así mantener apretado arrastra", async () => {
+      Platform.OS = "web";
+      const utils = await render(<Recorrido inicial={[destino("Mendoza", 2), destino("Salta", 4)]} />);
+
+      expect(estiloCuadro(utils).userSelect).toBe("none");
+      // Los botones de noches siguen funcionando.
+      await pulsar(utils, "Sumar una noche a Mendoza");
+      expect(utils.getByText("3 → 6 nov")).toBeTruthy();
+    });
+
+    it("en Android/iOS el cuadro no cambia", async () => {
+      const utils = await render(<Recorrido inicial={[destino("Mendoza", 2), destino("Salta", 4)]} />);
+
+      expect(estiloCuadro(utils).userSelect).toBeUndefined();
+    });
   });
 
   it("sin armar muestra contadores vacíos, sin barra ni mensajes", async () => {

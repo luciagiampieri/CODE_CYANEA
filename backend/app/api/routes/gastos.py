@@ -1,5 +1,6 @@
 import asyncio
 import logging
+from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal, ROUND_HALF_UP
 
@@ -17,10 +18,11 @@ from fastapi import (
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
+from starlette.concurrency import run_in_threadpool
 
-from app.api.deps import get_current_user
-from app.api.routes.itinerary import _autenticar_ws
-from app.db.session import get_db, SessionLocal
+from app.api.deps import autenticar_usuario_ws, get_current_user
+from app.db import session as session_module
+from app.db.session import get_db
 
 from app.models import (
     CategoriasGastos,
@@ -1238,6 +1240,49 @@ async def update_gasto(
 SEGUNDOS_RENOVACION_EDICION_GASTO = 30
 
 
+@dataclass
+class _PreparacionEdicionGasto:
+    """Resultado de validar la conexión al WebSocket de edición, en datos planos."""
+
+    id_usuario: int | None = None
+    id_viaje: int | None = None
+    rechazo: tuple[str, str] | None = None
+
+
+def _preparar_edicion_gasto(token: str, gasto_id: int) -> _PreparacionEdicionGasto:
+    """Valida usuario, gasto y permiso de edición con una sesión corta.
+
+    Corre en el threadpool: la conexión vuelve al pool al terminar y las consultas no
+    frenan el event loop. Mismas validaciones y en el mismo orden que antes.
+    """
+    with session_module.SessionLocal() as db:
+        current_user = autenticar_usuario_ws(token, db)
+        if current_user is None:
+            return _PreparacionEdicionGasto()
+
+        preparacion = _PreparacionEdicionGasto(id_usuario=current_user.IdUsuario)
+
+        gasto = db.get(Gasto, gasto_id)
+        if gasto is None or not gasto_visible_para(gasto, current_user.IdUsuario):
+            preparacion.rechazo = ("EXPENSE_NOT_FOUND", "Gasto no encontrado.")
+            return preparacion
+        preparacion.id_viaje = gasto.IdViaje
+
+        try:
+            viaje = require_trip_access(get_trip_with_relations(db, gasto.IdViaje), current_user)
+            validar_permiso_edicion_gasto(db, viaje, gasto, current_user)
+        except HTTPException as error:
+            codigo = (error.headers or {}).get("X-Error-Code", "FORBIDDEN")
+            preparacion.rechazo = (codigo, error.detail)
+        return preparacion
+
+
+def _mensaje_editor_gasto(id_usuario_editor: int) -> str:
+    """Mensaje de "lo está editando otro usuario", con una sesión corta."""
+    with session_module.SessionLocal() as db:
+        return mensaje_gasto_en_edicion(db, id_usuario_editor)
+
+
 @router.websocket("/ws/{gasto_id}")
 async def edicion_gasto_ws(websocket: WebSocket, gasto_id: int, token: str = Query(...)):
     """Edición activa de un gasto (US 79).
@@ -1250,17 +1295,22 @@ async def edicion_gasto_ws(websocket: WebSocket, gasto_id: int, token: str = Que
     - al desconectarse (cancelar, salir de la pantalla, cerrar la app) se
       libera la edición. Si la desconexión no llega al servidor, la edición
       vence sola por inactividad.
+
+    Las consultas a la base corren en el threadpool con sesiones cortas: ninguna
+    conexión del pool queda tomada mientras el socket está abierto.
     """
-    db = SessionLocal()
     concedida = False
+    id_usuario = None
     viaje_id = None
     try:
         await websocket.accept()
 
-        current_user = _autenticar_ws(token, db)
-        if current_user is None:
+        preparacion = await run_in_threadpool(_preparar_edicion_gasto, token, gasto_id)
+        if preparacion.id_usuario is None:
             await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
             return
+        id_usuario = preparacion.id_usuario
+        viaje_id = preparacion.id_viaje
 
         async def rechazar(codigo: str, mensaje: str) -> None:
             await websocket.send_json({
@@ -1271,23 +1321,14 @@ async def edicion_gasto_ws(websocket: WebSocket, gasto_id: int, token: str = Que
             })
             await websocket.close()
 
-        gasto = db.get(Gasto, gasto_id)
-        if gasto is None or not gasto_visible_para(gasto, current_user.IdUsuario):
-            await rechazar("EXPENSE_NOT_FOUND", "Gasto no encontrado.")
-            return
-        viaje_id = gasto.IdViaje
-
-        try:
-            viaje = require_trip_access(get_trip_with_relations(db, viaje_id), current_user)
-            validar_permiso_edicion_gasto(db, viaje, gasto, current_user)
-        except HTTPException as error:
-            codigo = (error.headers or {}).get("X-Error-Code", "FORBIDDEN")
-            await rechazar(codigo, error.detail)
+        if preparacion.rechazo is not None:
+            await rechazar(*preparacion.rechazo)
             return
 
-        if not await manager.iniciar_edicion_gasto(gasto_id, current_user.IdUsuario):
+        if not await manager.iniciar_edicion_gasto(gasto_id, id_usuario):
             id_editor = manager.obtener_editor_gasto(gasto_id)
-            await rechazar(EXPENSE_BEING_EDITED_CODE, mensaje_gasto_en_edicion(db, id_editor))
+            mensaje = await run_in_threadpool(_mensaje_editor_gasto, id_editor)
+            await rechazar(EXPENSE_BEING_EDITED_CODE, mensaje)
             return
 
         concedida = True
@@ -1298,25 +1339,24 @@ async def edicion_gasto_ws(websocket: WebSocket, gasto_id: int, token: str = Que
         })
         await manager.broadcast_to_trip(
             viaje_id,
-            {"tipo": "edicion_gasto_iniciada", "idGasto": gasto_id, "idUsuario": current_user.IdUsuario},
+            {"tipo": "edicion_gasto_iniciada", "idGasto": gasto_id, "idUsuario": id_usuario},
         )
 
         while True:
             mensaje = await websocket.receive_json()
             if mensaje.get("tipo") == "renovar":
-                if not await manager.renovar_edicion_gasto(gasto_id, current_user.IdUsuario):
+                if not await manager.renovar_edicion_gasto(gasto_id, id_usuario):
                     await websocket.send_json({"tipo": "edicion_gasto_perdida", "idGasto": gasto_id})
                     await websocket.close()
                     return
     except WebSocketDisconnect:
         pass
     finally:
-        if concedida and await manager.finalizar_edicion_gasto(gasto_id, current_user.IdUsuario):
+        if concedida and await manager.finalizar_edicion_gasto(gasto_id, id_usuario):
             await manager.broadcast_to_trip(
                 viaje_id,
                 {"tipo": "edicion_gasto_liberada", "idGasto": gasto_id},
             )
-        db.close()
 
 
 @router.get("/{gasto_id}", response_model=GastoDetalleRead)

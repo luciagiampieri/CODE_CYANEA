@@ -14,17 +14,20 @@ export default function ParticipantSearch({
   message,
   showLabel = true,
   autoFocus = false,
+  onFocus,
+  onLayoutCampo,
 }) {
   return (
     <View style={styles.container}>
       {showLabel ? <Text style={styles.label}>Participantes</Text> : null}
-      <View style={styles.inputShell}>
+      <View style={styles.inputShell} onLayout={onLayoutCampo}>
         <FontAwesome6 color={colors.overlayStrong} name="magnifying-glass" size={14} style={styles.leadingIcon} />
         <TextInput
           autoCapitalize="none"
           autoCorrect={false}
           autoFocus={autoFocus}
           onChangeText={onSearchChange}
+          onFocus={onFocus}
           placeholder="Busca por usuario o correo"
           placeholderTextColor={colors.overlayStrong}
           style={styles.input}

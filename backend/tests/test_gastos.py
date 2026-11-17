@@ -21,7 +21,6 @@ from app.models.rol_participante import RolParticipante
 from app.models.transferencia_liquidacion import TransferenciaLiquidacion
 from app.models.usuario import Usuario
 from app.services.websocket_manager import manager
-from tests.conftest import TestingSessionLocal
 
 
 def _agregar_participante_aceptado(db_session, viaje, nombre_usuario):
@@ -735,9 +734,8 @@ def gasto_editable(client, db_session, viaje_con_admin, usuario_activo, categori
 
 @pytest.fixture
 def ws_gastos(monkeypatch):
-    """El WebSocket de edición abre su propia sesión: se usa la de test.
-    Además se limpia el estado en memoria de las ediciones activas."""
-    monkeypatch.setattr(gastos_module, "SessionLocal", TestingSessionLocal)
+    """Limpia el estado en memoria de las ediciones activas. Las sesiones cortas del
+    WebSocket usan la base de test por el fixture autouse de conftest."""
     manager._ediciones_gastos.clear()
     yield
     manager._ediciones_gastos.clear()

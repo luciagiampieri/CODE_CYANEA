@@ -11,6 +11,7 @@ from fastapi import HTTPException, status
 from sqlalchemy import func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
+from starlette.concurrency import run_in_threadpool
 
 from app.core.config import settings
 from app.db import session as session_module
@@ -535,20 +536,33 @@ async def notificar_resultado(db: Session, resultado: ResultadoResolucion) -> No
 
 
 
-async def _procesar_una(db: Session, id_votacion: int, resolver) -> int:
+def _resolver_y_confirmar(db: Session, id_votacion: int, resolver) -> ResultadoResolucion | None:
+    """Resuelve la votación y confirma la transacción. Corre en el threadpool: si una
+    fila está bloqueada (por ejemplo, alguien modificando su voto), la espera ocupa un
+    hilo y no el event loop. Devuelve datos planos o None si no hubo nada que hacer."""
     try:
         resultado = resolver(db, id_votacion)
         if resultado is None:
             db.rollback()
-            return 0
+            return None
         db.commit()
+        return resultado
     except IntegrityError:
         db.rollback()
         logger.info("La votación %s ya había generado su actividad: se omite", id_votacion)
-        return 0
+        return None
     except Exception:
         db.rollback()
         logger.exception("Error resolviendo la votación %s", id_votacion)
+        return None
+
+
+async def _procesar_una(db: Session, id_votacion: int, resolver) -> int:
+    # La sesión se usa en secuencia: el threadpool termina (con commit o rollback) antes
+    # de que el event loop la vuelva a usar para notificar. `ResultadoResolucion` son
+    # datos planos y lo que `notificar_resultado` lee lo recarga desde la base.
+    resultado = await run_in_threadpool(_resolver_y_confirmar, db, id_votacion, resolver)
+    if resultado is None:
         return 0
 
     logger.info("Votación %s resuelta: %s", id_votacion, resultado.tipo)
@@ -582,8 +596,9 @@ def _completar_marca_sugerencias(db: Session) -> None:
         logger.exception("No se pudo completar la marca de votaciones de sugerencias")
 
 
-async def procesar_pendientes(db: Session) -> int:
-    """Resuelve las votaciones cerradas y los empates vencidos. Devuelve cuántas procesó."""
+def _buscar_pendientes(db: Session) -> tuple[list[int], list[int]]:
+    """Ids de las votaciones de sugerencias cerradas sin resolver y de los empates
+    vencidos. Es sincrónica y corre en el threadpool."""
     _completar_marca_sugerencias(db)
     ahora = _ahora()
 
@@ -610,6 +625,12 @@ async def procesar_pendientes(db: Session) -> int:
         ).all()
         if limite is not None and _aware(limite) <= ahora
     ]
+    return cerradas, vencidas
+
+
+async def procesar_pendientes(db: Session) -> int:
+    """Resuelve las votaciones cerradas y los empates vencidos. Devuelve cuántas procesó."""
+    cerradas, vencidas = await run_in_threadpool(_buscar_pendientes, db)
 
     procesadas = 0
     for id_votacion in cerradas:

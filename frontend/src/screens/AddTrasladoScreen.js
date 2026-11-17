@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { MODO_CIERRE_TECLADO } from "../utils/teclado";
 import { FontAwesome6 } from "@expo/vector-icons";
 import {
   Keyboard,
@@ -259,7 +260,7 @@ export default function AddTrasladoScreen({
               <ScrollView
                 ref={scrollRef}
                 keyboardShouldPersistTaps="handled"
-                keyboardDismissMode="on-drag"
+                keyboardDismissMode={MODO_CIERRE_TECLADO}
                 showsVerticalScrollIndicator={false}
                 contentContainerStyle={{ paddingBottom: spacing.xl }}
               >

@@ -5,15 +5,9 @@ import pytest
 
 from app.api.routes import notificaciones as notificaciones_module
 from app.core.security import create_access_token
-from tests.conftest import TestingSessionLocal
 
 
 WS_URL = "/api/v1/notificaciones/ws/notifications"
-
-
-@pytest.fixture(autouse=True)
-def _ws_usa_sesion_de_test(monkeypatch):
-    monkeypatch.setattr(notificaciones_module, "SessionLocal", TestingSessionLocal)
 
 
 def _ws_url(token):
