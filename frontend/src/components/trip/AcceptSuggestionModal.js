@@ -1,9 +1,11 @@
 import { FontAwesome6 } from "@expo/vector-icons";
 import { useEffect, useState } from "react";
-import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import Modal from "../ui/AppModal";
+import HoraField from "../ui/HoraField";
 import PrimaryButton from "../ui/PrimaryButton";
+import SelectorHora, { fechaDeHora, horaDeFecha, useSelectorHora } from "../ui/SelectorHora";
 import { acceptActivitySuggestion } from "../../services/api";
 import { colors, radii, spacing, textStyles } from "../../theme/tokens";
 import {
@@ -24,8 +26,10 @@ export default function AcceptSuggestionModal({ visible, tripId, sugerencia, onC
   const [horaFin, setHoraFin] = useState("");
   const [error, setError] = useState("");
   const [enviando, setEnviando] = useState(false);
+  const selectorHora = useSelectorHora((campo, fecha) => elegirHora(campo, horaDeFecha(fecha)));
 
   useEffect(() => {
+    if (!visible) selectorHora.cerrar();
     if (!visible || !sugerencia) return;
     setHoraInicio(hhmm(sugerencia.HoraInicio));
     setHoraFin(hhmm(sugerencia.HoraFin));
@@ -72,11 +76,18 @@ export default function AcceptSuggestionModal({ visible, tripId, sugerencia, onC
     }
   }
 
-  function editar(setter) {
-    return (valor) => {
-      setter(valor);
-      setError("");
-    };
+  // Mismo selector de hora que Nueva actividad: reloj nativo en el celular y el del
+  // navegador en la web; no se escribe la hora a mano.
+  function elegirHora(campo, hora) {
+    if (!hora) return;
+    if (campo === "inicio") setHoraInicio(hora);
+    else setHoraFin(hora);
+    setError("");
+  }
+
+  function abrirReloj(campo) {
+    const actual = campo === "inicio" ? horaInicio : horaFin;
+    selectorHora.abrir(campo, fechaDeHora(actual, hhmm(sugerencia[campo === "inicio" ? "HoraInicio" : "HoraFin"])));
   }
 
   return (
@@ -109,32 +120,20 @@ export default function AcceptSuggestionModal({ visible, tripId, sugerencia, onC
           </Text>
 
           <View style={styles.horarios}>
-            <View style={styles.campo}>
-              <Text style={styles.label}>Hora de inicio</Text>
-              <TextInput
-                keyboardType="numbers-and-punctuation"
-                maxLength={5}
-                onChangeText={editar(setHoraInicio)}
-                placeholder="HH:MM"
-                placeholderTextColor={colors.textMuted}
-                style={styles.input}
-                testID="aceptar-sugerencia-inicio"
-                value={horaInicio}
-              />
-            </View>
-            <View style={styles.campo}>
-              <Text style={styles.label}>Hora de fin</Text>
-              <TextInput
-                keyboardType="numbers-and-punctuation"
-                maxLength={5}
-                onChangeText={editar(setHoraFin)}
-                placeholder="HH:MM"
-                placeholderTextColor={colors.textMuted}
-                style={styles.input}
-                testID="aceptar-sugerencia-fin"
-                value={horaFin}
-              />
-            </View>
+            <HoraField
+              label="Hora de inicio"
+              value={horaInicio}
+              onPress={() => abrirReloj("inicio")}
+              onWebChange={(valor) => elegirHora("inicio", valor)}
+              testID="aceptar-sugerencia-inicio"
+            />
+            <HoraField
+              label="Hora de fin"
+              value={horaFin}
+              onPress={() => abrirReloj("fin")}
+              onWebChange={(valor) => elegirHora("fin", valor)}
+              testID="aceptar-sugerencia-fin"
+            />
           </View>
 
           {error ? (
@@ -164,6 +163,7 @@ export default function AcceptSuggestionModal({ visible, tripId, sugerencia, onC
           </View>
         </View>
       </View>
+      <SelectorHora selector={selectorHora} />
     </Modal>
   );
 }
@@ -218,24 +218,6 @@ const styles = StyleSheet.create({
   horarios: {
     flexDirection: "row",
     gap: spacing.sm,
-  },
-  campo: {
-    flex: 1,
-    gap: spacing.xxs,
-  },
-  label: {
-    ...textStyles.label,
-    color: colors.primary,
-  },
-  input: {
-    minHeight: 46,
-    borderRadius: radii.md,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.surface,
-    paddingHorizontal: spacing.md,
-    color: colors.textPrimary,
-    fontSize: 16,
   },
   error: {
     flexDirection: "row",

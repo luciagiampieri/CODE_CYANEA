@@ -301,6 +301,57 @@ describe("lista", () => {
   });
 });
 
+describe("accesos a destinos en el timeline", () => {
+  it("es un único desplegable, sin un chip por destino", async () => {
+    const { accesos } = itinerario();
+    const utils = await render(<AccesosDestino accesos={accesos} onPress={jest.fn()} />);
+
+    expect(utils.getByTestId("accesos-destino-boton")).toBeTruthy();
+    expect(utils.getByText("Ir a un destino")).toBeTruthy();
+    expect(utils.getByText("3 destinos")).toBeTruthy();
+    // La hoja está cerrada: los destinos no se dibujan uno al lado del otro.
+    expect(utils.queryByText("Mendoza")).toBeNull();
+  });
+
+  it("abre la hoja con todos los destinos, sus fechas y noches", async () => {
+    const { accesos } = itinerario();
+    const utils = await render(<AccesosDestino accesos={accesos} onPress={jest.fn()} />);
+
+    await fireEvent.press(utils.getByTestId("accesos-destino-boton"));
+
+    expect(utils.getByTestId("hoja-destinos")).toBeTruthy();
+    expect(utils.getByText("Bariloche")).toBeTruthy();
+    expect(utils.getByText("Mendoza")).toBeTruthy();
+    expect(utils.getByText("Salta")).toBeTruthy();
+    expect(utils.getByText(`${accesos[1].rango} · 3 noches`)).toBeTruthy();
+  });
+
+  it("elegir un destino lleva a su sección, cierra la hoja y lo muestra en el botón", async () => {
+    const { accesos } = itinerario();
+    const onPress = jest.fn();
+    const utils = await render(<AccesosDestino accesos={accesos} onPress={onPress} />);
+
+    await fireEvent.press(utils.getByTestId("accesos-destino-boton"));
+    await fireEvent.press(utils.getByTestId("hoja-destino-1"));
+
+    expect(onPress).toHaveBeenCalledWith(expect.objectContaining({ indice: 1, nombre: "Mendoza" }));
+    expect(utils.queryByTestId("hoja-destinos")).toBeNull();
+    expect(utils.getByText(`Mendoza · ${accesos[1].rango}`)).toBeTruthy();
+  });
+
+  it("cerrar la hoja no mueve la pantalla", async () => {
+    const { accesos } = itinerario();
+    const onPress = jest.fn();
+    const utils = await render(<AccesosDestino accesos={accesos} onPress={onPress} />);
+
+    await fireEvent.press(utils.getByTestId("accesos-destino-boton"));
+    await fireEvent.press(utils.getByLabelText("Cerrar destinos"));
+
+    expect(onPress).not.toHaveBeenCalled();
+    expect(utils.queryByTestId("hoja-destinos")).toBeNull();
+  });
+});
+
 describe("día de traslado en DayAgenda", () => {
   function renderDia(dia, props = {}) {
     return render(

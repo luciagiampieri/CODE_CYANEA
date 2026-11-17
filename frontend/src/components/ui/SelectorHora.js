@@ -5,6 +5,20 @@ import { Platform, Pressable, Text } from "react-native";
 import Modal from "./AppModal";
 import { sheetFormStyles as styles } from "./sheetFormStyles";
 
+/** "HH:MM" que eligió el reloj (`Date`). */
+export function horaDeFecha(fecha) {
+  return `${String(fecha.getHours()).padStart(2, "0")}:${String(fecha.getMinutes()).padStart(2, "0")}`;
+}
+
+/** `Date` de hoy con la hora "HH:MM" (o `porDefecto` si no es válida), para abrir el reloj. */
+export function fechaDeHora(hora, porDefecto = "10:00") {
+  const valida = (texto) => /^([01]?\d|2[0-3]):[0-5]\d/.test(String(texto ?? "").trim());
+  const [h, m] = (valida(hora) ? String(hora).trim() : porDefecto).split(":");
+  const fecha = new Date();
+  fecha.setHours(Number(h), Number(m.slice(0, 2)), 0, 0);
+  return fecha;
+}
+
 // Estado del reloj nativo. `alConfirmar(tipo, fecha)` recibe la hora elegida; `tipo`
 // identifica el campo que lo abrió.
 export function useSelectorHora(alConfirmar) {

@@ -17,7 +17,7 @@ export function validarHorarioSugerencia(inicio, fin) {
   const horaInicio = normalizarHora(inicio);
   const horaFin = normalizarHora(fin);
   if (!horaInicio || !horaFin) {
-    return "Ingresá la hora de inicio y de fin con el formato HH:MM.";
+    return "Elegí la hora de inicio y la hora de fin.";
   }
   if (horaFin <= horaInicio) {
     return "La hora de fin debe ser posterior a la hora de inicio.";

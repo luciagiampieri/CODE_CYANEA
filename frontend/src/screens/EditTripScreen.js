@@ -28,7 +28,6 @@ import MetricCard from "../components/ui/MetricCard";
 import PrimaryButton from "../components/ui/PrimaryButton";
 import AICoverGenerator from "../components/trip/AICoverGenerator";
 import DatePickerModal from "../components/ui/DatePickerModal";
-import WebPickerOverlay from "../components/ui/WebPickerOverlay";
 import useResponsive from "../hooks/useResponsive";
 import { 
     getTripDetail, 
@@ -76,14 +75,6 @@ function todayISO() {
     const year = now.getFullYear();
     const month = String(now.getMonth() + 1).padStart(2, "0");
     const day = String(now.getDate()).padStart(2, "0");
-    return `${year}-${month}-${day}`;
-}
-
-// toISOString() convierte a UTC y en Argentina (UTC-3) corre el día por la noche; se usa la fecha local.
-function dateToLocalISO(date) {
-    const year = date.getFullYear();
-    const month = String(date.getMonth() + 1).padStart(2, "0");
-    const day = String(date.getDate()).padStart(2, "0");
     return `${year}-${month}-${day}`;
 }
 
@@ -1427,40 +1418,23 @@ function DateField({
 
   return (
     <View style={styles.dateField}>
-      {Platform.OS === "web" ? (
-        // Web: mismo diseño que en la app; el <input type="date"> invisible va encima
-        // y abre el calendario del navegador (igual que en Crear viaje).
-        <View
-          style={[
-            styles.dateTile,
-            pickerValue && styles.dateTileFilled,
-            error && styles.inputError,
-            disabled && styles.dateTileDisabled,
-          ]}
-        >
-          {tileContent}
-          <WebPickerOverlay
-            type="date"
-            label={label}
-            disabled={disabled}
-            min={minDate ? dateToLocalISO(minDate) : undefined}
-            value={pickerValue}
-            onChange={(ymd) => onChange(fieldName, ymd)}
-          />
-        </View>
-      ) : (
-        <Pressable
-          onPress={onOpenPicker}
-          style={[
-            styles.dateTile,
-            pickerValue && styles.dateTileFilled,
-            error && styles.inputError,
-            disabled && styles.dateTileDisabled,
-          ]}
-        >
-          {tileContent}
-        </Pressable>
-      )}
+      {/* Web y app usan el mismo calendario (DatePickerModal), que abre en la fecha
+          mínima: el <input type="date"> del navegador abría en el mes de hoy. */}
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={label}
+        accessibilityState={{ disabled }}
+        onPress={onOpenPicker}
+        style={[
+          styles.dateTile,
+          pickerValue && styles.dateTileFilled,
+          error && styles.inputError,
+          disabled && styles.dateTileDisabled,
+        ]}
+        testID={`campo-fecha-${fieldName}`}
+      >
+        {tileContent}
+      </Pressable>
       {error ? (
         <View style={styles.errorRow}>
           <FontAwesome6 name="circle-exclamation" size={12} color={COLOR_DANGER} />

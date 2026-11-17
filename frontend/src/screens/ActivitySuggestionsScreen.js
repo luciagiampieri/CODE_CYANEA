@@ -1,7 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
-  Modal,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -13,7 +12,10 @@ import {
 import { FontAwesome6 } from "@expo/vector-icons";
 
 import ActivitySuggestionCard from "../components/trip/ActivitySuggestionCard";
+import Modal from "../components/ui/AppModal";
+import HoraField from "../components/ui/HoraField";
 import PrimaryButton from "../components/ui/PrimaryButton";
+import SelectorHora, { fechaDeHora, horaDeFecha, useSelectorHora } from "../components/ui/SelectorHora";
 import { getActivitySuggestionsContext, requestActivitySuggestions } from "../services/api";
 import { colors, radii, spacing, textStyles } from "../theme/tokens";
 import { acotarFranja, aMinutos, calcularHuecosLibres } from "../utils/huecosLibres";
@@ -66,8 +68,8 @@ export function normalizarHora(texto) {
 export function validarFranja(inicioTexto, finTexto) {
   const inicio = normalizarHora(inicioTexto);
   const fin = normalizarHora(finTexto);
-  if (!inicio) return { error: "Ingresá una hora de inicio válida (por ejemplo 09:30)." };
-  if (!fin) return { error: "Ingresá una hora de fin válida (por ejemplo 13:00)." };
+  if (!inicio) return { error: "Elegí la hora de inicio." };
+  if (!fin) return { error: "Elegí la hora de fin." };
   if (aMinutos(fin) <= aMinutos(inicio)) {
     return { error: "La hora de fin debe ser posterior a la hora de inicio." };
   }
@@ -142,6 +144,7 @@ export default function ActivitySuggestionsScreen({
   const [pasoProgreso, setPasoProgreso] = useState(0);
   const [mostrarPreferencias, setMostrarPreferencias] = useState(false);
   const [mostrarDias, setMostrarDias] = useState(false);
+  const selectorHora = useSelectorHora((campo, fecha) => elegirHora(campo, horaDeFecha(fecha)));
 
   const diasValidos = useMemo(
     () => (dias ?? []).filter((dia) => Number.isInteger(dia.dayId)),
@@ -175,6 +178,20 @@ export default function ActivitySuggestionsScreen({
   function aplicarFranja({ inicio, fin }) {
     setInicioTexto(inicio);
     setFinTexto(fin);
+  }
+
+  // Mismo selector de hora que Nueva actividad: reloj nativo en el celular y el del
+  // navegador en la web; no se escribe la hora a mano.
+  function elegirHora(campo, hora) {
+    if (!hora) return;
+    if (campo === "inicio") setInicioTexto(hora);
+    else setFinTexto(hora);
+  }
+
+  function abrirReloj(campo) {
+    const actual = campo === "inicio" ? inicioTexto : finTexto;
+    const porDefecto = campo === "inicio" ? FRANJA_POR_DEFECTO.inicio : FRANJA_POR_DEFECTO.fin;
+    selectorHora.abrir(campo, fechaDeHora(actual, porDefecto));
   }
 
   function elegirDia(idDia) {
@@ -419,35 +436,21 @@ export default function ActivitySuggestionsScreen({
         )}
 
         <View style={styles.horasRow}>
-          <View style={styles.horaCol}>
-            <Text style={styles.label}>Desde</Text>
-            <TextInput
-              style={styles.horaInput}
-              value={inicioTexto}
-              onChangeText={setInicioTexto}
-              onBlur={() => setInicioTexto(normalizarHora(inicioTexto) ?? inicioTexto)}
-              keyboardType="numbers-and-punctuation"
-              placeholder="10:00"
-              placeholderTextColor={colors.overlay}
-              maxLength={5}
-              testID="suggestions-hora-inicio"
-            />
-          </View>
+          <HoraField
+            label="Desde"
+            value={inicioTexto}
+            onPress={() => abrirReloj("inicio")}
+            onWebChange={(valor) => elegirHora("inicio", valor)}
+            testID="suggestions-hora-inicio"
+          />
           <FontAwesome6 name="arrow-right" size={12} color={colors.overlay} style={styles.flecha} />
-          <View style={styles.horaCol}>
-            <Text style={styles.label}>Hasta</Text>
-            <TextInput
-              style={styles.horaInput}
-              value={finTexto}
-              onChangeText={setFinTexto}
-              onBlur={() => setFinTexto(normalizarHora(finTexto) ?? finTexto)}
-              keyboardType="numbers-and-punctuation"
-              placeholder="13:00"
-              placeholderTextColor={colors.overlay}
-              maxLength={5}
-              testID="suggestions-hora-fin"
-            />
-          </View>
+          <HoraField
+            label="Hasta"
+            value={finTexto}
+            onPress={() => abrirReloj("fin")}
+            onWebChange={(valor) => elegirHora("fin", valor)}
+            testID="suggestions-hora-fin"
+          />
         </View>
 
         {franja.error ? <Text style={styles.error}>{franja.error}</Text> : null}
@@ -721,6 +724,8 @@ export default function ActivitySuggestionsScreen({
 
           {fase === "formulario" ? renderPieFormulario() : null}
 
+          <SelectorHora selector={selectorHora} />
+
           <PlanningPreferencesScreen
             visible={mostrarPreferencias}
             tripId={tripId}
@@ -935,23 +940,8 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
     marginTop: spacing.xs,
   },
-  horaCol: {
-    flex: 1,
-    gap: spacing.xxs,
-  },
   flecha: {
     marginBottom: 18,
-  },
-  horaInput: {
-    minHeight: 48,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: radii.md,
-    backgroundColor: colors.surface,
-    paddingHorizontal: spacing.md,
-    color: colors.textPrimary,
-    textAlign: "center",
-    ...textStyles.bodyStrong,
   },
   indicacionInput: {
     minHeight: 84,

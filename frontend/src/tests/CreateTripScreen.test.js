@@ -41,8 +41,10 @@ jest.mock("../components/ui/DatePickerModal", () => {
     visible,
     title,
     onChange,
+    minDate,
   }) {
     if (!visible) return null;
+    mockMinDatePorCalendario[title] = minDate;
 
     return ReactActual.createElement(
       Pressable,
@@ -90,6 +92,8 @@ const mockGoBack = jest.fn();
 const mockNavigate = jest.fn();
 const navigation = { goBack: mockGoBack, navigate: mockNavigate };
 let mockPickerDate = new Date();
+// Fecha mínima con la que se abrió cada calendario ("Fecha de ida", "Fecha de vuelta").
+const mockMinDatePorCalendario = {};
 
 const currentUser = {
   id: 1,
@@ -1453,6 +1457,58 @@ describe("US - Crear viaje (CreateTripScreen)", () => {
       ]);
     });
   });
+  describe("fecha de vuelta: el calendario abre en la fecha de ida", () => {
+    const osOriginal = Platform.OS;
+
+    afterEach(() => {
+      Platform.OS = osOriginal;
+      mockPickerDate = new Date();
+    });
+
+    it("el calendario abre en el valor, o en el mínimo si falta o quedó antes", () => {
+      const { fechaInicialCalendario } = jest.requireActual("../components/ui/DatePickerModal");
+      expect(fechaInicialCalendario("", "2031-07-15", "2030-01-01")).toBe("2031-07-15");
+      expect(fechaInicialCalendario("2031-07-20", "2031-07-15", "2030-01-01")).toBe("2031-07-20");
+      expect(fechaInicialCalendario("2031-07-01", "2031-07-15", "2030-01-01")).toBe("2031-07-15");
+      expect(fechaInicialCalendario("", null, "2030-01-01")).toBe("2030-01-01");
+    });
+
+    const ymd = (fecha) =>
+      `${fecha.getFullYear()}-${String(fecha.getMonth() + 1).padStart(2, "0")}-${String(fecha.getDate()).padStart(2, "0")}`;
+
+    it.each(["web", "android"])("en %s usa el calendario de la app con la ida como mínimo", async (os) => {
+      Platform.OS = os;
+      const ida = new Date();
+      ida.setFullYear(ida.getFullYear() + 1, 6, 15);
+      mockPickerDate = ida;
+      const utils = await renderPantallaCargada();
+
+      await act(async () => {
+        fireEvent.press(utils.getByTestId("campo-fecha-startDate"));
+      });
+      await press(utils, "Seleccionar Fecha de ida (mock)");
+      await act(async () => {
+        fireEvent.press(utils.getByTestId("campo-fecha-endDate"));
+      });
+
+      // Ya no hay <input type="date"> del navegador, que abría en el mes de hoy.
+      expect(utils.getByText("Seleccionar Fecha de vuelta (mock)")).toBeTruthy();
+      expect(ymd(mockMinDatePorCalendario["Fecha de vuelta"])).toBe(ymd(ida));
+    });
+
+    it("sin fecha de ida no abre el calendario de la vuelta", async () => {
+      Platform.OS = "web";
+      const utils = await renderPantallaCargada();
+
+      await act(async () => {
+        fireEvent.press(utils.getByTestId("campo-fecha-endDate"));
+      });
+
+      expect(utils.queryByText("Seleccionar Fecha de vuelta (mock)")).toBeNull();
+      expect(utils.getByText("Primero elegí la fecha de ida.")).toBeTruthy();
+    });
+  });
+
   describe("detalles de interfaz (QA)", () => {
     // Sube por los padres hasta el Pressable de la opción de portada.
     function opcionPortada(utils, etiqueta) {

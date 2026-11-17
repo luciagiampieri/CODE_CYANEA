@@ -1,8 +1,8 @@
 // US 88: aceptar una sugerencia de actividad. Los casos de prueba de la US se
 // mapean como CP1 a CP10 (CP9 y CP10 se validan en el backend).
 import React from "react";
-import { Alert } from "react-native";
-import { act, fireEvent, render, waitFor } from "@testing-library/react-native";
+import { Alert, Platform } from "react-native";
+import { act, fireEvent, render, waitFor, within } from "@testing-library/react-native";
 
 import AcceptSuggestionModal from "../components/trip/AcceptSuggestionModal";
 import SuggestionCompactCard from "../components/trip/SuggestionCompactCard";
@@ -30,6 +30,20 @@ jest.mock("../utils/dialogs", () => ({
 // Las hojas de regenerar y votar no participan de esta US.
 jest.mock("../screens/ActivitySuggestionsScreen", () => () => null);
 jest.mock("../screens/ProposeSuggestionsVoteScreen", () => () => null);
+
+// Reloj nativo simulado: al tocarlo elige las 19:15.
+jest.mock("@react-native-community/datetimepicker", () => {
+  const { Pressable, Text } = jest.requireActual("react-native");
+  return function MockDateTimePicker({ onChange }) {
+    const elegida = new Date();
+    elegida.setHours(19, 15, 0, 0);
+    return (
+      <Pressable testID="reloj-nativo" onPress={() => onChange({ type: "set" }, elegida)}>
+        <Text>Reloj</Text>
+      </Pressable>
+    );
+  };
+});
 
 jest.mock("@react-navigation/native", () => {
   const actual = jest.requireActual("@react-navigation/native");
@@ -90,6 +104,17 @@ async function renderModal(props = {}) {
   return { ...utils, onAceptada, onClose };
 }
 
+// En web la hora se elige con el <input type="time"> del navegador (como en Nueva actividad).
+async function elegirHora(utils, label, valor) {
+  await act(async () => {
+    fireEvent(utils.getByLabelText(label), "change", { target: { value: valor } });
+  });
+}
+
+function horaMostrada(utils, testID) {
+  return within(utils.getByTestId(testID));
+}
+
 async function confirmarModal(utils) {
   await act(async () => {
     await fireEvent.press(utils.getByTestId("aceptar-sugerencia-confirmar"));
@@ -109,7 +134,7 @@ describe("reglas de horario", () => {
     expect(validarHorarioSugerencia("15:00", "17:00")).toBeNull();
     expect(validarHorarioSugerencia("17:00", "15:00")).toMatch(/posterior/);
     expect(validarHorarioSugerencia("15:00", "15:00")).toMatch(/posterior/);
-    expect(validarHorarioSugerencia("", "15:00")).toMatch(/HH:MM/);
+    expect(validarHorarioSugerencia("", "15:00")).toBe("Elegí la hora de inicio y la hora de fin.");
   });
 
   it("arma la advertencia con las actividades superpuestas", () => {
@@ -120,12 +145,20 @@ describe("reglas de horario", () => {
 });
 
 describe("AcceptSuggestionModal", () => {
+  const osOriginal = Platform.OS;
+  beforeEach(() => {
+    Platform.OS = "web";
+  });
+  afterEach(() => {
+    Platform.OS = osOriginal;
+  });
+
   it("CP1: acepta la sugerencia con su horario original", async () => {
     acceptActivitySuggestion.mockResolvedValue(ACEPTADA);
     const utils = await renderModal();
 
-    expect(utils.getByTestId("aceptar-sugerencia-inicio").props.value).toBe("15:00");
-    expect(utils.getByTestId("aceptar-sugerencia-fin").props.value).toBe("17:00");
+    expect(horaMostrada(utils, "aceptar-sugerencia-inicio").getByText("15:00")).toBeTruthy();
+    expect(horaMostrada(utils, "aceptar-sugerencia-fin").getByText("17:00")).toBeTruthy();
     await confirmarModal(utils);
 
     expect(acceptActivitySuggestion).toHaveBeenCalledWith(3, 7, {
@@ -140,8 +173,8 @@ describe("AcceptSuggestionModal", () => {
     acceptActivitySuggestion.mockResolvedValue(ACEPTADA);
     const utils = await renderModal();
 
-    await fireEvent.changeText(utils.getByTestId("aceptar-sugerencia-inicio"), "16:30");
-    await fireEvent.changeText(utils.getByTestId("aceptar-sugerencia-fin"), "18:00");
+    await elegirHora(utils, "Hora de inicio", "16:30");
+    await elegirHora(utils, "Hora de fin", "18:00");
     await confirmarModal(utils);
 
     expect(acceptActivitySuggestion).toHaveBeenCalledWith(3, 7, {
@@ -154,13 +187,33 @@ describe("AcceptSuggestionModal", () => {
   it("CP3: con hora de fin anterior a la de inicio no llama al backend", async () => {
     const utils = await renderModal();
 
-    await fireEvent.changeText(utils.getByTestId("aceptar-sugerencia-inicio"), "18:00");
-    await fireEvent.changeText(utils.getByTestId("aceptar-sugerencia-fin"), "16:00");
+    await elegirHora(utils, "Hora de inicio", "18:00");
+    await elegirHora(utils, "Hora de fin", "16:00");
     await confirmarModal(utils);
 
     expect(acceptActivitySuggestion).not.toHaveBeenCalled();
     expect(utils.getByText("La hora de fin debe ser posterior a la hora de inicio.")).toBeTruthy();
     expect(utils.onAceptada).not.toHaveBeenCalled();
+  });
+
+  it("CP2: en el celular la hora se elige con el reloj, sin escribirla", async () => {
+    Platform.OS = "android";
+    acceptActivitySuggestion.mockResolvedValue(ACEPTADA);
+    const utils = await renderModal();
+
+    expect(utils.queryByTestId("reloj-nativo")).toBeNull();
+    await fireEvent.press(utils.getByTestId("aceptar-sugerencia-fin"));
+    await fireEvent.press(utils.getByTestId("reloj-nativo"));
+
+    expect(horaMostrada(utils, "aceptar-sugerencia-fin").getByText("19:15")).toBeTruthy();
+    expect(utils.queryByTestId("reloj-nativo")).toBeNull();
+    await confirmarModal(utils);
+
+    expect(acceptActivitySuggestion).toHaveBeenCalledWith(3, 7, {
+      HoraInicio: "15:00",
+      HoraFin: "19:15",
+      ConfirmarSuperposicion: false,
+    });
   });
 
   it("CP4: con superposición, al confirmar la advertencia crea la actividad", async () => {

@@ -10,6 +10,12 @@ const MONTH_NAMES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Jul
 const WEEKDAY_LABELS = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
 const DISABLED_DAY_COLOR = "#c9ced6";
 
+/** Fecha ("YYYY-MM-DD") en la que abre el calendario: el valor, o el mínimo si falta o es anterior. */
+export function fechaInicialCalendario(value, minYMD, todayYMD) {
+  if (value && (!minYMD || value >= minYMD)) return value;
+  return minYMD || todayYMD;
+}
+
 /**
  * Modal de selección de fecha, reusado en todas las pantallas que necesiten
  * elegir una fecha (CreateTripScreen, AddGastoScreen, etc). Encapsula toda
@@ -40,9 +46,12 @@ export default function DatePickerModal({
   const todayDate = useMemo(() => parseYMD(todayYMD, 12), [todayYMD]);
   const isTodaySelected = value === todayYMD;
 
+  // Abre en el mes de la fecha elegida; si no hay (o quedó antes del mínimo), en el de
+  // `minDate`. Así la fecha de vuelta abre en el mes de la ida y no en el de hoy.
+  const minYMD = minDate ? toYMD(minDate) : null;
   const calendarInitialDate = useMemo(
-    () => parseYMD(value || (minDate ? toYMD(minDate) : todayYMD)),
-    [value, minDate, todayYMD]
+    () => parseYMD(fechaInicialCalendario(value, minYMD, todayYMD)),
+    [value, minYMD, todayYMD]
   );
   const calendarSelectedDate = useMemo(
     () => (value ? parseYMD(value) : undefined),
@@ -83,6 +92,7 @@ export default function DatePickerModal({
           {title ? <Text style={styles.calendarTitle}>{title}</Text> : null}
 
           <CalendarPicker
+            key={toYMD(calendarInitialDate)}
             width={calendarWidth}
             initialDate={calendarInitialDate}
             customDatesStyles={customDatesStyles}

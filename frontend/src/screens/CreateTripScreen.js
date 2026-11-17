@@ -20,7 +20,7 @@ import Modal from "../components/ui/AppModal";
 
 import { LocaleConfig } from "react-native-calendars";
 import DatePickerModal from "../components/ui/DatePickerModal";
-import { toYMD, parseYMD, getTodayIso, formatDateDisplay } from "../utils/dates";
+import { parseYMD, getTodayIso, formatDateDisplay } from "../utils/dates";
 
 import ScreenContainer from "../components/layout/ScreenContainer";
 import ParticipantList from "../components/trip/ParticipantList";
@@ -266,8 +266,6 @@ function DateField({
   disabled = false,
   disabledText = "",
 }) {
-  const minYMD = minDate ? toYMD(minDate) : null;
-
   const valueText = pickerValue
     ? formatDateDisplay(pickerValue)
     : disabled && disabledText
@@ -293,71 +291,36 @@ function DateField({
     </>
   );
 
+  // Mismo calendario en web y en la app: el <input type="date"> del navegador abre
+  // en el mes de hoy aunque tenga `min`, y para la vuelta había que volver a buscar
+  // el mes y el año de la ida. `DatePickerModal` abre en `minDate` si no hay valor.
   return (
     <View style={styles.dateField}>
-      {Platform.OS === "web" ? (
-        <View
-          style={[
-            styles.dateTile,
-            pickerValue && styles.dateTileFilled,
-            error && styles.inputError,
-            disabled && styles.dateTileDisabled,
-          ]}
-        >
-          {tileContent}
-          <input
-            type="date"
-            aria-label={label}
-            disabled={disabled}
-            min={minYMD ?? undefined}
-            value={pickerValue || ""}
-            onChange={(e) => onChange(fieldName, e.target.value)}
-            onClick={(e) => {
-              try {
-                e.currentTarget.showPicker?.();
-              } catch {
-              }
-            }}
-            style={{
-              position: "absolute",
-              top: 0,
-              left: 0,
-              width: "100%",
-              height: "100%",
-              opacity: 0,
-              margin: 0,
-              padding: 0,
-              border: "none",
-              boxSizing: "border-box",
-              fontSize: 16, 
-              cursor: disabled ? "not-allowed" : "pointer",
-            }}
-          />
-        </View>
-      ) : (
-        <>
-          <Pressable
-            onPress={onOpenPicker}
-            style={[
-              styles.dateTile,
-              pickerValue && styles.dateTileFilled,
-              error && styles.inputError,
-              disabled && styles.dateTileDisabled,
-            ]}
-          >
-            {tileContent}
-          </Pressable>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={label}
+        accessibilityState={{ disabled }}
+        onPress={onOpenPicker}
+        style={[
+          styles.dateTile,
+          pickerValue && styles.dateTileFilled,
+          error && styles.inputError,
+          disabled && styles.dateTileDisabled,
+        ]}
+        testID={`campo-fecha-${fieldName}`}
+      >
+        {tileContent}
+      </Pressable>
 
-          <DatePickerModal
-            visible={pickerVisible}
-            onClose={() => setPickerVisible(false)}
-            title={label}
-            value={pickerValue}
-            onChange={(ymd) => onChange(fieldName, ymd)}
-            minDate={minDate}
-          />
-        </>
-      )}
+      <DatePickerModal
+        visible={pickerVisible}
+        onClose={() => setPickerVisible(false)}
+        title={label}
+        value={pickerValue}
+        onChange={(ymd) => onChange(fieldName, ymd)}
+        minDate={minDate}
+      />
+
       {error ? (
         <View style={styles.errorRow}>
           <FontAwesome6 name="circle-exclamation" size={12} color={COLOR_DANGER} />

@@ -15,6 +15,7 @@ export default function HoraField({
   onWebChange,
   placeholder = "Seleccionar hora",
   compacto = false,
+  testID,
 }) {
   const caja = [sheetFormStyles.dateBox, compacto && styles.cajaCompacta];
   const contenido = (
@@ -30,12 +31,12 @@ export default function HoraField({
     <View style={compacto ? styles.campoCompacto : sheetFormStyles.timeField}>
       {compacto ? null : <Text style={sheetFormStyles.label}>{label}</Text>}
       {Platform.OS === "web" ? (
-        <View style={caja}>
+        <View style={caja} testID={testID}>
           {contenido}
           <WebPickerOverlay type="time" label={label} value={value} onChange={onWebChange} />
         </View>
       ) : (
-        <Pressable accessibilityLabel={label} onPress={onPress} style={caja}>
+        <Pressable accessibilityLabel={label} onPress={onPress} style={caja} testID={testID}>
           {contenido}
         </Pressable>
       )}
