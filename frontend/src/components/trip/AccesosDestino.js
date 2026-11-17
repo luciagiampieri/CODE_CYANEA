@@ -71,7 +71,7 @@ export default function AccesosDestino({ accesos, onPress }) {
 
 const styles = StyleSheet.create({
   fila: {
-    alignItems: "flex-start",
+    alignItems: "center",
     paddingVertical: spacing.xxs,
   },
   boton: {
